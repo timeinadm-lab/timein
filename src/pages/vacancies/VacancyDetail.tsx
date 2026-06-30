@@ -256,6 +256,20 @@ export default function VacancyDetail() {
         const svcType = details.serviceType || vac.vacancy_type || 'Fixo'
         const isConsult = svcType === 'Consultoria'
 
+        // Bloquear se vaga cheia (Volante não conta e não é bloqueado)
+        if (svcType !== 'Volante') {
+          const { count: currentNonVolante } = await supabase
+            .from('employee_client_links')
+            .select('id', { count: 'exact', head: true })
+            .eq('vacancy_id', id)
+            .neq('service_type', 'Volante')
+          if ((currentNonVolante || 0) >= (vacancy?.positions_count || 1)) {
+            throw new Error(
+              `Vaga cheia — ${currentNonVolante}/${vacancy?.positions_count} posições preenchidas. Para adicionar mais colaboradores, edite a vaga e aumente o número de posições.`
+            )
+          }
+        }
+
         // Fixo: salário vem da vaga. Consultoria: unidades com valor da vistoria + horas/semana;
         // estimativa mensal = média dos valores das unidades × 4 semanas (o real vem da folha de ponto)
         let monthlyAmt: number | null = null
@@ -305,11 +319,16 @@ export default function VacancyDetail() {
       // Update interest + candidate — save employee_id so dismissal from any screen can trace back
       await supabase.from('vacancy_interests').update({ status: 'Contratado', hired_at: new Date().toISOString(), employee_id: emp.id }).eq('id', interestId)
       await supabase.from('candidates').update({ pipeline_stage: 'Contratado' }).eq('id', candidateId)
-      // Só vira "Preenchida" quando todas as posições foram contratadas
-      const newHiredCount = (vacancy?.hired_count || 0) + 1
+      // Reconta vínculos não-Volante (já inclui o recém-criado) para definir status
+      const { count: nonVolante } = await supabase
+        .from('employee_client_links')
+        .select('id', { count: 'exact', head: true })
+        .eq('vacancy_id', id)
+        .neq('service_type', 'Volante')
+      const effectiveHired = nonVolante || 0
       await supabase.from('vacancies').update({
-        hired_count: newHiredCount,
-        status: newHiredCount >= (vacancy?.positions_count || 1) ? 'Preenchida' : 'Aberta',
+        hired_count: effectiveHired,
+        status: effectiveHired >= (vacancy?.positions_count || 1) ? 'Preenchida' : 'Aberta',
       }).eq('id', id)
 
       return { empId: emp.id, autoPin: autoPinToShow }
@@ -355,7 +374,17 @@ export default function VacancyDetail() {
       const interest = interests?.find(i => i.id === interestId)
       const empId = (interest as { employee_id?: string } | undefined)?.employee_id
 
+      let isVolanteLink = false
       if (empId) {
+        // Guarda o service_type antes de deletar para decidir se reconta capacidade
+        const { data: linkData } = await supabase
+          .from('employee_client_links')
+          .select('service_type')
+          .eq('employee_id', empId)
+          .eq('client_id', vacancy?.client_id)
+          .maybeSingle()
+        isVolanteLink = linkData?.service_type === 'Volante'
+
         // Remove o vínculo com este cliente; desliga só se não tiver outros vínculos ativos
         await supabase.from('employee_client_links').delete().eq('employee_id', empId).eq('client_id', vacancy?.client_id)
         const { data: otherLinks } = await supabase.from('employee_client_links').select('id').eq('employee_id', empId).limit(1)
@@ -368,14 +397,21 @@ export default function VacancyDetail() {
       await supabase.from('vacancy_interests').update({ status: 'Interessado', hired_at: null, employee_id: null }).eq('id', interestId)
       await supabase.from('candidates').update({ pipeline_stage: 'Em Avaliação' }).eq('id', candidateId)
 
-      // Decrement hired count and reopen vacancy — define o prazo para contratar substituto
-      const newCount = Math.max(0, (vacancy?.hired_count || 1) - 1)
-      const reopened = newCount < (vacancy?.positions_count || 1)
-      await supabase.from('vacancies').update({
-        hired_count: newCount,
-        status: reopened ? 'Aberta' : vacancy?.status,
-        ...(reopened && deadline ? { deadline } : {}),
-      }).eq('id', id)
+      // Volante não conta para capacidade — só recalcula se era não-Volante
+      if (!isVolanteLink) {
+        const { count: nonVolante } = await supabase
+          .from('employee_client_links')
+          .select('id', { count: 'exact', head: true })
+          .eq('vacancy_id', id)
+          .neq('service_type', 'Volante')
+        const newCount = nonVolante || 0
+        const reopened = newCount < (vacancy?.positions_count || 1)
+        await supabase.from('vacancies').update({
+          hired_count: newCount,
+          status: reopened ? 'Aberta' : vacancy?.status,
+          ...(reopened && deadline ? { deadline } : {}),
+        }).eq('id', id)
+      }
     },
     onSuccess: () => {
       toast.success('Colaborador desligado. Vaga reaberta com prazo de reposição.')
@@ -526,7 +562,10 @@ export default function VacancyDetail() {
 
   if (!vacancy) return <div className="flex justify-center py-12"><div className="animate-spin rounded-full h-8 w-8 border-4 border-primary-600 border-t-transparent" /></div>
 
-  const contractedCount = interests?.filter(i => i.status === 'Contratado').length ?? 0
+  // Volante não conta para o preenchimento da vaga
+  const contractedCount = hiredEmps !== undefined
+    ? hiredEmps.filter(h => h.link?.service_type !== 'Volante').length
+    : (interests?.filter(i => i.status === 'Contratado').length ?? 0)
   const totalPositions = vacancy.positions_count || 1
   const interestIds = new Set(interests?.map(i => i.candidate_id) ?? [])
 
@@ -999,15 +1038,24 @@ export default function VacancyDetail() {
                     )}
 
                     {interest.status === 'Interessado' && (
-                      <button className="btn-primary text-xs" onClick={() => {
-                        setDeadlineModal({ interestId: interest.id, candidateId: c!.id })
-                        setHireDetails({
-                          ...EMPTY_HIRE,
-                          serviceType: (vacancy.vacancy_type as 'Fixo' | 'Consultoria') || 'Fixo',
-                        })
-                      }}>
-                        Contratar
-                      </button>
+                      (vacancy as { vacancy_type?: string }).vacancy_type !== 'Volante' && contractedCount >= totalPositions ? (
+                        <span
+                          title="Vaga cheia — edite a vaga para aumentar o número de posições"
+                          className="text-xs text-red-600 font-semibold bg-red-50 border border-red-200 px-2 py-1 rounded-lg"
+                        >
+                          Vaga cheia
+                        </span>
+                      ) : (
+                        <button className="btn-primary text-xs" onClick={() => {
+                          setDeadlineModal({ interestId: interest.id, candidateId: c!.id })
+                          setHireDetails({
+                            ...EMPTY_HIRE,
+                            serviceType: (vacancy.vacancy_type as 'Fixo' | 'Consultoria') || 'Fixo',
+                          })
+                        }}>
+                          Contratar
+                        </button>
+                      )
                     )}
 
                     {interest.status === 'Em contrato' && (

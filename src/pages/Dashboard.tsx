@@ -76,8 +76,6 @@ export default function Dashboard() {
         .from('vacancies')
         .select('id,title,deadline,hired_count,positions_count')
         .eq('status', 'Aberta')
-        .not('deadline', 'is', null)
-        .lte('deadline', in40.toISOString().slice(0, 10))
       return data || []
     },
   })
@@ -394,15 +392,20 @@ export default function Dashboard() {
       amberAlerts.push({ text: `Contrato aguardando assinatura: ${candidateName} — ${hoursLeft}h restantes`, path: '/vagas' })
   })
   vacanciesExpiring?.forEach(v => {
-    const days = differenceInDays(parseISO(v.deadline), now)
     const hired = (v as { hired_count?: number }).hired_count ?? 0
     const total = (v as { positions_count?: number }).positions_count ?? 1
     const unfilled = total - hired
-    if (unfilled <= 0) return // já preenchida, não alertar
+    if (unfilled <= 0) return
+    const vagaPath = `/vagas/${v.id}`
+    if (!v.deadline) {
+      amberAlerts.push({ text: `Vaga "${v.title}" — ${unfilled} posição(ões) em aberto — sem prazo definido`, path: vagaPath })
+      return
+    }
+    const days = differenceInDays(parseISO(v.deadline), now)
     const when = days < 0 ? `prazo vencido há ${Math.abs(days)}d` : days === 0 ? 'prazo vence hoje!' : `faltam ${days}d`
     const msg = `Vaga "${v.title}" — ${unfilled} posição(ões) em aberto — ${when}`
-    if (days <= 7) redAlerts.push({ text: msg, path: '/vagas' })
-    else amberAlerts.push({ text: msg, path: '/vagas' })
+    if (days <= 7) redAlerts.push({ text: msg, path: vagaPath })
+    else amberAlerts.push({ text: msg, path: vagaPath })
   })
   clientContractsExpiring?.forEach(c => {
     const dateStr = (c as { contract_end?: string }).contract_end

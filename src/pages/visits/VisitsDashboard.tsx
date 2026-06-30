@@ -8,6 +8,7 @@ import {
   User, DollarSign, AlertCircle, MessageCircle, Send, ClipboardList, Zap,
 } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
+import { useAuth } from '../../contexts/AuthContext'
 import { formatDate } from '../../lib/utils'
 import { SignedLink } from '../../components/ui/SignedFile'
 import toast from 'react-hot-toast'
@@ -22,6 +23,8 @@ export default function VisitsDashboard() {
   const [extraAmounts, setExtraAmounts] = useState<Record<string, string>>({})
   const navigate = useNavigate()
   const qc = useQueryClient()
+  const { role } = useAuth()
+  const isChefe = role === 'chefe'
 
   const monthDate = new Date(month + '-15')
   const monthStart = format(startOfMonth(monthDate), 'yyyy-MM-dd')
@@ -293,7 +296,7 @@ export default function VisitsDashboard() {
               </div>
             </div>
             <div className="text-right flex-shrink-0">
-              {empEarnings > 0 ? (
+              {isChefe && empEarnings > 0 ? (
                 <>
                   <p className="text-sm font-bold text-emerald-600">R$ {empEarnings.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
                   <p className="text-xs text-gray-400">a pagar</p>
@@ -644,8 +647,8 @@ export default function VisitsDashboard() {
                       {v.observations && (
                         <p className="text-xs text-blue-600 mt-0.5 italic">"{v.observations}"</p>
                       )}
-                      {/* Aprovação inline de dia extra pendente */}
-                      {(v as { is_extra?: boolean }).is_extra && (v as { extra_approval?: string }).extra_approval === 'pendente' && (
+                      {/* Aprovação inline de dia extra pendente — só chefe */}
+                      {isChefe && (v as { is_extra?: boolean }).is_extra && (v as { extra_approval?: string }).extra_approval === 'pendente' && (
                         <div className="mt-2 p-2.5 bg-amber-50 rounded-lg border border-amber-200 space-y-2">
                           <p className="text-xs font-semibold text-amber-800">Dia de folga trabalhado — definir pagamento:</p>
                           {(v as { proposed_amount?: number }).proposed_amount && (
@@ -761,7 +764,7 @@ export default function VisitsDashboard() {
       {tab === 'consultoria' && (
         <>
           {/* Visitas extras aguardando decisão do chefe */}
-          {(() => {
+          {isChefe && (() => {
             const pendingExtras = (visits || []).filter(v => (v as { extra_approval?: string }).extra_approval === 'pendente')
             if (!pendingExtras.length) return null
             return (
@@ -823,11 +826,13 @@ export default function VisitsDashboard() {
               <p className="text-3xl font-bold text-red-500 mt-1">{employeesWithoutVisit}</p>
               <p className="text-xs text-gray-400 mt-1">sem registro este mês</p>
             </div>
+            {isChefe && (
             <div className="card p-4">
               <p className="text-xs text-gray-500 font-medium uppercase tracking-wide flex items-center gap-1"><DollarSign size={11} />A pagar</p>
               <p className="text-2xl font-bold text-emerald-600 mt-1">R$ {totalEarningsThisMonth.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
               <p className="text-xs text-gray-400 mt-1">total consultoria</p>
             </div>
+            )}
           </div>
 
           {consultoriaEmps.length === 0 && (

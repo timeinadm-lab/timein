@@ -1,0 +1,85 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    @apply text-ink-800;
+    margin: 0;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    /* Fundo levemente quente com um brilho de marca discreto no topo */
+    background-color: #f6f7f6;
+    background-image:
+      radial-gradient(1200px 600px at 100% -10%, rgba(34, 197, 94, 0.05), transparent 60%),
+      radial-gradient(900px 500px at -10% 0%, rgba(34, 197, 94, 0.04), transparent 55%);
+    background-attachment: fixed;
+  }
+  * {
+    box-sizing: border-box;
+  }
+  h1, h2, h3, h4 {
+    font-family: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;
+    @apply tracking-tight text-ink-900;
+  }
+  /* Tipografia tabular para números (valores, horas, datas) ficarem alinhados */
+  .tnum {
+    font-variant-numeric: tabular-nums;
+  }
+  /* Scrollbar discreta */
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(16,24,40,0.12); border-radius: 9999px; border: 3px solid transparent; background-clip: content-box; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(16,24,40,0.22); background-clip: content-box; }
+}
+
+@layer components {
+  .input {
+    @apply w-full bg-white border border-ink-200 rounded-xl px-3.5 py-2.5 text-sm text-ink-900 placeholder:text-ink-400 shadow-sm transition-all focus:outline-none focus:ring-4 focus:ring-primary-500/15 focus:border-primary-500;
+  }
+  .label {
+    @apply block text-xs font-semibold text-ink-500 uppercase tracking-wide mb-1.5;
+  }
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 bg-primary-600 text-white px-4 py-2.5 rounded-xl text-sm font-semibold shadow-soft hover:bg-primary-700 hover:shadow-glow active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-soft;
+  }
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 bg-white text-ink-700 px-4 py-2.5 rounded-xl text-sm font-semibold border border-ink-200 shadow-soft hover:bg-ink-50 hover:border-ink-300 active:scale-[0.98] transition-all disabled:opacity-50;
+  }
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 text-ink-600 px-3 py-2 rounded-xl text-sm font-medium hover:bg-ink-100 active:scale-[0.98] transition-all;
+  }
+  .badge {
+    @apply inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold;
+  }
+  .card {
+    @apply rounded-2xl border border-ink-100 shadow-card bg-white;
+  }
+  /* Card clicável — usar junto de .card para feedback de hover consistente */
+  .card-interactive {
+    @apply transition-all duration-200 hover:shadow-lift hover:-translate-y-0.5 cursor-pointer;
+  }
+  /* Cabeçalho de seção padrão */
+  .section-title {
+    @apply font-display font-bold text-ink-900 flex items-center gap-2;
+  }
+  /* Faixa de eyebrow/label acima de títulos */
+  .eyebrow {
+    @apply text-xs font-semibold uppercase tracking-wider text-primary-600;
+  }
+}
+
+@layer utilities {
+  /* Esconde a scrollbar mas mantém o scroll (carrosséis de abas no mobile) */
+  .scrollbar-none {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+}

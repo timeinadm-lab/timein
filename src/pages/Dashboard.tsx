@@ -341,7 +341,7 @@ export default function Dashboard() {
   // Vagas: distribuição por status
   const vagasPie = [
     { name: 'Abertas', value: vacancies?.filter(v => v.status === 'Aberta').length ?? 0, color: '#f59e0b' },
-    { name: 'Atuando', value: vacancies?.filter(v => v.status === 'Atuando').length ?? 0, color: '#3b82f6' },
+    { name: 'Atuando', value: vacancies?.filter(v => v.status === 'Atuando').length ?? 0, color: '#22c55e' },
     { name: 'Preenchidas', value: vacancies?.filter(v => v.status === 'Preenchida').length ?? 0, color: '#22c55e' },
   ].filter(d => d.value > 0)
   const vagasTotal = vagasPie.reduce((s, d) => s + d.value, 0)

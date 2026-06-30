@@ -109,6 +109,24 @@ export default function VacancyDetail() {
     }
   }, [tab, vacancy])
 
+  // Auto-corrige status e hired_count quando colaboradores ficam inativos fora do fluxo normal
+  useEffect(() => {
+    if (!vacancy || hiredEmps === undefined || vacancy.status === 'Fechada') return
+    const activeCount = hiredEmps
+      .filter(h => h.link?.service_type !== 'Volante' && h.emp?.status === 'Ativo').length
+    const positions = vacancy.positions_count || 1
+    const expectedStatus = activeCount === 0 ? 'Aberta'
+      : activeCount >= positions ? (vacancy.status === 'Atuando' ? 'Atuando' : 'Preenchida')
+      : 'Aberta'
+    if (expectedStatus !== vacancy.status || activeCount !== (vacancy.hired_count ?? activeCount)) {
+      supabase.from('vacancies')
+        .update({ status: expectedStatus, hired_count: activeCount })
+        .eq('id', id)
+        .then(() => qc.invalidateQueries({ queryKey: ['vacancy', id] }))
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hiredEmps])
+
   const { data: allCandidates } = useQuery({
     queryKey: ['candidates-match', matchSearch],
     queryFn: async () => {
@@ -562,11 +580,13 @@ export default function VacancyDetail() {
 
   if (!vacancy) return <div className="flex justify-center py-12"><div className="animate-spin rounded-full h-8 w-8 border-4 border-primary-600 border-t-transparent" /></div>
 
-  // Volante não conta para o preenchimento da vaga
+  // Só conta colaboradores Ativos e não-Volante para capacidade
   const contractedCount = hiredEmps !== undefined
-    ? hiredEmps.filter(h => h.link?.service_type !== 'Volante').length
+    ? hiredEmps.filter(h => h.link?.service_type !== 'Volante' && h.emp?.status === 'Ativo').length
     : (interests?.filter(i => i.status === 'Contratado').length ?? 0)
   const totalPositions = vacancy.positions_count || 1
+  const activeHired = (hiredEmps || []).filter(h => h.emp?.status === 'Ativo')
+  const inactiveHired = (hiredEmps || []).filter(h => h.emp?.status !== 'Ativo')
   const interestIds = new Set(interests?.map(i => i.candidate_id) ?? [])
 
   // Match scoring — starts at 100, penalizes mismatches, bonuses for proximity
@@ -717,7 +737,7 @@ export default function VacancyDetail() {
           <div className="min-w-0">
             <h1 className="text-xl md:text-2xl font-display font-extrabold text-ink-900">{vacancy.title}</h1>
             <div className="flex gap-1.5 flex-wrap mt-2">
-              <span className={`badge ${vacancy.status === 'Aberta' ? 'bg-primary-100 text-primary-700' : vacancy.status === 'Atuando' ? 'bg-blue-100 text-blue-700' : vacancy.status === 'Preenchida' ? 'bg-purple-100 text-purple-700' : 'bg-ink-100 text-ink-600'}`}>{vacancy.status === 'Atuando' ? '● Atuando' : vacancy.status}</span>
+              <span className={`badge ${vacancy.status === 'Aberta' ? 'bg-primary-100 text-primary-700' : vacancy.status === 'Atuando' ? 'bg-green-100 text-green-700' : vacancy.status === 'Preenchida' ? 'bg-purple-100 text-purple-700' : 'bg-ink-100 text-ink-600'}`}>{vacancy.status === 'Atuando' ? '● Atuando' : vacancy.status}</span>
               <span className="badge bg-ink-100 text-ink-600">{[vacancy.city, vacancy.state].filter(Boolean).join(', ')}</span>
               {(vacancy as { client?: { name: string } }).client?.name && <span className="badge bg-blue-50 text-blue-600">{(vacancy as { client?: { name: string } }).client?.name}</span>}
               <span className="badge bg-purple-50 text-purple-700">{contractedCount}/{totalPositions} preenchidas</span>
@@ -774,32 +794,73 @@ export default function VacancyDetail() {
 
       {/* COLABORADORES — quem foi contratado por esta vaga */}
       {tab === 'colaboradores' && (
-        <div className="space-y-3">
-          {(!hiredEmps || hiredEmps.length === 0) && (
-            <div className="card p-8 text-center text-gray-400 text-sm">Nenhum colaborador contratado por esta vaga ainda.</div>
-          )}
-          {hiredEmps?.map(({ interest, emp, link }) => {
-            const contractEnd = link?.contract_end_date
-            return (
-              <div key={emp!.id} className="card p-4 flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-primary-100 flex items-center justify-center text-primary-700 font-bold text-sm flex-shrink-0">
-                  {emp!.full_name.trim().split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <button className="font-semibold text-gray-900 hover:text-primary-700 hover:underline" onClick={() => navigate(`/colaboradores/${emp!.id}`)}>
-                    {emp!.full_name}
-                  </button>
-                  <div className="flex items-center gap-2 mt-0.5 flex-wrap text-xs">
-                    <span className={`badge ${emp!.status === 'Ativo' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>{emp!.status}</span>
-                    {link?.service_type && <span className={`badge ${link.service_type === 'Consultoria' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'}`}>{link.service_type}</span>}
-                    <span className="text-gray-400">Contratada em {formatDate(interest.hired_at)}</span>
-                    {contractEnd && <span className="text-gray-500">Contrato até {formatDate(contractEnd)}</span>}
+        <div className="space-y-4">
+          {/* Em atuação */}
+          <div className="space-y-3">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide px-1">Em atuação</p>
+            {activeHired.length === 0 && (
+              <div className="card p-6 text-center text-gray-400 text-sm">Nenhum colaborador ativo nesta vaga no momento.</div>
+            )}
+            {activeHired.map(({ interest, emp, link }) => {
+              const contractEnd = link?.contract_end_date
+              return (
+                <div key={emp!.id} className="card p-4 flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-primary-100 flex items-center justify-center text-primary-700 font-bold text-sm flex-shrink-0">
+                    {emp!.full_name.trim().split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <button className="font-semibold text-gray-900 hover:text-primary-700 hover:underline" onClick={() => navigate(`/colaboradores/${emp!.id}`)}>
+                      {emp!.full_name}
+                    </button>
+                    <div className="flex items-center gap-2 mt-0.5 flex-wrap text-xs">
+                      <span className="badge bg-green-100 text-green-700">Ativo</span>
+                      {link?.service_type && <span className={`badge ${link.service_type === 'Consultoria' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'}`}>{link.service_type}</span>}
+                      <span className="text-gray-400">Contratado em {formatDate(interest.hired_at)}</span>
+                      {contractEnd && <span className="text-gray-500">Contrato até {formatDate(contractEnd)}</span>}
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button className="btn-secondary text-xs" onClick={() => navigate(`/colaboradores/${emp!.id}`)}>Ver perfil</button>
+                    <button
+                      className="btn-secondary text-xs text-red-600 border-red-200 hover:bg-red-50"
+                      onClick={() => setConfirmDismiss({ interestId: interest.id, candidateId: (interest as { candidate_id?: string }).candidate_id || '', empName: emp!.full_name })}
+                    >
+                      Desligar
+                    </button>
                   </div>
                 </div>
-                <button className="btn-secondary text-xs" onClick={() => navigate(`/colaboradores/${emp!.id}`)}>Ver perfil</button>
-              </div>
-            )
-          })}
+              )
+            })}
+          </div>
+
+          {/* Histórico */}
+          {inactiveHired.length > 0 && (
+            <div className="space-y-3">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide px-1">Histórico</p>
+              {inactiveHired.map(({ interest, emp, link }) => {
+                const contractEnd = link?.contract_end_date
+                return (
+                  <div key={emp!.id} className="card p-4 flex items-center gap-3 opacity-70">
+                    <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-gray-400 font-bold text-sm flex-shrink-0">
+                      {emp!.full_name.trim().split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <button className="font-semibold text-gray-600 hover:text-primary-700 hover:underline" onClick={() => navigate(`/colaboradores/${emp!.id}`)}>
+                        {emp!.full_name}
+                      </button>
+                      <div className="flex items-center gap-2 mt-0.5 flex-wrap text-xs">
+                        <span className="badge bg-gray-100 text-gray-500">{emp!.status}</span>
+                        {link?.service_type && <span className="badge bg-gray-100 text-gray-500">{link.service_type}</span>}
+                        <span className="text-gray-400">Contratado em {formatDate(interest.hired_at)}</span>
+                        {contractEnd && <span className="text-gray-400">Contrato até {formatDate(contractEnd)}</span>}
+                      </div>
+                    </div>
+                    <button className="btn-secondary text-xs" onClick={() => navigate(`/colaboradores/${emp!.id}`)}>Ver perfil</button>
+                  </div>
+                )
+              })}
+            </div>
+          )}
         </div>
       )}
 

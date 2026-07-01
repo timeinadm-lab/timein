@@ -238,8 +238,8 @@ export default function VacancyForm() {
       positions_count: Number(form.positions_count),
       salary_amount: !isConsultoria && form.salary_amount ? Number(form.salary_amount) : null,
       cost_assistance: form.cost_assistance ? Number(form.cost_assistance) : null,
-      payment_day_1: form.payment_day_1 ? Number(form.payment_day_1) : null,
-      payment_day_2: form.payment_day_2 ? Number(form.payment_day_2) : null,
+      payment_day_1: isConsultoria ? 8 : (form.payment_day_1 ? Number(form.payment_day_1) : null),
+      payment_day_2: isConsultoria ? 20 : (form.payment_day_2 ? Number(form.payment_day_2) : null),
       deadline: form.deadline || null, opening_date: form.opening_date || null,
       status: form.status,
       formation: form.formation || null,
@@ -572,20 +572,38 @@ export default function VacancyForm() {
               {/* Payment days — shown for all vacancy types */}
               <div className="col-span-2 border-t pt-3">
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Dia(s) de Pagamento</p>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="label">1º pagamento — dia do mês *</label>
-                    <input className="input" type="number" min={1} max={31} placeholder="Ex: 8" value={form.payment_day_1} onChange={e => set('payment_day_1', e.target.value)} />
+                {form.vacancy_type === 'Consultoria' ? (
+                  <div className="bg-orange-50 rounded-lg px-3 py-2 text-sm text-orange-700">
+                    Consultoria: pagamento quinzenal nos dias <strong>8</strong> e <strong>20</strong> (automático).
                   </div>
-                  <div>
-                    <label className="label">2º pagamento — dia do mês <span className="text-gray-400 font-normal">— opcional</span></label>
-                    <input className="input" type="number" min={1} max={31} placeholder="Ex: 20" value={form.payment_day_2} onChange={e => set('payment_day_2', e.target.value)} />
-                  </div>
-                </div>
-                {form.payment_day_1 && form.payment_day_2 && (
-                  <p className="text-xs text-blue-600 mt-2">
-                    Dois pagamentos: dia {form.payment_day_1} e dia {form.payment_day_2} — cada um equivale a metade do valor mensal.
-                  </p>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="label">1º pagamento</label>
+                        <select className="input" value={form.payment_day_1} onChange={e => set('payment_day_1', e.target.value)}>
+                          <option value="">Selecionar...</option>
+                          <option value="8">Dia 8</option>
+                          <option value="15">Dia 15</option>
+                          <option value="20">Dia 20</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="label">2º pagamento <span className="text-gray-400 font-normal">— opcional</span></label>
+                        <select className="input" value={form.payment_day_2} onChange={e => set('payment_day_2', e.target.value)}>
+                          <option value="">Nenhum</option>
+                          {['8', '15', '20'].filter(d => d !== form.payment_day_1).map(d => (
+                            <option key={d} value={d}>Dia {d}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                    {form.payment_day_1 && form.payment_day_2 && (
+                      <p className="text-xs text-blue-600 mt-2">
+                        Dois pagamentos: dia {form.payment_day_1} e dia {form.payment_day_2} — cada um equivale a metade do valor mensal.
+                      </p>
+                    )}
+                  </>
                 )}
               </div>
 

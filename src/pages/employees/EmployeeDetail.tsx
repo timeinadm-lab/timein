@@ -494,12 +494,12 @@ export default function EmployeeDetail() {
         schedule_anchor_date: !isConsultoria && linkForm.work_schedule_type === '12x36' && linkForm.schedule_anchor_date ? linkForm.schedule_anchor_date : null,
       }).select('id').single()
       if (error) throw error
-      const validDates = linkDates.filter(d => d.day_of_month)
-      if (validDates.length) {
-        await supabase.from('employee_payment_dates').insert(
-          validDates.map(d => ({ link_id: linkData.id, day_of_month: Number(d.day_of_month), amount: d.amount ? Number(d.amount) : null }))
-        )
-      }
+      // Auto-set payment dates: Consultoria = dia 8 e 20, Fixo = dia 8 (default)
+      const autoDays = isConsultoria ? [8, 20] : [8]
+      const perDate = monthlyAmt ? Math.round((monthlyAmt / autoDays.length) * 100) / 100 : null
+      await supabase.from('employee_payment_dates').insert(
+        autoDays.map(d => ({ link_id: linkData.id, day_of_month: d, amount: perDate }))
+      )
 
       // Auto-generate payment for current month — só chefe pode gravar em 'payments' (RLS).
       // Se for recrutador, o insert é ignorado silenciosamente (o chefe gera depois).
@@ -507,7 +507,7 @@ export default function EmployeeDetail() {
         const { data: empData } = await supabase.from('employees').select('full_name').eq('id', id!).single()
         const { data: clientData } = await supabase.from('clients').select('name').eq('id', linkForm.client_id).single()
         const now = new Date()
-        const dueDay = validDates[0]?.day_of_month ? Number(validDates[0].day_of_month) : 5
+        const dueDay = autoDays[0]
         const dueDate = new Date(now.getFullYear(), now.getMonth(), dueDay)
         if (dueDate < now) dueDate.setMonth(dueDate.getMonth() + 1)
         const monthLabel = dueDate.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
@@ -581,8 +581,9 @@ export default function EmployeeDetail() {
       }).eq('id', vals.linkId)
       if (error) throw error
 
-      // Sincroniza as datas de pagamento: regrava conforme o que o chefe definiu, com o valor dividido entre elas
-      const cleanDays = [...new Set(vals.payDays.map(d => Number(d)).filter(d => d >= 1 && d <= 31))]
+      // Consultoria sempre dia 8 e 20; Fixo só aceita 8, 15 ou 20
+      const allowedDays = isConsult ? [8, 20] : vals.payDays.map(d => Number(d)).filter(d => [8, 15, 20].includes(d))
+      const cleanDays = [...new Set(isConsult ? allowedDays : allowedDays)]
       await supabase.from('employee_payment_dates').delete().eq('link_id', vals.linkId)
       if (cleanDays.length) {
         const perDate = monthly != null ? Math.round((monthly / cleanDays.length) * 100) / 100 : null
@@ -1236,7 +1237,7 @@ export default function EmployeeDetail() {
                               days_off: ((l as { days_off?: number[] }).days_off) || [],
                               schedule_anchor_date: (l as { schedule_anchor_date?: string }).schedule_anchor_date || '',
                               start_date: (l as { start_date?: string }).start_date || '',
-                              payDays: (l.payment_dates || []).map(d => String(d.day_of_month)).sort((a, b) => Number(a) - Number(b)),
+                              payDays: l.service_type === 'Consultoria' ? ['8', '20'] : (l.payment_dates || []).map(d => String(d.day_of_month)).filter(d => ['8', '15', '20'].includes(d)).sort((a, b) => Number(a) - Number(b)),
                             })
                           }}
                         >
@@ -1428,39 +1429,44 @@ export default function EmployeeDetail() {
                               </div>
                             )}
 
-                            {/* Datas de pagamento — o valor é dividido igualmente entre elas */}
+                            {/* Datas de pagamento — dia 8, 15 e 20 */}
                             <div className="border-t pt-2 space-y-2">
                               <div className="flex items-center justify-between">
-                                <label className="label text-xs mb-0">Dias de pagamento no mês</label>
+                                <label className="label text-xs mb-0">Dias de pagamento</label>
                                 {(() => {
-                                  const n = editLinkValues.payDays.filter(d => Number(d) >= 1 && Number(d) <= 31).length
+                                  const n = editLinkValues.payDays.length
                                   const total = isConsult ? consultTotal : Number(editLinkValues.monthly_amount) || 0
                                   return n > 0 && total > 0 ? (
                                     <span className="text-xs text-gray-500">{n === 1 ? 'valor inteiro' : `R$ ${(total / n).toFixed(2)} em cada`}</span>
                                   ) : null
                                 })()}
                               </div>
-                              <div className="flex flex-wrap gap-2 items-center">
-                                {editLinkValues.payDays.map((d, i) => (
-                                  <div key={i} className="flex items-center gap-1">
-                                    <span className="text-xs text-gray-400">dia</span>
-                                    <input className="input text-sm w-16 py-1" type="number" min={1} max={31} value={d}
-                                      onChange={e => setEditLinkValues(p => p ? { ...p, payDays: p.payDays.map((x, j) => j === i ? e.target.value : x) } : p)} />
-                                    <button type="button" className="text-gray-300 hover:text-red-500"
-                                      onClick={() => setEditLinkValues(p => p ? { ...p, payDays: p.payDays.filter((_, j) => j !== i) } : p)}>
-                                      <Trash2 size={13} />
-                                    </button>
-                                  </div>
-                                ))}
-                                {editLinkValues.payDays.length < 4 && (
-                                  <button type="button" className="text-xs text-primary-600 hover:underline"
-                                    onClick={() => setEditLinkValues(p => p ? { ...p, payDays: [...p.payDays, ''] } : p)}>
-                                    + dia
-                                  </button>
-                                )}
-                              </div>
-                              {editLinkValues.payDays.filter(d => d).length === 0 && (
-                                <p className="text-xs text-amber-600">Sem nenhuma data, não nasce checklist de pagamento para este vínculo.</p>
+                              {isConsult ? (
+                                <div className="bg-orange-50 rounded-lg px-3 py-2 text-xs text-orange-700">
+                                  Consultoria: pagamento quinzenal nos dias <strong>8</strong> e <strong>20</strong> (automático).
+                                </div>
+                              ) : (
+                                <div className="flex gap-3">
+                                  {[8, 15, 20].map(day => {
+                                    const checked = editLinkValues.payDays.includes(String(day))
+                                    return (
+                                      <label key={day} className="flex items-center gap-1.5 cursor-pointer">
+                                        <input type="checkbox" className="rounded" checked={checked}
+                                          onChange={e => setEditLinkValues(p => {
+                                            if (!p) return p
+                                            const days = e.target.checked
+                                              ? [...p.payDays, String(day)].sort((a, b) => Number(a) - Number(b))
+                                              : p.payDays.filter(d => d !== String(day))
+                                            return { ...p, payDays: days }
+                                          })} />
+                                        <span className="text-sm font-medium">Dia {day}</span>
+                                      </label>
+                                    )
+                                  })}
+                                </div>
+                              )}
+                              {!isConsult && editLinkValues.payDays.length === 0 && (
+                                <p className="text-xs text-amber-600">Selecione pelo menos um dia de pagamento.</p>
                               )}
                             </div>
 

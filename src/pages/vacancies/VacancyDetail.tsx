@@ -326,8 +326,7 @@ export default function VacancyDetail() {
         }).select('id').single()
         if (linkErr) throw new Error('Erro ao criar vínculo com cliente: ' + linkErr.message)
 
-        // Dias de pagamento da vaga → checklist de pagamento do vínculo (2 dias = metade em cada)
-        const payDays = [vac.payment_day_1, vac.payment_day_2].filter(Boolean) as number[]
+        const payDays = isConsult ? [8, 20] : [vac.payment_day_1, vac.payment_day_2].filter(Boolean) as number[]
         if (newLink && payDays.length) {
           const perDate = monthlyAmt ? Math.round((monthlyAmt / payDays.length) * 100) / 100 : null
           await supabase.from('employee_payment_dates').insert(

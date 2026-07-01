@@ -1,9 +1,11 @@
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
+import { useState } from 'react'
 import {
   Users, FileText, Briefcase, UserPlus, AlertTriangle, CheckCircle,
-  Calendar, Plus, TrendingUp, Clock, CreditCard, Clipboard,
+  Calendar, Plus, TrendingUp, Clock, CreditCard, Clipboard, Download,
 } from 'lucide-react'
+import toast from 'react-hot-toast'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { formatDate, formatCurrency, formatDateTime } from '../lib/utils'
@@ -14,8 +16,54 @@ import {
 
 const COLORS = ['#6366f1', '#22c55e', '#f59e0b', '#ef4444', '#3b82f6', '#ec4899']
 
+const BACKUP_TABLES = [
+  'user_profiles', 'clients', 'client_locations', 'client_units', 'client_contracts',
+  'employees', 'employee_documents', 'employee_client_links', 'employee_payment_dates',
+  'employee_payment_checks', 'employee_history', 'employee_expenses', 'employee_questions',
+  'contracts', 'contract_templates', 'vacancies', 'vacancy_interests',
+  'candidates', 'candidate_contacts', 'interviews',
+  'payments', 'supervision_visits', 'inspections', 'inspection_links',
+  'nutritionist_visits', 'nutritionist_agenda', 'chat_messages',
+  'shared_documents', 'link_history', 'placements_history', 'app_security',
+]
+
 export default function Dashboard() {
   const { role, profile } = useAuth()
+  const [backingUp, setBackingUp] = useState(false)
+
+  const handleBackup = async () => {
+    setBackingUp(true)
+    try {
+      const backup: Record<string, unknown[]> = {}
+      for (const table of BACKUP_TABLES) {
+        const rows: unknown[] = []
+        let from = 0
+        const pageSize = 1000
+        while (true) {
+          const { data, error } = await supabase.from(table).select('*').range(from, from + pageSize - 1)
+          if (error) { console.warn(`Backup skip ${table}:`, error.message); break }
+          if (!data?.length) break
+          rows.push(...data)
+          if (data.length < pageSize) break
+          from += pageSize
+        }
+        backup[table] = rows
+      }
+      backup._meta = [{ exported_at: new Date().toISOString(), tables: Object.keys(backup).length, total_rows: Object.values(backup).reduce((s, r) => s + (r as unknown[]).length, 0) }]
+      const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `timein-backup-${new Date().toISOString().slice(0, 10)}.json`
+      a.click()
+      URL.revokeObjectURL(url)
+      toast.success('Backup exportado com sucesso!')
+    } catch (e) {
+      toast.error('Erro ao exportar: ' + String(e))
+    } finally {
+      setBackingUp(false)
+    }
+  }
   const navigate = useNavigate()
   const now = new Date()
   const in15 = addDays(now, 15)
@@ -559,7 +607,15 @@ export default function Dashboard() {
           <p className="eyebrow mb-1">{greeting}{firstName ? `, ${firstName}` : ''}</p>
           <h1 className="text-2xl md:text-3xl font-display font-extrabold text-ink-900">Dashboard</h1>
         </div>
-        <p className="text-sm text-ink-400 capitalize">{now.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}</p>
+        <div className="flex items-center gap-3">
+          {role === 'chefe' && (
+            <button onClick={handleBackup} disabled={backingUp} className="btn-secondary text-sm flex items-center gap-1.5">
+              <Download size={14} />
+              {backingUp ? 'Exportando...' : 'Backup'}
+            </button>
+          )}
+          <p className="text-sm text-ink-400 capitalize">{now.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}</p>
+        </div>
       </div>
 
       {/* ── KPI Cards ── */}

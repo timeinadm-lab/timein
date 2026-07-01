@@ -247,6 +247,19 @@ export default function Dashboard() {
     },
   })
 
+  // Todos os vínculos que exigem contrato (exceto Volante) — para a pizza de Contratos:
+  // quantos já têm contrato anexado vs. quantos faltam
+  const { data: contractLinks } = useQuery({
+    queryKey: ['dashboard-contract-links'],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('employee_client_links')
+        .select('id,contract_file_url,service_type,employee:employees(status)')
+        .neq('service_type', 'Volante')
+      return (data || []).filter((l: { employee?: { status?: string } }) => l.employee?.status === 'Ativo')
+    },
+  })
+
   const { data: pendingDocs } = useQuery({
     queryKey: ['dashboard-pending-docs'],
     queryFn: async () => {
@@ -264,7 +277,7 @@ export default function Dashboard() {
     queryKey: ['dashboard-interviews', profile?.id],
     queryFn: async () => {
       let q = supabase.from('interviews')
-        .select('*,candidate:candidates(full_name),vacancy:vacancies(title)')
+        .select('*,candidate:candidates(full_name),vacancy:vacancies(title),employee:employees(full_name)')
         .gte('scheduled_at', now.toISOString())
         .order('scheduled_at', { ascending: true }).limit(5)
       if (role === 'recrutador' && profile?.id) q = q.eq('recruiter_id', profile.id)
@@ -437,10 +450,13 @@ export default function Dashboard() {
   ].filter(d => d.value > 0)
   const vagasTotal = vagasPie.reduce((s, d) => s + d.value, 0)
 
-  // Contratos: entregues (assinados) vs pendentes
+  // Contratos: anexados vs pendentes — 1 contrato por vínculo (exceto Volante)
+  // Ex: 20 vinculados, 17 com contrato anexado → 17 anexados, 3 pendentes
+  const contratosAnexados = (contractLinks || []).filter(l => (l as { contract_file_url?: string }).contract_file_url).length
+  const contratosPendentes = (contractLinks || []).filter(l => !(l as { contract_file_url?: string }).contract_file_url).length
   const contratosPie = [
-    { name: 'Entregues', value: contracts?.filter(c => c.signed).length ?? 0, color: '#22c55e' },
-    { name: 'Pendentes', value: contracts?.filter(c => !c.signed).length ?? 0, color: '#f59e0b' },
+    { name: 'Anexados', value: contratosAnexados, color: '#22c55e' },
+    { name: 'Pendentes', value: contratosPendentes, color: '#f59e0b' },
   ].filter(d => d.value > 0)
   const contratosTotal = contratosPie.reduce((s, d) => s + d.value, 0)
 
@@ -597,17 +613,16 @@ export default function Dashboard() {
     amberAlerts.push({ text: `Cobertura Volante: ${name}${client ? ' – ' + client : ''} — ${when}`, path: '/colaboradores' })
   })
 
-  // Contrato não anexado — Fixo/Consultoria: amarelo após 24h, vermelho após 48h
+  // Contrato não anexado — Fixo/Consultoria: aparece imediatamente, vermelho após 48h
   pendingContractFiles?.forEach(l => {
     const created = (l as { created_at?: string }).created_at
     if (!created) return
     const hours = Math.floor((now.getTime() - new Date(created).getTime()) / 3600000)
-    if (hours < 24) return
     const empId = (l as { employee?: { id: string } }).employee?.id
     const name = (l as { employee?: { full_name: string } }).employee?.full_name || 'Colaborador'
     const client = (l as { client?: { name: string } }).client?.name || ''
     const path = empId ? `/colaboradores/${empId}?tab=arquivos` : '/colaboradores'
-    const label = `Contrato pendente: ${name}${client ? ' – ' + client : ''} — anexar contrato assinado (há ${hours}h)`
+    const label = `Contrato pendente: ${name}${client ? ' – ' + client : ''} — anexar contrato assinado${hours > 0 ? ` (há ${hours}h)` : ''}`
     if (hours >= 48) redAlerts.push({ text: label, path })
     else amberAlerts.push({ text: label, path })
   })
@@ -1103,7 +1118,7 @@ export default function Dashboard() {
             </div>
           ) : (
             <div className="space-y-2">
-              {interviews?.map((i: { id: string; title?: string; candidate?: { full_name: string }; scheduled_at: string; modality: string; status: string; vacancy?: { title: string } }) => (
+              {interviews?.map((i: { id: string; title?: string; candidate?: { full_name: string }; employee?: { full_name: string }; scheduled_at: string; end_date?: string; modality: string; status: string; vacancy?: { title: string } }) => (
                 <div key={i.id} className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-gray-50 cursor-pointer border border-gray-100" onClick={() => navigate('/agenda')}>
                   <div className="w-9 h-9 rounded-xl bg-primary-50 flex flex-col items-center justify-center flex-shrink-0">
                     <span className="text-xs font-bold text-primary-700 leading-none">{new Date(i.scheduled_at).getDate()}</span>
@@ -1111,7 +1126,12 @@ export default function Dashboard() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-gray-900 truncate">{i.title || i.candidate?.full_name || 'Compromisso'}</p>
-                    <p className="text-xs text-gray-500">{formatDateTime(i.scheduled_at)}{i.candidate?.full_name ? ` · ${i.candidate.full_name}` : ''}</p>
+                    <p className="text-xs text-gray-500">
+                      {formatDateTime(i.scheduled_at)}
+                      {i.end_date ? ` → ${formatDate(i.end_date)}` : ''}
+                      {i.employee?.full_name ? ` · ${i.employee.full_name}` : ''}
+                      {i.candidate?.full_name ? ` · ${i.candidate.full_name}` : ''}
+                    </p>
                   </div>
                   <div className="flex gap-1 flex-shrink-0 flex-wrap justify-end">
                     <span className={`badge text-xs ${MODAL_COLORS[i.modality] || 'bg-gray-100 text-gray-700'}`}>{i.modality}</span>

@@ -102,16 +102,14 @@ export default function ClientList() {
                   className="card card-interactive p-5 relative"
                   onClick={() => navigate(`/clientes/${c.id}`)}
                 >
-                  {role === 'chefe' && (
-                    <button
-                      type="button"
-                      onClick={(e) => { e.stopPropagation(); setConfirmDelete({ id: c.id, name: c.name }) }}
-                      className="absolute top-2 right-2 p-1.5 rounded-lg text-ink-300 hover:text-red-600 hover:bg-red-50 transition-colors"
-                      title="Excluir cliente"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); setConfirmDelete({ id: c.id, name: c.name }) }}
+                    className="absolute top-2 right-2 p-1.5 rounded-lg text-ink-300 hover:text-red-600 hover:bg-red-50 transition-colors"
+                    title="Excluir cliente"
+                  >
+                    <Trash2 size={14} />
+                  </button>
                   <div className="flex items-start gap-3">
                     <div className="w-11 h-11 rounded-2xl bg-primary-50 flex items-center justify-center flex-shrink-0">
                       <Building2 size={20} className="text-primary-600" />

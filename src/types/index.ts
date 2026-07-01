@@ -287,7 +287,9 @@ export interface Interview {
   candidate_id?: string
   recruiter_id?: string
   vacancy_id?: string
+  employee_id?: string
   scheduled_at: string
+  end_date?: string
   duration_min?: number
   modality: 'Online' | 'Presencial' | 'Telefone'
   link_or_address?: string
@@ -296,6 +298,7 @@ export interface Interview {
   created_at: string
   updated_at: string
   candidate?: Candidate
+  employee?: Employee
   recruiter?: UserProfile
   vacancy?: Vacancy
 }

@@ -14,9 +14,18 @@ export default function InterviewForm() {
   const isEdit = !!id
 
   const [form, setForm] = useState({
-    title: '', candidate_id: '', vacancy_id: '', recruiter_id: profile?.id || '',
-    scheduled_at: '', duration_min: '30', modality: 'Online',
+    title: '', candidate_id: '', vacancy_id: '', employee_id: '', recruiter_id: profile?.id || '',
+    scheduled_at: '', end_date: '', duration_min: '30', modality: 'Online',
     link_or_address: '', notes: '', status: 'Agendada',
+  })
+
+  const { data: employees } = useQuery({
+    queryKey: ['employees-select'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('employees').select('id,full_name').eq('status', 'Ativo').order('full_name')
+      if (error) throw error
+      return data || []
+    },
   })
 
   const { data: candidates } = useQuery({
@@ -55,8 +64,10 @@ export default function InterviewForm() {
         title: data.title || '',
         candidate_id: data.candidate_id || '',
         vacancy_id: data.vacancy_id || '',
+        employee_id: data.employee_id || '',
         recruiter_id: data.recruiter_id || '',
         scheduled_at: data.scheduled_at ? data.scheduled_at.slice(0, 16) : '',
+        end_date: data.end_date || '',
         duration_min: String(data.duration_min || 30),
         modality: data.modality || 'Online',
         link_or_address: data.link_or_address || '',
@@ -101,8 +112,10 @@ export default function InterviewForm() {
       title: form.title || null,
       candidate_id: form.candidate_id || null,
       vacancy_id: form.vacancy_id || null,
+      employee_id: form.employee_id || null,
       recruiter_id: form.recruiter_id || null,
       scheduled_at: form.scheduled_at,
+      end_date: form.end_date || null,
       duration_min: Number(form.duration_min),
       modality: form.modality,
       link_or_address: form.link_or_address || null,
@@ -126,6 +139,13 @@ export default function InterviewForm() {
             <input className="input" required placeholder="Ex: Entrevista, Reunião, Visita técnica…" value={form.title} onChange={e => set('title', e.target.value)} />
           </div>
           <div>
+            <label className="label">Colaborador <span className="text-gray-400 font-normal">(opcional — férias, licença)</span></label>
+            <select className="input" value={form.employee_id} onChange={e => set('employee_id', e.target.value)}>
+              <option value="">Nenhum</option>
+              {employees?.map(emp => <option key={emp.id} value={emp.id}>{emp.full_name}</option>)}
+            </select>
+          </div>
+          <div>
             <label className="label">Candidato <span className="text-gray-400 font-normal">(opcional)</span></label>
             <select className="input" value={form.candidate_id} onChange={e => set('candidate_id', e.target.value)}>
               <option value="">Nenhum</option>
@@ -146,9 +166,13 @@ export default function InterviewForm() {
               {availableRecruiters?.map(r => <option key={r.id} value={r.id}>{r.full_name}</option>)}
             </select>
           </div>
-          <div className="col-span-2">
+          <div>
             <label className="label">Data e Hora *</label>
             <input className="input" type="datetime-local" required value={form.scheduled_at} onChange={e => set('scheduled_at', e.target.value)} />
+          </div>
+          <div>
+            <label className="label">Até <span className="text-gray-400 font-normal">(opcional — férias, período)</span></label>
+            <input className="input" type="date" value={form.end_date} onChange={e => set('end_date', e.target.value)} />
           </div>
           <div>
             <label className="label">Duração</label>

@@ -35,7 +35,7 @@ export default function InterviewAgenda() {
     queryKey: ['interviews', filterStatus, filterMine, profile?.id],
     queryFn: async () => {
       let q = supabase.from('interviews')
-        .select('*,candidate:candidates(id,full_name),vacancy:vacancies(id,title),recruiter:user_profiles(full_name)')
+        .select('*,candidate:candidates(id,full_name),vacancy:vacancies(id,title),recruiter:user_profiles(full_name),employee:employees(id,full_name)')
         .order('scheduled_at', { ascending: true })
       if (filterStatus) q = q.eq('status', filterStatus)
       if (filterMine && profile?.id) q = q.eq('recruiter_id', profile.id)
@@ -160,7 +160,11 @@ export default function InterviewAgenda() {
                   <span className={`badge ${MODAL_COLORS[i.modality] || 'bg-gray-100'}`}>{i.modality}</span>
                   <span className={`badge ${STATUS_COLORS[i.status] || 'bg-gray-100'}`}>{i.status}</span>
                 </div>
-                <p className="text-sm text-gray-500 mt-1">{formatDateTime(i.scheduled_at)} · {i.duration_min}min</p>
+                <p className="text-sm text-gray-500 mt-1">
+                  {formatDateTime(i.scheduled_at)}
+                  {i.end_date ? ` → ${formatDate(i.end_date)}` : ` · ${i.duration_min}min`}
+                </p>
+                {(i as { employee?: { id: string; full_name: string } }).employee?.full_name && <p className="text-xs text-gray-400">Colaborador: <span className="cursor-pointer hover:text-primary-600" onClick={() => (i as { employee?: { id: string } }).employee?.id && navigate(`/colaboradores/${(i as { employee?: { id: string } }).employee?.id}`)}>{(i as { employee?: { full_name: string } }).employee?.full_name}</span></p>}
                 {(i as { candidate?: { full_name: string } }).candidate?.full_name && <p className="text-xs text-gray-400">Candidato: <span className="cursor-pointer hover:text-primary-600" onClick={() => i.candidate?.id && navigate(`/candidatos/${i.candidate.id}`)}>{(i as { candidate?: { full_name: string } }).candidate?.full_name}</span></p>}
                 {(i as { vacancy?: { title: string } }).vacancy?.title && <p className="text-xs text-gray-400">Vaga: {(i as { vacancy?: { title: string } }).vacancy?.title}</p>}
                 {i.link_or_address && <p className="text-xs text-primary-600 mt-0.5">{i.link_or_address}</p>}

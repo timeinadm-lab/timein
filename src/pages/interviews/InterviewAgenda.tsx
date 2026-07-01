@@ -69,7 +69,7 @@ export default function InterviewAgenda() {
       const { error } = await supabase.from('interviews').delete().eq('id', id)
       if (error) throw error
     },
-    onSuccess: () => { toast.success('Entrevista excluída!'); qc.invalidateQueries({ queryKey: ['interviews'] }) },
+    onSuccess: () => { toast.success('Compromisso excluído!'); qc.invalidateQueries({ queryKey: ['interviews'] }) },
     onError: (e: Error) => toast.error(e.message),
   })
 
@@ -82,10 +82,10 @@ export default function InterviewAgenda() {
     <div className="space-y-4">
       <div className="flex items-end justify-between flex-wrap gap-3">
         <div>
-          <p className="eyebrow mb-1">Recrutamento</p>
-          <h1 className="text-2xl md:text-3xl font-display font-extrabold text-ink-900">Agenda de Entrevistas</h1>
+          <p className="eyebrow mb-1">Gestão</p>
+          <h1 className="text-2xl md:text-3xl font-display font-extrabold text-ink-900">Agenda</h1>
         </div>
-        <button onClick={() => navigate('/agenda/nova')} className="btn-primary text-sm"><Plus size={16} />Nova Entrevista</button>
+        <button onClick={() => navigate('/agenda/nova')} className="btn-primary text-sm"><Plus size={16} />Novo Compromisso</button>
       </div>
 
       <div className="card p-4 flex gap-3 flex-wrap items-center">
@@ -104,7 +104,7 @@ export default function InterviewAgenda() {
         {role === 'chefe' && (
           <label className="flex items-center gap-2 text-sm cursor-pointer">
             <input type="checkbox" checked={filterMine} onChange={e => setFilterMine(e.target.checked)} className="rounded" />
-            Só minhas entrevistas
+            Só meus compromissos
           </label>
         )}
       </div>
@@ -144,29 +144,28 @@ export default function InterviewAgenda() {
       <div className="space-y-3">
         {selectedDay && (
           <div className="flex items-center gap-2">
-            <h3 className="font-medium">Entrevistas de {formatDate(selectedDay)}</h3>
+            <h3 className="font-medium">Compromissos de {formatDate(selectedDay)}</h3>
             <button onClick={() => setSelectedDay(null)} className="text-xs text-gray-400 hover:text-gray-600">Limpar</button>
           </div>
         )}
         {displayInterviews?.length === 0 && (
-          <div className="card p-8 text-center text-gray-400">Nenhuma entrevista encontrada</div>
+          <div className="card p-8 text-center text-gray-400">Nenhum compromisso encontrado</div>
         )}
         {displayInterviews?.map(i => (
           <div key={i.id} className="card p-4">
             <div className="flex items-start justify-between gap-3">
               <div className="flex-1">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <p className="font-medium cursor-pointer hover:text-primary-600" onClick={() => i.candidate?.id && navigate(`/candidatos/${i.candidate.id}`)}>
-                    {(i as { candidate?: { full_name: string } }).candidate?.full_name || 'Candidato não encontrado'}
-                  </p>
+                  <p className="font-medium">{i.title || (i as { candidate?: { full_name: string } }).candidate?.full_name || 'Compromisso'}</p>
                   <span className={`badge ${MODAL_COLORS[i.modality] || 'bg-gray-100'}`}>{i.modality}</span>
                   <span className={`badge ${STATUS_COLORS[i.status] || 'bg-gray-100'}`}>{i.status}</span>
                 </div>
                 <p className="text-sm text-gray-500 mt-1">{formatDateTime(i.scheduled_at)} · {i.duration_min}min</p>
+                {(i as { candidate?: { full_name: string } }).candidate?.full_name && <p className="text-xs text-gray-400">Candidato: <span className="cursor-pointer hover:text-primary-600" onClick={() => i.candidate?.id && navigate(`/candidatos/${i.candidate.id}`)}>{(i as { candidate?: { full_name: string } }).candidate?.full_name}</span></p>}
                 {(i as { vacancy?: { title: string } }).vacancy?.title && <p className="text-xs text-gray-400">Vaga: {(i as { vacancy?: { title: string } }).vacancy?.title}</p>}
                 {i.link_or_address && <p className="text-xs text-primary-600 mt-0.5">{i.link_or_address}</p>}
                 {i.notes && <p className="text-xs text-gray-500 mt-0.5">{i.notes}</p>}
-                {(i as { recruiter?: { full_name: string } }).recruiter?.full_name && <p className="text-xs text-gray-400 mt-0.5">Recrutador: {(i as { recruiter?: { full_name: string } }).recruiter?.full_name}</p>}
+                {(i as { recruiter?: { full_name: string } }).recruiter?.full_name && <p className="text-xs text-gray-400 mt-0.5">Responsável: {(i as { recruiter?: { full_name: string } }).recruiter?.full_name}</p>}
               </div>
               <div className="flex gap-1">
                 {i.status === 'Agendada' && (
@@ -177,7 +176,7 @@ export default function InterviewAgenda() {
                   </>
                 )}
                 <button onClick={() => navigate(`/agenda/${i.id}/editar`)} className="btn-ghost p-2"><Edit size={14} /></button>
-                <button onClick={() => { if (confirm('Excluir entrevista?')) deleteInterview.mutate(i.id) }} className="btn-ghost p-2 text-red-400"><Trash2 size={14} /></button>
+                <button onClick={() => { if (confirm('Excluir compromisso?')) deleteInterview.mutate(i.id) }} className="btn-ghost p-2 text-red-400"><Trash2 size={14} /></button>
               </div>
             </div>
           </div>

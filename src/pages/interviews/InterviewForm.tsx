@@ -14,7 +14,7 @@ export default function InterviewForm() {
   const isEdit = !!id
 
   const [form, setForm] = useState({
-    candidate_id: '', vacancy_id: '', recruiter_id: profile?.id || '',
+    title: '', candidate_id: '', vacancy_id: '', recruiter_id: profile?.id || '',
     scheduled_at: '', duration_min: '30', modality: 'Online',
     link_or_address: '', notes: '', status: 'Agendada',
   })
@@ -52,6 +52,7 @@ export default function InterviewForm() {
       const { data, error } = await supabase.from('interviews').select('*').eq('id', id).single()
       if (error) throw error
       setForm({
+        title: data.title || '',
         candidate_id: data.candidate_id || '',
         vacancy_id: data.vacancy_id || '',
         recruiter_id: data.recruiter_id || '',
@@ -85,7 +86,7 @@ export default function InterviewForm() {
       }
     },
     onSuccess: () => {
-      toast.success(isEdit ? 'Entrevista atualizada!' : 'Entrevista agendada!')
+      toast.success(isEdit ? 'Compromisso atualizado!' : 'Compromisso agendado!')
       qc.invalidateQueries({ queryKey: ['interviews'] })
       navigate('/agenda')
     },
@@ -97,6 +98,7 @@ export default function InterviewForm() {
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault()
     mutation.mutate({
+      title: form.title || null,
       candidate_id: form.candidate_id || null,
       vacancy_id: form.vacancy_id || null,
       recruiter_id: form.recruiter_id || null,
@@ -115,19 +117,23 @@ export default function InterviewForm() {
     <div className="max-w-2xl mx-auto space-y-6">
       <div className="flex items-center gap-3">
         <button onClick={() => navigate(-1)} className="btn-ghost p-2"><ArrowLeft size={18} /></button>
-        <h1 className="text-xl font-bold">{isEdit ? 'Editar Entrevista' : 'Nova Entrevista'}</h1>
+        <h1 className="text-xl font-bold">{isEdit ? 'Editar Compromisso' : 'Novo Compromisso'}</h1>
       </div>
       <form onSubmit={handleSubmit} className="card p-6 space-y-4">
         <div className="grid grid-cols-2 gap-4">
           <div className="col-span-2">
-            <label className="label">Candidato</label>
+            <label className="label">Título *</label>
+            <input className="input" required placeholder="Ex: Entrevista, Reunião, Visita técnica…" value={form.title} onChange={e => set('title', e.target.value)} />
+          </div>
+          <div>
+            <label className="label">Candidato <span className="text-gray-400 font-normal">(opcional)</span></label>
             <select className="input" value={form.candidate_id} onChange={e => set('candidate_id', e.target.value)}>
-              <option value="">Selecionar...</option>
+              <option value="">Nenhum</option>
               {candidates?.map(c => <option key={c.id} value={c.id}>{c.full_name}</option>)}
             </select>
           </div>
           <div>
-            <label className="label">Vaga</label>
+            <label className="label">Vaga <span className="text-gray-400 font-normal">(opcional)</span></label>
             <select className="input" value={form.vacancy_id} onChange={e => set('vacancy_id', e.target.value)}>
               <option value="">Nenhuma</option>
               {vacancies?.map(v => <option key={v.id} value={v.id}>{v.title}</option>)}

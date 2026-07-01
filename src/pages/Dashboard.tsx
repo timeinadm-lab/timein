@@ -1049,15 +1049,15 @@ export default function Dashboard() {
             </div>
           ) : (
             <div className="space-y-2">
-              {interviews?.map((i: { id: string; candidate?: { full_name: string }; scheduled_at: string; modality: string; status: string; vacancy?: { title: string } }) => (
-                <div key={i.id} className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-gray-50 cursor-pointer border border-gray-100">
+              {interviews?.map((i: { id: string; title?: string; candidate?: { full_name: string }; scheduled_at: string; modality: string; status: string; vacancy?: { title: string } }) => (
+                <div key={i.id} className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-gray-50 cursor-pointer border border-gray-100" onClick={() => navigate('/agenda')}>
                   <div className="w-9 h-9 rounded-xl bg-primary-50 flex flex-col items-center justify-center flex-shrink-0">
                     <span className="text-xs font-bold text-primary-700 leading-none">{new Date(i.scheduled_at).getDate()}</span>
                     <span className="text-xs text-primary-400 leading-none">{new Date(i.scheduled_at).toLocaleDateString('pt-BR', { month: 'short' })}</span>
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-900 truncate">{i.candidate?.full_name}</p>
-                    <p className="text-xs text-gray-500">{formatDateTime(i.scheduled_at)} · {i.vacancy?.title || 'Sem vaga'}</p>
+                    <p className="text-sm font-medium text-gray-900 truncate">{i.title || i.candidate?.full_name || 'Compromisso'}</p>
+                    <p className="text-xs text-gray-500">{formatDateTime(i.scheduled_at)}{i.candidate?.full_name ? ` · ${i.candidate.full_name}` : ''}</p>
                   </div>
                   <div className="flex gap-1 flex-shrink-0 flex-wrap justify-end">
                     <span className={`badge text-xs ${MODAL_COLORS[i.modality] || 'bg-gray-100 text-gray-700'}`}>{i.modality}</span>
@@ -1082,7 +1082,7 @@ export default function Dashboard() {
             { label: 'Nova Vaga', path: '/vagas/nova', color: 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100' },
             { label: 'Novo Candidato', path: '/candidatos/novo', color: 'bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100' },
             { label: 'Pipeline Kanban', path: '/candidatos/kanban', color: 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100' },
-            { label: 'Nova Entrevista', path: '/agenda/nova', color: 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100' },
+            { label: 'Novo Compromisso', path: '/agenda/nova', color: 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100' },
             { label: 'Novo Contrato', path: '/contratos/novo', color: 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100' },
           ].map(q => (
             <button key={q.path} onClick={() => navigate(q.path)}

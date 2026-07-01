@@ -1,4 +1,4 @@
-import { useState, FormEvent } from 'react'
+import { useState, useEffect, useRef, FormEvent } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Plus, X } from 'lucide-react'
@@ -81,54 +81,64 @@ export default function VacancyForm() {
     enabled: !!form.client_id,
   })
 
-  useQuery({
+  const { data: vacancyData } = useQuery({
     queryKey: ['vacancy', id],
     queryFn: async () => {
       const { data, error } = await supabase.from('vacancies').select('*').eq('id', id).single()
       if (error) throw error
-      setForm({
-        title: data.title || '', state: data.state || '', city: data.city || '',
-        sp_region: data.sp_region || '', client_id: data.client_id || '',
-        unit_id: data.unit_id || '',
-        vacancy_type: data.vacancy_type || '',
-        positions_count: String(data.positions_count || 1),
-        salary_amount: data.salary_amount ? String(data.salary_amount) : '',
-        cost_assistance: data.cost_assistance ? String(data.cost_assistance) : '',
-        payment_day_1: data.payment_day_1 ? String(data.payment_day_1) : '',
-        payment_day_2: data.payment_day_2 ? String(data.payment_day_2) : '',
-        work_schedule_type: data.work_schedule_type || '',
-        daily_hours: data.daily_hours ? String(data.daily_hours) : '',
-        schedule_anchor_date: data.schedule_anchor_date || '',
-        visit_frequency: (data.visit_frequency as 'Semanal' | 'Quinzenal' | 'Mensal') || 'Semanal',
-        weekly_hours: data.weekly_hours ? String(data.weekly_hours) : '',
-        visits_per_week: data.visits_per_week ? String(data.visits_per_week) : '',
-        pay_extra_visits: data.pay_extra_visits !== false,
-        day_off_type: data.day_off_type || '',
-        fixed_day_off: data.fixed_day_off != null ? String(data.fixed_day_off) : '',
-        days_off: data.days_off || [],
-        deadline: data.deadline || '', opening_date: data.opening_date || '',
-        status: data.status || 'Aberta',
-        formation: data.formation || '',
-        requires_crn: !!data.requires_crn,
-        requires_vehicle: !!data.requires_vehicle,
-        requires_travel: !!data.requires_travel,
-        requires_relocation: !!data.requires_relocation,
-        min_experience: data.min_experience || 'Qualquer',
-        segments: data.segments || [],
-        uan_areas: data.uan_areas || [],
-        tools: data.tools || [],
-        shift: data.shift || '',
-        work_scale: data.work_scale || [],
-        start_availability: data.start_availability || '',
-        weekend_availability: !!data.weekend_availability,
-        observations: data.observations || '',
-        whatsapp_message: data.whatsapp_message || '',
-      })
-      if (data.vacancy_units) setVacancyUnits((data.vacancy_units as { unit_id: string; unit_name: string; visit_rate?: string | number }[]).map(u => ({ unit_id: u.unit_id, unit_name: u.unit_name, visit_rate: u.visit_rate != null ? String(u.visit_rate) : '' })))
       return data
     },
     enabled: isEdit,
   })
+
+  // Preenche o formulário a partir dos dados da vaga — inclusive quando vêm do cache
+  // (o preenchimento não pode ficar dentro do queryFn: com staleTime ele não roda no cache-hit,
+  //  e o formulário abria em branco ao clicar Editar logo após ver a vaga).
+  const populated = useRef(false)
+  useEffect(() => {
+    if (!vacancyData || populated.current) return
+    populated.current = true
+    const data = vacancyData
+    setForm({
+      title: data.title || '', state: data.state || '', city: data.city || '',
+      sp_region: data.sp_region || '', client_id: data.client_id || '',
+      unit_id: data.unit_id || '',
+      vacancy_type: data.vacancy_type || '',
+      positions_count: String(data.positions_count || 1),
+      salary_amount: data.salary_amount ? String(data.salary_amount) : '',
+      cost_assistance: data.cost_assistance ? String(data.cost_assistance) : '',
+      payment_day_1: data.payment_day_1 ? String(data.payment_day_1) : '',
+      payment_day_2: data.payment_day_2 ? String(data.payment_day_2) : '',
+      work_schedule_type: data.work_schedule_type || '',
+      daily_hours: data.daily_hours ? String(data.daily_hours) : '',
+      schedule_anchor_date: data.schedule_anchor_date || '',
+      visit_frequency: (data.visit_frequency as 'Semanal' | 'Quinzenal' | 'Mensal') || 'Semanal',
+      weekly_hours: data.weekly_hours ? String(data.weekly_hours) : '',
+      visits_per_week: data.visits_per_week ? String(data.visits_per_week) : '',
+      pay_extra_visits: data.pay_extra_visits !== false,
+      day_off_type: data.day_off_type || '',
+      fixed_day_off: data.fixed_day_off != null ? String(data.fixed_day_off) : '',
+      days_off: data.days_off || [],
+      deadline: data.deadline || '', opening_date: data.opening_date || '',
+      status: data.status || 'Aberta',
+      formation: data.formation || '',
+      requires_crn: !!data.requires_crn,
+      requires_vehicle: !!data.requires_vehicle,
+      requires_travel: !!data.requires_travel,
+      requires_relocation: !!data.requires_relocation,
+      min_experience: data.min_experience || 'Qualquer',
+      segments: data.segments || [],
+      uan_areas: data.uan_areas || [],
+      tools: data.tools || [],
+      shift: data.shift || '',
+      work_scale: data.work_scale || [],
+      start_availability: data.start_availability || '',
+      weekend_availability: !!data.weekend_availability,
+      observations: data.observations || '',
+      whatsapp_message: data.whatsapp_message || '',
+    })
+    if (data.vacancy_units) setVacancyUnits((data.vacancy_units as { unit_id: string; unit_name: string; visit_rate?: string | number }[]).map(u => ({ unit_id: u.unit_id, unit_name: u.unit_name, visit_rate: u.visit_rate != null ? String(u.visit_rate) : '' })))
+  }, [vacancyData])
 
   const mutation = useMutation({
     mutationFn: async (payload: Record<string, unknown>) => {

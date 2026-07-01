@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Edit, MessageCircle, ChevronDown, ChevronUp, FileText, CheckCircle, Clock } from 'lucide-react'
@@ -102,40 +102,42 @@ export default function VacancyDetail() {
     },
   })
 
-  // When Match tab opens, auto-apply vacancy filters
+  // Ao abrir o Match, os filtros já vêm com o que a vaga exige (estado, formação).
+  // Aplica uma vez por visita à aba — não sobrescreve se o usuário mexer depois.
+  const matchFiltersApplied = useRef(false)
   useEffect(() => {
-    if (tab === 'match' && vacancy) {
-      setMatchFilters({ state: '', formation: '', experience: '' })
-    }
+    if (tab !== 'match') { matchFiltersApplied.current = false; return }
+    if (!vacancy || matchFiltersApplied.current) return
+    matchFiltersApplied.current = true
+    const vacForm = (vacancy as { formation?: string }).formation
+    const allowedForm = ['Técnico em Nutrição', 'Nutricionista', 'Ambos']
+    setMatchFilters({
+      state: (vacancy as { state?: string }).state || '',
+      formation: vacForm && allowedForm.includes(vacForm) ? vacForm : '',
+      experience: (vacancy as { min_experience?: string }).min_experience || '',
+    })
+    setShowMatchFilters(true)
   }, [tab, vacancy])
-
-  // Auto-corrige status e hired_count quando colaboradores ficam inativos fora do fluxo normal
-  useEffect(() => {
-    if (!vacancy || hiredEmps === undefined || vacancy.status === 'Fechada') return
-    const activeCount = hiredEmps
-      .filter(h => h.link?.service_type !== 'Volante' && h.emp?.status === 'Ativo').length
-    const positions = vacancy.positions_count || 1
-    const expectedStatus = activeCount === 0 ? 'Aberta'
-      : activeCount >= positions ? (vacancy.status === 'Atuando' ? 'Atuando' : 'Preenchida')
-      : 'Aberta'
-    if (expectedStatus !== vacancy.status || activeCount !== (vacancy.hired_count ?? activeCount)) {
-      supabase.from('vacancies')
-        .update({ status: expectedStatus, hired_count: activeCount })
-        .eq('id', id)
-        .then(() => qc.invalidateQueries({ queryKey: ['vacancy', id] }))
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hiredEmps])
 
   const { data: allCandidates } = useQuery({
     queryKey: ['candidates-match', matchSearch],
     queryFn: async () => {
-      // Inclui contratados (podem preencher outra vaga); só esconde inativos
-      let q = supabase.from('candidates').select('*').neq('pipeline_stage', 'Inativo')
-      if (matchSearch) q = q.ilike('full_name', `%${matchSearch}%`)
-      const { data, error } = await q.limit(500)
-      if (error) throw error
-      return data || []
+      // Inclui contratados (podem preencher outra vaga); só esconde inativos.
+      // Pagina pra carregar TODOS — sem isso o Supabase corta em ~1000 e some com metade da base.
+      const all: Record<string, unknown>[] = []
+      const pageSize = 1000
+      let from = 0
+      while (true) {
+        let q = supabase.from('candidates').select('*').neq('pipeline_stage', 'Inativo')
+        if (matchSearch) q = q.ilike('full_name', `%${matchSearch}%`)
+        const { data, error } = await q.range(from, from + pageSize - 1)
+        if (error) throw error
+        if (!data?.length) break
+        all.push(...data)
+        if (data.length < pageSize) break
+        from += pageSize
+      }
+      return all
     },
     enabled: tab === 'match',
   })
@@ -432,9 +434,10 @@ export default function VacancyDetail() {
       }
     },
     onSuccess: () => {
-      toast.success('Colaborador desligado. Vaga reaberta com prazo de reposição.')
+      toast.success('Colaborador desligado. Passagem registrada no histórico.')
       qc.invalidateQueries({ queryKey: ['vacancy-interests', id] })
       qc.invalidateQueries({ queryKey: ['vacancy', id] })
+      qc.invalidateQueries({ queryKey: ['vacancy-history', id] })
       setConfirmDismiss(null)
     },
     onError: (e: Error) => toast.error(e.message),
@@ -522,6 +525,39 @@ export default function VacancyDetail() {
     enabled: !!interests && !!vacancy,
   })
 
+  // Auto-corrige status e hired_count quando colaboradores ficam inativos fora do fluxo normal
+  useEffect(() => {
+    if (!vacancy || hiredEmps === undefined || vacancy.status === 'Fechada') return
+    const activeCount = hiredEmps
+      .filter(h => h.link?.service_type !== 'Volante' && h.emp?.status === 'Ativo').length
+    const positions = vacancy.positions_count || 1
+    const expectedStatus = activeCount === 0 ? 'Aberta'
+      : activeCount >= positions ? (vacancy.status === 'Atuando' ? 'Atuando' : 'Preenchida')
+      : 'Aberta'
+    if (expectedStatus !== vacancy.status || activeCount !== (vacancy.hired_count ?? activeCount)) {
+      supabase.from('vacancies')
+        .update({ status: expectedStatus, hired_count: activeCount })
+        .eq('id', id)
+        .then(() => qc.invalidateQueries({ queryKey: ['vacancy', id] }))
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hiredEmps])
+
+  // ── Histórico de passagens: quem já passou por esta vaga ──
+  const { data: vacancyHistory } = useQuery({
+    queryKey: ['vacancy-history', id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('placements_history')
+        .select('*')
+        .eq('vacancy_id', id)
+        .order('end_date', { ascending: false })
+      if (error) return []
+      return data || []
+    },
+    enabled: tab === 'colaboradores',
+  })
+
   // ── Documentos da vaga (compartilhados com o cliente) ──
   const { data: vacancyDocs } = useQuery({
     queryKey: ['vacancy-docs', id],
@@ -586,7 +622,6 @@ export default function VacancyDetail() {
     : (interests?.filter(i => i.status === 'Contratado').length ?? 0)
   const totalPositions = vacancy.positions_count || 1
   const activeHired = (hiredEmps || []).filter(h => h.emp?.status === 'Ativo')
-  const inactiveHired = (hiredEmps || []).filter(h => h.emp?.status !== 'Ativo')
   const interestIds = new Set(interests?.map(i => i.candidate_id) ?? [])
 
   // Match scoring — starts at 100, penalizes mismatches, bonuses for proximity
@@ -833,29 +868,39 @@ export default function VacancyDetail() {
             })}
           </div>
 
-          {/* Histórico */}
-          {inactiveHired.length > 0 && (
+          {/* Histórico — passagens registradas (quem já foi contratado por esta vaga) */}
+          {vacancyHistory && vacancyHistory.length > 0 && (
             <div className="space-y-3">
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide px-1">Histórico</p>
-              {inactiveHired.map(({ interest, emp, link }) => {
-                const contractEnd = link?.contract_end_date
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide px-1">Histórico de passagens</p>
+              {vacancyHistory.map(p => {
+                const days = p.start_date && p.end_date
+                  ? Math.max(1, Math.round((new Date(p.end_date).getTime() - new Date(p.start_date).getTime()) / 86400000))
+                  : null
                 return (
-                  <div key={emp!.id} className="card p-4 flex items-center gap-3 opacity-70">
+                  <div key={p.id} className="card p-4 flex items-center gap-3 opacity-80">
                     <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-gray-400 font-bold text-sm flex-shrink-0">
-                      {emp!.full_name.trim().split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()}
+                      {(p.employee_name || '?').trim().split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <button className="font-semibold text-gray-600 hover:text-primary-700 hover:underline" onClick={() => navigate(`/colaboradores/${emp!.id}`)}>
-                        {emp!.full_name}
-                      </button>
+                      {p.employee_id ? (
+                        <button className="font-semibold text-gray-700 hover:text-primary-700 hover:underline" onClick={() => navigate(`/colaboradores/${p.employee_id}`)}>
+                          {p.employee_name}
+                        </button>
+                      ) : (
+                        <span className="font-semibold text-gray-500">{p.employee_name}</span>
+                      )}
                       <div className="flex items-center gap-2 mt-0.5 flex-wrap text-xs">
-                        <span className="badge bg-gray-100 text-gray-500">{emp!.status}</span>
-                        {link?.service_type && <span className="badge bg-gray-100 text-gray-500">{link.service_type}</span>}
-                        <span className="text-gray-400">Contratado em {formatDate(interest.hired_at)}</span>
-                        {contractEnd && <span className="text-gray-400">Contrato até {formatDate(contractEnd)}</span>}
+                        {p.service_type && <span className="badge bg-gray-100 text-gray-500">{p.service_type}</span>}
+                        <span className="text-gray-500">
+                          {p.start_date ? formatDate(p.start_date) : '?'} → {formatDate(p.end_date)}
+                          {days !== null && ` · ${days} dia${days === 1 ? '' : 's'}`}
+                        </span>
+                        {p.dismissal_reason && <span className="text-gray-400 italic">— {p.dismissal_reason}</span>}
                       </div>
                     </div>
-                    <button className="btn-secondary text-xs" onClick={() => navigate(`/colaboradores/${emp!.id}`)}>Ver perfil</button>
+                    {p.employee_id && (
+                      <button className="btn-secondary text-xs" onClick={() => navigate(`/colaboradores/${p.employee_id}`)}>Ver perfil</button>
+                    )}
                   </div>
                 )
               })}

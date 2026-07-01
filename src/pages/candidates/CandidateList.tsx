@@ -180,54 +180,114 @@ export default function CandidateList() {
 
   const handleImport = async () => {
     setImporting(true)
-    let ok = 0, err = 0
+    let ok = 0, err = 0, dup = 0
+
+    const stripAccents = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '')
+    const normText = (s: string) => stripAccents(String(s || '')).trim().toLowerCase().replace(/\s+/g, ' ')
+    const normEmail = (s: string) => String(s || '').trim().toLowerCase()
+    const normWa = (s: string) => {
+      const d = String(s || '').replace(/\D/g, '')
+      return d.startsWith('55') && d.length > 11 ? d.slice(2) : d
+    }
+
+    // 1) Carrega candidatos existentes pra comparar
+    const existingWa = new Set<string>()
+    const existingEmail = new Set<string>()
+    const existingNameCity = new Set<string>()
+    {
+      let from = 0
+      const pageSize = 1000
+      while (true) {
+        const { data, error: fetchErr } = await supabase
+          .from('candidates')
+          .select('full_name,city,email,whatsapp')
+          .range(from, from + pageSize - 1)
+        if (fetchErr) { toast.error('Erro ao ler base: ' + fetchErr.message); setImporting(false); return }
+        if (!data?.length) break
+        for (const c of data) {
+          const wa = normWa(c.whatsapp || ''); if (wa.length >= 10) existingWa.add(wa)
+          const em = normEmail(c.email || ''); if (em) existingEmail.add(em)
+          const nm = normText(c.full_name || ''); const ct = normText((c as { city?: string }).city || '')
+          if (nm && ct) existingNameCity.add(`${nm}|${ct}`)
+        }
+        if (data.length < pageSize) break
+        from += pageSize
+      }
+    }
+
+    // 2) Percorre linhas, deduplica por: WhatsApp > e-mail > nome+cidade
+    const seenWa = new Set<string>()
+    const seenEmail = new Set<string>()
+    const seenNameCity = new Set<string>()
+    const splitField = (v: string) => v ? v.split(/[;,]\s*/).map(s => s.trim()).filter(Boolean) : []
+    const toBool = (v: string) => v?.toLowerCase().startsWith('sim')
+    const safeInt = (v: string) => { const n = parseInt(v); return isNaN(n) ? null : n }
+
     for (const row of importRows) {
       const obj: Record<string, string> = {}
-      importHeaders.forEach((h, i) => {
-        if (colMap[h]) obj[colMap[h]] = row[i] || ''
-      })
-      if (!obj.full_name) { err++; continue }
-      // Extract state code from formats like "Paraná (PR)" or "São Paulo (SP)"
+      importHeaders.forEach((h, i) => { if (colMap[h]) obj[colMap[h]] = row[i] || '' })
+      if (!obj.full_name?.trim()) continue
+
+      const wa = normWa(obj.whatsapp || '')
+      const em = normEmail(obj.email || '')
+      const nm = normText(obj.full_name)
+      const ct = normText(obj.city || '')
+
+      const isDup =
+        (wa.length >= 10 && (existingWa.has(wa) || seenWa.has(wa))) ||
+        (em && (existingEmail.has(em) || seenEmail.has(em))) ||
+        (!wa && !em && nm && ct && (existingNameCity.has(`${nm}|${ct}`) || seenNameCity.has(`${nm}|${ct}`)))
+      if (isDup) { dup++; continue }
+
+      if (wa.length >= 10) seenWa.add(wa)
+      if (em) seenEmail.add(em)
+      if (nm && ct) seenNameCity.add(`${nm}|${ct}`)
+
       const rawState = obj.state || ''
       const stateMatch = rawState.match(/\(([A-Z]{2})\)$/)
       const stateCode = stateMatch ? stateMatch[1] : (rawState.length === 2 ? rawState.toUpperCase() : null)
-      const splitField = (v: string) => v ? v.split(/[;,]\s*/).map(s => s.trim()).filter(Boolean) : []
-      const toBool = (v: string) => v?.toLowerCase().startsWith('sim')
-      const rawWa = String(obj.whatsapp || '').replace(/\D/g, '') || null
-      const { error } = await supabase.from('candidates').insert({
+
+      const record = {
         full_name: obj.full_name.trim(),
         state: stateCode || null,
         city: obj.city?.trim() || null,
         sp_region: obj.sp_region || null,
-        whatsapp: rawWa,
+        whatsapp: wa.length >= 10 ? wa : null,
         email: obj.email?.trim() || null,
         crn_number: obj.crn_number || null,
         requires_travel: obj.requires_travel ? toBool(obj.requires_travel) : false,
         requires_relocation: obj.requires_relocation ? toBool(obj.requires_relocation) : false,
         has_vehicle: obj.has_vehicle ? toBool(obj.has_vehicle) : false,
         formation: obj.formation || null,
-        graduation_year: obj.graduation_year ? Number(obj.graduation_year) : null,
+        graduation_year: safeInt(obj.graduation_year || ''),
         institution: obj.institution?.trim() || null,
         postgrad_options: obj.postgrad_options ? splitField(obj.postgrad_options) : [],
         experience_area: obj.experience_area || null,
         experience_time: obj.experience_time || null,
         segments: splitField(obj.segments),
         uan_areas: splitField(obj.uan_areas),
-        max_meals_volume: obj.max_meals_volume ? parseInt(obj.max_meals_volume) || null : null,
+        max_meals_volume: safeInt(obj.max_meals_volume || ''),
         available_weekends: obj.available_weekends ? toBool(obj.available_weekends) : false,
         work_shift: obj.work_shift || null,
         work_hours: obj.work_hours || null,
         contract_types: splitField(obj.contract_types),
         tools: splitField(obj.tools),
         pipeline_stage: obj.pipeline_stage || 'Banco',
-      })
-      if (error) { console.error('Import error:', error.message, obj.full_name); err++ }
+      }
+
+      // 3) Insere um por um — se um falhar, só ele é perdido
+      const { error: insErr } = await supabase.from('candidates').insert(record)
+      if (insErr) { console.error('Insert fail:', obj.full_name, insErr.message); err++ }
       else ok++
     }
+
     setImporting(false)
     setImportModal(false)
     qc.invalidateQueries({ queryKey: ['candidates'] })
-    toast.success(`${ok} importados, ${err} erros`)
+    const parts = [`${ok} importado(s)`]
+    if (dup) parts.push(`${dup} já existiam`)
+    if (err) parts.push(`${err} erro(s)`)
+    toast.success(parts.join(' · '), { duration: 6000 })
   }
 
   return (

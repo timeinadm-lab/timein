@@ -184,6 +184,19 @@ export default function Dashboard() {
     },
   })
 
+  // Contratos pendentes de anexação — Fixo/Consultoria: amarelo após 24h, vermelho após 48h
+  const { data: pendingContractFiles } = useQuery({
+    queryKey: ['dashboard-pending-contract-files'],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('employee_client_links')
+        .select('id,created_at,service_type,employee_id,employee:employees(id,full_name,status),client:clients(name)')
+        .in('service_type', ['Fixo', 'Consultoria'])
+        .is('contract_file_url', null)
+      return (data || []).filter((l: { employee?: { status?: string } }) => l.employee?.status === 'Ativo')
+    },
+  })
+
   const { data: pendingDocs } = useQuery({
     queryKey: ['dashboard-pending-docs'],
     queryFn: async () => {
@@ -447,6 +460,21 @@ export default function Dashboard() {
     const client = (l as { client?: { name: string } }).client?.name || ''
     const when = days === 0 ? 'vence hoje!' : `faltam ${days}d`
     amberAlerts.push({ text: `Cobertura Volante: ${name}${client ? ' – ' + client : ''} — ${when}`, path: '/colaboradores' })
+  })
+
+  // Contrato não anexado — Fixo/Consultoria: amarelo após 24h, vermelho após 48h
+  pendingContractFiles?.forEach(l => {
+    const created = (l as { created_at?: string }).created_at
+    if (!created) return
+    const hours = Math.floor((now.getTime() - new Date(created).getTime()) / 3600000)
+    if (hours < 24) return
+    const empId = (l as { employee?: { id: string } }).employee?.id
+    const name = (l as { employee?: { full_name: string } }).employee?.full_name || 'Colaborador'
+    const client = (l as { client?: { name: string } }).client?.name || ''
+    const path = empId ? `/colaboradores/${empId}` : '/colaboradores'
+    const label = `Contrato pendente: ${name}${client ? ' – ' + client : ''} — anexar contrato assinado (há ${hours}h)`
+    if (hours >= 48) redAlerts.push({ text: label, path })
+    else amberAlerts.push({ text: label, path })
   })
 
   // Alertas de consultoria: visita que excede o combinado semanal + déficit mensal na última semana

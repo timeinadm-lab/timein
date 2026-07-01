@@ -1,17 +1,21 @@
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Search, Building2 } from 'lucide-react'
+import { Plus, Search, Building2, Trash2 } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { formatDate, daysUntil } from '../../lib/utils'
 import Pagination from '../../components/ui/Pagination'
+import DeletePinModal from '../../components/ui/DeletePinModal'
+import toast from 'react-hot-toast'
 
 export default function ClientList() {
   const { role } = useAuth()
   const navigate = useNavigate()
+  const qc = useQueryClient()
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
+  const [confirmDelete, setConfirmDelete] = useState<{ id: string; name: string } | null>(null)
   const PAGE_SIZE = 12
 
   const { data: clients, isLoading } = useQuery({
@@ -23,6 +27,28 @@ export default function ClientList() {
       if (error) throw error
       return data || []
     },
+  })
+
+  const deleteClient = useMutation({
+    mutationFn: async (clientId: string) => {
+      // Trava: não apaga cliente com vínculo ou vaga
+      const { data: linksData } = await supabase.from('employee_client_links').select('id').eq('client_id', clientId).limit(1)
+      if (linksData?.length) throw new Error('Este cliente tem colaboradores vinculados. Desligue-os antes de excluir.')
+      const { data: vagasData } = await supabase.from('vacancies').select('id').eq('client_id', clientId).limit(1)
+      if (vagasData?.length) throw new Error('Este cliente tem vagas. Apague as vagas antes de excluir o cliente.')
+      await supabase.from('client_units').delete().eq('client_id', clientId)
+      await supabase.from('client_locations').delete().eq('client_id', clientId)
+      await supabase.from('client_contracts').delete().eq('client_id', clientId)
+      await supabase.from('shared_documents').delete().eq('client_id', clientId)
+      const { error } = await supabase.from('clients').delete().eq('id', clientId)
+      if (error) throw error
+    },
+    onSuccess: () => {
+      toast.success('Cliente excluído.')
+      qc.invalidateQueries({ queryKey: ['clients'] })
+      setConfirmDelete(null)
+    },
+    onError: (e: Error) => toast.error(e.message),
   })
 
   const paginated = clients?.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE) ?? []
@@ -73,14 +99,24 @@ export default function ClientList() {
               return (
                 <div
                   key={c.id}
-                  className="card card-interactive p-5"
+                  className="card card-interactive p-5 relative"
                   onClick={() => navigate(`/clientes/${c.id}`)}
                 >
+                  {role === 'chefe' && (
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); setConfirmDelete({ id: c.id, name: c.name }) }}
+                      className="absolute top-2 right-2 p-1.5 rounded-lg text-ink-300 hover:text-red-600 hover:bg-red-50 transition-colors"
+                      title="Excluir cliente"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  )}
                   <div className="flex items-start gap-3">
                     <div className="w-11 h-11 rounded-2xl bg-primary-50 flex items-center justify-center flex-shrink-0">
                       <Building2 size={20} className="text-primary-600" />
                     </div>
-                    <div className="flex-1 min-w-0">
+                    <div className="flex-1 min-w-0 pr-6">
                       <h3 className="font-display font-bold text-ink-900 truncate">{c.name}</h3>
                       {c.contact_name && <p className="text-sm text-ink-500 truncate">{c.contact_name}</p>}
                       {c.contact_phone && <p className="text-sm text-ink-400">{c.contact_phone}</p>}
@@ -108,6 +144,15 @@ export default function ClientList() {
           )}
         </>
       )}
+
+      <DeletePinModal
+        open={!!confirmDelete}
+        title="Excluir cliente?"
+        description={confirmDelete ? `Remove ${confirmDelete.name} e seus dados (unidades, contratos, documentos). Só é possível se não houver colaboradores nem vagas vinculados.` : ''}
+        confirmLabel="Excluir cliente"
+        onConfirmed={async () => { if (confirmDelete) await deleteClient.mutateAsync(confirmDelete.id) }}
+        onClose={() => setConfirmDelete(null)}
+      />
     </div>
   )
 }

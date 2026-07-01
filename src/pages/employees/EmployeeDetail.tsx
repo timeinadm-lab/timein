@@ -188,6 +188,21 @@ export default function EmployeeDetail() {
     enabled: tab === 'historico',
   })
 
+  // Passagens: onde ele já esteve (vagas Fixo/Consultoria + coberturas Volante)
+  const { data: placements } = useQuery({
+    queryKey: ['employee-placements', id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('placements_history')
+        .select('*')
+        .eq('employee_id', id)
+        .order('end_date', { ascending: false })
+      if (error) return []
+      return data || []
+    },
+    enabled: tab === 'historico',
+  })
+
   const { data: agendaItems } = useQuery({
     queryKey: ['employee-agenda', id, agendaMonth],
     queryFn: async () => {
@@ -1138,11 +1153,17 @@ export default function EmployeeDetail() {
             {links?.map(l => {
               const contractEnd = (l as { contract_end_date?: string }).contract_end_date
               const contractFile = (l as { contract_file_url?: string }).contract_file_url
+              const linkCreated = (l as { created_at?: string }).created_at
+              const contractPendingHours = !contractFile && (l.service_type === 'Fixo' || l.service_type === 'Consultoria') && linkCreated
+                ? Math.floor((Date.now() - new Date(linkCreated).getTime()) / 3600000)
+                : null
+              const contractYellow = contractPendingHours !== null && contractPendingHours >= 24 && contractPendingHours < 48
+              const contractRed = contractPendingHours !== null && contractPendingHours >= 48
               const daysLeft = contractEnd ? differenceInDays(new Date(contractEnd + 'T12:00:00'), new Date()) : null
               const expiringSoon = daysLeft !== null && daysLeft >= 0 && daysLeft <= 40
               const expired = daysLeft !== null && daysLeft < 0
               return (
-                <div key={l.id} className={`border rounded-lg p-4 ${expired ? 'border-red-200 bg-red-50' : expiringSoon ? 'border-amber-200 bg-amber-50' : 'border-gray-100'}`}>
+                <div key={l.id} className={`border rounded-lg p-4 ${contractRed ? 'border-red-300 bg-red-50 ring-1 ring-red-200' : contractYellow ? 'border-amber-300 bg-amber-50 ring-1 ring-amber-200' : expired ? 'border-red-200 bg-red-50' : expiringSoon ? 'border-amber-200 bg-amber-50' : 'border-gray-100'}`}>
                   <div className="flex items-start justify-between">
                     <div className="flex-1 min-w-0">
                       <p className="font-medium">{(l as { client?: { name: string } }).client?.name}</p>
@@ -1154,6 +1175,18 @@ export default function EmployeeDetail() {
                         {(l as { visit_frequency?: string }).visit_frequency && l.service_type === 'Consultoria' && <span className="badge bg-orange-50 text-orange-600">{(l as { visit_frequency?: string }).visit_frequency}</span>}
                         {(l as { work_schedule_type?: string }).work_schedule_type && <span className="badge bg-gray-100 text-gray-600">{(l as { work_schedule_type?: string }).work_schedule_type}</span>}
                         {(l as { start_date?: string }).start_date && <span className="badge bg-green-50 text-green-700">Início: {formatDate((l as { start_date?: string }).start_date!)}</span>}
+                        {contractPendingHours !== null && (
+                          <span className={`badge text-xs font-semibold ${contractRed ? 'bg-red-100 text-red-700 animate-pulse' : contractYellow ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-500'}`}>
+                            {contractRed
+                              ? `⚠ Contrato URGENTE — anexar (${contractPendingHours}h atrás)`
+                              : contractYellow
+                              ? `⏳ Contrato pendente — anexar (${contractPendingHours}h atrás)`
+                              : `📎 Anexar contrato (${contractPendingHours}h)`}
+                          </span>
+                        )}
+                        {contractFile && (
+                          <span className="badge bg-green-100 text-green-700">✓ Contrato anexado</span>
+                        )}
                         {(l as { visits_per_week?: number }).visits_per_week ? (
                           <span className="badge bg-orange-50 text-orange-600">
                             {(l as { visits_per_week?: number }).visits_per_week} visita(s)/sem
@@ -1919,6 +1952,45 @@ export default function EmployeeDetail() {
       {/* HISTORICO */}
       {tab === 'historico' && (
         <div className="space-y-4">
+          {/* Passagens: por onde já passou (vagas + coberturas) */}
+          <div className="card p-5 space-y-3">
+            <h3 className="font-medium">Passagens</h3>
+            {(placements?.length ?? 0) === 0 ? (
+              <p className="text-sm text-gray-400">Nenhuma passagem encerrada registrada ainda.</p>
+            ) : (
+              <div className="space-y-2">
+                {placements?.map(p => {
+                  const days = p.start_date && p.end_date
+                    ? Math.max(1, Math.round((new Date(p.end_date).getTime() - new Date(p.start_date).getTime()) / 86400000))
+                    : null
+                  const svcColor = p.service_type === 'Volante'
+                    ? 'bg-orange-100 text-orange-700'
+                    : p.service_type === 'Consultoria'
+                    ? 'bg-purple-100 text-purple-700'
+                    : 'bg-blue-100 text-blue-700'
+                  return (
+                    <div key={p.id} className="p-3 rounded-lg border-l-4 border-gray-300 bg-gray-50/50">
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <div className="flex items-center gap-2 flex-wrap min-w-0">
+                          {p.service_type && <span className={`badge ${svcColor}`}>{p.service_type}</span>}
+                          <span className="font-medium text-sm text-gray-800 truncate">{p.client_name}</span>
+                          {p.vacancy_title && <span className="text-xs text-gray-500">· {p.vacancy_title}</span>}
+                        </div>
+                        <span className="text-xs text-gray-400">{formatDate(p.end_date)}</span>
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1">
+                        {p.start_date ? formatDate(p.start_date) : '?'} → {formatDate(p.end_date)}
+                        {days !== null && ` · ${days} dia${days === 1 ? '' : 's'}`}
+                        {p.monthly_amount ? ` · ${formatCurrency(Number(p.monthly_amount))}` : ''}
+                      </p>
+                      {p.dismissal_reason && <p className="text-xs text-gray-500 italic mt-0.5">{p.dismissal_reason}</p>}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+
           {/* Histórico manual */}
           <div className="card p-5 space-y-4">
             <div className="flex items-center justify-between">

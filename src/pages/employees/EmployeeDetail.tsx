@@ -1480,17 +1480,40 @@ export default function EmployeeDetail() {
                             {contractEnd ? `Vence ${formatDate(contractEnd)}` : '+ Definir vencimento'}
                           </button>
                         )}
-                        {contractFile ? (
-                          <SignedLink value={contractFile} bucket="contratos" className="text-xs text-blue-600 hover:underline flex items-center gap-1">
-                            <ExternalLink size={10} /> Ver contrato
-                          </SignedLink>
-                        ) : null}
-                        <button onClick={() => { setUploadingLinkId(l.id); setTimeout(() => linkFileRef.current?.click(), 50) }}
-                          className="text-xs text-gray-500 hover:text-primary-600 flex items-center gap-1"
-                          disabled={uploadingLinkId === l.id}>
-                          <Upload size={10} /> {uploadingLinkId === l.id ? 'Enviando...' : contractFile ? 'Trocar PDF' : 'Anexar PDF'}
-                        </button>
                       </div>
+
+                      {/* Check-in do contrato assinado — anexar o PDF confirma o processo e alimenta a pizza do Dashboard */}
+                      {(l.service_type === 'Fixo' || l.service_type === 'Consultoria') && (
+                        <div className={`mt-2 rounded-xl border px-3 py-2.5 flex items-center gap-3 ${contractFile ? 'border-green-200 bg-green-50' : 'border-amber-300 bg-amber-50'}`}>
+                          {contractFile ? (
+                            <>
+                              <CheckCircle size={18} className="text-green-600 shrink-0" />
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-semibold text-green-800">Contrato assinado anexado ✓</p>
+                                <SignedLink value={contractFile} bucket="contratos" className="text-xs text-green-700 hover:underline flex items-center gap-1">
+                                  <ExternalLink size={10} /> Ver contrato
+                                </SignedLink>
+                              </div>
+                              <button onClick={() => { setUploadingLinkId(l.id); setTimeout(() => linkFileRef.current?.click(), 50) }}
+                                className="btn-secondary text-xs shrink-0" disabled={uploadingLinkId === l.id}>
+                                <Upload size={12} /> {uploadingLinkId === l.id ? 'Enviando...' : 'Trocar'}
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <AlertTriangle size={18} className="text-amber-600 shrink-0" />
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-semibold text-amber-800">Contrato assinado pendente</p>
+                                <p className="text-xs text-amber-600">Anexe o PDF do contrato assinado para dar o check-in.</p>
+                              </div>
+                              <button onClick={() => { setUploadingLinkId(l.id); setTimeout(() => linkFileRef.current?.click(), 50) }}
+                                className="btn-primary text-xs shrink-0 bg-amber-600 hover:bg-amber-700" disabled={uploadingLinkId === l.id}>
+                                <Upload size={12} /> {uploadingLinkId === l.id ? 'Enviando...' : 'Anexar contrato'}
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      )}
                     </div>
                     <div className="flex flex-col items-end gap-1 ml-2 shrink-0">
                       {confirmRemoveLinkId === l.id ? (

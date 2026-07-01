@@ -621,7 +621,7 @@ export default function Dashboard() {
     const empId = (l as { employee?: { id: string } }).employee?.id
     const name = (l as { employee?: { full_name: string } }).employee?.full_name || 'Colaborador'
     const client = (l as { client?: { name: string } }).client?.name || ''
-    const path = empId ? `/colaboradores/${empId}?tab=arquivos` : '/colaboradores'
+    const path = empId ? `/colaboradores/${empId}?tab=vinculos` : '/colaboradores'
     const label = `Contrato pendente: ${name}${client ? ' – ' + client : ''} — anexar contrato assinado${hours > 0 ? ` (há ${hours}h)` : ''}`
     if (hours >= 48) redAlerts.push({ text: label, path })
     else amberAlerts.push({ text: label, path })

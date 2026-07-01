@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Download, Check, RefreshCw, AlertTriangle, TrendingUp } from 'lucide-react'
+import { Plus, Download, Check, RefreshCw, AlertTriangle, ChevronDown, ChevronUp, BarChart3 } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { formatDate, formatCurrency } from '../../lib/utils'
 import { exportToCSV } from '../../lib/exportUtils'
@@ -12,7 +12,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
 } from 'recharts'
 
-type Tab = 'estimativa' | 'real' | 'analise'
+type Tab = 'folha' | 'pagos'
 type WorkerGroup = 'consultoria' | 'fixo_plantao' | 'temporario'
 
 function workerGroup(serviceType: string | null, schedule: string | null): WorkerGroup {
@@ -49,7 +49,8 @@ const STATUS_COLORS: Record<string, string> = {
 export default function PaymentList() {
   const navigate = useNavigate()
   const qc = useQueryClient()
-  const [tab, setTab] = useState<Tab>('estimativa')
+  const [tab, setTab] = useState<Tab>('folha')
+  const [showCharts, setShowCharts] = useState(false)
   const [filterMonth, setFilterMonth] = useState(() => format(new Date(), 'yyyy-MM'))
   const [filterStatus, setFilterStatus] = useState('')
   const [newExpenseEmpId, setNewExpenseEmpId] = useState<string | null>(null)
@@ -518,9 +519,8 @@ export default function PaymentList() {
         </div>
         <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
           {([
-            ['estimativa', 'Estimativa'],
-            ['real', 'Real'],
-            ['analise', 'Análise da Folha'],
+            ['folha', 'Folha do Mês'],
+            ['pagos', 'Pagos'],
           ] as const).map(([k, label]) => (
             <button key={k} onClick={() => setTab(k)}
               className={`px-3.5 py-2 text-sm font-semibold whitespace-nowrap rounded-xl transition-all active:scale-95 ${tab === k ? 'bg-primary-600 text-white shadow-soft' : 'bg-white border border-ink-100 text-ink-500 hover:text-ink-800 hover:border-ink-200'}`}>
@@ -530,119 +530,108 @@ export default function PaymentList() {
         </div>
       </div>
 
-      {/* ── ESTIMATIVA TAB ── */}
-      {tab === 'estimativa' && (
+      {/* ── FOLHA DO MÊS ── */}
+      {tab === 'folha' && (
         <div className="space-y-4">
-          <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 text-sm text-blue-700 flex items-center gap-2">
-            <TrendingUp size={16} />
-            Valores esperados para o mês. Gerados automaticamente ao criar vínculos.
-          </div>
-
-          {/* ── Gráficos ── */}
-          {!isLoading && (folhaData?.length ?? 0) > 0 && (() => {
-            // Distribuição por grupo — baseado nos vínculos ativos
-            const groupTotals = [
-              { name: 'Consultoria', value: (folhaData ?? []).filter(r => r.group === 'consultoria').reduce((s, r) => s + r.monthly_amount, 0), color: '#f97316' },
-              { name: 'Fixo / Plantão', value: (folhaData ?? []).filter(r => r.group === 'fixo_plantao').reduce((s, r) => s + r.monthly_amount, 0), color: '#3b82f6' },
-              { name: 'Temporário', value: (folhaData ?? []).filter(r => r.group === 'temporario').reduce((s, r) => s + r.monthly_amount, 0), color: '#f59e0b' },
-            ].filter(g => g.value > 0)
-
-            // Top colaboradores por custo
-            const byEmployee = (folhaData ?? []).map(r => ({
-              name: r.employee?.full_name?.split(' ').slice(0, 2).join(' ') || '-',
-              Estimativa: r.monthly_amount,
-              'Aj. Custo': r.cost_assistance,
-            })).sort((a, b) => (b.Estimativa + b['Aj. Custo']) - (a.Estimativa + a['Aj. Custo'])).slice(0, 8)
-
-            const totalGroups = groupTotals.reduce((s, g) => s + g.value, 0)
-
-            return (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                {/* Donut — para onde vai o dinheiro */}
-                <div className="card p-4">
-                  <p className="font-semibold text-gray-900 text-sm mb-1">Para onde vai o dinheiro</p>
-                  <p className="text-xs text-gray-400 mb-3">Distribuição por tipo de contrato — {format(new Date(filterMonth + '-15'), 'MMMM yyyy', { locale: undefined })}</p>
-                  {groupTotals.length > 0 ? (
-                    <>
-                      <div className="h-44">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <PieChart>
-                            <Pie data={groupTotals} cx="50%" cy="50%" innerRadius={48} outerRadius={72} dataKey="value" paddingAngle={3}>
-                              {groupTotals.map((entry, i) => <Cell key={i} fill={entry.color} />)}
-                            </Pie>
-                            <Tooltip formatter={(v: number) => formatCurrency(v)} />
-                            <Legend iconType="circle" iconSize={8} formatter={(v) => <span className="text-xs text-gray-600">{v}</span>} />
-                          </PieChart>
-                        </ResponsiveContainer>
-                      </div>
-                      <div className="mt-2 space-y-1.5">
-                        {groupTotals.map((g, i) => (
-                          <div key={i} className="flex items-center gap-2">
-                            <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
-                              <div className="h-2 rounded-full" style={{ width: `${(g.value / totalGroups) * 100}%`, backgroundColor: g.color }} />
-                            </div>
-                            <span className="text-xs font-medium text-gray-700 w-28 text-right">{formatCurrency(g.value)}</span>
-                            <span className="text-xs text-gray-400 w-8">{Math.round((g.value / totalGroups) * 100)}%</span>
-                          </div>
-                        ))}
-                      </div>
-                    </>
-                  ) : (
-                    <p className="text-center text-sm text-gray-400 py-8">Sem lançamentos</p>
-                  )}
-                </div>
-
-                {/* Bar — custo por colaborador */}
-                <div className="card p-4">
-                  <p className="font-semibold text-gray-900 text-sm mb-1">Custo por Colaborador</p>
-                  <p className="text-xs text-gray-400 mb-3">Top {byEmployee.length} por valor estimado</p>
-                  {byEmployee.length > 0 ? (
-                    <div className="h-52">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={byEmployee} layout="vertical" margin={{ left: 0, right: 10 }}>
-                          <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-                          <XAxis type="number" tickFormatter={v => `R$${(v/1000).toFixed(0)}k`} tick={{ fontSize: 10 }} />
-                          <YAxis type="category" dataKey="name" tick={{ fontSize: 10 }} width={70} />
-                          <Tooltip formatter={(v: number) => formatCurrency(v)} />
-                          <Bar dataKey="Estimativa" fill="#6366f1" radius={[0, 4, 4, 0]} />
-                          <Bar dataKey="Aj. Custo" fill="#3b82f6" radius={[0, 4, 4, 0]} />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </div>
-                  ) : (
-                    <p className="text-center text-sm text-gray-400 py-8">Sem dados</p>
-                  )}
-                </div>
-
-                {/* Status cards */}
-                <div className="lg:col-span-2 grid grid-cols-4 gap-3">
-                  {[
-                    { label: 'Total Estimado', value: totalEstimativa, color: 'bg-blue-50 text-blue-800', sub: `${folhaData?.length ?? 0} colaboradores` },
-                    { label: 'Reembolsos / Gastos', value: totalExpenses, color: 'bg-orange-50 text-orange-800', sub: `${expenses?.length || 0} lançamentos` },
-                    { label: 'Total Pago', value: totalPago, color: 'bg-green-50 text-green-800', sub: '✓ confirmados' },
-                    { label: 'Atrasado', value: totalAtrasado, color: 'bg-red-50 text-red-800', sub: '⚠ vencidos' },
-                  ].map((c, i) => (
-                    <div key={i} className={`rounded-xl p-3 ${c.color}`}>
-                      <p className="text-xs font-medium opacity-70">{c.label}</p>
-                      <p className="text-xl font-bold mt-0.5">{formatCurrency(c.value)}</p>
-                      <p className="text-xs opacity-60 mt-0.5">{c.sub}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )
-          })()}
-
-          {isLoading
+          {isLoading || folhaLoading
             ? <div className="flex justify-center py-12"><div className="animate-spin rounded-full h-8 w-8 border-4 border-primary-600 border-t-transparent" /></div>
             : (folhaData?.length ?? 0) === 0
               ? <div className="card p-8 text-center text-gray-400">Nenhum colaborador com vínculo ativo e valor definido. Adicione um vínculo com salário para aparecer aqui.</div>
               : <>
-              {/* Render groups based on folhaData (active vinculos), not payments table */}
+              {/* Resumo cards */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                {[
+                  { label: 'Estimativa', value: totalEstimativa, color: 'bg-blue-50 text-blue-800', sub: `${folhaData?.length ?? 0} colaboradores` },
+                  { label: 'Gastos extras', value: totalExpenses, color: 'bg-orange-50 text-orange-800', sub: `${expenses?.length || 0} lançamentos` },
+                  { label: 'Total Pago', value: totalPago, color: 'bg-green-50 text-green-800', sub: 'confirmados' },
+                  { label: 'Atrasado', value: totalAtrasado, color: 'bg-red-50 text-red-800', sub: 'vencidos' },
+                ].map((c, i) => (
+                  <div key={i} className={`rounded-xl p-3 ${c.color}`}>
+                    <p className="text-xs font-medium opacity-70">{c.label}</p>
+                    <p className="text-xl font-bold mt-0.5">{formatCurrency(c.value)}</p>
+                    <p className="text-xs opacity-60 mt-0.5">{c.sub}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* Gráficos colapsáveis */}
+              <button
+                onClick={() => setShowCharts(!showCharts)}
+                className="flex items-center gap-2 text-sm font-medium text-ink-500 hover:text-ink-700 transition-colors"
+              >
+                <BarChart3 size={15} />
+                Gráficos
+                {showCharts ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+              </button>
+
+              {showCharts && (() => {
+                const groupTotals = [
+                  { name: 'Consultoria', value: (folhaData ?? []).filter(r => r.group === 'consultoria').reduce((s, r) => s + r.monthly_amount, 0), color: '#f97316' },
+                  { name: 'Fixo / Plantão', value: (folhaData ?? []).filter(r => r.group === 'fixo_plantao').reduce((s, r) => s + r.monthly_amount, 0), color: '#3b82f6' },
+                  { name: 'Temporário', value: (folhaData ?? []).filter(r => r.group === 'temporario').reduce((s, r) => s + r.monthly_amount, 0), color: '#f59e0b' },
+                ].filter(g => g.value > 0)
+                const byEmployee = (folhaData ?? []).map(r => ({
+                  name: r.employee?.full_name?.split(' ').slice(0, 2).join(' ') || '-',
+                  Estimativa: r.monthly_amount,
+                  'Aj. Custo': r.cost_assistance,
+                })).sort((a, b) => (b.Estimativa + b['Aj. Custo']) - (a.Estimativa + a['Aj. Custo'])).slice(0, 8)
+                const totalGroups = groupTotals.reduce((s, g) => s + g.value, 0)
+                return (
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    <div className="card p-4">
+                      <p className="font-semibold text-gray-900 text-sm mb-3">Distribuição por tipo</p>
+                      {groupTotals.length > 0 ? (
+                        <>
+                          <div className="h-40">
+                            <ResponsiveContainer width="100%" height="100%">
+                              <PieChart>
+                                <Pie data={groupTotals} cx="50%" cy="50%" innerRadius={45} outerRadius={68} dataKey="value" paddingAngle={3}>
+                                  {groupTotals.map((entry, i) => <Cell key={i} fill={entry.color} />)}
+                                </Pie>
+                                <Tooltip formatter={(v: number) => formatCurrency(v)} />
+                                <Legend iconType="circle" iconSize={8} formatter={(v) => <span className="text-xs text-gray-600">{v}</span>} />
+                              </PieChart>
+                            </ResponsiveContainer>
+                          </div>
+                          <div className="mt-2 space-y-1.5">
+                            {groupTotals.map((g, i) => (
+                              <div key={i} className="flex items-center gap-2">
+                                <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                                  <div className="h-2 rounded-full" style={{ width: `${(g.value / totalGroups) * 100}%`, backgroundColor: g.color }} />
+                                </div>
+                                <span className="text-xs font-medium text-gray-700 w-28 text-right">{formatCurrency(g.value)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      ) : <p className="text-center text-sm text-gray-400 py-8">Sem dados</p>}
+                    </div>
+                    <div className="card p-4">
+                      <p className="font-semibold text-gray-900 text-sm mb-3">Top colaboradores</p>
+                      {byEmployee.length > 0 ? (
+                        <div className="h-52">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={byEmployee} layout="vertical" margin={{ left: 0, right: 10 }}>
+                              <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                              <XAxis type="number" tickFormatter={v => `R$${(v/1000).toFixed(0)}k`} tick={{ fontSize: 10 }} />
+                              <YAxis type="category" dataKey="name" tick={{ fontSize: 10 }} width={70} />
+                              <Tooltip formatter={(v: number) => formatCurrency(v)} />
+                              <Bar dataKey="Estimativa" fill="#6366f1" radius={[0, 4, 4, 0]} />
+                              <Bar dataKey="Aj. Custo" fill="#3b82f6" radius={[0, 4, 4, 0]} />
+                            </BarChart>
+                          </ResponsiveContainer>
+                        </div>
+                      ) : <p className="text-center text-sm text-gray-400 py-8">Sem dados</p>}
+                    </div>
+                  </div>
+                )
+              })()}
+
+              {/* Colaboradores agrupados — estimativa + realizado lado a lado */}
               {([
-                { key: 'consultoria' as WorkerGroup, label: 'Nutricionistas Consultoria', icon: '🏥', colors: { bg: 'bg-orange-50', border: 'border-orange-200', text: 'text-orange-800', badge: 'bg-orange-100 text-orange-700', sub: 'text-orange-500', exp: 'text-orange-700 bg-orange-50' } },
-                { key: 'fixo_plantao' as WorkerGroup, label: 'Nutricionistas Fixos / Plantão', icon: '📅', colors: { bg: 'bg-blue-50', border: 'border-blue-200', text: 'text-blue-800', badge: 'bg-blue-100 text-blue-700', sub: 'text-blue-500', exp: 'text-blue-700 bg-blue-50' } },
-                { key: 'temporario' as WorkerGroup, label: 'Contratos Temporários', icon: '⏱', colors: { bg: 'bg-amber-50', border: 'border-amber-200', text: 'text-amber-800', badge: 'bg-amber-100 text-amber-700', sub: 'text-amber-500', exp: 'text-amber-700 bg-amber-50' } },
+                { key: 'consultoria' as WorkerGroup, label: 'Consultoria', icon: '🏥', colors: { bg: 'bg-orange-50', text: 'text-orange-800', badge: 'bg-orange-100 text-orange-700', exp: 'text-orange-700 bg-orange-50' } },
+                { key: 'fixo_plantao' as WorkerGroup, label: 'Fixos / Plantão', icon: '📅', colors: { bg: 'bg-blue-50', text: 'text-blue-800', badge: 'bg-blue-100 text-blue-700', exp: 'text-blue-700 bg-blue-50' } },
+                { key: 'temporario' as WorkerGroup, label: 'Temporários', icon: '⏱', colors: { bg: 'bg-amber-50', text: 'text-amber-800', badge: 'bg-amber-100 text-amber-700', exp: 'text-amber-700 bg-amber-50' } },
               ]).map(({ key, label, icon, colors }) => {
                 const group = folhaData?.filter(r => r.group === key) ?? []
                 if (!group.length) return null
@@ -656,90 +645,175 @@ export default function PaymentList() {
                       <div className="flex items-center gap-2">
                         <span className="text-base">{icon}</span>
                         <span className={`font-semibold ${colors.text}`}>{label}</span>
-                        <span className={`badge ${colors.badge} text-xs`}>{group.length} nutri</span>
+                        <span className={`badge ${colors.badge} text-xs`}>{group.length}</span>
                       </div>
                       <div className="text-right">
                         <p className={`font-bold ${colors.text}`}>{formatCurrency(totalSalaries + caTotal + totalExp)}</p>
                         {(totalExp > 0 || caTotal > 0) && (
-                          <p className={`text-xs ${colors.sub}`}>
-                            {formatCurrency(totalSalaries)} honorários{caTotal > 0 ? ` + ${formatCurrency(caTotal)} aj.custo` : ''}{totalExp > 0 ? ` + ${formatCurrency(totalExp)} gastos` : ''}
+                          <p className="text-xs text-gray-500">
+                            {formatCurrency(totalSalaries)} base{caTotal > 0 ? ` + ${formatCurrency(caTotal)} aj.custo` : ''}{totalExp > 0 ? ` + ${formatCurrency(totalExp)} gastos` : ''}
                           </p>
                         )}
                       </div>
                     </div>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead className="bg-gray-50 border-b">
-                          <tr>
-                            <th className="text-left px-3 py-2 text-xs font-medium text-gray-500">COLABORADOR</th>
-                            <th className="text-left px-3 py-2 text-xs font-medium text-gray-500">CLIENTE</th>
-                            <th className="text-left px-3 py-2 text-xs font-medium text-gray-500">VALOR</th>
-                            <th className="text-left px-3 py-2 text-xs font-medium text-gray-500">STATUS</th>
-                            <th className="px-3 py-2"></th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-100">
-                          {group.map(row => {
-                            const pay = payForEmp(row.employee?.id || '')
-                            return (
-                              <tr key={row.linkId} className="hover:bg-gray-50">
-                                <td className="px-3 py-2">
+                    <div className="divide-y divide-gray-100">
+                      {group.map(row => {
+                        const pay = payForEmp(row.employee?.id || '')
+                        const isConsultoria = row.service_type === 'Consultoria'
+                        const salarioReal = isConsultoria ? (row.actualAmount || 0) : row.monthly_amount
+                        const empExpAmt = (expenses?.filter(e => (e as { employee_id?: string }).employee_id === row.employee?.id) ?? []).reduce((s, e) => s + Number(e.amount), 0)
+                        const totalAPagar = salarioReal + empExpAmt + row.cost_assistance
+                        const diff = isConsultoria ? 0 : row.actualDays - row.expDays
+                        const isShort = !isConsultoria && row.actualDays < row.expDays
+
+                        return (
+                          <div key={row.linkId} className="p-4">
+                            <div className="flex items-center gap-4 flex-wrap">
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
                                   <button
-                                    className="font-medium text-sm text-primary-700 hover:underline text-left"
+                                    className="font-semibold text-sm text-primary-700 hover:underline text-left truncate"
                                     onClick={() => navigate(`/colaboradores/${row.employee?.id}`, { state: { tab: 'vinculos' } })}
                                   >
                                     {row.employee?.full_name}
                                   </button>
-                                </td>
-                                <td className="px-3 py-2 text-gray-500 text-xs">{row.client?.name}</td>
-                                <td className="px-3 py-2 font-semibold">{formatCurrency(row.monthly_amount)}</td>
-                                <td className="px-3 py-2">
-                                  {pay
-                                    ? <span className={`badge ${STATUS_COLORS[pay.status] || 'bg-gray-100'}`}>{pay.status}</span>
-                                    : <span className="badge bg-gray-100 text-gray-500 text-xs">Sem lançamento</span>
-                                  }
-                                </td>
-                                <td className="px-3 py-2">
-                                  <div className="flex gap-1 justify-end">
-                                    {pay?.status === 'Pendente' && (
+                                  <span className="text-xs text-gray-400">{row.client?.name}</span>
+                                  {row.work_schedule && <span className="badge bg-gray-100 text-gray-600 text-xs">{row.work_schedule}</span>}
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-3 flex-shrink-0">
+                                <div className="text-center px-3">
+                                  <p className="text-xs text-gray-400">Estimativa</p>
+                                  <p className="text-sm font-semibold text-gray-700">{formatCurrency(row.monthly_amount)}</p>
+                                </div>
+                                {isConsultoria ? (
+                                  <div className="text-center px-3 border-l border-gray-100">
+                                    <p className="text-xs text-gray-400">{row.actualVisits} visita{row.actualVisits !== 1 ? 's' : ''}</p>
+                                    <p className="text-sm font-bold text-orange-700">{formatCurrency(row.actualAmount || 0)}</p>
+                                  </div>
+                                ) : (
+                                  <div className="text-center px-3 border-l border-gray-100">
+                                    <p className="text-xs text-gray-400">{row.actualDays}/{row.expDays} dias</p>
+                                    <p className={`text-sm font-bold ${isShort ? 'text-red-600' : 'text-green-600'}`}>
+                                      {isShort ? `${Math.abs(diff)} faltam` : 'OK'}
+                                    </p>
+                                  </div>
+                                )}
+                                <div className="text-center px-3 border-l border-gray-100 bg-purple-50 rounded-lg py-1">
+                                  <p className="text-xs text-purple-500">A pagar</p>
+                                  <p className="text-sm font-bold text-purple-800">{formatCurrency(totalAPagar)}</p>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-2 flex-shrink-0">
+                                {pay ? (
+                                  <>
+                                    <span className={`badge ${STATUS_COLORS[pay.status] || 'bg-gray-100'}`}>{pay.status}</span>
+                                    {pay.status === 'Pendente' && (
                                       <button onClick={() => markPaid.mutate(pay.id)} className="btn-primary text-xs flex items-center gap-1 py-1"><Check size={12} />Pago</button>
                                     )}
-                                    {!pay && (
-                                      <button
-                                        onClick={() => autoGeneratePayment.mutate(row)}
-                                        disabled={autoGeneratePayment.isPending}
-                                        className="btn-secondary text-xs py-1"
-                                      >
-                                        Gerar
-                                      </button>
-                                    )}
-                                    {pay && (
-                                      <button onClick={() => navigate(`/pagamentos/${pay.id}/editar`)} className="btn-ghost text-xs">Editar</button>
-                                    )}
+                                    <button onClick={() => navigate(`/pagamentos/${pay.id}/editar`)} className="btn-ghost text-xs">Editar</button>
+                                  </>
+                                ) : (
+                                  <>
+                                    <span className="badge bg-gray-100 text-gray-500 text-xs">Sem lançamento</span>
+                                    <button
+                                      onClick={() => autoGeneratePayment.mutate(row)}
+                                      disabled={autoGeneratePayment.isPending}
+                                      className="btn-secondary text-xs py-1"
+                                    >Gerar</button>
+                                  </>
+                                )}
+                                {!row.hasRealPayment && (
+                                  <button
+                                    className="btn-ghost text-xs text-green-600 flex items-center gap-1"
+                                    onClick={() => generateRealPayment.mutate({ ...row, realAmt: isConsultoria ? row.realAmt : row.monthly_amount })}
+                                    disabled={generateRealPayment.isPending}
+                                    title="Gerar pagamento real baseado na folha"
+                                  >
+                                    <RefreshCw size={12} />Real
+                                  </button>
+                                )}
+                                {row.hasRealPayment && (
+                                  <span className="flex items-center gap-1 text-green-600 text-xs font-medium"><Check size={12} />Real</span>
+                                )}
+                              </div>
+                            </div>
+
+                            {(row.cost_assistance > 0 || empExpAmt > 0 || isShort || (isConsultoria && row.actualVisits > 0 && (row.visits as { observations?: string }[]).some(v => v.observations))) && (
+                              <div className="mt-2 flex items-center gap-3 flex-wrap text-xs">
+                                {row.cost_assistance > 0 && <span className="text-blue-600">🚗 Aj.custo: {formatCurrency(row.cost_assistance)}</span>}
+                                {empExpAmt > 0 && <span className="text-orange-600">💸 Gastos: {formatCurrency(empExpAmt)}</span>}
+                                {isShort && (
+                                  <span className="text-red-500 flex items-center gap-1">
+                                    <AlertTriangle size={11} />{Math.abs(diff)} dia(s) sem registro
+                                  </span>
+                                )}
+                                {isConsultoria && row.actualVisits > 0 && (row.visits as { observations?: string }[]).some(v => v.observations) && (
+                                  <span className="text-amber-600">⚠ Há observações nos registros</span>
+                                )}
+                              </div>
+                            )}
+
+                            <details className="mt-2">
+                              <summary className="text-xs text-primary-600 cursor-pointer hover:underline">
+                                {row.visits.length > 0 ? `${row.visits.length} registro(s) de ponto` : 'Gastos'}
+                              </summary>
+                              {row.visits.length > 0 && (
+                                <div className="mt-2 grid grid-cols-3 gap-1">
+                                  {row.visits.slice(0, 30).map((v, i) => (
+                                    <div key={i} className="text-xs bg-gray-50 rounded px-2 py-1 flex items-center justify-between">
+                                      <span className="text-gray-600">{formatDate(v.visit_date)}</span>
+                                      <span className="text-gray-400">{v.check_in?.slice(0, 5)} – {v.check_out?.slice(0, 5) || '?'}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                              <div className="mt-2 space-y-1">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-xs font-medium text-gray-500">Gastos / Ajuda de Custo</span>
+                                  <button
+                                    className="btn-secondary text-xs flex items-center gap-1 py-0.5"
+                                    onClick={() => setNewExpenseEmpId(newExpenseEmpId === row.employee?.id ? null : (row.employee?.id ?? null))}
+                                  ><Plus size={11} /> Novo Gasto</button>
+                                </div>
+                                {row.cost_assistance > 0 && (
+                                  <div className="flex items-center justify-between text-xs bg-blue-50 rounded px-2 py-1">
+                                    <span className="text-blue-700">🚗 Ajuda de Custo (contrato)</span>
+                                    <span className="font-medium text-blue-800">{formatCurrency(row.cost_assistance)}</span>
                                   </div>
-                                </td>
-                              </tr>
-                            )
-                          })}
-                        </tbody>
-                      </table>
+                                )}
+                                {(expenses?.filter(e => (e as { employee_id?: string }).employee_id === row.employee?.id) ?? []).map(e => (
+                                  <div key={e.id} className="flex items-center justify-between text-xs bg-orange-50 rounded px-2 py-1">
+                                    <span className="text-orange-700">💸 {e.description} <span className="text-gray-400">({e.category})</span></span>
+                                    <span className="font-medium text-orange-800">{formatCurrency(Number(e.amount))}</span>
+                                  </div>
+                                ))}
+                                {newExpenseEmpId === row.employee?.id && (
+                                  <div className="bg-gray-50 rounded-lg p-3 space-y-2 mt-2">
+                                    <p className="text-xs font-semibold text-gray-600">Registrar gasto</p>
+                                    <div className="grid grid-cols-2 gap-2">
+                                      <input className="input text-sm col-span-2" placeholder="Descrição *" value={expForm.description} onChange={e => setExpForm(p => ({ ...p, description: e.target.value }))} />
+                                      <input className="input text-sm" type="number" placeholder="Valor R$ *" value={expForm.amount} onChange={e => setExpForm(p => ({ ...p, amount: e.target.value }))} />
+                                      <select className="input text-sm" value={expForm.category} onChange={e => setExpForm(p => ({ ...p, category: e.target.value }))}>
+                                        <option>Reembolso</option><option>Ajuda de Custo</option><option>Vale Transporte</option>
+                                        <option>Alimentação</option><option>Material</option><option>Outro</option>
+                                      </select>
+                                      <input className="input text-sm col-span-2" placeholder="Observação (opcional)" value={expForm.notes} onChange={e => setExpForm(p => ({ ...p, notes: e.target.value }))} />
+                                    </div>
+                                    <div className="flex gap-2">
+                                      <button className="btn-primary text-xs py-1" onClick={() => addExpense.mutate(row.employee!.id)} disabled={addExpense.isPending || !expForm.description || !expForm.amount}>Salvar</button>
+                                      <button className="btn-ghost text-xs" onClick={() => setNewExpenseEmpId(null)}>Cancelar</button>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            </details>
+                          </div>
+                        )
+                      })}
                     </div>
-                    {(expGroup.length > 0 || caTotal > 0) && (
-                      <div className="border-t px-4 py-2 space-y-1">
-                        {caTotal > 0 && (
-                          <div className={`flex items-center justify-between text-xs ${colors.exp} rounded px-2 py-1`}>
-                            <span>🚗 Ajuda de Custo total</span>
-                            <span className="font-medium">{formatCurrency(caTotal)}</span>
-                          </div>
-                        )}
-                        {expGroup.map(e => (
-                          <div key={e.id} className={`flex items-center justify-between text-xs ${colors.exp} rounded px-2 py-1`}>
-                            <span>💸 {e.description} <span className="text-gray-400">({e.category})</span></span>
-                            <span className="font-medium">{formatCurrency(Number(e.amount))}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
                   </div>
                 )
               })}
@@ -756,7 +830,7 @@ export default function PaymentList() {
                       </div>
                       <p className="font-bold text-gray-700">{formatCurrency(unlinkedPayments.reduce((s, p) => s + (p.amount || 0), 0))}</p>
                     </div>
-                    <p className="text-xs text-gray-400 mt-1">Lançamentos manuais ou de colaboradores que não possuem mais vínculo ativo.</p>
+                    <p className="text-xs text-gray-400 mt-1">Lançamentos manuais sem vínculo ativo.</p>
                   </div>
                   <PaymentTable list={unlinkedPayments} />
                 </div>
@@ -766,20 +840,16 @@ export default function PaymentList() {
         </div>
       )}
 
-      {/* ── REAL TAB ── */}
-      {tab === 'real' && (
+      {/* ── PAGOS TAB ── */}
+      {tab === 'pagos' && (
         <div className="space-y-4">
-          <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-3 text-sm text-green-700 flex items-center gap-2">
-            <Check size={16} />
-            Pagamentos confirmados como realizados. Somente lançamentos com status <strong>Pago</strong>.
-          </div>
           {(() => {
             const paidList = (payments ?? []).filter(p => p.status === 'Pago')
             const totalReal = paidList.reduce((s, p) => s + (p.amount || 0), 0)
             if (!paidList.length) return (
               <div className="card p-8 text-center text-gray-400">
                 Nenhum pagamento confirmado neste mês.<br />
-                <span className="text-xs mt-1 block">Marque um pagamento como <strong>Pago</strong> para ele aparecer aqui.</span>
+                <span className="text-xs mt-1 block">Marque como <strong>Pago</strong> na aba Folha do Mês.</span>
               </div>
             )
             return (
@@ -825,237 +895,6 @@ export default function PaymentList() {
         </div>
       )}
 
-      {/* ── ANÁLISE FOLHA DE PONTO ── */}
-      {tab === 'analise' && (
-        <div className="space-y-3">
-          <div className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-600">
-            Compare dias/visitas realizadas vs esperadas. Gere o pagamento real com base na folha.
-          </div>
-
-          {folhaLoading && (
-            <div className="flex justify-center py-12"><div className="animate-spin rounded-full h-8 w-8 border-4 border-primary-600 border-t-transparent" /></div>
-          )}
-
-          {!folhaLoading && folhaData?.length === 0 && (
-            <div className="card p-8 text-center text-gray-400">Nenhum colaborador com vínculo ativo e valor definido.</div>
-          )}
-
-          {folhaData?.map(row => {
-            const isConsultoria = row.service_type === 'Consultoria'
-            const diff = isConsultoria
-              ? (row.actualVisits - 0)
-              : (row.actualDays - row.expDays)
-            const pct = isConsultoria
-              ? 100
-              : row.expDays > 0 ? Math.round((row.actualDays / row.expDays) * 100) : 0
-            const isShort = !isConsultoria && row.actualDays < row.expDays
-            const isOver = !isConsultoria && row.actualDays > row.expDays
-
-            return (
-              <div key={row.linkId} className={`card p-4 border-l-4 ${isShort ? 'border-red-400' : isOver ? 'border-blue-400' : 'border-green-400'}`}>
-                <div className="flex items-start justify-between gap-3 flex-wrap">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      {row.employee?.id ? (
-                        <button
-                          className="font-semibold text-primary-700 hover:underline text-left"
-                          onClick={() => navigate(`/colaboradores/${row.employee!.id}`, { state: { tab: 'vinculos' } })}
-                        >
-                          {row.employee.full_name}
-                        </button>
-                      ) : (
-                        <p className="font-semibold">{row.employee?.full_name || '-'}</p>
-                      )}
-                      <span className={`badge text-xs ${isConsultoria ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'}`}>{row.service_type}</span>
-                      {row.work_schedule && <span className="badge bg-gray-100 text-gray-600 text-xs">{row.work_schedule}</span>}
-                    </div>
-                    <p className="text-xs text-gray-400 mt-0.5">{row.client?.name}</p>
-
-                    {/* Stats */}
-                    <div className="mt-3 grid grid-cols-3 gap-3 text-center">
-                      {!isConsultoria ? (
-                        <>
-                          <div className="bg-gray-50 rounded-lg p-2">
-                            <p className="text-lg font-bold text-gray-800">{row.actualDays}</p>
-                            <p className="text-xs text-gray-400">dias realizados</p>
-                          </div>
-                          <div className="bg-gray-50 rounded-lg p-2">
-                            <p className="text-lg font-bold text-gray-500">{row.expDays}</p>
-                            <p className="text-xs text-gray-400">dias esperados</p>
-                          </div>
-                          <div className={`rounded-lg p-2 ${isShort ? 'bg-red-50' : 'bg-green-50'}`}>
-                            <p className={`text-lg font-bold ${isShort ? 'text-red-600' : 'text-green-600'}`}>{pct}%</p>
-                            <p className={`text-xs ${isShort ? 'text-red-400' : 'text-green-400'}`}>{isShort ? `${Math.abs(diff)} dias faltam` : 'completo'}</p>
-                          </div>
-                        </>
-                      ) : (
-                        <>
-                          <div className="bg-gray-50 rounded-lg p-2">
-                            <p className="text-lg font-bold text-gray-800">{row.actualVisits}</p>
-                            <p className="text-xs text-gray-400">visitas</p>
-                          </div>
-                          <div className="bg-orange-50 rounded-lg p-2">
-                            <p className="text-lg font-bold text-orange-700">{formatCurrency(row.actualAmount || 0)}</p>
-                            <p className="text-xs text-orange-400">a receber</p>
-                          </div>
-                          <div className="bg-gray-50 rounded-lg p-2">
-                            <p className="text-lg font-bold text-gray-500">{formatCurrency(row.monthly_amount)}</p>
-                            <p className="text-xs text-gray-400">estimativa</p>
-                          </div>
-                        </>
-                      )}
-                    </div>
-
-                    {/* Custo total do mês */}
-                    {(() => {
-                      const empExpAmt = (expenses?.filter(e => (e as { employee_id?: string }).employee_id === row.employee?.id) ?? [])
-                        .reduce((s, e) => s + Number(e.amount), 0)
-                      // Fixo: sempre salário cheio. Consultoria: visitas realizadas.
-                      const salarioReal = isConsultoria ? row.realAmt : row.monthly_amount
-                      const totalReal = salarioReal + empExpAmt + row.cost_assistance
-                      return (
-                        <div className="mt-3 flex items-center gap-3">
-                          <div className="flex-1 bg-purple-50 rounded-lg px-3 py-2">
-                            <div className="flex items-center justify-between">
-                              <span className="text-xs text-purple-600 font-medium">A pagar este mês</span>
-                              <span className="font-bold text-purple-800">{formatCurrency(totalReal)}</span>
-                            </div>
-                            <div className="flex gap-3 mt-1 flex-wrap">
-                              <span className="text-xs text-purple-500">
-                                {isConsultoria ? `${row.actualVisits} visita(s): ` : 'Salário fixo: '}
-                                {formatCurrency(salarioReal)}
-                              </span>
-                              {row.cost_assistance > 0 && <span className="text-xs text-blue-500">Aj.custo: {formatCurrency(row.cost_assistance)}</span>}
-                              {empExpAmt > 0 && <span className="text-xs text-orange-500">Gastos: {formatCurrency(empExpAmt)}</span>}
-                            </div>
-                            {!isConsultoria && isShort && (
-                              <p className="text-xs mt-1 text-gray-400 italic">
-                                {Math.abs(diff)} dia(s) sem registro — folha de ponto incompleta. Salário gerado normalmente.
-                              </p>
-                            )}
-                            {isConsultoria && row.actualVisits > 0 && (row.visits as { observations?: string }[]).some(v => v.observations) && (
-                              <p className="text-xs mt-1 text-amber-600 font-medium">
-                                ⚠ Há observações nos registros — verifique se há horas extras a pagar.
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                      )
-                    })()}
-                  </div>
-
-                  {/* Action */}
-                  <div className="flex flex-col gap-2 items-end">
-                    {row.hasRealPayment ? (
-                      <div className="flex items-center gap-1.5 text-green-600 text-sm font-medium">
-                        <Check size={16} /> Gerado
-                      </div>
-                    ) : (
-                      <button
-                        className="btn-primary text-sm flex items-center gap-1.5 whitespace-nowrap"
-                        onClick={() => generateRealPayment.mutate({ ...row, realAmt: isConsultoria ? row.realAmt : row.monthly_amount })}
-                        disabled={generateRealPayment.isPending}
-                      >
-                        <RefreshCw size={14} />
-                        Gerar Pagamento Real
-                      </button>
-                    )}
-                    {isConsultoria && isShort && (
-                      <div className="flex items-center gap-1 text-xs text-orange-500">
-                        <AlertTriangle size={12} />
-                        Menos visitas que o previsto
-                      </div>
-                    )}
-                    {!isConsultoria && isShort && (
-                      <div className="flex items-center gap-1 text-xs text-gray-400">
-                        <AlertTriangle size={12} />
-                        {Math.abs(diff)} dia(s) sem registro
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Visit detail (expandable summary) */}
-                {row.visits.length > 0 && (
-                  <details className="mt-3">
-                    <summary className="text-xs text-primary-600 cursor-pointer hover:underline">
-                      Ver {row.visits.length} registro(s) de ponto
-                    </summary>
-                    <div className="mt-2 grid grid-cols-3 gap-1">
-                      {row.visits.slice(0, 30).map((v, i) => (
-                        <div key={i} className="text-xs bg-gray-50 rounded px-2 py-1 flex items-center justify-between">
-                          <span className="text-gray-600">{formatDate(v.visit_date)}</span>
-                          <span className="text-gray-400">{v.check_in?.slice(0, 5)} – {v.check_out?.slice(0, 5) || '?'}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </details>
-                )}
-
-                {/* Expenses for this employee */}
-                {(() => {
-                  const empExpenses = expenses?.filter(e => (e as { employee_id?: string }).employee_id === row.employee?.id) ?? []
-                  const caAmt = row.cost_assistance
-                  return (
-                    <div className="mt-3 pt-3 border-t border-gray-100 space-y-1.5">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-medium text-gray-500">Gastos / Ajuda de Custo</span>
-                        <button
-                          className="btn-secondary text-xs flex items-center gap-1 py-0.5"
-                          onClick={() => setNewExpenseEmpId(newExpenseEmpId === row.employee?.id ? null : (row.employee?.id ?? null))}
-                        >
-                          <Plus size={11} /> Novo Gasto
-                        </button>
-                      </div>
-                      {caAmt > 0 && (
-                        <div className="flex items-center justify-between text-xs bg-blue-50 rounded px-2 py-1">
-                          <span className="text-blue-700">🚗 Ajuda de Custo (contrato)</span>
-                          <span className="font-medium text-blue-800">{formatCurrency(caAmt)}</span>
-                        </div>
-                      )}
-                      {empExpenses.map(e => (
-                        <div key={e.id} className="flex items-center justify-between text-xs bg-orange-50 rounded px-2 py-1">
-                          <span className="text-orange-700">💸 {e.description} <span className="text-gray-400">({e.category})</span></span>
-                          <span className="font-medium text-orange-800">{formatCurrency(Number(e.amount))}</span>
-                        </div>
-                      ))}
-                      {empExpenses.length === 0 && caAmt === 0 && (
-                        <p className="text-xs text-gray-400">Nenhum gasto registrado este mês.</p>
-                      )}
-
-                      {/* New expense form */}
-                      {newExpenseEmpId === row.employee?.id && (
-                        <div className="bg-gray-50 rounded-lg p-3 space-y-2 mt-2">
-                          <p className="text-xs font-semibold text-gray-600">Registrar gasto</p>
-                          <div className="grid grid-cols-2 gap-2">
-                            <input className="input text-sm col-span-2" placeholder="Descrição *" value={expForm.description} onChange={e => setExpForm(p => ({ ...p, description: e.target.value }))} />
-                            <input className="input text-sm" type="number" placeholder="Valor R$ *" value={expForm.amount} onChange={e => setExpForm(p => ({ ...p, amount: e.target.value }))} />
-                            <select className="input text-sm" value={expForm.category} onChange={e => setExpForm(p => ({ ...p, category: e.target.value }))}>
-                              <option>Reembolso</option>
-                              <option>Ajuda de Custo</option>
-                              <option>Vale Transporte</option>
-                              <option>Alimentação</option>
-                              <option>Material</option>
-                              <option>Outro</option>
-                            </select>
-                            <input className="input text-sm col-span-2" placeholder="Observação (opcional)" value={expForm.notes} onChange={e => setExpForm(p => ({ ...p, notes: e.target.value }))} />
-                          </div>
-                          <div className="flex gap-2">
-                            <button className="btn-primary text-xs py-1" onClick={() => addExpense.mutate(row.employee!.id)} disabled={addExpense.isPending || !expForm.description || !expForm.amount}>
-                              Salvar
-                            </button>
-                            <button className="btn-ghost text-xs" onClick={() => setNewExpenseEmpId(null)}>Cancelar</button>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )
-                })()}
-              </div>
-            )
-          })}
-        </div>
-      )}
 
       {/* ── Modal: definir valor do vínculo ── */}
       {editAmountLink && (

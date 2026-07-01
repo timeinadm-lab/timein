@@ -1153,10 +1153,16 @@ export default function VacancyDetail() {
                         </span>
                       ) : (
                         <button className="btn-primary text-xs" onClick={() => {
+                          const vac = vacancy as Record<string, unknown>
                           setDeadlineModal({ interestId: interest.id, candidateId: c!.id })
                           setHireDetails({
                             ...EMPTY_HIRE,
-                            serviceType: (vacancy.vacancy_type as 'Fixo' | 'Consultoria') || 'Fixo',
+                            serviceType: (vac.vacancy_type as 'Fixo' | 'Consultoria') || 'Fixo',
+                            workShift: (vac.shift as string) || '',
+                            workSchedule: (vac.work_schedule_type as string) || '',
+                            visitFrequency: (vac.visit_frequency as 'Semanal' | 'Quinzenal' | 'Mensal') || 'Semanal',
+                            monthlyAmount: vac.salary_amount ? String(vac.salary_amount) : '',
+                            costAssistance: vac.cost_assistance ? String(vac.cost_assistance) : '',
                           })
                         }}>
                           Contratar
@@ -1273,7 +1279,7 @@ export default function VacancyDetail() {
             {/* Escala só para Fixo */}
             {hireDetails.serviceType === 'Fixo' && (
               <div className="space-y-3 bg-gray-50 p-3 rounded-lg">
-                <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Escala de Trabalho</p>
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Escala de Trabalho <span className="text-primary-500 normal-case font-normal">• pré-preenchido da vaga</span></p>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="label">Turno</label>
@@ -1295,7 +1301,7 @@ export default function VacancyDetail() {
             {hireDetails.serviceType === 'Consultoria' && (
               <div className="space-y-2 bg-orange-50 rounded-lg p-3">
                 <div>
-                  <label className="label text-xs">Frequência de visita</label>
+                  <label className="label text-xs">Frequência de visita <span className="text-primary-500 font-normal">• da vaga</span></label>
                   <select className="input text-sm" value={hireDetails.visitFrequency} onChange={e => setHireDetails(p => ({ ...p, visitFrequency: e.target.value as 'Semanal' | 'Quinzenal' | 'Mensal' }))}>
                     <option value="Semanal">Semanal (4×/mês)</option>
                     <option value="Quinzenal">Quinzenal (2×/mês)</option>

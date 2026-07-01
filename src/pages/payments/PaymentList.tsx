@@ -119,7 +119,7 @@ export default function PaymentList() {
       const { data: rawLinks, error } = await supabase
         .from('employee_client_links')
         .select(`
-          id, service_type, monthly_amount, work_schedule, expected_days_month, cost_assistance,
+          id, service_type, monthly_amount, work_schedule, expected_days_month, cost_assistance, start_date, pay_full_salary,
           employee:employees!inner(id, full_name, status),
           client:clients(id, name),
           payment_dates:employee_payment_dates(day_of_month, amount)
@@ -240,7 +240,6 @@ export default function PaymentList() {
         const isConsultoria = l.service_type === 'Consultoria'
         const empVisits = visits?.filter(v => v.employee_id === emp?.id && v.client_id === client?.id) ?? []
 
-        // Helper: duration in hours for a visit
         const visitHours = (v: { check_in?: string | null; check_out?: string | null }) => {
           if (!v.check_in || !v.check_out) return 0
           const [hi, mi] = v.check_in.slice(0,5).split(':').map(Number)
@@ -248,7 +247,6 @@ export default function PaymentList() {
           return (ho * 60 + mo - hi * 60 - mi) / 60
         }
 
-        // Actual — for consultoria, visits <4h get proportional pay
         const actualDays = !isConsultoria ? empVisits.filter(v => v.check_out).length : 0
         const actualVisits = isConsultoria ? empVisits.length : 0
         const actualAmount = isConsultoria
@@ -256,28 +254,52 @@ export default function PaymentList() {
               const rate = Number(v.visit_rate) || 0
               if (!rate) return s
               const hours = visitHours(v)
-              // <4h: proportional (hours/4 * rate); >=4h: full rate
               const earned = hours > 0 && hours < 4 ? (hours / 4) * rate : rate
               return s + earned
             }, 0)
           : null
 
-        // Expected
         const expDays = !isConsultoria ? (l.expected_days_month || expectedDays(l.work_schedule, filterMonth)) : 0
         const fallback = emp?.id ? vacancyFallback[emp.id] : undefined
         const monthlyAmt = Number(l.monthly_amount) || Number(fallback?.salary_amount) || 0
 
-        // Real amount for fixed = (actualDays / expDays) * monthly
-        const realAmt = isConsultoria
-          ? (actualAmount || 0)
-          : expDays > 0 ? Math.round((actualDays / expDays) * monthlyAmt * 100) / 100 : 0
-
         const hasRealPayment = realPayments?.some(rp => rp.employee_id === emp?.id) ?? false
-
         const costAssistance = Number((l as { cost_assistance?: number }).cost_assistance) || 0
         const group = workerGroup(l.service_type, l.work_schedule)
         const payDates = (l as { payment_dates?: { day_of_month: number }[] }).payment_dates ?? []
         const payDay = payDates[0]?.day_of_month || 5
+        const startDate = (l as { start_date?: string }).start_date || null
+        const payFullSalary = (l as { pay_full_salary?: boolean }).pay_full_salary ?? false
+
+        // Ciclo de pagamento para Fixo: payDay do mês anterior até payDay-1 do mês atual
+        // Se o colaborador começou mid-cycle, calcula proporcional (a não ser que pay_full_salary = true)
+        let cycleDays = expDays
+        let cycleStart: string | null = null
+        let cycleEnd: string | null = null
+        let isPartialCycle = false
+        let proportionalFactor = 1
+
+        if (!isConsultoria && payDay) {
+          const [yr, mo] = filterMonth.split('-').map(Number)
+          const cEnd = new Date(yr, mo - 1, payDay - 1)
+          const cStart = new Date(yr, mo - 2, payDay)
+          cycleStart = cStart.toISOString().slice(0, 10)
+          cycleEnd = cEnd.toISOString().slice(0, 10)
+
+          if (startDate && startDate > cycleStart && startDate <= cycleEnd) {
+            isPartialCycle = true
+            if (!payFullSalary) {
+              const totalCycleDays = Math.round((cEnd.getTime() - cStart.getTime()) / 86400000) + 1
+              const workedCycleDays = Math.round((cEnd.getTime() - new Date(startDate).getTime()) / 86400000) + 1
+              proportionalFactor = totalCycleDays > 0 ? workedCycleDays / totalCycleDays : 1
+            }
+          }
+        }
+
+        const adjustedAmount = Math.round(monthlyAmt * proportionalFactor * 100) / 100
+        const realAmt = isConsultoria
+          ? (actualAmount || 0)
+          : expDays > 0 ? Math.round((actualDays / expDays) * adjustedAmount * 100) / 100 : 0
 
         return {
           linkId: l.id,
@@ -286,6 +308,7 @@ export default function PaymentList() {
           service_type: l.service_type,
           work_schedule: l.work_schedule,
           monthly_amount: monthlyAmt,
+          adjusted_amount: adjustedAmount,
           cost_assistance: costAssistance,
           actualDays,
           actualVisits,
@@ -296,6 +319,12 @@ export default function PaymentList() {
           visits: empVisits,
           group,
           payDay,
+          startDate,
+          payFullSalary,
+          cycleStart,
+          cycleEnd,
+          isPartialCycle,
+          proportionalFactor,
         }
       })
     },
@@ -315,15 +344,26 @@ export default function PaymentList() {
     onError: (e: Error) => toast.error(e.message),
   })
 
+  const togglePayFull = useMutation({
+    mutationFn: async ({ linkId, value }: { linkId: string; value: boolean }) => {
+      const { error } = await supabase.from('employee_client_links').update({ pay_full_salary: value }).eq('id', linkId)
+      if (error) throw error
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['folha-ponto'] })
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
   const autoGeneratePayment = useMutation({
-    mutationFn: async (row: { employee: { id: string; full_name: string } | undefined; client: { id: string; name: string } | undefined; monthly_amount: number; payDay?: number }) => {
+    mutationFn: async (row: { employee: { id: string; full_name: string } | undefined; client: { id: string; name: string } | undefined; monthly_amount: number; adjusted_amount?: number; payDay?: number }) => {
       if (!row.employee) throw new Error('Sem colaborador')
       const dueDate = new Date(filterMonth + '-15')
       dueDate.setDate(row.payDay || 5)
       const monthLabel = new Date(filterMonth + '-15').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
       const { error } = await supabase.from('payments').insert({
         description: `Honorários – ${row.employee.full_name}${row.client ? ` (${row.client.name})` : ''} – ${monthLabel}`,
-        amount: row.monthly_amount,
+        amount: row.adjusted_amount ?? row.monthly_amount,
         due_date: dueDate.toISOString().slice(0, 10),
         status: 'Pendente',
         recurrence: 'Mensal',
@@ -660,9 +700,9 @@ export default function PaymentList() {
                       {group.map(row => {
                         const pay = payForEmp(row.employee?.id || '')
                         const isConsultoria = row.service_type === 'Consultoria'
-                        const salarioReal = isConsultoria ? (row.actualAmount || 0) : row.monthly_amount
+                        const salarioBase = isConsultoria ? (row.actualAmount || 0) : row.adjusted_amount
                         const empExpAmt = (expenses?.filter(e => (e as { employee_id?: string }).employee_id === row.employee?.id) ?? []).reduce((s, e) => s + Number(e.amount), 0)
-                        const totalAPagar = salarioReal + empExpAmt + row.cost_assistance
+                        const totalAPagar = salarioBase + empExpAmt + row.cost_assistance
                         const diff = isConsultoria ? 0 : row.actualDays - row.expDays
                         const isShort = !isConsultoria && row.actualDays < row.expDays
 
@@ -679,13 +719,17 @@ export default function PaymentList() {
                                   </button>
                                   <span className="text-xs text-gray-400">{row.client?.name}</span>
                                   {row.work_schedule && <span className="badge bg-gray-100 text-gray-600 text-xs">{row.work_schedule}</span>}
+                                  {row.startDate && <span className="text-xs text-gray-400">Início: {formatDate(row.startDate)}</span>}
                                 </div>
                               </div>
 
                               <div className="flex items-center gap-3 flex-shrink-0">
                                 <div className="text-center px-3">
-                                  <p className="text-xs text-gray-400">Estimativa</p>
+                                  <p className="text-xs text-gray-400">Salário</p>
                                   <p className="text-sm font-semibold text-gray-700">{formatCurrency(row.monthly_amount)}</p>
+                                  {row.isPartialCycle && !row.payFullSalary && (
+                                    <p className="text-xs text-amber-600">{Math.round(row.proportionalFactor * 100)}% ciclo</p>
+                                  )}
                                 </div>
                                 {isConsultoria ? (
                                   <div className="text-center px-3 border-l border-gray-100">
@@ -728,7 +772,7 @@ export default function PaymentList() {
                                 {!row.hasRealPayment && (
                                   <button
                                     className="btn-ghost text-xs text-green-600 flex items-center gap-1"
-                                    onClick={() => generateRealPayment.mutate({ ...row, realAmt: isConsultoria ? row.realAmt : row.monthly_amount })}
+                                    onClick={() => generateRealPayment.mutate({ ...row, realAmt: isConsultoria ? row.realAmt : row.adjusted_amount })}
                                     disabled={generateRealPayment.isPending}
                                     title="Gerar pagamento real baseado na folha"
                                   >
@@ -741,20 +785,40 @@ export default function PaymentList() {
                               </div>
                             </div>
 
-                            {(row.cost_assistance > 0 || empExpAmt > 0 || isShort || (isConsultoria && row.actualVisits > 0 && (row.visits as { observations?: string }[]).some(v => v.observations))) && (
-                              <div className="mt-2 flex items-center gap-3 flex-wrap text-xs">
-                                {row.cost_assistance > 0 && <span className="text-blue-600">🚗 Aj.custo: {formatCurrency(row.cost_assistance)}</span>}
-                                {empExpAmt > 0 && <span className="text-orange-600">💸 Gastos: {formatCurrency(empExpAmt)}</span>}
-                                {isShort && (
-                                  <span className="text-red-500 flex items-center gap-1">
-                                    <AlertTriangle size={11} />{Math.abs(diff)} dia(s) sem registro
-                                  </span>
-                                )}
-                                {isConsultoria && row.actualVisits > 0 && (row.visits as { observations?: string }[]).some(v => v.observations) && (
-                                  <span className="text-amber-600">⚠ Há observações nos registros</span>
-                                )}
-                              </div>
-                            )}
+                            {/* Info extras: ciclo, proporcional, pay full, alertas */}
+                            <div className="mt-2 flex items-center gap-3 flex-wrap text-xs">
+                              {!isConsultoria && row.cycleStart && row.cycleEnd && (
+                                <span className="text-gray-400">Ciclo: {formatDate(row.cycleStart)} – {formatDate(row.cycleEnd)}</span>
+                              )}
+                              {!isConsultoria && row.isPartialCycle && (
+                                <span className="text-amber-600 flex items-center gap-1">
+                                  <AlertTriangle size={11} />
+                                  Ciclo parcial (início {formatDate(row.startDate!)})
+                                  {row.payFullSalary ? ' — salário inteiro' : ` — proporcional: ${formatCurrency(row.adjusted_amount)}`}
+                                </span>
+                              )}
+                              {!isConsultoria && (
+                                <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                                  <input
+                                    type="checkbox"
+                                    checked={row.payFullSalary}
+                                    onChange={() => togglePayFull.mutate({ linkId: row.linkId, value: !row.payFullSalary })}
+                                    className="h-3.5 w-3.5 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                                  />
+                                  <span className="text-gray-500">Pagar inteiro</span>
+                                </label>
+                              )}
+                              {row.cost_assistance > 0 && <span className="text-blue-600">🚗 Aj.custo: {formatCurrency(row.cost_assistance)}</span>}
+                              {empExpAmt > 0 && <span className="text-orange-600">💸 Gastos: {formatCurrency(empExpAmt)}</span>}
+                              {isShort && (
+                                <span className="text-red-500 flex items-center gap-1">
+                                  <AlertTriangle size={11} />{Math.abs(diff)} dia(s) sem registro
+                                </span>
+                              )}
+                              {isConsultoria && row.actualVisits > 0 && (row.visits as { observations?: string }[]).some(v => v.observations) && (
+                                <span className="text-amber-600">⚠ Há observações nos registros</span>
+                              )}
+                            </div>
 
                             <details className="mt-2">
                               <summary className="text-xs text-primary-600 cursor-pointer hover:underline">

@@ -42,7 +42,7 @@ export default function EmployeeDetail() {
   const [showLinkForm, setShowLinkForm] = useState(false)
   const [linkForm, setLinkForm] = useState({ client_id: '', service_type: 'Fixo' as 'Fixo' | 'Consultoria', monthly_amount: '', cost_assistance: '', weekly_hours_quota: '', visit_frequency: 'Semanal' as 'Semanal' | 'Quinzenal' | 'Mensal', contract_end_date: '', work_schedule_type: '', daily_hours: '', days_off: [] as number[], schedule_anchor_date: '' })
   type EditLinkUnit = { unit_id: string; unit_name: string; visit_rate: string }
-  type EditLinkState = { linkId: string; serviceType: string; clientId: string; monthly_amount: string; cost_assistance: string; weekly_hours: string; visit_frequency: string; visits_per_week: string; pay_extra_visits: boolean; units: EditLinkUnit[]; work_schedule_type: string; daily_hours: string; days_off: number[]; schedule_anchor_date: string; start_date: string; payDays: string[] }
+  type EditLinkState = { linkId: string; serviceType: string; clientId: string; monthly_amount: string; cost_assistance: string; weekly_hours: string; visit_frequency: string; visits_per_week: string; pay_extra_visits: boolean; units: EditLinkUnit[]; work_schedule_type: string; daily_hours: string; days_off: number[]; schedule_anchor_date: string; start_date: string; payDays: string[]; pay_full_salary: boolean }
   const [editLinkValues, setEditLinkValues] = useState<EditLinkState | null>(null)
   const [linkDates, setLinkDates] = useState<{ day_of_month: string; amount: string }[]>([{ day_of_month: '', amount: '' }])
   const [newDocName, setNewDocName] = useState('')
@@ -578,6 +578,7 @@ export default function EmployeeDetail() {
         days_off: !isConsult ? (vals.days_off.length ? vals.days_off : null) : undefined,
         schedule_anchor_date: !isConsult ? (vals.work_schedule_type === '12x36' && vals.schedule_anchor_date ? vals.schedule_anchor_date : null) : undefined,
         start_date: !isConsult ? (vals.start_date || null) : undefined,
+        pay_full_salary: !isConsult ? vals.pay_full_salary : undefined,
       }).eq('id', vals.linkId)
       if (error) throw error
 
@@ -1192,6 +1193,7 @@ export default function EmployeeDetail() {
                         {(l as { visit_frequency?: string }).visit_frequency && l.service_type === 'Consultoria' && <span className="badge bg-orange-50 text-orange-600">{(l as { visit_frequency?: string }).visit_frequency}</span>}
                         {(l as { work_schedule_type?: string }).work_schedule_type && <span className="badge bg-gray-100 text-gray-600">{(l as { work_schedule_type?: string }).work_schedule_type}</span>}
                         {(l as { start_date?: string }).start_date && <span className="badge bg-green-50 text-green-700">Início: {formatDate((l as { start_date?: string }).start_date!)}</span>}
+                        {(l as { pay_full_salary?: boolean }).pay_full_salary && <span className="badge bg-purple-50 text-purple-700">Salário inteiro</span>}
                         {contractPendingHours !== null && (
                           <span className={`badge text-xs font-semibold ${contractRed ? 'bg-red-100 text-red-700 animate-pulse' : contractYellow ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-500'}`}>
                             {contractRed
@@ -1238,6 +1240,7 @@ export default function EmployeeDetail() {
                               schedule_anchor_date: (l as { schedule_anchor_date?: string }).schedule_anchor_date || '',
                               start_date: (l as { start_date?: string }).start_date || '',
                               payDays: l.service_type === 'Consultoria' ? ['8', '20'] : (l.payment_dates || []).map(d => String(d.day_of_month)).filter(d => ['8', '15', '20'].includes(d)).sort((a, b) => Number(a) - Number(b)),
+                              pay_full_salary: (l as { pay_full_salary?: boolean }).pay_full_salary ?? false,
                             })
                           }}
                         >
@@ -1415,7 +1418,19 @@ export default function EmployeeDetail() {
                                   <label className="label text-xs">Data de início neste cliente</label>
                                   <input className="input text-sm" type="date" value={editLinkValues.start_date}
                                     onChange={e => setEditLinkValues(p => p ? { ...p, start_date: e.target.value } : p)} />
-                                  <p className="text-xs text-gray-400 mt-0.5">Usado para não cobrar faltas antes do colaborador começar.</p>
+                                  <p className="text-xs text-gray-400 mt-0.5">Usado para calcular ciclo proporcional no pagamento.</p>
+                                </div>
+                                <div className="col-span-2">
+                                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                                    <input
+                                      type="checkbox"
+                                      checked={editLinkValues.pay_full_salary}
+                                      onChange={e => setEditLinkValues(p => p ? { ...p, pay_full_salary: e.target.checked } : p)}
+                                      className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                                    />
+                                    <span className="text-sm text-gray-700">Pagar salário inteiro</span>
+                                  </label>
+                                  <p className="text-xs text-gray-400 mt-0.5 ml-6">Ignora cálculo proporcional do ciclo de pagamento.</p>
                                 </div>
                               </div>
                             )}

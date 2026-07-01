@@ -155,7 +155,7 @@ export default function VacancyDetail() {
         client_name: client?.name || '',
         employee_id: null,
         start_date: hireDetails.startDate || new Date().toISOString().slice(0, 10),
-        end_date: hireDetails.contractEndDate || null,
+        end_date: hireDetails.contractEndDate && hireDetails.contractEndDate !== '__indeterminate__' ? hireDetails.contractEndDate : null,
         type: 'Manual',
         signed: false,
         employee_responsible: hireDetails.serviceType,
@@ -315,7 +315,7 @@ export default function VacancyDetail() {
           weekly_hours_quota: isConsult ? (vac.weekly_hours || null) : null,
           visits_per_week: isConsult ? (vac.visits_per_week || null) : null,
           pay_extra_visits: isConsult ? (vac.pay_extra_visits !== false) : true,
-          contract_end_date: details.contractEndDate || null,
+          contract_end_date: details.contractEndDate && details.contractEndDate !== '__indeterminate__' ? details.contractEndDate : null,
           work_schedule: details.workSchedule || null,
           work_schedule_type: vac.work_schedule_type || null,
           daily_hours: vac.daily_hours || null,
@@ -851,7 +851,7 @@ export default function VacancyDetail() {
                       <span className="badge bg-green-100 text-green-700">Ativo</span>
                       {link?.service_type && <span className={`badge ${link.service_type === 'Consultoria' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'}`}>{link.service_type}</span>}
                       <span className="text-gray-400">Contratado em {formatDate(interest.hired_at)}</span>
-                      {contractEnd && <span className="text-gray-500">Contrato até {formatDate(contractEnd)}</span>}
+                      {contractEnd ? <span className="text-gray-500">Contrato até {formatDate(contractEnd)}</span> : <span className="text-gray-400">Contrato indeterminado</span>}
                     </div>
                   </div>
                   <div className="flex gap-2">
@@ -1317,9 +1317,22 @@ export default function VacancyDetail() {
                 <label className="label">Data de Início</label>
                 <input className="input" type="date" value={hireDetails.startDate} onChange={e => setHireDetails(p => ({ ...p, startDate: e.target.value }))} />
               </div>
-              <div>
-                <label className="label">Vencimento do Contrato</label>
-                <input className="input" type="date" value={hireDetails.contractEndDate} onChange={e => setHireDetails(p => ({ ...p, contractEndDate: e.target.value }))} />
+              {hireDetails.contractEndDate !== '__indeterminate__' && (
+                <div>
+                  <label className="label">Vencimento do Contrato</label>
+                  <input className="input" type="date" value={hireDetails.contractEndDate} onChange={e => setHireDetails(p => ({ ...p, contractEndDate: e.target.value }))} />
+                </div>
+              )}
+              <div className="col-span-2">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="rounded"
+                    checked={hireDetails.contractEndDate === '__indeterminate__'}
+                    onChange={e => setHireDetails(p => ({ ...p, contractEndDate: e.target.checked ? '__indeterminate__' : '' }))}
+                  />
+                  <span className="text-sm">Contrato por tempo indeterminado</span>
+                </label>
               </div>
             </div>
 

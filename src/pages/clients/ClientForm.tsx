@@ -46,7 +46,7 @@ export default function ClientForm() {
         contact_phone: data.contact_phone || '',
         contact_email: data.contact_email || '',
         contract_start: data.contract_start || '',
-        contract_end: data.contract_end || '',
+        contract_end: data.contract_end || '__indeterminate__',
         supervisor_id: data.supervisor_id || '',
         requires_supervision: !!data.requires_supervision,
         supervision_visits_per_month: data.supervision_visits_per_month != null ? String(data.supervision_visits_per_month) : '',
@@ -82,7 +82,7 @@ export default function ClientForm() {
         contact_phone: form.contact_phone || null,
         contact_email: form.contact_email || null,
         contract_start: form.contract_start || null,
-        contract_end: form.contract_end || null,
+        contract_end: form.contract_end && form.contract_end !== '__indeterminate__' ? form.contract_end : null,
         supervisor_id: form.supervisor_id || null,
         requires_supervision: form.requires_supervision,
         supervision_visits_per_month: form.supervision_visits_per_month ? Number(form.supervision_visits_per_month) : null,
@@ -223,11 +223,25 @@ export default function ClientForm() {
               <label className="label">Data Início</label>
               <input className="input" type="date" value={form.contract_start} onChange={e => set('contract_start', e.target.value)} />
             </div>
-            <div>
-              <label className="label">Data Fim</label>
-              <input className="input" type="date" value={form.contract_end} onChange={e => set('contract_end', e.target.value)} />
+            {form.contract_end !== '__indeterminate__' && (
+              <div>
+                <label className="label">Data Fim</label>
+                <input className="input" type="date" value={form.contract_end} onChange={e => set('contract_end', e.target.value)} />
+              </div>
+            )}
+            <div className="col-span-2">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="rounded"
+                  checked={form.contract_end === '__indeterminate__'}
+                  onChange={e => set('contract_end', e.target.checked ? '__indeterminate__' : '')}
+                />
+                <span className="text-sm">Contrato por tempo indeterminado</span>
+              </label>
+              <p className="text-xs text-gray-400 mt-0.5 ml-6">Sem data de vencimento — pode ser rescindido a qualquer momento.</p>
             </div>
-            {form.contract_start && form.contract_end && (() => {
+            {form.contract_start && form.contract_end && form.contract_end !== '__indeterminate__' && (() => {
               const months = Math.round((new Date(form.contract_end).getTime() - new Date(form.contract_start).getTime()) / (1000 * 60 * 60 * 24 * 30.44))
               return months > 0 ? (
                 <div className="col-span-2 bg-blue-50 rounded-lg px-3 py-2 text-xs text-blue-700">

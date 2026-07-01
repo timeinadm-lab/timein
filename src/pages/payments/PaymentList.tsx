@@ -64,7 +64,7 @@ export default function PaymentList() {
   const { data: payments, isLoading } = useQuery({
     queryKey: ['payments', filterMonth, filterStatus],
     queryFn: async () => {
-      let q = supabase.from('payments').select('*, employee:employees(id,full_name)').order('due_date')
+      let q = supabase.from('payments').select('*, employee:employees(id,full_name,status)').order('due_date')
       // Try reference_month first, include records where it matches OR where due_date is in range and reference_month is null
       q = q.or(`reference_month.eq.${filterMonth},and(reference_month.is.null,due_date.gte.${monthStart},due_date.lte.${monthEnd})`)
       if (filterStatus) q = q.eq('status', filterStatus)
@@ -399,6 +399,15 @@ export default function PaymentList() {
     return !eid || !linkedEmpIds.has(eid)
   })
 
+  const cancelPayment = useMutation({
+    mutationFn: async (paymentId: string) => {
+      const { error } = await supabase.from('payments').update({ status: 'Cancelado' }).eq('id', paymentId)
+      if (error) throw error
+    },
+    onSuccess: () => { toast.success('Lançamento cancelado.'); qc.invalidateQueries({ queryKey: ['payments'] }) },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
   // Helper: render a payment row table (used for unlinked/manual payments)
   const PaymentTable = ({ list }: { list: typeof unlinkedPayments }) => (
     list.length === 0
@@ -419,26 +428,36 @@ export default function PaymentList() {
                 <tr key={p.id} className="hover:bg-gray-50">
                   <td className="px-3 py-2">
                     {(() => {
-                      const emp = (p as { employee?: { id: string; full_name: string } }).employee
+                      const emp = (p as { employee?: { id: string; full_name: string; status?: string } }).employee
                       return emp?.id ? (
-                        <button
-                          className="font-medium text-sm text-primary-700 hover:underline text-left"
-                          onClick={() => navigate(`/colaboradores/${emp.id}`, { state: { tab: 'vinculos' } })}
-                        >
-                          {emp.full_name}
-                        </button>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <button
+                            className="font-medium text-sm text-primary-700 hover:underline text-left"
+                            onClick={() => navigate(`/colaboradores/${emp.id}`, { state: { tab: 'vinculos' } })}
+                          >
+                            {emp.full_name}
+                          </button>
+                          {emp.status && emp.status !== 'Ativo' && (
+                            <span className="badge bg-red-100 text-red-600 text-xs">Inativo</span>
+                          )}
+                        </div>
                       ) : (
                         <p className="font-medium text-sm">{p.description}</p>
                       )
                     })()}
-                    {p.category && <span className={`badge text-xs ${CAT_COLORS[p.category] || 'bg-gray-100'}`}>{p.category}</span>}
+                    {p.category && <span className={`badge text-xs ml-1 ${CAT_COLORS[p.category] || 'bg-gray-100'}`}>{p.category}</span>}
                   </td>
                   <td className="px-3 py-2 font-semibold">{formatCurrency(p.amount)}</td>
                   <td className="px-3 py-2 text-gray-500 text-xs">{formatDate(p.due_date)}</td>
                   <td className="px-3 py-2"><span className={`badge ${STATUS_COLORS[p.status] || 'bg-gray-100'}`}>{p.status}</span></td>
                   <td className="px-3 py-2">
                     <div className="flex gap-1 justify-end">
-                      {p.status === 'Pendente' && <button onClick={() => markPaid.mutate(p.id)} className="btn-primary text-xs flex items-center gap-1 py-1"><Check size={12} />Pago</button>}
+                      {p.status === 'Pendente' && (
+                        <>
+                          <button onClick={() => markPaid.mutate(p.id)} className="btn-primary text-xs flex items-center gap-1 py-1"><Check size={12} />Pago</button>
+                          <button onClick={() => cancelPayment.mutate(p.id)} className="btn-ghost text-xs text-red-500 hover:text-red-700">Cancelar</button>
+                        </>
+                      )}
                       <button onClick={() => navigate(`/pagamentos/${p.id}/editar`)} className="btn-ghost text-xs">Editar</button>
                     </div>
                   </td>
@@ -728,12 +747,16 @@ export default function PaymentList() {
               {/* Unlinked manual payments */}
               {unlinkedPayments.length > 0 && (
                 <div className="card overflow-hidden">
-                  <div className="px-4 py-3 bg-gray-50 border-b flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="text-base">📄</span>
-                      <span className="font-semibold text-gray-700">Outros Lançamentos</span>
+                  <div className="px-4 py-3 bg-gray-50 border-b">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="text-base">📄</span>
+                        <span className="font-semibold text-gray-700">Outros Lançamentos</span>
+                        <span className="badge bg-gray-200 text-gray-600 text-xs">{unlinkedPayments.length}</span>
+                      </div>
+                      <p className="font-bold text-gray-700">{formatCurrency(unlinkedPayments.reduce((s, p) => s + (p.amount || 0), 0))}</p>
                     </div>
-                    <p className="font-bold text-gray-700">{formatCurrency(unlinkedPayments.reduce((s, p) => s + (p.amount || 0), 0))}</p>
+                    <p className="text-xs text-gray-400 mt-1">Lançamentos manuais ou de colaboradores que não possuem mais vínculo ativo.</p>
                   </div>
                   <PaymentTable list={unlinkedPayments} />
                 </div>

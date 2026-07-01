@@ -121,12 +121,13 @@ export default function ClientList() {
                     </div>
                   </div>
                   <div className="mt-4 pt-3 border-t border-ink-100 flex items-center justify-between text-xs text-ink-500">
-                    <span>Vigência até {formatDate(c.contract_end)}</span>
-                    {days !== null && (
+                    <span>{c.contract_end ? `Vigência até ${formatDate(c.contract_end)}` : 'Contrato indeterminado'}</span>
+                    {c.contract_end && days !== null && (
                       <span className={`badge ${days < 0 ? 'bg-red-100 text-red-700' : days <= 15 ? 'bg-amber-100 text-amber-700' : 'bg-primary-100 text-primary-700'}`}>
                         {days < 0 ? 'Vencido' : days === 0 ? 'Vence hoje' : `${days}d`}
                       </span>
                     )}
+                    {!c.contract_end && <span className="badge bg-gray-100 text-gray-500">Indeterminado</span>}
                   </div>
                   {c.positions_count && (
                     <p className="text-xs text-ink-400 mt-1.5">{c.positions_count} posições</p>

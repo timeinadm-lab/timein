@@ -1208,11 +1208,13 @@ export default function EmployeeDetail() {
                             {(l as { visits_per_week?: number }).visits_per_week} visita(s)/sem
                           </span>
                         ) : null}
-                        {daysLeft !== null && (
+                        {daysLeft !== null ? (
                           <span className={`badge text-xs ${expired ? 'bg-red-100 text-red-700' : expiringSoon ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700'}`}>
                             {expired ? `Contrato vencido há ${Math.abs(daysLeft)}d` : daysLeft === 0 ? 'Vence hoje!' : `Contrato: ${daysLeft}d restantes`}
                           </span>
-                        )}
+                        ) : !contractEnd && (l.service_type === 'Fixo' || l.service_type === 'Consultoria') ? (
+                          <span className="badge text-xs bg-gray-100 text-gray-500">Contrato indeterminado</span>
+                        ) : null}
                         <button
                           className="text-xs text-primary-600 hover:underline flex items-center gap-0.5 ml-1"
                           onClick={() => {

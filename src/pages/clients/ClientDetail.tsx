@@ -378,21 +378,22 @@ export default function ClientDetail() {
       {tab === 'contratos' && (
         <div className="space-y-4">
           {/* Contrato principal (do cadastro do cliente) */}
-          {(client.contract_start || client.contract_end) && (() => {
+          {(client.contract_start || client.contract_end || !client.contract_end) && (() => {
             const daysLeft = client.contract_end ? differenceInDays(parseISO(client.contract_end), new Date()) : null
             const expired = daysLeft !== null && daysLeft < 0
             const expiringSoon = daysLeft !== null && daysLeft >= 0 && daysLeft <= 40
+            const isIndeterminate = !client.contract_end
             return (
-              <div className={`card p-4 border-l-4 ${expired ? 'border-red-500' : expiringSoon ? 'border-amber-400' : 'border-green-500'}`}>
+              <div className={`card p-4 border-l-4 ${isIndeterminate ? 'border-gray-400' : expired ? 'border-red-500' : expiringSoon ? 'border-amber-400' : 'border-green-500'}`}>
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <div className="flex items-center gap-2 mb-1">
                       <p className="font-semibold text-gray-900">Contrato Principal</p>
-                      <span className={`badge text-xs ${expired ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>{expired ? 'Encerrado' : 'Vigente'}</span>
+                      <span className={`badge text-xs ${isIndeterminate ? 'bg-gray-100 text-gray-600' : expired ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>{isIndeterminate ? 'Indeterminado' : expired ? 'Encerrado' : 'Vigente'}</span>
                     </div>
                     <div className="flex items-center gap-4 text-xs text-gray-500">
                       {client.contract_start && <span>Início: {formatDate(client.contract_start)}</span>}
-                      {client.contract_end && <span>Vencimento: {formatDate(client.contract_end)}</span>}
+                      {client.contract_end ? <span>Vencimento: {formatDate(client.contract_end)}</span> : <span>Sem data de vencimento</span>}
                     </div>
                     {daysLeft !== null && (
                       <div className={`mt-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${expired ? 'bg-red-100 text-red-700' : expiringSoon ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700'}`}>
@@ -513,7 +514,7 @@ export default function ClientDetail() {
             <div><p className="text-xs text-gray-400">Telefone</p><p className="text-sm">{client.contact_phone || '-'}</p></div>
             <div><p className="text-xs text-gray-400">E-mail</p><p className="text-sm">{client.contact_email || '-'}</p></div>
             <div><p className="text-xs text-gray-400">Início contrato</p><p className="text-sm">{formatDate(client.contract_start)}</p></div>
-            <div><p className="text-xs text-gray-400">Fim contrato</p><p className="text-sm">{formatDate(client.contract_end)}</p></div>
+            <div><p className="text-xs text-gray-400">Fim contrato</p><p className="text-sm">{client.contract_end ? formatDate(client.contract_end) : 'Indeterminado'}</p></div>
             <div><p className="text-xs text-gray-400">Posições</p><p className="text-sm">{client.positions_count || '-'}</p></div>
             <div><p className="text-xs text-gray-400">Supervisor</p><p className="text-sm">{client.supervisor?.full_name || '-'}</p></div>
             <div><p className="text-xs text-gray-400">Visitas/mês</p><p className="text-sm">{client.supervision_visits_per_month || '-'}</p></div>

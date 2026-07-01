@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react'
-import { useParams, useNavigate, useLocation } from 'react-router-dom'
+import { useParams, useNavigate, useLocation, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Edit, Plus, Trash2, CheckCircle, Clock, XCircle, Download, Upload, ExternalLink, AlertTriangle, Star } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
@@ -27,9 +27,11 @@ const DOC_ICON = {
 export default function EmployeeDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const qc = useQueryClient()
   const { role } = useAuth()
-  const [tab, setTab] = useState<Tab>('visao')
+  const initialTab = (searchParams.get('tab') as Tab) || 'visao'
+  const [tab, setTab] = useState<Tab>(initialTab)
   const [payMonth, setPayMonth] = useState(format(new Date(), 'yyyy-MM'))
   const [agendaMonth, setAgendaMonth] = useState(format(new Date(), 'yyyy-MM'))
   const [visMonth, setVisMonth] = useState(format(new Date(), 'yyyy-MM'))

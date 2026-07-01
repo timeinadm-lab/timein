@@ -4,6 +4,7 @@ import { useState } from 'react'
 import {
   Users, FileText, Briefcase, UserPlus, AlertTriangle, CheckCircle,
   Calendar, Plus, TrendingUp, Clock, CreditCard, Clipboard, Download, X,
+  BarChart3, Activity, Check,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { supabase } from '../lib/supabase'
@@ -12,6 +13,7 @@ import { formatDate, formatCurrency, formatDateTime } from '../lib/utils'
 import { addDays, startOfMonth, endOfMonth, isBefore, parseISO, isAfter, differenceInDays, subMonths } from 'date-fns'
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid,
 } from 'recharts'
 
 const COLORS = ['#6366f1', '#22c55e', '#f59e0b', '#ef4444', '#3b82f6', '#ec4899']
@@ -360,6 +362,21 @@ export default function Dashboard() {
     enabled: role === 'chefe',
   })
 
+  // Contratações por mês (últimos 6 meses) — para gráfico de barras
+  const { data: hiringTimeline } = useQuery({
+    queryKey: ['dashboard-hiring-timeline'],
+    queryFn: async () => {
+      const sixAgo = subMonths(now, 5)
+      const from = startOfMonth(sixAgo).toISOString().slice(0, 10)
+      const { data } = await supabase
+        .from('employee_client_links')
+        .select('id,created_at')
+        .gte('created_at', from)
+      return data || []
+    },
+    enabled: role === 'chefe',
+  })
+
   // ── Derived ──────────────────────────────────────────────────────────────────
   const activeEmployees = employees?.filter(e => e.status === 'Ativo').length ?? 0
   const totalEmployees = employees?.length ?? 1
@@ -435,14 +452,44 @@ export default function Dashboard() {
   ].filter(d => d.value > 0)
   const documentosTotal = documentosPie.reduce((s, d) => s + d.value, 0)
 
-  // Alerts grouped by severity
+  // Hiring timeline — bar chart data (últimos 6 meses)
+  const hiringBarData = (() => {
+    const months: { month: string; contratacoes: number }[] = []
+    for (let i = 5; i >= 0; i--) {
+      const m = subMonths(now, i)
+      const key = m.toISOString().slice(0, 7)
+      const label = m.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '')
+      const count = hiringTimeline?.filter(h => h.created_at?.slice(0, 7) === key).length ?? 0
+      months.push({ month: label.charAt(0).toUpperCase() + label.slice(1), contratacoes: count })
+    }
+    return months
+  })()
+
+  // Status breakdown dos colaboradores
+  const empStatusData = [
+    { name: 'Ativos', value: employees?.filter(e => e.status === 'Ativo').length ?? 0, color: '#22c55e' },
+    { name: 'Desligados', value: employees?.filter(e => e.status === 'Desligado').length ?? 0, color: '#ef4444' },
+    { name: 'Inativos', value: employees?.filter(e => e.status === 'Inativo').length ?? 0, color: '#94a3b8' },
+  ].filter(d => d.value > 0)
+
+  // Alerts grouped by severity — dismiss = esconder temporariamente, resolve = check-in "resolvido"
   const [dismissedAlerts, setDismissedAlerts] = useState<Set<string>>(() => {
     try { return new Set(JSON.parse(localStorage.getItem('timein_dismissed_alerts') || '[]')) } catch { return new Set() }
+  })
+  const [resolvedAlerts, setResolvedAlerts] = useState<Set<string>>(() => {
+    try { return new Set(JSON.parse(localStorage.getItem('timein_resolved_alerts') || '[]')) } catch { return new Set() }
   })
   const dismissAlert = (key: string) => {
     setDismissedAlerts(prev => {
       const next = new Set(prev); next.add(key)
       localStorage.setItem('timein_dismissed_alerts', JSON.stringify([...next]))
+      return next
+    })
+  }
+  const resolveAlert = (key: string) => {
+    setResolvedAlerts(prev => {
+      const next = new Set(prev); next.add(key)
+      localStorage.setItem('timein_resolved_alerts', JSON.stringify([...next]))
       return next
     })
   }
@@ -530,7 +577,7 @@ export default function Dashboard() {
     const empId = (l as { employee?: { id: string } }).employee?.id
     const name = (l as { employee?: { full_name: string } }).employee?.full_name || 'Colaborador'
     const client = (l as { client?: { name: string } }).client?.name || ''
-    const path = empId ? `/colaboradores/${empId}` : '/colaboradores'
+    const path = empId ? `/colaboradores/${empId}?tab=arquivos` : '/colaboradores'
     const label = `Contrato pendente: ${name}${client ? ' – ' + client : ''} — anexar contrato assinado (há ${hours}h)`
     if (hours >= 48) redAlerts.push({ text: label, path })
     else amberAlerts.push({ text: label, path })
@@ -612,9 +659,15 @@ export default function Dashboard() {
     })
   }
 
-  const filteredRed = redAlerts.filter(a => !a.key || !dismissedAlerts.has(a.key))
-  const filteredAmber = amberAlerts.filter(a => !a.key || !dismissedAlerts.has(a.key))
+  // Auto-assign keys to all alerts for check-in/resolve tracking
+  redAlerts.forEach((a, i) => { if (!a.key) a.key = `red-${i}-${a.text.slice(0, 30)}` })
+  amberAlerts.forEach((a, i) => { if (!a.key) a.key = `amber-${i}-${a.text.slice(0, 30)}` })
+
+  const isHidden = (a: { key?: string }) => a.key && (dismissedAlerts.has(a.key) || resolvedAlerts.has(a.key))
+  const filteredRed = redAlerts.filter(a => !isHidden(a))
+  const filteredAmber = amberAlerts.filter(a => !isHidden(a))
   const allAlerts = [...filteredRed, ...filteredAmber]
+  const resolvedCount = [...redAlerts, ...amberAlerts].filter(a => a.key && resolvedAlerts.has(a.key)).length
 
   const MODAL_COLORS: Record<string, string> = {
     'Online': 'bg-blue-100 text-blue-700',
@@ -724,13 +777,14 @@ export default function Dashboard() {
               }
             </div>
           </div>
-          {allAlerts.length === 0 && <p className="text-xs text-green-600 font-medium">✓ Tudo em dia!</p>}
+          {allAlerts.length === 0 && resolvedCount === 0 && <p className="text-xs text-green-600 font-medium">Tudo em dia!</p>}
+          {allAlerts.length === 0 && resolvedCount > 0 && <p className="text-xs text-green-600 font-medium">{resolvedCount} resolvido{resolvedCount > 1 ? 's' : ''}</p>}
           {allAlerts.length > 0 && <p className="text-xs text-gray-500">Veja abaixo ↓</p>}
         </div>
       </div>
 
       {/* ── Alertas Críticos ── */}
-      {allAlerts.length > 0 && (
+      {(allAlerts.length > 0 || resolvedCount > 0) && (
         <div className="space-y-2">
           {filteredRed.length > 0 && (
             <div className="rounded-xl border border-red-200 overflow-hidden">
@@ -740,16 +794,23 @@ export default function Dashboard() {
               </div>
               <div className="divide-y divide-red-100 bg-white">
                 {filteredRed.map((a, i) => (
-                  <div key={i} className="flex items-start gap-3 px-4 py-2.5 group">
-                    <span className="w-1.5 h-1.5 rounded-full bg-red-500 mt-1.5 flex-shrink-0" />
+                  <div key={i} className="flex items-center gap-3 px-4 py-2.5 group">
+                    <span className="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0" />
                     <p className={`text-sm text-red-800 flex-1 ${a.path ? 'cursor-pointer hover:underline' : ''}`}
                       onClick={() => a.path && navigate(a.path)}>{a.text}</p>
-                    {a.key && (
-                      <button onClick={() => dismissAlert(a.key!)} className="text-red-300 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" title="Dispensar alerta">
-                        <X size={14} />
-                      </button>
-                    )}
-                    {a.path && <span className="text-xs text-red-400 flex-shrink-0">→</span>}
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      {a.key && (
+                        <button onClick={() => resolveAlert(a.key!)} className="text-green-400 hover:text-green-600 opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded" title="Marcar como resolvido">
+                          <Check size={14} />
+                        </button>
+                      )}
+                      {a.key && (
+                        <button onClick={() => dismissAlert(a.key!)} className="text-red-300 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded" title="Dispensar alerta">
+                          <X size={14} />
+                        </button>
+                      )}
+                      {a.path && <span className="text-xs text-red-400">→</span>}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -763,19 +824,36 @@ export default function Dashboard() {
               </div>
               <div className="divide-y divide-amber-100 bg-white">
                 {filteredAmber.map((a, i) => (
-                  <div key={i} className="flex items-start gap-3 px-4 py-2.5 group">
-                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400 mt-1.5 flex-shrink-0" />
+                  <div key={i} className="flex items-center gap-3 px-4 py-2.5 group">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" />
                     <p className={`text-sm text-amber-800 flex-1 ${a.path ? 'cursor-pointer hover:underline' : ''}`}
                       onClick={() => a.path && navigate(a.path)}>{a.text}</p>
-                    {a.key && (
-                      <button onClick={() => dismissAlert(a.key!)} className="text-amber-300 hover:text-amber-600 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" title="Dispensar alerta">
-                        <X size={14} />
-                      </button>
-                    )}
-                    {a.path && <span className="text-xs text-amber-400 flex-shrink-0">→</span>}
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      {a.key && (
+                        <button onClick={() => resolveAlert(a.key!)} className="text-green-400 hover:text-green-600 opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded" title="Marcar como resolvido">
+                          <Check size={14} />
+                        </button>
+                      )}
+                      {a.key && (
+                        <button onClick={() => dismissAlert(a.key!)} className="text-amber-300 hover:text-amber-600 opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded" title="Dispensar alerta">
+                          <X size={14} />
+                        </button>
+                      )}
+                      {a.path && <span className="text-xs text-amber-400">→</span>}
+                    </div>
                   </div>
                 ))}
               </div>
+            </div>
+          )}
+          {resolvedCount > 0 && (
+            <div className="flex items-center gap-2 px-4 py-2 bg-green-50 rounded-xl border border-green-200">
+              <CheckCircle size={14} className="text-green-600" />
+              <span className="text-sm text-green-700 font-medium">{resolvedCount} pendência{resolvedCount > 1 ? 's' : ''} resolvida{resolvedCount > 1 ? 's' : ''}</span>
+              <button onClick={() => {
+                setResolvedAlerts(new Set())
+                localStorage.removeItem('timein_resolved_alerts')
+              }} className="text-xs text-green-500 hover:text-green-700 ml-auto">Limpar</button>
             </div>
           )}
         </div>
@@ -877,6 +955,55 @@ export default function Dashboard() {
           </div>
         )}
 
+        {/* ── Contratações (últimos 6 meses) + Status dos Colaboradores ── */}
+        {role === 'chefe' && (
+          <div className="card p-5">
+            <h2 className="font-semibold text-gray-900 flex items-center gap-2 mb-4">
+              <BarChart3 size={16} className="text-primary-600" />
+              Contratações — Últimos 6 meses
+            </h2>
+            {hiringBarData.some(d => d.contratacoes > 0) ? (
+              <div className="h-48">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={hiringBarData} barSize={28}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                    <XAxis dataKey="month" tick={{ fontSize: 12, fill: '#6b7280' }} axisLine={false} tickLine={false} />
+                    <YAxis allowDecimals={false} tick={{ fontSize: 12, fill: '#6b7280' }} axisLine={false} tickLine={false} width={24} />
+                    <Tooltip formatter={(v: number) => [v, 'Contratações']} />
+                    <Bar dataKey="contratacoes" fill="#6366f1" radius={[6, 6, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            ) : (
+              <p className="text-center text-sm text-gray-400 py-8">Sem contratações no período</p>
+            )}
+          </div>
+        )}
+
+        {role === 'chefe' && empStatusData.length > 0 && (
+          <div className="card p-5">
+            <h2 className="font-semibold text-gray-900 flex items-center gap-2 mb-4">
+              <Activity size={16} className="text-primary-600" />
+              Status dos Colaboradores
+            </h2>
+            <div className="h-48 relative">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie data={empStatusData} cx="50%" cy="50%" innerRadius={45} outerRadius={70} dataKey="value" paddingAngle={3} stroke="none">
+                    {empStatusData.map((e, i) => <Cell key={i} fill={e.color} />)}
+                  </Pie>
+                  <Tooltip />
+                  <Legend iconType="circle" iconSize={8} formatter={(v) => <span className="text-xs text-gray-600">{v}</span>} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                <span className="text-2xl font-display font-extrabold text-ink-900 tnum">{employees?.length ?? 0}</span>
+                <span className="text-[10px] text-ink-400">total</span>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* ── Pendências de Documentação (chefe) ── */}
         {role === 'chefe' && (pendingDocs?.length ?? 0) > 0 && (
           <div className="card p-5">
@@ -891,7 +1018,7 @@ export default function Dashboard() {
             <div className="space-y-1.5 max-h-48 overflow-y-auto">
               {pendingDocs?.slice(0, 15).map(d => (
                 <div key={d.id} className="flex items-center justify-between px-3 py-2 bg-amber-50 rounded-lg cursor-pointer hover:bg-amber-100"
-                  onClick={() => navigate(`/colaboradores/${(d as { employee?: { id: string } }).employee?.id}`)}>
+                  onClick={() => navigate(`/colaboradores/${(d as { employee?: { id: string } }).employee?.id}?tab=arquivos`)}>
                   <div>
                     <p className="text-xs font-medium text-amber-800">{(d as { employee?: { full_name: string } }).employee?.full_name}</p>
                     <p className="text-xs text-amber-600">{d.name}</p>
@@ -911,14 +1038,14 @@ export default function Dashboard() {
           <div className="flex items-center justify-between mb-4">
             <h2 className="font-semibold text-gray-900 flex items-center gap-2">
               <Calendar size={16} className="text-primary-600" />
-              Próximas Entrevistas
+              Agenda
             </h2>
             <button onClick={() => navigate('/agenda')} className="text-xs text-primary-600 hover:underline">Ver agenda →</button>
           </div>
           {interviews?.length === 0 ? (
             <div className="text-center py-6">
               <Calendar size={28} className="text-gray-200 mx-auto mb-2" />
-              <p className="text-sm text-gray-400">Nenhuma entrevista agendada</p>
+              <p className="text-sm text-gray-400">Nenhum compromisso agendado</p>
             </div>
           ) : (
             <div className="space-y-2">

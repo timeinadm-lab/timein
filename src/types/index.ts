@@ -283,6 +283,7 @@ export interface ChatMessage {
 
 export interface Interview {
   id: string
+  title?: string
   candidate_id?: string
   recruiter_id?: string
   vacancy_id?: string

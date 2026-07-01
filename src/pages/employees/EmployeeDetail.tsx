@@ -603,7 +603,7 @@ export default function EmployeeDetail() {
     setUploadingLinkId(linkId)
     try {
       const path = `employees/${id}/${linkId}_${Date.now()}.pdf`
-      const { error: upErr } = await supabase.storage.from('contratos').upload(path, file, { upsert: true })
+      const { error: upErr } = await supabase.storage.from('arquivos').upload(path, file, { upsert: true })
       if (upErr) throw upErr
       const { error: updErr } = await supabase.from('employee_client_links').update({ contract_file_url: path }).eq('id', linkId)
       if (updErr) throw updErr
@@ -1490,7 +1490,7 @@ export default function EmployeeDetail() {
                               <CheckCircle size={18} className="text-green-600 shrink-0" />
                               <div className="flex-1 min-w-0">
                                 <p className="text-sm font-semibold text-green-800">Contrato assinado anexado ✓</p>
-                                <SignedLink value={contractFile} bucket="contratos" className="text-xs text-green-700 hover:underline flex items-center gap-1">
+                                <SignedLink value={contractFile} bucket="arquivos" className="text-xs text-green-700 hover:underline flex items-center gap-1">
                                   <ExternalLink size={10} /> Ver contrato
                                 </SignedLink>
                               </div>

@@ -216,7 +216,7 @@ export default function ClientDetail() {
     setUploadingId(contractId)
     try {
       const path = `clients/${id}/${contractId}_${Date.now()}.pdf`
-      const { error: upErr } = await supabase.storage.from('contratos').upload(path, file, { upsert: true })
+      const { error: upErr } = await supabase.storage.from('arquivos').upload(path, file, { upsert: true })
       if (upErr) throw upErr
       const { error: updErr } = await supabase.from('client_contracts').update({ file_url: path }).eq('id', contractId)
       if (updErr) throw updErr
@@ -478,7 +478,7 @@ export default function ClientDetail() {
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0">
                       {c.file_url ? (
-                        <SignedLink value={c.file_url} bucket="contratos" className="btn-secondary text-xs flex items-center gap-1 py-1 px-2">
+                        <SignedLink value={c.file_url} bucket="arquivos" className="btn-secondary text-xs flex items-center gap-1 py-1 px-2">
                           <ExternalLink size={12} /> Ver PDF
                         </SignedLink>
                       ) : null}

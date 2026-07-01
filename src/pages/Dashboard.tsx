@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useState } from 'react'
 import {
   Users, FileText, Briefcase, UserPlus, AlertTriangle, CheckCircle,
-  Calendar, Plus, TrendingUp, Clock, CreditCard, Clipboard, Download,
+  Calendar, Plus, TrendingUp, Clock, CreditCard, Clipboard, Download, X,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { supabase } from '../lib/supabase'
@@ -286,7 +286,7 @@ export default function Dashboard() {
     queryFn: async () => {
       const { data } = await supabase
         .from('employee_client_links')
-        .select('id,employee_id,client_id,monthly_hours_quota,weekly_hours_quota,visits_per_week,employee:employees(full_name,status),client:clients(name)')
+        .select('id,employee_id,client_id,monthly_hours_quota,weekly_hours_quota,visits_per_week,start_date,created_at,employee:employees(full_name,status),client:clients(name)')
         .eq('service_type', 'Consultoria')
         .not('monthly_hours_quota', 'is', null)
       return (data || []).filter((l: { employee?: { status?: string } }) => l.employee?.status === 'Ativo')
@@ -436,8 +436,19 @@ export default function Dashboard() {
   const documentosTotal = documentosPie.reduce((s, d) => s + d.value, 0)
 
   // Alerts grouped by severity
-  const redAlerts: { text: string; action?: string; path?: string }[] = []
-  const amberAlerts: { text: string; action?: string; path?: string }[] = []
+  const [dismissedAlerts, setDismissedAlerts] = useState<Set<string>>(() => {
+    try { return new Set(JSON.parse(localStorage.getItem('timein_dismissed_alerts') || '[]')) } catch { return new Set() }
+  })
+  const dismissAlert = (key: string) => {
+    setDismissedAlerts(prev => {
+      const next = new Set(prev); next.add(key)
+      localStorage.setItem('timein_dismissed_alerts', JSON.stringify([...next]))
+      return next
+    })
+  }
+
+  const redAlerts: { text: string; action?: string; path?: string; key?: string }[] = []
+  const amberAlerts: { text: string; action?: string; path?: string; key?: string }[] = []
 
   overdue.forEach(p =>
     redAlerts.push({ text: `Pagamento atrasado: ${p.description} — ${formatCurrency(p.amount)}`, path: '/pagamentos' })
@@ -541,11 +552,13 @@ export default function Dashboard() {
       return Math.max(0, d) / 60
     }
     const fmtH = (h: number) => `${Math.floor(h)}h${Math.round((h % 1) * 60) > 0 ? Math.round((h % 1) * 60) + 'min' : ''}`
-    consultoriaLinks.forEach((link: { id: string; employee_id: string; client_id: string; monthly_hours_quota?: number; weekly_hours_quota?: number; employee?: { full_name?: string }; client?: { name?: string } }) => {
+    const daysInMonth = (date: Date) => new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate()
+    consultoriaLinks.forEach((link: { id: string; employee_id: string; client_id: string; monthly_hours_quota?: number; weekly_hours_quota?: number; start_date?: string; created_at?: string; employee?: { full_name?: string }; client?: { name?: string } }) => {
       const weeklyQuota = Number(link.weekly_hours_quota) || 0
-      const monthlyQuota = Number(link.monthly_hours_quota) || 0
+      const fullMonthlyQuota = Number(link.monthly_hours_quota) || 0
       const name = link.employee?.full_name || 'Colaborador'
       const client = link.client?.name || 'cliente'
+      const linkStart = link.start_date || (link.created_at ? link.created_at.slice(0, 10) : null)
 
       const linkVisits = consultoriaVisits.filter(
         (v: { employee_id: string; client_id: string; is_unavailable?: boolean }) =>
@@ -557,7 +570,9 @@ export default function Dashboard() {
         linkVisits.forEach((v: { check_in?: string; check_out?: string; break_start?: string; break_end?: string }) => {
           const durH = calcDurH(v.check_in, v.check_out, v.break_start, v.break_end)
           if (durH > weeklyQuota + 0.1) {
+            const key = `visit-excess-${link.id}-${(v as { check_in?: string }).check_in}`
             amberAlerts.push({
+              key,
               text: `Consultoria: ${name} – ${client} registrou visita de ${fmtH(durH)} (combinado semanal: ${fmtH(weeklyQuota)}) — verificar e aprovar excedente`,
               path: '/colaboradores',
             })
@@ -566,15 +581,30 @@ export default function Dashboard() {
       }
 
       // Alerta de déficit: só no dia 1, verificando o mês que fechou
-      if (isFirstOfMonth && monthlyQuota > 0 && consultoriaPrevVisits) {
+      // Proporcionaliza a cota se o vínculo começou no meio do mês
+      if (isFirstOfMonth && fullMonthlyQuota > 0 && consultoriaPrevVisits) {
         const prevLinkVisits = (consultoriaPrevVisits as { employee_id: string; client_id: string; is_unavailable?: boolean; check_in?: string; check_out?: string; break_start?: string; break_end?: string }[]).filter(
           v => v.employee_id === link.employee_id && v.client_id === link.client_id && !v.is_unavailable
         )
+        const totalDays = daysInMonth(prevMonth)
+        let effectiveDays = totalDays
+        if (linkStart) {
+          const startDate = parseISO(linkStart)
+          const prevStart = startOfMonth(prevMonth)
+          const prevEnd = endOfMonth(prevMonth)
+          if (isAfter(startDate, prevEnd)) effectiveDays = 0
+          else if (isAfter(startDate, prevStart)) effectiveDays = differenceInDays(prevEnd, startDate) + 1
+        }
+        const proportionalQuota = fullMonthlyQuota * (effectiveDays / totalDays)
+        if (effectiveDays === 0) return
+
         const prevTotalH = prevLinkVisits.reduce((s, v) =>
           s + Math.min(calcDurH(v.check_in, v.check_out, v.break_start, v.break_end), weeklyQuota > 0 ? weeklyQuota : Infinity), 0)
-        if (prevTotalH < monthlyQuota - 0.1) {
+        if (prevTotalH < proportionalQuota - 0.1) {
+          const key = `deficit-${link.id}-${prevMonthStr}`
           redAlerts.push({
-            text: `Consultoria: ${name} – ${client} fechou o mês com ${fmtH(monthlyQuota - prevTotalH)} abaixo do combinado (${fmtH(prevTotalH)} de ${fmtH(monthlyQuota)}) — aplicar desconto proporcional`,
+            key,
+            text: `Consultoria: ${name} – ${client} fechou o mês com ${fmtH(proportionalQuota - prevTotalH)} abaixo do combinado (${fmtH(prevTotalH)} de ${fmtH(proportionalQuota)}${effectiveDays < totalDays ? ` — proporcional: ${effectiveDays}/${totalDays} dias` : ''}) — aplicar desconto proporcional`,
             path: '/colaboradores',
           })
         }
@@ -582,7 +612,9 @@ export default function Dashboard() {
     })
   }
 
-  const allAlerts = [...redAlerts, ...amberAlerts]
+  const filteredRed = redAlerts.filter(a => !a.key || !dismissedAlerts.has(a.key))
+  const filteredAmber = amberAlerts.filter(a => !a.key || !dismissedAlerts.has(a.key))
+  const allAlerts = [...filteredRed, ...filteredAmber]
 
   const MODAL_COLORS: Record<string, string> = {
     'Online': 'bg-blue-100 text-blue-700',
@@ -676,19 +708,19 @@ export default function Dashboard() {
         </div>
 
         {/* Alertas */}
-        <div className={`card card-interactive p-5 ${redAlerts.length > 0 ? 'border-red-200 bg-red-50/40' : amberAlerts.length > 0 ? 'border-amber-200 bg-amber-50/40' : ''}`}>
+        <div className={`card card-interactive p-5 ${filteredRed.length > 0 ? 'border-red-200 bg-red-50/40' : filteredAmber.length > 0 ? 'border-amber-200 bg-amber-50/40' : ''}`}>
           <div className="flex items-start justify-between mb-3">
             <div>
               <p className="text-xs text-gray-500 font-medium">Alertas</p>
-              <p className={`text-3xl font-display font-extrabold mt-1 tnum ${redAlerts.length > 0 ? 'text-red-600' : amberAlerts.length > 0 ? 'text-amber-600' : 'text-primary-600'}`}>
+              <p className={`text-3xl font-display font-extrabold mt-1 tnum ${filteredRed.length > 0 ? 'text-red-600' : filteredAmber.length > 0 ? 'text-amber-600' : 'text-primary-600'}`}>
                 {allAlerts.length}
               </p>
-              <p className="text-xs text-gray-400">{redAlerts.length} crítico{redAlerts.length !== 1 ? 's' : ''}</p>
+              <p className="text-xs text-gray-400">{filteredRed.length} crítico{filteredRed.length !== 1 ? 's' : ''}</p>
             </div>
-            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${redAlerts.length > 0 ? 'bg-red-100' : amberAlerts.length > 0 ? 'bg-amber-100' : 'bg-green-100'}`}>
+            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${filteredRed.length > 0 ? 'bg-red-100' : filteredAmber.length > 0 ? 'bg-amber-100' : 'bg-green-100'}`}>
               {allAlerts.length === 0
                 ? <CheckCircle size={20} className="text-green-600" />
-                : <AlertTriangle size={20} className={redAlerts.length > 0 ? 'text-red-600' : 'text-amber-600'} />
+                : <AlertTriangle size={20} className={filteredRed.length > 0 ? 'text-red-600' : 'text-amber-600'} />
               }
             </div>
           </div>
@@ -700,37 +732,47 @@ export default function Dashboard() {
       {/* ── Alertas Críticos ── */}
       {allAlerts.length > 0 && (
         <div className="space-y-2">
-          {redAlerts.length > 0 && (
+          {filteredRed.length > 0 && (
             <div className="rounded-xl border border-red-200 overflow-hidden">
               <div className="bg-red-600 px-4 py-2 flex items-center gap-2">
                 <AlertTriangle size={14} className="text-white" />
-                <span className="text-sm font-semibold text-white">{redAlerts.length} Problema{redAlerts.length > 1 ? 's' : ''} Crítico{redAlerts.length > 1 ? 's' : ''}</span>
+                <span className="text-sm font-semibold text-white">{filteredRed.length} Problema{filteredRed.length > 1 ? 's' : ''} Crítico{filteredRed.length > 1 ? 's' : ''}</span>
               </div>
               <div className="divide-y divide-red-100 bg-white">
-                {redAlerts.map((a, i) => (
-                  <div key={i} className={`flex items-start gap-3 px-4 py-2.5 ${a.path ? 'cursor-pointer hover:bg-red-50' : ''}`}
-                    onClick={() => a.path && navigate(a.path)}>
+                {filteredRed.map((a, i) => (
+                  <div key={i} className="flex items-start gap-3 px-4 py-2.5 group">
                     <span className="w-1.5 h-1.5 rounded-full bg-red-500 mt-1.5 flex-shrink-0" />
-                    <p className="text-sm text-red-800 flex-1">{a.text}</p>
-                    {a.path && <span className="text-xs text-red-400">→</span>}
+                    <p className={`text-sm text-red-800 flex-1 ${a.path ? 'cursor-pointer hover:underline' : ''}`}
+                      onClick={() => a.path && navigate(a.path)}>{a.text}</p>
+                    {a.key && (
+                      <button onClick={() => dismissAlert(a.key!)} className="text-red-300 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" title="Dispensar alerta">
+                        <X size={14} />
+                      </button>
+                    )}
+                    {a.path && <span className="text-xs text-red-400 flex-shrink-0">→</span>}
                   </div>
                 ))}
               </div>
             </div>
           )}
-          {amberAlerts.length > 0 && (
+          {filteredAmber.length > 0 && (
             <div className="rounded-xl border border-amber-200 overflow-hidden">
               <div className="bg-amber-500 px-4 py-2 flex items-center gap-2">
                 <Clock size={14} className="text-white" />
-                <span className="text-sm font-semibold text-white">{amberAlerts.length} Atenção</span>
+                <span className="text-sm font-semibold text-white">{filteredAmber.length} Atenção</span>
               </div>
               <div className="divide-y divide-amber-100 bg-white">
-                {amberAlerts.map((a, i) => (
-                  <div key={i} className={`flex items-start gap-3 px-4 py-2.5 ${a.path ? 'cursor-pointer hover:bg-amber-50' : ''}`}
-                    onClick={() => a.path && navigate(a.path)}>
+                {filteredAmber.map((a, i) => (
+                  <div key={i} className="flex items-start gap-3 px-4 py-2.5 group">
                     <span className="w-1.5 h-1.5 rounded-full bg-amber-400 mt-1.5 flex-shrink-0" />
-                    <p className="text-sm text-amber-800 flex-1">{a.text}</p>
-                    {a.path && <span className="text-xs text-amber-400">→</span>}
+                    <p className={`text-sm text-amber-800 flex-1 ${a.path ? 'cursor-pointer hover:underline' : ''}`}
+                      onClick={() => a.path && navigate(a.path)}>{a.text}</p>
+                    {a.key && (
+                      <button onClick={() => dismissAlert(a.key!)} className="text-amber-300 hover:text-amber-600 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" title="Dispensar alerta">
+                        <X size={14} />
+                      </button>
+                    )}
+                    {a.path && <span className="text-xs text-amber-400 flex-shrink-0">→</span>}
                   </div>
                 ))}
               </div>

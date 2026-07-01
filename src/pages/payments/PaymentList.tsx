@@ -110,10 +110,11 @@ export default function PaymentList() {
     onError: (e: Error) => toast.error(e.message),
   })
 
-  // ── Folha de ponto: vínculos ativos com dados de ponto ──
+  // ── Folha de ponto: vínculos ativos + desligados com visitas pendentes ──
   const { data: folhaData, isLoading: folhaLoading } = useQuery({
     queryKey: ['folha-ponto', filterMonth],
     queryFn: async () => {
+      // 1) Vínculos ativos
       const { data: rawLinks, error } = await supabase
         .from('employee_client_links')
         .select(`
@@ -123,18 +124,77 @@ export default function PaymentList() {
           payment_dates:employee_payment_dates(day_of_month, amount)
         `)
       if (error) throw error
-      // Only active employees
-      const links = (rawLinks || []).filter(l => (l as { employee?: { status?: string } }).employee?.status === 'Ativo')
+      const activeLinks = (rawLinks || []).filter(l => (l as { employee?: { status?: string } }).employee?.status === 'Ativo')
+
+      // 2) Visitas do mês de colaboradores desligados (sem vínculo ativo)
+      const activeEmpIds = new Set(activeLinks.map(l => (l as { employee?: { id: string } }).employee?.id).filter(Boolean))
+      const { data: monthVisits } = await supabase
+        .from('nutritionist_visits')
+        .select('employee_id, client_id, visit_date, check_in, check_out, visit_rate')
+        .gte('visit_date', monthStart)
+        .lte('visit_date', monthEnd)
+
+      // Desligados com visitas neste mês que ainda não foram pagos
+      const dismissedVisits = (monthVisits || []).filter(v => !activeEmpIds.has(v.employee_id))
+      const dismissedEmpIds = [...new Set(dismissedVisits.map(v => v.employee_id))]
+
+      // Busca nomes dos desligados e checa se já tem pagamento no mês
+      let dismissedRows: typeof activeLinks = []
+      if (dismissedEmpIds.length) {
+        const { data: dismissedEmps } = await supabase
+          .from('employees')
+          .select('id, full_name, status')
+          .in('id', dismissedEmpIds)
+        const { data: paidCheck } = await supabase
+          .from('payments')
+          .select('employee_id')
+          .in('employee_id', dismissedEmpIds)
+          .eq('status', 'Pago')
+          .or(`reference_month.eq.${filterMonth},and(reference_month.is.null,due_date.gte.${monthStart},due_date.lte.${monthEnd})`)
+
+        const paidIds = new Set((paidCheck || []).map(p => p.employee_id))
+        const unpaidDismissed = (dismissedEmps || []).filter(e => !paidIds.has(e.id))
+
+        // Agrupa visitas por employee+client
+        const groups = new Map<string, { employee_id: string; client_id: string }>()
+        for (const v of dismissedVisits) {
+          const key = `${v.employee_id}|${v.client_id}`
+          if (!groups.has(key) && unpaidDismissed.some(e => e.id === v.employee_id)) {
+            groups.set(key, { employee_id: v.employee_id, client_id: v.client_id })
+          }
+        }
+
+        // Busca nomes dos clientes
+        const clientIds = [...new Set([...groups.values()].map(g => g.client_id))]
+        const { data: clientNames } = clientIds.length
+          ? await supabase.from('clients').select('id, name').in('id', clientIds)
+          : { data: [] }
+
+        for (const [, g] of groups) {
+          const emp = unpaidDismissed.find(e => e.id === g.employee_id)
+          const client = (clientNames || []).find(c => c.id === g.client_id)
+          if (emp) {
+            dismissedRows.push({
+              id: `dismissed-${g.employee_id}-${g.client_id}`,
+              service_type: 'Consultoria',
+              monthly_amount: null,
+              work_schedule: null,
+              expected_days_month: null,
+              cost_assistance: 0,
+              employee: { id: emp.id, full_name: emp.full_name + ' (desligado)', status: emp.status },
+              client: client ? { id: client.id, name: client.name } : null,
+              payment_dates: [],
+            } as never)
+          }
+        }
+      }
+
+      const links = [...activeLinks, ...dismissedRows]
       if (!links?.length) return []
 
       // Fetch actual visits for this month for all employees
       const empIds = [...new Set(links.map(l => (l as { employee?: { id: string } }).employee?.id).filter(Boolean))]
-      const { data: visits } = await supabase
-        .from('nutritionist_visits')
-        .select('employee_id, client_id, visit_date, check_in, check_out, visit_rate')
-        .in('employee_id', empIds)
-        .gte('visit_date', monthStart)
-        .lte('visit_date', monthEnd)
+      const visits = monthVisits?.filter(v => empIds.includes(v.employee_id)) || []
 
       // Check which have real payments already
       const { data: realPayments } = await supabase

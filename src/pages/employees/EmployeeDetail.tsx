@@ -607,8 +607,22 @@ export default function EmployeeDetail() {
       if (upErr) throw upErr
       const { error: updErr } = await supabase.from('employee_client_links').update({ contract_file_url: path }).eq('id', linkId)
       if (updErr) throw updErr
-      toast.success('Contrato anexado!')
+
+      // Também registra o contrato na aba Documentos do colaborador
+      const link = links?.find(l => l.id === linkId)
+      const clientName = (link as { client?: { name?: string } } | undefined)?.client?.name
+      const docName = `Contrato assinado${clientName ? ' — ' + clientName : ''}`
+      const { data: existingDocs } = await supabase.from('employee_documents')
+        .select('id').eq('employee_id', id).eq('name', docName).limit(1)
+      if (existingDocs?.[0]) {
+        await supabase.from('employee_documents').update({ file_url: path, status: 'Entregue' }).eq('id', existingDocs[0].id)
+      } else {
+        await supabase.from('employee_documents').insert({ employee_id: id, name: docName, status: 'Entregue', file_url: path })
+      }
+
+      toast.success('Contrato anexado! Também salvo em Documentos.')
       qc.invalidateQueries({ queryKey: ['employee-links', id] })
+      qc.invalidateQueries({ queryKey: ['employee-docs', id] })
     } catch (e: unknown) {
       toast.error((e as Error).message)
     } finally {

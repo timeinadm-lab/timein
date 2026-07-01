@@ -59,9 +59,7 @@ export default function VacancyList() {
           const { data: remaining } = await supabase
             .from('employee_client_links').select('id').eq('employee_id', empId).limit(1)
           if (!remaining?.length) {
-            // Tenta 'Inativo' (requer migration_011); se constraint rejeitar, usa 'Desligado'
-            const { error: stErr } = await supabase.from('employees').update({ status: 'Inativo' }).eq('id', empId)
-            if (stErr) await supabase.from('employees').update({ status: 'Desligado' }).eq('id', empId)
+            await supabase.from('employees').update({ status: 'Inativo' }).eq('id', empId)
           }
         }
       }

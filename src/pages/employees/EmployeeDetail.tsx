@@ -796,8 +796,8 @@ export default function EmployeeDetail() {
               <div><span className="text-xs text-gray-400">RG</span><p className="font-mono">{(employee as { rg?: string }).rg || '-'}</p></div>
               <div><span className="text-xs text-gray-400">Data de Nascimento</span><p>{formatDate(employee.birth_date)}</p></div>
               <div><span className="text-xs text-gray-400">Admissão</span><p>{formatDate(employee.admission_date)}</p></div>
-              {employee.status === 'Desligado' && <>
-                <div><span className="text-xs text-gray-400">Desligamento</span><p>{formatDate(employee.dismissal_date)}</p></div>
+              {employee.status === 'Inativo' && employee.dismissal_date && <>
+                <div><span className="text-xs text-gray-400">Data de Saída</span><p>{formatDate(employee.dismissal_date)}</p></div>
                 <div><span className="text-xs text-gray-400">Motivo</span><p>{employee.dismissal_reason || '-'}</p></div>
               </>}
             </div>

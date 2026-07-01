@@ -409,7 +409,7 @@ export default function VacancyDetail() {
         await supabase.from('employee_client_links').delete().eq('employee_id', empId).eq('client_id', vacancy?.client_id)
         const { data: otherLinks } = await supabase.from('employee_client_links').select('id').eq('employee_id', empId).limit(1)
         if (!otherLinks?.length) {
-          await supabase.from('employees').update({ status: 'Desligado', dismissal_date: new Date().toISOString().slice(0, 10) }).eq('id', empId)
+          await supabase.from('employees').update({ status: 'Inativo', dismissal_date: new Date().toISOString().slice(0, 10) }).eq('id', empId)
         }
       }
 
@@ -696,7 +696,7 @@ export default function VacancyDetail() {
           <div className="bg-white rounded-2xl shadow-lift p-6 max-w-sm w-full space-y-4">
             <h3 className="font-display font-bold text-lg text-red-700">Desligar colaborador?</h3>
             <p className="text-sm text-ink-600">
-              <strong>{confirmDismiss.empName}</strong> será desligada desta vaga. O colaborador ficará como <strong>Desligado</strong> e o vínculo com o cliente será removido. A vaga reabre nesta posição.
+              <strong>{confirmDismiss.empName}</strong> será desligado(a) desta vaga. Se não tiver outros vínculos, ficará como <strong>Inativo</strong>. A vaga reabre nesta posição.
             </p>
             <div>
               <label className="label">Prazo para contratar substituto</label>

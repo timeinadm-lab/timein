@@ -76,7 +76,7 @@ export default function Dashboard() {
   const { data: employees } = useQuery({
     queryKey: ['dashboard-employees'],
     queryFn: async () => {
-      const { data } = await supabase.from('employees').select('id,status,dismissal_date,full_name')
+      const { data } = await supabase.from('employees').select('id,status,dismissal_date,full_name,employee_type')
       return data || []
     },
   })
@@ -377,11 +377,24 @@ export default function Dashboard() {
     enabled: role === 'chefe',
   })
 
+  // Volantes: vínculos ativos para saber quais estão atuando
+  const { data: volanteLinks } = useQuery({
+    queryKey: ['dashboard-volante-links'],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('employee_client_links')
+        .select('employee_id,contract_end_date')
+        .eq('service_type', 'Volante')
+      return data || []
+    },
+    enabled: role === 'chefe',
+  })
+
   // ── Derived ──────────────────────────────────────────────────────────────────
   const activeEmployees = employees?.filter(e => e.status === 'Ativo').length ?? 0
   const totalEmployees = employees?.length ?? 1
   const dismissedThisMonth = employees?.filter(e =>
-    e.status === 'Desligado' && e.dismissal_date &&
+    e.status === 'Inativo' && e.dismissal_date &&
     e.dismissal_date >= monthStart && e.dismissal_date <= monthEnd
   ).length ?? 0
 
@@ -468,9 +481,25 @@ export default function Dashboard() {
   // Status breakdown dos colaboradores
   const empStatusData = [
     { name: 'Ativos', value: employees?.filter(e => e.status === 'Ativo').length ?? 0, color: '#22c55e' },
-    { name: 'Desligados', value: employees?.filter(e => e.status === 'Desligado').length ?? 0, color: '#ef4444' },
+    { name: 'Ociosos', value: employees?.filter(e => e.status === 'Ocioso').length ?? 0, color: '#f59e0b' },
     { name: 'Inativos', value: employees?.filter(e => e.status === 'Inativo').length ?? 0, color: '#94a3b8' },
   ].filter(d => d.value > 0)
+
+  // Volantes: disponíveis vs. atuando
+  const volantesAll = employees?.filter(e => (e as { employee_type?: string }).employee_type === 'Volante' && e.status !== 'Inativo') ?? []
+  const today = now.toISOString().slice(0, 10)
+  const volantesAtuandoIds = new Set(
+    (volanteLinks || [])
+      .filter(l => !l.contract_end_date || l.contract_end_date >= today)
+      .map(l => l.employee_id)
+  )
+  const volantesAtuando = volantesAll.filter(v => volantesAtuandoIds.has(v.id)).length
+  const volantesDisp = volantesAll.length - volantesAtuando
+  const volantesPie = [
+    { name: 'Atuando', value: volantesAtuando, color: '#f97316' },
+    { name: 'Disponíveis', value: volantesDisp, color: '#22c55e' },
+  ].filter(d => d.value > 0)
+  const volantesTotal = volantesPie.reduce((s, d) => s + d.value, 0)
 
   // Alerts grouped by severity — dismiss = esconder temporariamente, resolve = check-in "resolvido"
   const [dismissedAlerts, setDismissedAlerts] = useState<Set<string>>(() => {
@@ -720,7 +749,7 @@ export default function Dashboard() {
           <div className="w-full bg-gray-100 rounded-full h-1.5">
             <div className="bg-blue-500 h-1.5 rounded-full" style={{ width: `${Math.min(100, (activeEmployees / totalEmployees) * 100)}%` }} />
           </div>
-          {dismissedThisMonth > 0 && <p className="text-xs text-red-500 mt-1.5">↓ {dismissedThisMonth} desligado{dismissedThisMonth > 1 ? 's' : ''} este mês</p>}
+          {dismissedThisMonth > 0 && <p className="text-xs text-red-500 mt-1.5">↓ {dismissedThisMonth} inativado{dismissedThisMonth > 1 ? 's' : ''} este mês</p>}
         </div>
 
         {/* Vagas */}
@@ -999,6 +1028,31 @@ export default function Dashboard() {
               <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
                 <span className="text-2xl font-display font-extrabold text-ink-900 tnum">{employees?.length ?? 0}</span>
                 <span className="text-[10px] text-ink-400">total</span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Volantes ── */}
+        {role === 'chefe' && volantesTotal > 0 && (
+          <div className="card p-5">
+            <h2 className="font-semibold text-gray-900 flex items-center gap-2 mb-4">
+              <Users size={16} className="text-orange-500" />
+              Volantes
+            </h2>
+            <div className="h-48 relative">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie data={volantesPie} cx="50%" cy="50%" innerRadius={45} outerRadius={70} dataKey="value" paddingAngle={3} stroke="none">
+                    {volantesPie.map((e, i) => <Cell key={i} fill={e.color} />)}
+                  </Pie>
+                  <Tooltip />
+                  <Legend iconType="circle" iconSize={8} formatter={(v) => <span className="text-xs text-gray-600">{v}</span>} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                <span className="text-2xl font-display font-extrabold text-ink-900 tnum">{volantesTotal}</span>
+                <span className="text-[10px] text-ink-400">volantes</span>
               </div>
             </div>
           </div>

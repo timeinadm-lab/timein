@@ -181,7 +181,7 @@ export default function PaymentList() {
               work_schedule: null,
               expected_days_month: null,
               cost_assistance: 0,
-              employee: { id: emp.id, full_name: emp.full_name + ' (desligado)', status: emp.status },
+              employee: { id: emp.id, full_name: emp.full_name + ' (inativo)', status: emp.status },
               client: client ? { id: client.id, name: client.name } : null,
               payment_dates: [],
             } as never)

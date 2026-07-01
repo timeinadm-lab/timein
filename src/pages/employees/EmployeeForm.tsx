@@ -14,9 +14,9 @@ const EMPTY = {
   phone: '', whatsapp: '', email: '', emergency_phone: '',
   address_street: '', address_number: '', address_neighborhood: '', address_city: '', address_zip: '',
   crn_number: '', crn_region: '', role: '', admission_date: '',
-  status: 'Ativo' as 'Ativo' | 'Desligado',
+  status: 'Ativo' as 'Ativo' | 'Inativo' | 'Ocioso',
   employee_type: 'Regular' as 'Regular' | 'Volante',
-  dismissal_date: '', dismissal_reason: '', benefits_paid: false, docs_returned: false,
+  dismissal_date: '', dismissal_reason: '',
   bank_name: '', bank_agency: '', bank_account: '', bank_account_type: 'Corrente' as 'Corrente' | 'Poupança', pix: '',
   photo_url: '',
 }
@@ -45,7 +45,7 @@ export default function EmployeeForm() {
   const mutation = useMutation({
     mutationFn: async (payload: Record<string, unknown>) => {
       if (isEdit) {
-        if (payload.status === 'Desligado') {
+        if (payload.status === 'Inativo') {
           const { data: emp } = await supabase.from('employees').select('status').eq('id', id!).single()
           const { data: interest } = await supabase.from('vacancy_interests')
             .select('vacancy_id').eq('candidate_id', id!).eq('status', 'Contratado').limit(1).maybeSingle()
@@ -117,8 +117,6 @@ export default function EmployeeForm() {
       employee_type: form.employee_type,
       dismissal_date: form.dismissal_date || null,
       dismissal_reason: form.dismissal_reason || null,
-      benefits_paid: form.benefits_paid,
-      docs_returned: form.docs_returned,
       bank_name: form.bank_name || null,
       bank_agency: form.bank_agency || null,
       bank_account: form.bank_account || null,
@@ -262,9 +260,10 @@ export default function EmployeeForm() {
               <div><label className="label">Data de Admissão</label><input className="input" type="date" value={form.admission_date} onChange={e => set('admission_date', e.target.value)} /></div>
               <div>
                 <label className="label">Status</label>
-                <select className="input" value={form.status} onChange={e => set('status', e.target.value as 'Ativo' | 'Desligado')}>
+                <select className="input" value={form.status} onChange={e => set('status', e.target.value as 'Ativo' | 'Inativo' | 'Ocioso')}>
                   <option>Ativo</option>
-                  <option>Desligado</option>
+                  <option>Inativo</option>
+                  <option>Ocioso</option>
                 </select>
               </div>
               <div className="col-span-2">
@@ -283,31 +282,21 @@ export default function EmployeeForm() {
                 )}
               </div>
             </div>
-            {form.status === 'Desligado' && (
-              <div className="bg-red-50 p-4 rounded-lg space-y-3">
-                <p className="text-xs font-semibold text-red-600 uppercase tracking-wide">Desligamento</p>
+            {form.status === 'Inativo' && (
+              <div className="bg-gray-50 p-4 rounded-lg space-y-3">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Informações de Saída</p>
                 <div className="grid grid-cols-2 gap-4">
-                  <div><label className="label">Data de Desligamento</label><input className="input" type="date" value={form.dismissal_date} onChange={e => set('dismissal_date', e.target.value)} /></div>
+                  <div><label className="label">Data de Saída</label><input className="input" type="date" value={form.dismissal_date} onChange={e => set('dismissal_date', e.target.value)} /></div>
                   <div>
                     <label className="label">Motivo</label>
                     <select className="input" value={form.dismissal_reason} onChange={e => set('dismissal_reason', e.target.value)}>
                       <option value="">Selecionar</option>
                       <option>Pediu demissão</option>
-                      <option>Demitido</option>
                       <option>Fim de contrato</option>
+                      <option>Decisão da empresa</option>
                       <option>Outro</option>
                     </select>
                   </div>
-                </div>
-                <div className="flex gap-4">
-                  <label className="flex items-center gap-2 text-sm cursor-pointer">
-                    <input type="checkbox" checked={form.benefits_paid} onChange={e => set('benefits_paid', e.target.checked)} className="rounded" />
-                    Verbas pagas
-                  </label>
-                  <label className="flex items-center gap-2 text-sm cursor-pointer">
-                    <input type="checkbox" checked={form.docs_returned} onChange={e => set('docs_returned', e.target.checked)} className="rounded" />
-                    Documentos devolvidos
-                  </label>
                 </div>
               </div>
             )}

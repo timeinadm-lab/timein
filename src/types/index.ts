@@ -53,7 +53,7 @@ export interface Employee {
   crn_region?: string
   role?: string
   admission_date?: string
-  status: 'Ativo' | 'Desligado'
+  status: 'Ativo' | 'Inativo' | 'Ocioso'
   dismissal_date?: string
   dismissal_reason?: string
   benefits_paid?: boolean

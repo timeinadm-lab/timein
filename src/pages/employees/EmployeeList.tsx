@@ -74,7 +74,6 @@ export default function EmployeeList() {
     { label: 'Ativos', value: 'Ativo' },
     { label: 'Inativos', value: 'Inativo' },
     { label: 'Ociosos', value: 'Ocioso' },
-    { label: 'Desligados', value: 'Desligado' },
     { label: 'Todos', value: '' },
   ]
 

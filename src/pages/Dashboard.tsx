@@ -314,7 +314,7 @@ export default function Dashboard() {
     queryFn: async () => {
       const { data } = await supabase
         .from('nutritionist_visits')
-        .select('employee_id,client_id,check_in,check_out,break_start,break_end,is_unavailable')
+        .select('employee_id,client_id,visit_date,check_in,check_out,break_start,break_end,is_unavailable')
         .gte('visit_date', monthStartStr)
         .lte('visit_date', monthEndStr)
       return data || []
@@ -328,7 +328,7 @@ export default function Dashboard() {
     queryFn: async () => {
       const { data } = await supabase
         .from('nutritionist_visits')
-        .select('employee_id,client_id,check_in,check_out,break_start,break_end,is_unavailable')
+        .select('employee_id,client_id,visit_date,check_in,check_out,break_start,break_end,is_unavailable')
         .gte('visit_date', prevMonthStartStr)
         .lte('visit_date', prevMonthEndStr)
       return data || []
@@ -699,6 +699,31 @@ export default function Dashboard() {
             path: '/colaboradores',
           })
         }
+      }
+    })
+  }
+
+  // Consultoria quinzenal: detecta visitas concentradas numa só quinzena
+  if (role === 'chefe' && consultoriaLinks?.length && consultoriaVisits) {
+    const currentDay = now.getDate()
+    consultoriaLinks.forEach((link: { id: string; employee_id: string; client_id: string; employee?: { full_name?: string }; client?: { name?: string } }) => {
+      const name = link.employee?.full_name || 'Colaborador'
+      const client = link.client?.name || 'cliente'
+      const linkVisits = (consultoriaVisits as { employee_id: string; client_id: string; visit_date: string; is_unavailable?: boolean }[]).filter(
+        v => v.employee_id === link.employee_id && v.client_id === link.client_id && !v.is_unavailable
+      )
+      if (linkVisits.length < 2) return
+      const q1 = linkVisits.filter(v => parseInt(v.visit_date.slice(8, 10)) <= 15).length
+      const q2 = linkVisits.filter(v => parseInt(v.visit_date.slice(8, 10)) >= 16).length
+      // Se já passamos da 1ª quinzena e todas as visitas estão na mesma
+      if (currentDay >= 16 && q1 > 0 && q2 === 0) {
+        const key = `quinzena-dist-${link.id}-${currentMonthStr}`
+        amberAlerts.push({ key, text: `Consultoria quinzenal: ${name} – ${client} tem ${q1} visita(s) apenas na 1ª quinzena — falta visita na 2ª quinzena`, path: '/visitas' })
+      }
+      // Se o mês acabou (ou quase) e todas na 2ª quinzena
+      if (q2 > 0 && q1 === 0) {
+        const key = `quinzena-dist-${link.id}-${currentMonthStr}`
+        amberAlerts.push({ key, text: `Consultoria quinzenal: ${name} – ${client} tem ${q2} visita(s) apenas na 2ª quinzena — nenhuma visita na 1ª quinzena (irregularidade)`, path: '/visitas' })
       }
     })
   }

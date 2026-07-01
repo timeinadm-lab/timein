@@ -224,6 +224,15 @@ export default function VisitsDashboard() {
     // Antes das últimas 24h do mês não cobra "sem visita" — ela tem até o fim do mês pra fechar
     const alertLevel = (!showShortfall && rawAlert !== 'ok') ? 'no_prazo' : rawAlert
 
+    // Quinzenal: distribuição de visitas entre 1ª e 2ª quinzena
+    const q1Visits = empVisits.filter(v => parseInt(v.visit_date.slice(8, 10)) <= 15).length
+    const q2Visits = empVisits.filter(v => parseInt(v.visit_date.slice(8, 10)) >= 16).length
+    const currentDay = new Date().getDate()
+    const quinzenalIrregular = empVisits.length >= 2 && (
+      (q1Visits > 0 && q2Visits === 0 && currentDay >= 16) ||
+      (q2Visits > 0 && q1Visits === 0)
+    )
+
     return (
       <div key={emp.id} className={`card overflow-hidden border-l-4 ${
         openEmp.length > 0 ? 'border-l-red-500' :
@@ -289,6 +298,14 @@ export default function VisitsDashboard() {
                   <span className="flex items-center gap-1 text-xs text-gray-400 font-medium">
                     <Clock size={12} />{empVisits.length > 0 ? `${empVisits.length} visita(s) — ` : ''}no prazo (fecha até o fim do mês)
                   </span>
+                )}
+                {quinzenalIrregular && (
+                  <span className="flex items-center gap-1 text-xs text-orange-600 font-medium">
+                    <AlertTriangle size={12} />Quinzenal: visitas concentradas na {q1Visits > 0 ? '1ª' : '2ª'} quinzena (Q1: {q1Visits} · Q2: {q2Visits})
+                  </span>
+                )}
+                {empVisits.length > 0 && !quinzenalIrregular && (
+                  <span className="text-xs text-gray-400">Q1: {q1Visits} · Q2: {q2Visits}</span>
                 )}
                 {lastDate && alertLevel !== 'ok' && alertLevel !== 'no_prazo' && (
                   <span className="text-xs text-gray-400">última: {formatDate(lastDate)}</span>

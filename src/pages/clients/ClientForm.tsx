@@ -121,7 +121,6 @@ export default function ClientForm() {
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault()
-    if (units.length === 0) { toast.error('Adicione pelo menos uma unidade ao cliente'); return }
     mutation.mutate()
   }
 
@@ -153,11 +152,11 @@ export default function ClientForm() {
           </div>
         </div>
 
-        {/* Unidades — obrigatório pelo menos 1 */}
+        {/* Unidades — opcional na criação, pode adicionar depois */}
         <div className="card p-5 space-y-3">
           <div>
-            <h3 className="font-semibold text-gray-900">Unidades *</h3>
-            <p className="text-xs text-gray-400 mt-0.5">Locais onde o cliente opera. O valor por visita é definido em cada vaga de consultoria.</p>
+            <h3 className="font-semibold text-gray-900">Unidades</h3>
+            <p className="text-xs text-gray-400 mt-0.5">Locais onde o cliente opera. Pode adicionar depois — mas é necessário ter ao menos uma unidade para abrir vagas.</p>
           </div>
 
           {units.length > 0 && (
@@ -191,9 +190,6 @@ export default function ClientForm() {
             </button>
           </div>
 
-          {units.length === 0 && (
-            <p className="text-xs text-red-400 italic">Obrigatório: adicione pelo menos uma unidade antes de salvar.</p>
-          )}
         </div>
 
         {/* Contato */}

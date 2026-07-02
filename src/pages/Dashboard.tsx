@@ -4,7 +4,7 @@ import { useState } from 'react'
 import {
   Users, FileText, Briefcase, UserPlus, AlertTriangle, CheckCircle,
   Calendar, Plus, TrendingUp, Clock, CreditCard, Clipboard, Download, X,
-  BarChart3, Activity, Check,
+  BarChart3, Activity, Check, Database, FolderDown, ChevronDown,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { supabase } from '../lib/supabase'
@@ -29,11 +29,24 @@ const BACKUP_TABLES = [
   'shared_documents', 'link_history', 'placements_history', 'app_security',
 ]
 
+const FILE_SOURCES: { table: string; col: string; bucket: string; label: string }[] = [
+  { table: 'employee_documents', col: 'file_url', bucket: 'arquivos', label: 'Docs colaboradores' },
+  { table: 'employee_client_links', col: 'contract_file_url', bucket: 'arquivos', label: 'Contratos vínculos' },
+  { table: 'employee_expenses', col: 'receipt_url', bucket: 'arquivos', label: 'Comprovantes gastos' },
+  { table: 'client_contracts', col: 'file_url', bucket: 'arquivos', label: 'Contratos clientes' },
+  { table: 'shared_documents', col: 'file_url', bucket: 'arquivos', label: 'Docs compartilhados' },
+  { table: 'employees', col: 'photo_url', bucket: 'fotos de funcionários', label: 'Fotos colaboradores' },
+]
+
 export default function Dashboard() {
   const { role, profile } = useAuth()
   const [backingUp, setBackingUp] = useState(false)
+  const [backingUpDocs, setBackingUpDocs] = useState(false)
+  const [docProgress, setDocProgress] = useState('')
+  const [showBackupMenu, setShowBackupMenu] = useState(false)
 
-  const handleBackup = async () => {
+  const handleBackupData = async () => {
+    setShowBackupMenu(false)
     setBackingUp(true)
     try {
       const backup: Record<string, unknown[]> = {}
@@ -56,14 +69,69 @@ export default function Dashboard() {
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `timein-backup-${new Date().toISOString().slice(0, 10)}.json`
+      a.download = `timein-backup-dados-${new Date().toISOString().slice(0, 10)}.json`
       a.click()
       URL.revokeObjectURL(url)
-      toast.success('Backup exportado com sucesso!')
+      toast.success('Backup de dados exportado!')
     } catch (e) {
       toast.error('Erro ao exportar: ' + String(e))
     } finally {
       setBackingUp(false)
+    }
+  }
+
+  const handleBackupDocs = async () => {
+    setShowBackupMenu(false)
+    setBackingUpDocs(true)
+    setDocProgress('Carregando lista de arquivos...')
+    try {
+      const JSZip = (await import('jszip')).default
+      const zip = new JSZip()
+
+      const allFiles: { path: string; bucket: string; folder: string }[] = []
+      for (const src of FILE_SOURCES) {
+        const { data, error } = await supabase.from(src.table).select(`id,${src.col}`)
+        if (error) { console.warn(`Skip ${src.table}:`, error.message); continue }
+        for (const row of (data || [])) {
+          const val = (row as Record<string, string>)[src.col]
+          if (!val || val.startsWith('http')) continue
+          allFiles.push({ path: val, bucket: src.bucket, folder: src.label })
+        }
+      }
+
+      if (allFiles.length === 0) {
+        toast('Nenhum documento encontrado para backup.', { icon: '📂' })
+        return
+      }
+
+      let done = 0
+      let errors = 0
+      for (const file of allFiles) {
+        done++
+        setDocProgress(`Baixando ${done}/${allFiles.length} — ${file.folder}`)
+        try {
+          const { data } = await supabase.storage.from(file.bucket).download(file.path)
+          if (data) {
+            const fileName = file.path.split('/').pop() || `file_${done}`
+            zip.file(`${file.folder}/${fileName}`, data)
+          } else { errors++ }
+        } catch { errors++ }
+      }
+
+      setDocProgress('Gerando ZIP...')
+      const content = await zip.generateAsync({ type: 'blob' })
+      const url = URL.createObjectURL(content)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `timein-backup-documentos-${new Date().toISOString().slice(0, 10)}.zip`
+      a.click()
+      URL.revokeObjectURL(url)
+      toast.success(`Backup de documentos exportado! ${done - errors} arquivos${errors ? ` (${errors} com erro)` : ''}`)
+    } catch (e) {
+      toast.error('Erro ao exportar documentos: ' + String(e))
+    } finally {
+      setBackingUpDocs(false)
+      setDocProgress('')
     }
   }
   const navigate = useNavigate()
@@ -763,10 +831,45 @@ export default function Dashboard() {
         </div>
         <div className="flex items-center gap-3">
           {role === 'chefe' && (
-            <button onClick={handleBackup} disabled={backingUp} className="btn-secondary text-sm flex items-center gap-1.5">
-              <Download size={14} />
-              {backingUp ? 'Exportando...' : 'Backup'}
-            </button>
+            <div className="relative">
+              <button
+                onClick={() => setShowBackupMenu(p => !p)}
+                disabled={backingUp || backingUpDocs}
+                className="btn-secondary text-sm flex items-center gap-1.5"
+              >
+                <Download size={14} />
+                {backingUp ? 'Exportando dados...' : backingUpDocs ? docProgress || 'Exportando docs...' : 'Backup'}
+                {!backingUp && !backingUpDocs && <ChevronDown size={12} />}
+              </button>
+              {showBackupMenu && (
+                <>
+                  <div className="fixed inset-0 z-30" onClick={() => setShowBackupMenu(false)} />
+                  <div className="absolute right-0 top-full mt-1 z-40 w-72 bg-white rounded-xl shadow-lg border border-ink-100 overflow-hidden">
+                    <button
+                      onClick={handleBackupData}
+                      className="w-full flex items-start gap-3 px-4 py-3 hover:bg-ink-50 transition-colors text-left"
+                    >
+                      <Database size={18} className="text-blue-600 mt-0.5 flex-shrink-0" />
+                      <div>
+                        <p className="text-sm font-semibold text-ink-900">Backup do Sistema</p>
+                        <p className="text-xs text-ink-400 mt-0.5">Todos os dados (clientes, vagas, colaboradores, pagamentos...) em JSON</p>
+                      </div>
+                    </button>
+                    <div className="border-t border-ink-100" />
+                    <button
+                      onClick={handleBackupDocs}
+                      className="w-full flex items-start gap-3 px-4 py-3 hover:bg-ink-50 transition-colors text-left"
+                    >
+                      <FolderDown size={18} className="text-amber-600 mt-0.5 flex-shrink-0" />
+                      <div>
+                        <p className="text-sm font-semibold text-ink-900">Backup dos Documentos</p>
+                        <p className="text-xs text-ink-400 mt-0.5">Todos os PDFs, contratos, comprovantes e fotos em ZIP</p>
+                      </div>
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
           )}
           <p className="text-sm text-ink-400 capitalize">{now.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}</p>
         </div>

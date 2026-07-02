@@ -5,6 +5,7 @@ import { Plus, Search } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { formatDate, daysUntil } from '../../lib/utils'
 import Pagination from '../../components/ui/Pagination'
+import { SkeletonRows } from '../../components/ui/Skeleton'
 
 export default function ContractList() {
   const navigate = useNavigate()
@@ -48,7 +49,7 @@ export default function ContractList() {
       </div>
 
       {isLoading ? (
-        <div className="flex justify-center py-12"><div className="animate-spin rounded-full h-8 w-8 border-4 border-primary-600 border-t-transparent" /></div>
+        <SkeletonRows count={6} />
       ) : (
         <>
         {/* Mobile: cards empilhados */}

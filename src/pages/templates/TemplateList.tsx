@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Plus, Copy, Trash2, Edit } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { formatDate } from '../../lib/utils'
+import { SkeletonRows } from '../../components/ui/Skeleton'
 import toast from 'react-hot-toast'
 
 export default function TemplateList() {
@@ -49,7 +50,7 @@ export default function TemplateList() {
       </div>
 
       {isLoading ? (
-        <div className="flex justify-center py-12"><div className="animate-spin rounded-full h-8 w-8 border-4 border-primary-600 border-t-transparent" /></div>
+        <SkeletonRows count={4} />
       ) : (
         <div className="card divide-y divide-gray-100">
           {templates?.map(t => (

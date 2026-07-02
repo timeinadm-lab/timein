@@ -7,6 +7,7 @@ import { formatDate, formatCurrency, getInitials } from '../../lib/utils'
 import { exportEmployeeToPDF } from '../../lib/exportUtils'
 import { SignedLink, SignedImage } from '../../components/ui/SignedFile'
 import DeletePinModal from '../../components/ui/DeletePinModal'
+import { SkeletonDetail } from '../../components/ui/Skeleton'
 import { useAuth } from '../../contexts/AuthContext'
 import toast from 'react-hot-toast'
 import { format, startOfMonth, endOfMonth, getDaysInMonth, getDay, differenceInDays } from 'date-fns'
@@ -721,7 +722,7 @@ export default function EmployeeDetail() {
     onError: (e: Error) => toast.error(e.message),
   })
 
-  if (!employee) return <div className="flex justify-center py-12"><div className="animate-spin rounded-full h-8 w-8 border-4 border-primary-600 border-t-transparent" /></div>
+  if (!employee) return <SkeletonDetail />
 
   const linkedClientIds = new Set(links?.map(l => l.client_id) ?? [])
   const availableClients = allClients?.filter(c => !linkedClientIds.has(c.id)) ?? []

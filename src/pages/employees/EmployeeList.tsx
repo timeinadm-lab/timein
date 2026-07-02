@@ -7,6 +7,7 @@ import { formatDate, getInitials } from '../../lib/utils'
 import { SignedImage } from '../../components/ui/SignedFile'
 import { exportToCSV } from '../../lib/exportUtils'
 import Pagination from '../../components/ui/Pagination'
+import { SkeletonRows, EmptyState } from '../../components/ui/Skeleton'
 
 const FAVORITES_KEY = '__favorites__'
 
@@ -112,12 +113,13 @@ export default function EmployeeList() {
       </div>
 
       {isLoading ? (
-        <div className="flex justify-center py-12"><div className="animate-spin rounded-full h-8 w-8 border-4 border-primary-600 border-t-transparent" /></div>
+        <SkeletonRows count={8} />
       ) : employees?.length === 0 ? (
-        <div className="card p-12 text-center text-ink-400">
-          <p className="font-medium">{status === FAVORITES_KEY ? 'Nenhum favorito ainda' : 'Nenhum colaborador encontrado'}</p>
-          <p className="text-sm mt-1">{status === FAVORITES_KEY ? 'Clique na ⭐ de um colaborador para favoritá-lo.' : 'Ajuste os filtros ou cadastre um novo.'}</p>
-        </div>
+        <EmptyState
+          icon={status === FAVORITES_KEY ? Star : Search}
+          title={status === FAVORITES_KEY ? 'Nenhum favorito ainda' : 'Nenhum colaborador encontrado'}
+          hint={status === FAVORITES_KEY ? 'Clique na ⭐ de um colaborador para favoritá-lo.' : 'Ajuste os filtros ou cadastre um novo.'}
+        />
       ) : (
         <>
           <div className="hidden md:grid grid-cols-12 gap-3 px-4 pb-1 text-xs font-semibold text-ink-400 uppercase tracking-wide">

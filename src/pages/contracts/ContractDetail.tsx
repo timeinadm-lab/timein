@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Edit, Plus } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { formatDate } from '../../lib/utils'
+import { SkeletonDetail } from '../../components/ui/Skeleton'
 import toast from 'react-hot-toast'
 
 export default function ContractDetail() {
@@ -60,7 +61,7 @@ export default function ContractDetail() {
     onError: (e: Error) => toast.error(e.message),
   })
 
-  if (!contract) return <div className="flex justify-center py-12"><div className="animate-spin rounded-full h-8 w-8 border-4 border-primary-600 border-t-transparent" /></div>
+  if (!contract) return <SkeletonDetail />
 
   return (
     <div className="max-w-3xl mx-auto space-y-4">

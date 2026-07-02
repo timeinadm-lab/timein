@@ -4,6 +4,7 @@ import { Edit, Key, Plus, Check, X } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { getInitials } from '../../lib/utils'
+import { SkeletonRows } from '../../components/ui/Skeleton'
 import toast from 'react-hot-toast'
 
 export default function UserManagement() {
@@ -170,7 +171,7 @@ export default function UserManagement() {
       )}
 
       {isLoading ? (
-        <div className="flex justify-center py-12"><div className="animate-spin rounded-full h-8 w-8 border-4 border-primary-600 border-t-transparent" /></div>
+        <SkeletonRows count={4} />
       ) : (
         <div className="card divide-y divide-gray-100">
           {users?.map(u => {

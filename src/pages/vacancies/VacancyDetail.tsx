@@ -6,6 +6,7 @@ import { supabase } from '../../lib/supabase'
 import { formatDate, formatWhatsApp, BRAZIL_STATES, DEFAULT_DOCUMENTS } from '../../lib/utils'
 import { getCityRegion } from '../../lib/geoRegions'
 import { SignedLink } from '../../components/ui/SignedFile'
+import { SkeletonDetail } from '../../components/ui/Skeleton'
 import toast from 'react-hot-toast'
 
 type InterestStatus = 'Interessado' | 'Em contrato' | 'Contratado'
@@ -613,7 +614,7 @@ export default function VacancyDetail() {
     onError: (e: Error) => toast.error(e.message),
   })
 
-  if (!vacancy) return <div className="flex justify-center py-12"><div className="animate-spin rounded-full h-8 w-8 border-4 border-primary-600 border-t-transparent" /></div>
+  if (!vacancy) return <SkeletonDetail />
 
   // Só conta colaboradores Ativos e não-Volante para capacidade
   const contractedCount = hiredEmps !== undefined

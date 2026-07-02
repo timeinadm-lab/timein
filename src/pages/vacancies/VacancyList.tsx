@@ -6,6 +6,7 @@ import { supabase } from '../../lib/supabase'
 import { formatDate, BRAZIL_STATES } from '../../lib/utils'
 import Pagination from '../../components/ui/Pagination'
 import DeletePinModal from '../../components/ui/DeletePinModal'
+import { SkeletonCards, EmptyState } from '../../components/ui/Skeleton'
 import toast from 'react-hot-toast'
 
 export default function VacancyList() {
@@ -111,12 +112,15 @@ export default function VacancyList() {
       </div>
 
       {isLoading ? (
-        <div className="flex justify-center py-12"><div className="animate-spin rounded-full h-8 w-8 border-4 border-primary-600 border-t-transparent" /></div>
+        <SkeletonCards count={6} cols={3} />
       ) : vacancies?.length === 0 ? (
-        <div className="card p-12 text-center text-ink-400">
-          <Search size={32} className="mx-auto mb-3 text-ink-200" />
-          <p className="font-medium">Nenhuma vaga encontrada</p>
-        </div>
+        <EmptyState
+          icon={Search}
+          title="Nenhuma vaga encontrada"
+          hint="Ajuste os filtros ou crie uma nova vaga."
+          actionLabel="+ Nova Vaga"
+          onAction={() => navigate('/vagas/nova')}
+        />
       ) : (
         <>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

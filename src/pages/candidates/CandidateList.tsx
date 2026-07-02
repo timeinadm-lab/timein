@@ -7,6 +7,7 @@ import { formatWhatsApp, PIPELINE_COLORS, PIPELINE_STAGES, BRAZIL_STATES, AREA_I
 import { exportToCSV } from '../../lib/exportUtils'
 import { parseCSV, parseXLSX } from '../../lib/xlsxImport'
 import Pagination from '../../components/ui/Pagination'
+import { SkeletonCards, EmptyState } from '../../components/ui/Skeleton'
 import toast from 'react-hot-toast'
 
 // Maps "Mais de X anos" vacancy requirement to matching candidate experience_time values
@@ -387,14 +388,15 @@ export default function CandidateList() {
       </div>
 
       {isLoading ? (
-        <div className="flex justify-center py-12"><div className="animate-spin rounded-full h-8 w-8 border-4 border-primary-600 border-t-transparent" /></div>
+        <SkeletonCards count={6} cols={3} />
       ) : (
         <>
           {candidates?.length === 0 ? (
-            <div className="card p-12 text-center text-ink-400">
-              <Search size={32} className="mx-auto mb-3 text-ink-200" />
-              <p className="font-medium">Nenhum candidato encontrado</p>
-            </div>
+            <EmptyState
+              icon={Search}
+              title="Nenhum candidato encontrado"
+              hint="Ajuste os filtros ou cadastre um novo candidato."
+            />
           ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {paginated.map(c => (

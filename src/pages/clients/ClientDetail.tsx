@@ -6,6 +6,7 @@ import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { SignedLink } from '../../components/ui/SignedFile'
 import DeletePinModal from '../../components/ui/DeletePinModal'
+import { SkeletonDetail } from '../../components/ui/Skeleton'
 import { formatDate, formatCurrency } from '../../lib/utils'
 import { differenceInDays, parseISO } from 'date-fns'
 import toast from 'react-hot-toast'
@@ -266,7 +267,7 @@ export default function ClientDetail() {
     onError: (e: Error) => toast.error(e.message),
   })
 
-  if (!client) return <div className="flex justify-center py-12"><div className="animate-spin rounded-full h-8 w-8 border-4 border-primary-600 border-t-transparent" /></div>
+  if (!client) return <SkeletonDetail />
 
   return (
     <div className="max-w-4xl mx-auto space-y-4">

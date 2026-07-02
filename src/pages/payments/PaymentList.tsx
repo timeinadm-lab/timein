@@ -5,6 +5,7 @@ import { Plus, Download, Check, RefreshCw, AlertTriangle, ChevronDown, ChevronUp
 import { supabase } from '../../lib/supabase'
 import { formatDate, formatCurrency } from '../../lib/utils'
 import { exportToCSV } from '../../lib/exportUtils'
+import { SkeletonRows } from '../../components/ui/Skeleton'
 import { format, startOfMonth, endOfMonth, getDaysInMonth } from 'date-fns'
 import toast from 'react-hot-toast'
 import {
@@ -574,7 +575,7 @@ export default function PaymentList() {
       {tab === 'folha' && (
         <div className="space-y-4">
           {isLoading || folhaLoading
-            ? <div className="flex justify-center py-12"><div className="animate-spin rounded-full h-8 w-8 border-4 border-primary-600 border-t-transparent" /></div>
+            ? <SkeletonRows count={6} />
             : (folhaData?.length ?? 0) === 0
               ? <div className="card p-8 text-center text-gray-400">Nenhum colaborador com vínculo ativo e valor definido. Adicione um vínculo com salário para aparecer aqui.</div>
               : <>

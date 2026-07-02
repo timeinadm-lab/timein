@@ -7,6 +7,7 @@ import { useAuth } from '../../contexts/AuthContext'
 import { formatDate, daysUntil } from '../../lib/utils'
 import Pagination from '../../components/ui/Pagination'
 import DeletePinModal from '../../components/ui/DeletePinModal'
+import { SkeletonCards, EmptyState } from '../../components/ui/Skeleton'
 import toast from 'react-hot-toast'
 
 export default function ClientList() {
@@ -83,14 +84,15 @@ export default function ClientList() {
       </div>
 
       {isLoading ? (
-        <div className="flex justify-center py-12">
-          <div className="animate-spin rounded-full h-8 w-8 border-4 border-primary-600 border-t-transparent" />
-        </div>
+        <SkeletonCards count={6} cols={3} />
       ) : clients?.length === 0 ? (
-        <div className="card p-12 text-center text-ink-400">
-          <Building2 size={32} className="mx-auto mb-3 text-ink-200" />
-          <p className="font-medium">Nenhum cliente encontrado</p>
-        </div>
+        <EmptyState
+          icon={Building2}
+          title="Nenhum cliente encontrado"
+          hint={search ? 'Tente buscar por outro nome.' : 'Cadastre seu primeiro cliente para começar a abrir vagas.'}
+          actionLabel={role === 'chefe' && !search ? '+ Novo Cliente' : undefined}
+          onAction={role === 'chefe' && !search ? () => navigate('/clientes/novo') : undefined}
+        />
       ) : (
         <>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

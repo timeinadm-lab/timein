@@ -32,21 +32,24 @@ export default function PortalLogin() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-      <div className="w-full max-w-sm">
+    <div className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden bg-gradient-to-br from-primary-800 via-primary-700 to-primary-900">
+      <div className="absolute -top-40 -right-40 w-[28rem] h-[28rem] rounded-full bg-primary-400/20 blur-3xl" />
+      <div className="absolute -bottom-40 -left-40 w-[28rem] h-[28rem] rounded-full bg-primary-500/15 blur-3xl" />
+      <div className="w-full max-w-sm relative animate-fade-in">
         <div className="text-center mb-8">
-          <div className="w-16 h-16 rounded-full bg-primary-600 flex items-center justify-center text-white font-bold text-2xl mx-auto mb-4">TI</div>
-          <h1 className="text-2xl font-bold text-gray-900">Portal do Nutricionista</h1>
-          <p className="text-gray-500 mt-1 text-sm">Time IN</p>
+          <img src="/logo.svg" alt="TIN" className="w-16 h-16 mx-auto mb-4 rounded-2xl shadow-lift" />
+          <h1 className="text-2xl font-display font-extrabold text-white">Portal do Nutricionista</h1>
+          <p className="text-primary-100/90 mt-1 text-sm font-medium">TIN · Time IN</p>
         </div>
         <div className="card p-6 space-y-4">
           <div>
             <label className="label">CPF</label>
             <input
-              className="input"
+              className="input !text-base py-3"
               placeholder="000.000.000-00"
               value={cpf}
               autoComplete="off"
+              inputMode="numeric"
               onChange={e => setCpf(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleLogin()}
             />
@@ -54,7 +57,7 @@ export default function PortalLogin() {
           <div>
             <label className="label">Senha</label>
             <input
-              className="input"
+              className="input !text-base py-3"
               type="password"
               placeholder="Senha criada pelo seu gestor"
               value={pin}
@@ -63,7 +66,7 @@ export default function PortalLogin() {
               onKeyDown={e => e.key === 'Enter' && handleLogin()}
             />
           </div>
-          <button className="btn-primary w-full" onClick={handleLogin} disabled={loading || !cpf || !pin}>
+          <button className="btn-primary w-full py-3.5 text-base" onClick={handleLogin} disabled={loading || !cpf || !pin}>
             {loading ? 'Entrando...' : 'Entrar'}
           </button>
         </div>

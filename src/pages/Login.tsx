@@ -1,5 +1,6 @@
 import { useState, FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { Eye, EyeOff } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { isConfigured } from '../lib/supabase'
 import toast from 'react-hot-toast'
@@ -9,6 +10,7 @@ export default function Login() {
   const navigate = useNavigate()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
 
   async function handleSubmit(e: FormEvent) {
@@ -17,25 +19,28 @@ export default function Login() {
     const { error } = await signIn(email, password)
     setLoading(false)
     if (error) {
-      toast.error('E-mail ou senha inválidos')
+      toast.error('E-mail ou senha incorretos. Confira e tente novamente.')
     } else {
       navigate('/')
     }
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden">
+    <div className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden bg-gradient-to-br from-primary-800 via-primary-700 to-primary-900">
       {/* Brilhos de marca no fundo */}
-      <div className="absolute -top-32 -right-32 w-96 h-96 rounded-full bg-primary-200/40 blur-3xl" />
-      <div className="absolute -bottom-32 -left-32 w-96 h-96 rounded-full bg-primary-100/50 blur-3xl" />
+      <div className="absolute -top-40 -right-40 w-[28rem] h-[28rem] rounded-full bg-primary-400/20 blur-3xl" />
+      <div className="absolute -bottom-40 -left-40 w-[28rem] h-[28rem] rounded-full bg-primary-500/15 blur-3xl" />
+      <div className="absolute top-1/3 left-1/2 -translate-x-1/2 w-[36rem] h-[36rem] rounded-full bg-white/5 blur-3xl" />
 
       <div className="w-full max-w-md relative animate-fade-in">
         <div className="text-center mb-8">
-          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary-500 to-primary-700 flex items-center justify-center text-white font-display font-extrabold text-2xl mx-auto mb-4 shadow-glow">
-            TI
-          </div>
-          <h1 className="text-3xl font-display font-extrabold text-ink-900">Time IN</h1>
-          <p className="text-ink-400 mt-1.5">Sistema de Gestão RH</p>
+          <img
+            src="/logo.svg"
+            alt="TIN"
+            className="w-20 h-20 mx-auto mb-5 rounded-[1.4rem] shadow-lift"
+          />
+          <h1 className="text-4xl font-display font-extrabold text-white tracking-tight">TIN</h1>
+          <p className="text-primary-100/90 mt-1.5 font-medium">Time IN · Gestão de RH</p>
         </div>
 
         {!isConfigured && (
@@ -46,41 +51,54 @@ export default function Login() {
           </div>
         )}
 
-        <div className="card shadow-lift p-8">
+        <div className="card shadow-lift p-6 sm:p-8">
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="label">E-mail</label>
               <input
                 type="email"
-                className="input"
+                className="input !text-base py-3"
                 value={email}
                 onChange={e => setEmail(e.target.value)}
                 required
                 autoFocus
+                autoComplete="email"
                 placeholder="seu@email.com"
               />
             </div>
             <div>
               <label className="label">Senha</label>
-              <input
-                type="password"
-                className="input"
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                required
-                placeholder="••••••••"
-              />
+              <div className="relative">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  className="input !text-base py-3 pr-12"
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  required
+                  autoComplete="current-password"
+                  placeholder="••••••••"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(p => !p)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-ink-400 hover:text-ink-700 transition-colors"
+                  aria-label={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
+                  tabIndex={-1}
+                >
+                  {showPassword ? <EyeOff size={19} /> : <Eye size={19} />}
+                </button>
+              </div>
             </div>
             <button
               type="submit"
-              className="btn-primary w-full mt-2"
+              className="btn-primary w-full mt-2 py-3.5 text-base"
               disabled={loading}
             >
               {loading ? 'Entrando...' : 'Entrar'}
             </button>
           </form>
         </div>
-        <p className="text-center text-xs text-ink-400 mt-6">Time IN · Gestão de RH para consultoria de nutrição</p>
+        <p className="text-center text-xs text-primary-100/70 mt-6">TIN · Gestão de RH para consultoria de nutrição</p>
       </div>
     </div>
   )

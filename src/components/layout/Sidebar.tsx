@@ -52,10 +52,13 @@ export default function Sidebar({ collapsed, onCollapse, mobileOpen, onMobileClo
     <div className={`flex flex-col h-full bg-white border-r border-ink-100 transition-all duration-300 ${collapsed ? 'w-16' : 'w-64'}`}>
       {/* Logo */}
       <div className="flex items-center gap-3 px-4 py-5">
-        <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary-500 to-primary-700 flex items-center justify-center text-white font-display font-extrabold text-sm flex-shrink-0 shadow-glow">
-          TI
-        </div>
-        {!collapsed && <span className="font-display font-extrabold text-ink-900 text-lg tracking-tight">Time IN</span>}
+        <img src="/logo.svg" alt="TIN" className="w-9 h-9 rounded-xl flex-shrink-0 shadow-glow" />
+        {!collapsed && (
+          <div className="leading-none">
+            <span className="font-display font-extrabold text-ink-900 text-lg tracking-tight block">TIN</span>
+            <span className="text-[10px] font-semibold text-primary-600 uppercase tracking-wider">Time IN</span>
+          </div>
+        )}
       </div>
 
       {/* User */}

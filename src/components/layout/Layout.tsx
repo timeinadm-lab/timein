@@ -36,8 +36,8 @@ export default function Layout() {
             <Menu size={22} />
           </button>
           <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-primary-500 to-primary-700 flex items-center justify-center text-white font-display font-extrabold text-xs shadow-glow">TI</div>
-            <span className="font-display font-extrabold text-ink-900">Time IN</span>
+            <img src="/logo.svg" alt="TIN" className="w-7 h-7 rounded-lg shadow-glow" />
+            <span className="font-display font-extrabold text-ink-900">TIN</span>
           </div>
           <button
             onClick={() => setSearchOpen(true)}

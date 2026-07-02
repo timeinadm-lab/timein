@@ -4,17 +4,18 @@ export default {
   theme: {
     extend: {
       colors: {
+        // Verde da marca TIN — tom profundo da logo (#167747) como âncora
         primary: {
-          50: '#f0fdf4',
-          100: '#dcfce7',
-          200: '#bbf7d0',
-          300: '#86efac',
-          400: '#4ade80',
-          500: '#22c55e',
-          600: '#16a34a',
-          700: '#15803d',
-          800: '#166534',
-          900: '#14532d',
+          50: '#f0faf4',
+          100: '#dcf4e6',
+          200: '#bce8d1',
+          300: '#8fd7b2',
+          400: '#55bd8a',
+          500: '#2aa268',
+          600: '#1b8552',
+          700: '#167747',
+          800: '#125f3a',
+          900: '#0f4e30',
         },
         // Neutros levemente quentes — tira o "cinza de IA" frio
         ink: {

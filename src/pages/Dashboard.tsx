@@ -2,9 +2,10 @@ import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { useState } from 'react'
 import {
-  Users, FileText, Briefcase, UserPlus, AlertTriangle, CheckCircle,
-  Calendar, Plus, TrendingUp, Clock, CreditCard, Clipboard, Download, X,
+  Users, Briefcase, UserPlus, AlertTriangle, CheckCircle,
+  Calendar, Plus, TrendingUp, Clock, Clipboard, Download, X,
   BarChart3, Activity, Check, Database, FolderDown, ChevronDown,
+  MessageSquare, FileWarning,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { supabase } from '../lib/supabase'
@@ -15,8 +16,6 @@ import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend,
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
 } from 'recharts'
-
-const COLORS = ['#6366f1', '#22c55e', '#f59e0b', '#ef4444', '#3b82f6', '#ec4899']
 
 const BACKUP_TABLES = [
   'user_profiles', 'clients', 'client_locations', 'client_units', 'client_contracts',
@@ -347,7 +346,7 @@ export default function Dashboard() {
       let q = supabase.from('interviews')
         .select('*,candidate:candidates(full_name),vacancy:vacancies(title),employee:employees(full_name)')
         .gte('scheduled_at', now.toISOString())
-        .order('scheduled_at', { ascending: true }).limit(5)
+        .order('scheduled_at', { ascending: true }).limit(8)
       if (role === 'recrutador' && profile?.id) q = q.eq('recruiter_id', profile.id)
       const { data } = await q
       return data || []
@@ -491,24 +490,21 @@ export default function Dashboard() {
     ['Novo', 'Em contato', 'Entrevista Agendada', 'Aprovado', 'Em Processo de Contratação'].includes(c.pipeline_stage)
   ).length ?? 0
 
-  const monthPayments = payments?.filter(p =>
-    p.due_date >= monthStart.slice(0, 10) && p.due_date <= monthEnd.slice(0, 10)
-  ) ?? []
-  const toPay = monthPayments.filter(p => p.status === 'Pendente' && p.due_date >= now.toISOString().slice(0, 10))
+  // Enriquecimento dos KPIs
+  const linksThisMonth = hiringTimeline?.filter(h => h.created_at?.slice(0, 7) === currentMonthStr).length ?? 0
+  const openPositions = (vacanciesExpiring || []).reduce((s, v) =>
+    s + Math.max(0, ((v as { positions_count?: number }).positions_count ?? 1) - ((v as { hired_count?: number }).hired_count ?? 0)), 0)
+
+  // Pagamentos atrasados — usados só nos alertas (detalhes financeiros ficam na aba Pagamentos)
   const overdue = payments?.filter(p => p.status === 'Pendente' && p.due_date < now.toISOString().slice(0, 10)) ?? []
-  const paid = monthPayments.filter(p => p.status === 'Pago')
 
-  const totalToPay = toPay.reduce((s, p) => s + (p.amount || 0), 0)
-  const totalOverdue = overdue.reduce((s, p) => s + (p.amount || 0), 0)
-  const totalPaid = paid.reduce((s, p) => s + (p.amount || 0), 0)
-  const totalMonth = totalToPay + totalOverdue + totalPaid
-
-  // Pie chart data for financeiro
-  const pieData = [
-    ...(totalPaid > 0 ? [{ name: 'Pago', value: totalPaid, color: '#22c55e' }] : []),
-    ...(totalToPay > 0 ? [{ name: 'A Pagar', value: totalToPay, color: '#f59e0b' }] : []),
-    ...(totalOverdue > 0 ? [{ name: 'Atrasado', value: totalOverdue, color: '#ef4444' }] : []),
-  ]
+  // Pendências operacionais somadas — 4º KPI
+  const pendDocs = pendingDocs?.length ?? 0
+  const pendContratos = pendingContractFiles?.length ?? 0
+  const pendChat = unreadChatCount ?? 0
+  const pendExtras = pendingExtras?.length ?? 0
+  const pendComprovantes = pendingExpenses?.length ?? 0
+  const pendenciasCount = pendDocs + pendContratos + pendChat + pendExtras + pendComprovantes
 
   // Vagas: distribuição por status
   const vagasPie = [
@@ -875,96 +871,40 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* ── KPI Cards ── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Colaboradores */}
-        <div className="card card-interactive p-5" onClick={() => navigate('/colaboradores')}>
-          <div className="flex items-start justify-between mb-3">
-            <div>
-              <p className="text-xs text-gray-500 font-medium">Colaboradores</p>
-              <p className="text-3xl font-display font-extrabold text-ink-900 mt-1 tnum">{activeEmployees}</p>
-              <p className="text-xs text-gray-400">de {totalEmployees} cadastrados</p>
-            </div>
-            <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center">
-              <Users size={20} className="text-blue-600" />
+      {/* ── Prioridades + Agenda do RH — o que importa primeiro ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6 items-start">
+        {/* Prioridades (urgências) */}
+        <div className="lg:col-span-2 space-y-2.5">
+          <div className="flex items-center justify-between px-0.5">
+            <h2 className="section-title text-base">
+              <AlertTriangle size={16} className={filteredRed.length > 0 ? 'text-red-500' : filteredAmber.length > 0 ? 'text-amber-500' : 'text-primary-600'} />
+              Prioridades
+            </h2>
+            <div className="flex items-center gap-1.5">
+              {filteredRed.length > 0 && <span className="badge bg-red-100 text-red-700">{filteredRed.length} crítico{filteredRed.length > 1 ? 's' : ''}</span>}
+              {filteredAmber.length > 0 && <span className="badge bg-amber-100 text-amber-700">{filteredAmber.length} atenção</span>}
             </div>
           </div>
-          <div className="w-full bg-gray-100 rounded-full h-1.5">
-            <div className="bg-blue-500 h-1.5 rounded-full" style={{ width: `${Math.min(100, (activeEmployees / totalEmployees) * 100)}%` }} />
-          </div>
-          {dismissedThisMonth > 0 && <p className="text-xs text-red-500 mt-1.5">↓ {dismissedThisMonth} inativado{dismissedThisMonth > 1 ? 's' : ''} este mês</p>}
-        </div>
 
-        {/* Vagas */}
-        <div className="card card-interactive p-5" onClick={() => navigate('/vagas')}>
-          <div className="flex items-start justify-between mb-3">
-            <div>
-              <p className="text-xs text-gray-500 font-medium">Vagas Abertas</p>
-              <p className="text-3xl font-display font-extrabold text-ink-900 mt-1 tnum">{openVacancies}</p>
-              <p className="text-xs text-gray-400">{filledVacancies} preenchidas</p>
-            </div>
-            <div className="w-10 h-10 rounded-xl bg-green-50 flex items-center justify-center">
-              <Briefcase size={20} className="text-green-600" />
-            </div>
-          </div>
-          <div className="w-full bg-gray-100 rounded-full h-1.5">
-            <div className="bg-green-500 h-1.5 rounded-full" style={{ width: totalVacancies > 0 ? `${(filledVacancies / totalVacancies) * 100}%` : '0%' }} />
-          </div>
-          <p className="text-xs text-gray-400 mt-1.5">{totalVacancies > 0 ? Math.round((filledVacancies / totalVacancies) * 100) : 0}% das vagas preenchidas</p>
-        </div>
-
-        {/* Candidatos */}
-        <div className="card card-interactive p-5" onClick={() => navigate('/candidatos')}>
-          <div className="flex items-start justify-between mb-3">
-            <div>
-              <p className="text-xs text-gray-500 font-medium">Em Processo</p>
-              <p className="text-3xl font-display font-extrabold text-ink-900 mt-1 tnum">{inProcess}</p>
-              <p className="text-xs text-gray-400">{approvedCount ?? 0} aprovados aguardando</p>
-            </div>
-            <div className="w-10 h-10 rounded-xl bg-purple-50 flex items-center justify-center">
-              <UserPlus size={20} className="text-purple-600" />
-            </div>
-          </div>
-          {(approvedCount ?? 0) > 0 && (
-            <div className="bg-purple-50 rounded-lg px-2 py-1 text-xs text-purple-700 font-medium">
-              ⚡ {approvedCount} pronto{approvedCount! > 1 ? 's' : ''} para alocar
+          {allAlerts.length === 0 && (
+            <div className="card p-6 flex items-center gap-4 border-primary-100 bg-primary-50/40">
+              <div className="w-11 h-11 rounded-2xl bg-primary-100 flex items-center justify-center flex-shrink-0">
+                <CheckCircle size={22} className="text-primary-700" />
+              </div>
+              <div>
+                <p className="font-semibold text-ink-900">Tudo em dia!</p>
+                <p className="text-sm text-ink-500">Nenhuma pendência urgente agora{resolvedCount > 0 ? ` — ${resolvedCount} resolvida${resolvedCount > 1 ? 's' : ''}` : ''}.</p>
+              </div>
             </div>
           )}
-        </div>
 
-        {/* Alertas */}
-        <div className={`card card-interactive p-5 ${filteredRed.length > 0 ? 'border-red-200 bg-red-50/40' : filteredAmber.length > 0 ? 'border-amber-200 bg-amber-50/40' : ''}`}>
-          <div className="flex items-start justify-between mb-3">
-            <div>
-              <p className="text-xs text-gray-500 font-medium">Alertas</p>
-              <p className={`text-3xl font-display font-extrabold mt-1 tnum ${filteredRed.length > 0 ? 'text-red-600' : filteredAmber.length > 0 ? 'text-amber-600' : 'text-primary-600'}`}>
-                {allAlerts.length}
-              </p>
-              <p className="text-xs text-gray-400">{filteredRed.length} crítico{filteredRed.length !== 1 ? 's' : ''}</p>
-            </div>
-            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${filteredRed.length > 0 ? 'bg-red-100' : filteredAmber.length > 0 ? 'bg-amber-100' : 'bg-green-100'}`}>
-              {allAlerts.length === 0
-                ? <CheckCircle size={20} className="text-green-600" />
-                : <AlertTriangle size={20} className={filteredRed.length > 0 ? 'text-red-600' : 'text-amber-600'} />
-              }
-            </div>
-          </div>
-          {allAlerts.length === 0 && resolvedCount === 0 && <p className="text-xs text-green-600 font-medium">Tudo em dia!</p>}
-          {allAlerts.length === 0 && resolvedCount > 0 && <p className="text-xs text-green-600 font-medium">{resolvedCount} resolvido{resolvedCount > 1 ? 's' : ''}</p>}
-          {allAlerts.length > 0 && <p className="text-xs text-gray-500">Veja abaixo ↓</p>}
-        </div>
-      </div>
-
-      {/* ── Alertas Críticos ── */}
-      {(allAlerts.length > 0 || resolvedCount > 0) && (
-        <div className="space-y-2">
           {filteredRed.length > 0 && (
-            <div className="rounded-xl border border-red-200 overflow-hidden">
+            <div className="rounded-2xl border border-red-200 overflow-hidden shadow-card bg-white">
               <div className="bg-red-600 px-4 py-2 flex items-center gap-2">
                 <AlertTriangle size={14} className="text-white" />
                 <span className="text-sm font-semibold text-white">{filteredRed.length} Problema{filteredRed.length > 1 ? 's' : ''} Crítico{filteredRed.length > 1 ? 's' : ''}</span>
               </div>
-              <div className="divide-y divide-red-100 bg-white">
+              <div className="divide-y divide-red-100">
                 {filteredRed.map((a, i) => (
                   <div key={i} className="flex items-center gap-3 px-4 py-2.5 group">
                     <span className="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0" />
@@ -988,13 +928,14 @@ export default function Dashboard() {
               </div>
             </div>
           )}
+
           {filteredAmber.length > 0 && (
-            <div className="rounded-xl border border-amber-200 overflow-hidden">
+            <div className="rounded-2xl border border-amber-200 overflow-hidden shadow-card bg-white">
               <div className="bg-amber-500 px-4 py-2 flex items-center gap-2">
                 <Clock size={14} className="text-white" />
                 <span className="text-sm font-semibold text-white">{filteredAmber.length} Atenção</span>
               </div>
-              <div className="divide-y divide-amber-100 bg-white">
+              <div className="divide-y divide-amber-100">
                 {filteredAmber.map((a, i) => (
                   <div key={i} className="flex items-center gap-3 px-4 py-2.5 group">
                     <span className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" />
@@ -1018,7 +959,8 @@ export default function Dashboard() {
               </div>
             </div>
           )}
-          {resolvedCount > 0 && (
+
+          {resolvedCount > 0 && allAlerts.length > 0 && (
             <div className="flex items-center gap-2 px-4 py-2 bg-green-50 rounded-xl border border-green-200">
               <CheckCircle size={14} className="text-green-600" />
               <span className="text-sm text-green-700 font-medium">{resolvedCount} pendência{resolvedCount > 1 ? 's' : ''} resolvida{resolvedCount > 1 ? 's' : ''}</span>
@@ -1029,69 +971,160 @@ export default function Dashboard() {
             </div>
           )}
         </div>
-      )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* ── Financeiro (chefe) ── */}
-        {role === 'chefe' && (
-          <div className="card p-5">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="font-semibold text-gray-900 flex items-center gap-2">
-                <CreditCard size={16} className="text-primary-600" />
-                Financeiro do Mês
-              </h2>
-              <button onClick={() => navigate('/pagamentos')} className="text-xs text-primary-600 hover:underline">Ver tudo →</button>
-            </div>
-
-            <div className="grid grid-cols-3 gap-2 mb-4">
-              <div className="text-center bg-green-50 rounded-xl p-3">
-                <p className="text-lg font-bold text-green-700">{formatCurrency(totalPaid)}</p>
-                <p className="text-xs text-green-500 mt-0.5">Pago</p>
-                <p className="text-xs text-gray-400">{paid.length} lançamentos</p>
-              </div>
-              <div className="text-center bg-amber-50 rounded-xl p-3">
-                <p className="text-lg font-bold text-amber-700">{formatCurrency(totalToPay)}</p>
-                <p className="text-xs text-amber-500 mt-0.5">A Pagar</p>
-                <p className="text-xs text-gray-400">{toPay.length} lançamentos</p>
-              </div>
-              <div className="text-center bg-red-50 rounded-xl p-3">
-                <p className="text-lg font-bold text-red-700">{formatCurrency(totalOverdue)}</p>
-                <p className="text-xs text-red-500 mt-0.5">Atrasado</p>
-                <p className="text-xs text-gray-400">{overdue.length} lançamentos</p>
-              </div>
-            </div>
-
-            {pieData.length > 0 ? (
-              <div className="h-44">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie data={pieData} cx="50%" cy="50%" innerRadius={45} outerRadius={70}
-                      dataKey="value" paddingAngle={3}>
-                      {pieData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
-                    </Pie>
-                    <Tooltip formatter={(v: number) => formatCurrency(v)} />
-                    <Legend iconType="circle" iconSize={8} formatter={(v) => <span className="text-xs text-gray-600">{v}</span>} />
-                  </PieChart>
-                </ResponsiveContainer>
+        {/* Agenda do RH */}
+        <div className="space-y-2.5">
+          <div className="flex items-center justify-between px-0.5">
+            <h2 className="section-title text-base">
+              <Calendar size={16} className="text-primary-600" />
+              Agenda do RH
+            </h2>
+            <button onClick={() => navigate('/agenda')} className="text-xs text-primary-600 hover:underline font-medium">Ver tudo →</button>
+          </div>
+          <div className="card p-3">
+            {interviews?.length === 0 ? (
+              <div className="text-center py-8">
+                <Calendar size={28} className="text-ink-200 mx-auto mb-2" />
+                <p className="text-sm text-ink-400">Nenhum compromisso agendado</p>
+                <button onClick={() => navigate('/agenda/nova')} className="text-xs text-primary-600 font-semibold hover:underline mt-2">+ Agendar compromisso</button>
               </div>
             ) : (
-              <p className="text-center text-sm text-gray-400 py-6">Sem movimentação no mês</p>
-            )}
-
-            {totalMonth > 0 && (
-              <div className="mt-2 border-t pt-3">
-                <p className="text-xs text-gray-500 mb-1.5">Distribuição do mês</p>
-                <div className="flex h-2 rounded-full overflow-hidden gap-0.5">
-                  {pieData.map((d, i) => (
-                    <div key={i} style={{ width: `${(d.value / totalMonth) * 100}%`, backgroundColor: d.color }} />
-                  ))}
-                </div>
-                <p className="text-xs text-gray-400 mt-1">Total: {formatCurrency(totalMonth)}</p>
+              <div className="space-y-1.5">
+                {interviews?.map((i: { id: string; title?: string; candidate?: { full_name: string }; employee?: { full_name: string }; scheduled_at: string; end_date?: string; modality: string; status: string; vacancy?: { title: string } }) => {
+                  const d = new Date(i.scheduled_at)
+                  const isToday = d.toDateString() === now.toDateString()
+                  const isTomorrow = d.toDateString() === addDays(now, 1).toDateString()
+                  return (
+                    <div key={i.id}
+                      className={`flex items-center gap-3 p-2.5 rounded-xl cursor-pointer border transition-colors ${isToday ? 'border-primary-200 bg-primary-50/60 hover:bg-primary-50' : 'border-ink-100 hover:bg-ink-50'}`}
+                      onClick={() => navigate('/agenda')}>
+                      <div className={`w-11 h-11 rounded-xl flex flex-col items-center justify-center flex-shrink-0 ${isToday ? 'bg-primary-600 text-white' : 'bg-primary-50 text-primary-700'}`}>
+                        {isToday || isTomorrow ? (
+                          <span className="text-[9px] font-extrabold uppercase leading-none">{isToday ? 'Hoje' : 'Amanhã'}</span>
+                        ) : (
+                          <span className="text-sm font-bold leading-none">{d.getDate()}</span>
+                        )}
+                        <span className={`text-[9px] leading-none mt-1 ${isToday ? 'text-primary-100' : 'text-primary-400'}`}>
+                          {isToday || isTomorrow ? formatDate(i.scheduled_at, 'HH:mm') : d.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '')}
+                        </span>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-ink-900 truncate">{i.title || i.candidate?.full_name || 'Compromisso'}</p>
+                        <p className="text-xs text-ink-400 truncate">
+                          {formatDateTime(i.scheduled_at)}
+                          {i.employee?.full_name ? ` · ${i.employee.full_name}` : ''}
+                          {i.candidate?.full_name ? ` · ${i.candidate.full_name}` : ''}
+                        </p>
+                        <div className="flex gap-1 mt-1 flex-wrap">
+                          <span className={`badge text-[10px] ${MODAL_COLORS[i.modality] || 'bg-gray-100 text-gray-700'}`}>{i.modality}</span>
+                          <span className={`badge text-[10px] ${STATUS_COLORS[i.status] || 'bg-gray-100 text-gray-700'}`}>{i.status}</span>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
               </div>
             )}
           </div>
-        )}
+        </div>
+      </div>
 
+      {/* ── KPI Cards ── */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Colaboradores */}
+        <div className="card card-interactive p-5" onClick={() => navigate('/colaboradores')}>
+          <div className="flex items-start justify-between mb-3">
+            <div>
+              <p className="text-xs text-gray-500 font-medium">Colaboradores</p>
+              <p className="text-3xl font-display font-extrabold text-ink-900 mt-1 tnum">{activeEmployees}</p>
+              <p className="text-xs text-gray-400">de {totalEmployees} cadastrados</p>
+            </div>
+            <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center">
+              <Users size={20} className="text-blue-600" />
+            </div>
+          </div>
+          <div className="w-full bg-gray-100 rounded-full h-1.5">
+            <div className="bg-blue-500 h-1.5 rounded-full" style={{ width: `${Math.min(100, (activeEmployees / totalEmployees) * 100)}%` }} />
+          </div>
+          <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+            {linksThisMonth > 0 && <p className="text-xs text-green-600 font-medium">↑ {linksThisMonth} contratação{linksThisMonth > 1 ? 'ões' : ''} no mês</p>}
+            {dismissedThisMonth > 0 && <p className="text-xs text-red-500">↓ {dismissedThisMonth} inativado{dismissedThisMonth > 1 ? 's' : ''}</p>}
+          </div>
+        </div>
+
+        {/* Vagas */}
+        <div className="card card-interactive p-5" onClick={() => navigate('/vagas')}>
+          <div className="flex items-start justify-between mb-3">
+            <div>
+              <p className="text-xs text-gray-500 font-medium">Vagas Abertas</p>
+              <p className="text-3xl font-display font-extrabold text-ink-900 mt-1 tnum">{openVacancies}</p>
+              <p className="text-xs text-gray-400">{filledVacancies} preenchidas</p>
+            </div>
+            <div className="w-10 h-10 rounded-xl bg-green-50 flex items-center justify-center">
+              <Briefcase size={20} className="text-green-600" />
+            </div>
+          </div>
+          <div className="w-full bg-gray-100 rounded-full h-1.5">
+            <div className="bg-green-500 h-1.5 rounded-full" style={{ width: totalVacancies > 0 ? `${(filledVacancies / totalVacancies) * 100}%` : '0%' }} />
+          </div>
+          <p className="text-xs text-gray-400 mt-1.5">
+            {openPositions > 0
+              ? <span className="text-amber-600 font-medium">{openPositions} posição{openPositions > 1 ? 'ões' : ''} a preencher</span>
+              : `${totalVacancies > 0 ? Math.round((filledVacancies / totalVacancies) * 100) : 0}% das vagas preenchidas`}
+          </p>
+        </div>
+
+        {/* Candidatos */}
+        <div className="card card-interactive p-5" onClick={() => navigate('/candidatos')}>
+          <div className="flex items-start justify-between mb-3">
+            <div>
+              <p className="text-xs text-gray-500 font-medium">Em Processo</p>
+              <p className="text-3xl font-display font-extrabold text-ink-900 mt-1 tnum">{inProcess}</p>
+              <p className="text-xs text-gray-400">{approvedCount ?? 0} aprovados aguardando</p>
+            </div>
+            <div className="w-10 h-10 rounded-xl bg-purple-50 flex items-center justify-center">
+              <UserPlus size={20} className="text-purple-600" />
+            </div>
+          </div>
+          {(approvedCount ?? 0) > 0 && (
+            <div className="bg-purple-50 rounded-lg px-2 py-1 text-xs text-purple-700 font-medium">
+              ⚡ {approvedCount} pronto{approvedCount! > 1 ? 's' : ''} para alocar
+            </div>
+          )}
+        </div>
+
+        {/* Pendências operacionais */}
+        <div className={`card p-5 ${pendenciasCount > 0 ? 'border-amber-200 bg-amber-50/30' : ''}`}>
+          <div className="flex items-start justify-between mb-2">
+            <div>
+              <p className="text-xs text-gray-500 font-medium">Pendências</p>
+              <p className={`text-3xl font-display font-extrabold mt-1 tnum ${pendenciasCount > 0 ? 'text-amber-600' : 'text-primary-600'}`}>
+                {pendenciasCount}
+              </p>
+              <p className="text-xs text-gray-400">para resolver</p>
+            </div>
+            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${pendenciasCount > 0 ? 'bg-amber-100' : 'bg-green-100'}`}>
+              {pendenciasCount === 0
+                ? <CheckCircle size={20} className="text-green-600" />
+                : <FileWarning size={20} className="text-amber-600" />
+              }
+            </div>
+          </div>
+          {pendenciasCount === 0 ? (
+            <p className="text-xs text-green-600 font-medium">Nada pendente!</p>
+          ) : (
+            <div className="flex flex-wrap gap-1">
+              {pendDocs > 0 && <span className="badge bg-amber-100 text-amber-700 text-[10px] cursor-pointer" onClick={() => navigate('/colaboradores')}>{pendDocs} doc{pendDocs > 1 ? 's' : ''}</span>}
+              {pendContratos > 0 && <span className="badge bg-red-100 text-red-700 text-[10px] cursor-pointer" onClick={() => navigate('/colaboradores')}>{pendContratos} contrato{pendContratos > 1 ? 's' : ''}</span>}
+              {pendChat > 0 && <span className="badge bg-blue-100 text-blue-700 text-[10px] cursor-pointer" onClick={() => navigate('/chat')}><MessageSquare size={9} /> {pendChat}</span>}
+              {pendExtras > 0 && <span className="badge bg-purple-100 text-purple-700 text-[10px] cursor-pointer" onClick={() => navigate('/visitas')}>{pendExtras} extra{pendExtras > 1 ? 's' : ''}</span>}
+              {pendComprovantes > 0 && <span className="badge bg-gray-100 text-gray-600 text-[10px] cursor-pointer" onClick={() => navigate('/pagamentos')}>{pendComprovantes} comprovante{pendComprovantes > 1 ? 's' : ''}</span>}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* ── Vagas & Contratos ── */}
         <div className="card p-5">
           <h2 className="section-title text-base mb-4">
@@ -1142,7 +1175,7 @@ export default function Dashboard() {
                     <XAxis dataKey="month" tick={{ fontSize: 12, fill: '#6b7280' }} axisLine={false} tickLine={false} />
                     <YAxis allowDecimals={false} tick={{ fontSize: 12, fill: '#6b7280' }} axisLine={false} tickLine={false} width={24} />
                     <Tooltip formatter={(v: number) => [v, 'Contratações']} />
-                    <Bar dataKey="contratacoes" fill="#6366f1" radius={[6, 6, 0, 0]} />
+                    <Bar dataKey="contratacoes" fill="#1b8552" radius={[6, 6, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -1230,46 +1263,6 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* ── Próximas Entrevistas ── */}
-        <div className="card p-5">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="font-semibold text-gray-900 flex items-center gap-2">
-              <Calendar size={16} className="text-primary-600" />
-              Agenda
-            </h2>
-            <button onClick={() => navigate('/agenda')} className="text-xs text-primary-600 hover:underline">Ver agenda →</button>
-          </div>
-          {interviews?.length === 0 ? (
-            <div className="text-center py-6">
-              <Calendar size={28} className="text-gray-200 mx-auto mb-2" />
-              <p className="text-sm text-gray-400">Nenhum compromisso agendado</p>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {interviews?.map((i: { id: string; title?: string; candidate?: { full_name: string }; employee?: { full_name: string }; scheduled_at: string; end_date?: string; modality: string; status: string; vacancy?: { title: string } }) => (
-                <div key={i.id} className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-gray-50 cursor-pointer border border-gray-100" onClick={() => navigate('/agenda')}>
-                  <div className="w-9 h-9 rounded-xl bg-primary-50 flex flex-col items-center justify-center flex-shrink-0">
-                    <span className="text-xs font-bold text-primary-700 leading-none">{new Date(i.scheduled_at).getDate()}</span>
-                    <span className="text-xs text-primary-400 leading-none">{new Date(i.scheduled_at).toLocaleDateString('pt-BR', { month: 'short' })}</span>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-900 truncate">{i.title || i.candidate?.full_name || 'Compromisso'}</p>
-                    <p className="text-xs text-gray-500">
-                      {formatDateTime(i.scheduled_at)}
-                      {i.end_date ? ` → ${formatDate(i.end_date)}` : ''}
-                      {i.employee?.full_name ? ` · ${i.employee.full_name}` : ''}
-                      {i.candidate?.full_name ? ` · ${i.candidate.full_name}` : ''}
-                    </p>
-                  </div>
-                  <div className="flex gap-1 flex-shrink-0 flex-wrap justify-end">
-                    <span className={`badge text-xs ${MODAL_COLORS[i.modality] || 'bg-gray-100 text-gray-700'}`}>{i.modality}</span>
-                    <span className={`badge text-xs ${STATUS_COLORS[i.status] || 'bg-gray-100 text-gray-700'}`}>{i.status}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
       </div>
 
       {/* ── Quick Actions ── */}
@@ -1329,7 +1322,9 @@ function MiniDonut({ title, data, total, empty }: {
             {data.map((d, i) => (
               <div key={i} className="flex items-center justify-between text-xs">
                 <span className="flex items-center gap-1.5 text-ink-600"><span className="w-2 h-2 rounded-full" style={{ backgroundColor: d.color }} />{d.name}</span>
-                <span className="font-semibold text-ink-800 tnum">{d.value}</span>
+                <span className="font-semibold text-ink-800 tnum">
+                  {d.value} <span className="text-ink-400 font-normal">· {Math.round((d.value / total) * 100)}%</span>
+                </span>
               </div>
             ))}
           </div>

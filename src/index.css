@@ -83,3 +83,27 @@
     display: none;
   }
 }
+
+/* ── Mobile: nada estoura a tela, tudo alcançável com o polegar ── */
+@media (max-width: 767px) {
+  /* Inputs com 16px: abaixo disso o iOS dá zoom automático ao focar */
+  .input, select.input, textarea.input {
+    font-size: 16px;
+    padding-top: 0.7rem;
+    padding-bottom: 0.7rem;
+  }
+  /* Tabelas nunca esticam a página: rolam dentro do próprio card */
+  table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    max-width: 100%;
+  }
+  table thead, table tbody, table tr {
+    white-space: nowrap;
+  }
+  /* Botões com altura mínima de toque confortável */
+  .btn-primary, .btn-secondary {
+    min-height: 44px;
+  }
+}

@@ -50,7 +50,42 @@ export default function ContractList() {
       {isLoading ? (
         <div className="flex justify-center py-12"><div className="animate-spin rounded-full h-8 w-8 border-4 border-primary-600 border-t-transparent" /></div>
       ) : (
-        <div className="card overflow-hidden">
+        <>
+        {/* Mobile: cards empilhados */}
+        <div className="md:hidden space-y-3">
+          {paginated.map(c => {
+            const days = daysUntil(c.end_date)
+            return (
+              <div key={c.id} className="card card-interactive p-4" onClick={() => navigate(`/contratos/${c.id}`)}>
+                <div className="flex items-start justify-between gap-2">
+                  <p className="font-semibold text-ink-900 flex-1 min-w-0 truncate">{c.client_name || '-'}</p>
+                  <span className={`badge flex-shrink-0 ${c.signed ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
+                    {c.signed ? 'Assinado' : 'Pendente'}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 mt-1.5 flex-wrap text-xs text-ink-500">
+                  <span className="badge bg-gray-100 text-gray-700">{c.type}</span>
+                  <span>{formatDate(c.start_date)} → {formatDate(c.end_date)}</span>
+                  {days !== null && (
+                    <span className={`badge ${days < 0 ? 'bg-red-100 text-red-700' : days <= 15 ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700'}`}>
+                      {days < 0 ? 'Vencido' : `${days}d`}
+                    </span>
+                  )}
+                </div>
+                {(c as { supervisor?: { full_name: string } }).supervisor?.full_name && (
+                  <p className="text-xs text-ink-400 mt-1">Supervisor: {(c as { supervisor?: { full_name: string } }).supervisor!.full_name}</p>
+                )}
+              </div>
+            )
+          })}
+          {contracts?.length === 0 && <div className="card text-center py-8 text-gray-400">Nenhum contrato encontrado</div>}
+          {(contracts?.length ?? 0) > PAGE_SIZE && (
+            <div className="card"><Pagination page={page} total={contracts?.length ?? 0} pageSize={PAGE_SIZE} onChange={setPage} /></div>
+          )}
+        </div>
+
+        {/* Desktop: tabela */}
+        <div className="hidden md:block card overflow-hidden">
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
@@ -98,6 +133,7 @@ export default function ContractList() {
           <Pagination page={page} total={contracts?.length ?? 0} pageSize={PAGE_SIZE} onChange={setPage} />
           {contracts?.length === 0 && <div className="text-center py-8 text-gray-400">Nenhum contrato encontrado</div>}
         </div>
+        </>
       )}
     </div>
   )

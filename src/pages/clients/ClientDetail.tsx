@@ -715,21 +715,39 @@ export default function ClientDetail() {
           {inspections?.length === 0 ? (
             <p className="text-sm text-gray-400">Nenhuma vistoria registrada</p>
           ) : (
-            <table className="w-full text-sm">
-              <thead><tr className="text-left text-xs text-gray-500 border-b"><th className="py-2">Data</th><th>Local</th><th>Entrada</th><th>Saída</th><th>Horas</th><th>Valor</th></tr></thead>
-              <tbody>
+            <>
+              {/* Mobile: cards */}
+              <div className="md:hidden space-y-2">
                 {inspections?.map(i => (
-                  <tr key={i.id} className="border-b border-gray-50 hover:bg-gray-50">
-                    <td className="py-2">{formatDate(i.check_in)}</td>
-                    <td>{(i as { location?: { name: string } }).location?.name || '-'}</td>
-                    <td>{formatDate(i.check_in, 'HH:mm')}</td>
-                    <td>{formatDate(i.check_out, 'HH:mm')}</td>
-                    <td>{i.hours_worked}h</td>
-                    <td>{formatCurrency(i.amount)}</td>
-                  </tr>
+                  <div key={i.id} className="rounded-xl border border-ink-100 p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm font-semibold text-ink-900">{formatDate(i.check_in)}</p>
+                      <p className="text-sm font-semibold text-primary-700 tnum">{formatCurrency(i.amount)}</p>
+                    </div>
+                    <p className="text-xs text-ink-500 mt-0.5">{(i as { location?: { name: string } }).location?.name || 'Local não informado'}</p>
+                    <p className="text-xs text-ink-400 mt-1 tnum">
+                      {formatDate(i.check_in, 'HH:mm')} → {formatDate(i.check_out, 'HH:mm')} · {i.hours_worked}h
+                    </p>
+                  </div>
                 ))}
-              </tbody>
-            </table>
+              </div>
+              {/* Desktop: tabela */}
+              <table className="w-full text-sm hidden md:table">
+                <thead><tr className="text-left text-xs text-gray-500 border-b"><th className="py-2">Data</th><th>Local</th><th>Entrada</th><th>Saída</th><th>Horas</th><th>Valor</th></tr></thead>
+                <tbody>
+                  {inspections?.map(i => (
+                    <tr key={i.id} className="border-b border-gray-50 hover:bg-gray-50">
+                      <td className="py-2">{formatDate(i.check_in)}</td>
+                      <td>{(i as { location?: { name: string } }).location?.name || '-'}</td>
+                      <td>{formatDate(i.check_in, 'HH:mm')}</td>
+                      <td>{formatDate(i.check_out, 'HH:mm')}</td>
+                      <td>{i.hours_worked}h</td>
+                      <td>{formatCurrency(i.amount)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
           )}
         </div>
       )}

@@ -1,0 +1,30 @@
+{
+  "name": "TIN — Time IN · Gestão de RH",
+  "short_name": "TIN",
+  "description": "Sistema de gestão de RH para consultoria de nutrição",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#167747",
+  "theme_color": "#167747",
+  "lang": "pt-BR",
+  "icons": [
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    }
+  ]
+}

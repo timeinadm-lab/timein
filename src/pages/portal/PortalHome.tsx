@@ -561,7 +561,7 @@ export default function PortalHome() {
             </div>
             <div>
               <p className="font-display font-bold text-base leading-tight">{employeeName}</p>
-              <p className="text-xs text-white/70">Portal do Nutricionista</p>
+              <p className="text-xs text-white/70">TIN · Portal do Nutricionista</p>
             </div>
           </div>
           <button onClick={logout} className="flex items-center gap-1.5 text-sm text-white/80 hover:text-white px-2.5 py-1.5 rounded-xl hover:bg-white/10 active:scale-95 transition-all">

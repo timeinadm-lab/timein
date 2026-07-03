@@ -221,6 +221,18 @@ export default function PortalHome() {
         const unit = getLinkUnitsForClient(pontoForm.client_id).find(u => u.id === pontoForm.unit_id)
         visitAmount = calcVisitAmount(unit?.visit_rate ?? null, pontoForm.check_in, pontoForm.check_out, Number(link?.weekly_hours_quota) || null)
 
+        // Visita abaixo do combinado → desconto proporcional. Confirma com a pessoa antes de lançar.
+        const quotaH = Number(link?.weekly_hours_quota) || null
+        if (visitAmount != null && unit?.visit_rate && quotaH && visitAmount < Number(unit.visit_rate)) {
+          const hrs = calcDurationMin(pontoForm.check_in, pontoForm.check_out) / 60
+          const ok = window.confirm(
+            `Sua visita teve ${hrs.toFixed(1)}h de ${quotaH}h combinadas.\n` +
+            `Valor proporcional: R$ ${visitAmount.toFixed(2)} (vistoria cheia: R$ ${Number(unit.visit_rate).toFixed(2)}).\n\n` +
+            `Confirmar o lançamento com esse valor?`
+          )
+          if (!ok) throw new Error('Lançamento cancelado — confira os horários e registre novamente.')
+        }
+
         // Acima do combinado de HORAS no mês (tolerância de 1h): a visita registra, mas o
         // pagamento fica "aguardando" — o chefe é notificado e decide se paga o excedente.
         const monthlyQuota = Number((link as { monthly_hours_quota?: number } | undefined)?.monthly_hours_quota) || null

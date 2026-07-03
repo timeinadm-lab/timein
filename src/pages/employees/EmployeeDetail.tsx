@@ -43,7 +43,7 @@ export default function EmployeeDetail() {
   const [showLinkForm, setShowLinkForm] = useState(false)
   const [linkForm, setLinkForm] = useState({ client_id: '', service_type: 'Fixo' as 'Fixo' | 'Consultoria', monthly_amount: '', cost_assistance: '', weekly_hours_quota: '', visit_frequency: 'Semanal' as 'Semanal' | 'Quinzenal' | 'Mensal', contract_end_date: '', work_schedule_type: '', daily_hours: '', days_off: [] as number[], schedule_anchor_date: '' })
   type EditLinkUnit = { unit_id: string; unit_name: string; visit_rate: string }
-  type EditLinkState = { linkId: string; serviceType: string; clientId: string; monthly_amount: string; cost_assistance: string; weekly_hours: string; visit_frequency: string; visits_per_week: string; pay_extra_visits: boolean; units: EditLinkUnit[]; work_schedule_type: string; daily_hours: string; days_off: number[]; schedule_anchor_date: string; start_date: string; payDays: string[]; pay_full_salary: boolean }
+  type EditLinkState = { linkId: string; serviceType: string; clientId: string; monthly_amount: string; cost_assistance: string; weekly_hours: string; visit_frequency: string; visits_per_week: string; pay_extra_visits: boolean; units: EditLinkUnit[]; work_schedule_type: string; daily_hours: string; days_off: number[]; schedule_anchor_date: string; start_date: string; payDays: string[]; pay_full_salary: boolean; expected_days_month: string }
   const [editLinkValues, setEditLinkValues] = useState<EditLinkState | null>(null)
   const [linkDates, setLinkDates] = useState<{ day_of_month: string; amount: string }[]>([{ day_of_month: '', amount: '' }])
   const [newDocName, setNewDocName] = useState('')
@@ -580,6 +580,7 @@ export default function EmployeeDetail() {
         schedule_anchor_date: !isConsult ? (vals.work_schedule_type === '12x36' && vals.schedule_anchor_date ? vals.schedule_anchor_date : null) : undefined,
         start_date: !isConsult ? (vals.start_date || null) : undefined,
         pay_full_salary: !isConsult ? vals.pay_full_salary : undefined,
+        expected_days_month: !isConsult ? (vals.expected_days_month ? Number(vals.expected_days_month) : null) : undefined,
       }).eq('id', vals.linkId)
       if (error) throw error
 
@@ -1242,6 +1243,7 @@ export default function EmployeeDetail() {
                               start_date: (l as { start_date?: string }).start_date || '',
                               payDays: l.service_type === 'Consultoria' ? ['8', '20'] : (l.payment_dates || []).map(d => String(d.day_of_month)).filter(d => ['8', '15', '20'].includes(d)).sort((a, b) => Number(a) - Number(b)),
                               pay_full_salary: (l as { pay_full_salary?: boolean }).pay_full_salary ?? false,
+                              expected_days_month: String((l as { expected_days_month?: number }).expected_days_month || ''),
                             })
                           }}
                         >
@@ -1432,6 +1434,13 @@ export default function EmployeeDetail() {
                                     <span className="text-sm text-gray-700">Pagar salário inteiro</span>
                                   </label>
                                   <p className="text-xs text-gray-400 mt-0.5 ml-6">Ignora cálculo proporcional do ciclo de pagamento.</p>
+                                </div>
+                                <div className="col-span-2">
+                                  <label className="label text-xs">Dias esperados de trabalho no mês</label>
+                                  <input className="input text-sm" type="number" min={1} max={31} placeholder="Automático pela escala (ex: 22)"
+                                    value={editLinkValues.expected_days_month}
+                                    onChange={e => setEditLinkValues(p => p ? { ...p, expected_days_month: e.target.value } : p)} />
+                                  <p className="text-xs text-gray-400 mt-0.5">Valor-dia = salário ÷ este número. Vazio = calculado pela escala (5x2, 6x1, 12x36). Útil para 12x36 conforme o dia de início.</p>
                                 </div>
                               </div>
                             )}

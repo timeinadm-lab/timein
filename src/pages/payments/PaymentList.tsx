@@ -132,7 +132,7 @@ export default function PaymentList() {
       const activeEmpIds = new Set(activeLinks.map(l => (l as { employee?: { id: string } }).employee?.id).filter(Boolean))
       const { data: monthVisits } = await supabase
         .from('nutritionist_visits')
-        .select('employee_id, client_id, visit_date, check_in, check_out, visit_rate')
+        .select('employee_id, client_id, visit_date, check_in, check_out, break_start, break_end, visit_rate, is_unavailable, is_extra, extra_approval, extra_amount, observations')
         .gte('visit_date', monthStart)
         .lte('visit_date', monthEnd)
 
@@ -198,13 +198,13 @@ export default function PaymentList() {
       const empIds = [...new Set(links.map(l => (l as { employee?: { id: string } }).employee?.id).filter(Boolean))]
       const visits = monthVisits?.filter(v => empIds.includes(v.employee_id)) || []
 
-      // Check which have real payments already
+      // Check which have real payments already — por mês de referência (o vencimento
+      // pode cair no mês seguinte quando o dia de pagamento já passou)
       const { data: realPayments } = await supabase
         .from('payments')
-        .select('employee_id, amount, status')
+        .select('*')
         .eq('type', 'Real')
-        .gte('due_date', monthStart)
-        .lte('due_date', monthEnd)
+        .or(`reference_month.eq.${filterMonth},and(reference_month.is.null,due_date.gte.${monthStart},due_date.lte.${monthEnd})`)
 
       // Fallback: get vacancy financial data for employees with null monthly_amount
       const nullAmtEmpIds = links
@@ -241,43 +241,60 @@ export default function PaymentList() {
         const isConsultoria = l.service_type === 'Consultoria'
         const empVisits = visits?.filter(v => v.employee_id === emp?.id && v.client_id === client?.id) ?? []
 
-        const visitHours = (v: { check_in?: string | null; check_out?: string | null }) => {
+        const visitHours = (v: { check_in?: string | null; check_out?: string | null; break_start?: string | null; break_end?: string | null }) => {
           if (!v.check_in || !v.check_out) return 0
           const [hi, mi] = v.check_in.slice(0,5).split(':').map(Number)
           const [ho, mo] = v.check_out.slice(0,5).split(':').map(Number)
-          return (ho * 60 + mo - hi * 60 - mi) / 60
+          let min = ho * 60 + mo - hi * 60 - mi
+          if (min < 0) min += 24 * 60
+          if (v.break_start && v.break_end) {
+            const [b1h, b1m] = v.break_start.slice(0,5).split(':').map(Number)
+            const [b2h, b2m] = v.break_end.slice(0,5).split(':').map(Number)
+            min -= Math.max(0, b2h * 60 + b2m - b1h * 60 - b1m)
+          }
+          return Math.max(0, min) / 60
         }
 
-        const actualDays = !isConsultoria ? empVisits.filter(v => v.check_out).length : 0
+        const actualDays = !isConsultoria
+          ? empVisits.filter(v => v.check_out && !(v as { is_unavailable?: boolean }).is_unavailable).length
+          : 0
         const actualVisits = isConsultoria ? empVisits.length : 0
+        // Consultoria: visit_rate JÁ é o valor final da visita (o portal grava
+        // proporcional às horas combinadas) — aqui só soma, sem recalcular.
         const actualAmount = isConsultoria
-          ? empVisits.reduce((s, v) => {
-              const rate = Number(v.visit_rate) || 0
-              if (!rate) return s
-              const hours = visitHours(v)
-              const earned = hours > 0 && hours < 4 ? (hours / 4) * rate : rate
-              return s + earned
-            }, 0)
+          ? empVisits.reduce((s, v) => s + (Number(v.visit_rate) || 0), 0)
           : null
+        // Fixo: dias extras aprovados pelo chefe entram no pagamento
+        const extrasAprovados = !isConsultoria
+          ? empVisits
+              .filter(v => (v as { is_extra?: boolean }).is_extra && (v as { extra_approval?: string }).extra_approval === 'aprovada')
+              .reduce((s, v) => s + (Number((v as { extra_amount?: number }).extra_amount) || 0), 0)
+          : 0
 
         const expDays = !isConsultoria ? (l.expected_days_month || expectedDays(l.work_schedule, filterMonth)) : 0
         const fallback = emp?.id ? vacancyFallback[emp.id] : undefined
         const monthlyAmt = Number(l.monthly_amount) || Number(fallback?.salary_amount) || 0
 
-        const hasRealPayment = realPayments?.some(rp => rp.employee_id === emp?.id) ?? false
+        // Real gerado: casa por vínculo quando o lançamento tem link_id; senão por colaborador (legado)
+        const hasRealPayment = realPayments?.some(rp => {
+          const rpLink = (rp as { link_id?: string }).link_id
+          return rpLink ? rpLink === l.id : rp.employee_id === emp?.id
+        }) ?? false
         const costAssistance = Number((l as { cost_assistance?: number }).cost_assistance) || 0
         const group = workerGroup(l.service_type, l.work_schedule)
-        const payDates = (l as { payment_dates?: { day_of_month: number }[] }).payment_dates ?? []
-        const payDay = payDates[0]?.day_of_month || 5
+        const payDates = ((l as { payment_dates?: { day_of_month: number }[] }).payment_dates ?? [])
+          .slice().sort((a, b) => a.day_of_month - b.day_of_month)
+        // Fixo: um pagamento por mês (dia 8, 15 ou 20). Consultoria: sempre 8 e 20.
+        const payDay = isConsultoria ? 20 : (payDates[0]?.day_of_month || 5)
         const startDate = (l as { start_date?: string }).start_date || null
         const payFullSalary = (l as { pay_full_salary?: boolean }).pay_full_salary ?? false
 
         // Ciclo de pagamento para Fixo: payDay do mês anterior até payDay-1 do mês atual
         // Se o colaborador começou mid-cycle, calcula proporcional (a não ser que pay_full_salary = true)
-        let cycleDays = expDays
         let cycleStart: string | null = null
         let cycleEnd: string | null = null
         let isPartialCycle = false
+        let startsAfterCycle = false
         let proportionalFactor = 1
 
         if (!isConsultoria && payDay) {
@@ -294,13 +311,31 @@ export default function PaymentList() {
               const workedCycleDays = Math.round((cEnd.getTime() - new Date(startDate).getTime()) / 86400000) + 1
               proportionalFactor = totalCycleDays > 0 ? workedCycleDays / totalCycleDays : 1
             }
+          } else if (startDate && startDate > cycleEnd) {
+            // Começou depois do ciclo fechar: nada a pagar neste mês (1º pagamento no próximo ciclo)
+            startsAfterCycle = true
+            if (!payFullSalary) proportionalFactor = 0
           }
         }
 
+        // Dias sem registro: tolerância de 4 dias antes de alertar (dá tempo de corrigir a folha)
+        const today = new Date()
+        const isCurrentMonth = filterMonth === format(today, 'yyyy-MM')
+        let expDaysToDate = expDays
+        if (!isConsultoria && isCurrentMonth) {
+          const dim = getDaysInMonth(new Date(filterMonth + '-15'))
+          const graceDay = Math.max(0, today.getDate() - 4)
+          expDaysToDate = Math.floor(expDays * (graceDay / dim))
+        } else if (!isConsultoria && filterMonth > format(today, 'yyyy-MM')) {
+          expDaysToDate = 0 // mês futuro: nada a cobrar ainda
+        }
+
         const adjustedAmount = Math.round(monthlyAmt * proportionalFactor * 100) / 100
+        // Fixo por dias: valor-dia = salário INTEIRO ÷ dias esperados; quem começou no meio
+        // do mês já registra menos dias, então o proporcional sai naturalmente da contagem
         const realAmt = isConsultoria
           ? (actualAmount || 0)
-          : expDays > 0 ? Math.round((actualDays / expDays) * adjustedAmount * 100) / 100 : 0
+          : expDays > 0 ? Math.round((actualDays / expDays) * monthlyAmt * 100) / 100 : 0
 
         return {
           linkId: l.id,
@@ -325,7 +360,10 @@ export default function PaymentList() {
           cycleStart,
           cycleEnd,
           isPartialCycle,
+          startsAfterCycle,
           proportionalFactor,
+          extrasAprovados,
+          expDaysToDate,
         }
       })
     },
@@ -356,24 +394,91 @@ export default function PaymentList() {
     onError: (e: Error) => toast.error(e.message),
   })
 
+  // Insere lançamento; se as colunas client_id/link_id ainda não existirem (migração 024
+  // pendente), tenta de novo sem elas para não travar o pagamento.
+  const insertPayment = async (record: Record<string, unknown>) => {
+    const { error } = await supabase.from('payments').insert(record)
+    if (error && /column|link_id|client_id/i.test(error.message)) {
+      const { client_id: _c, link_id: _l, ...legacy } = record
+      const { error: e2 } = await supabase.from('payments').insert(legacy)
+      if (e2) throw e2
+      return
+    }
+    if (error) throw error
+  }
+
+  type GenRow = {
+    employee: { id: string; full_name: string } | undefined
+    client: { id: string; name: string } | undefined
+    linkId: string
+    service_type: string
+    monthly_amount: number
+    adjusted_amount: number
+    realAmt: number
+    cost_assistance: number
+    extrasAprovados: number
+    payDay: number
+    visits: { visit_date: string; visit_rate?: number | null }[]
+  }
+
+  const empExpensesTotal = (empId?: string) =>
+    (expenses ?? []).filter(e => (e as { employee_id?: string }).employee_id === empId)
+      .reduce((s, e) => s + (Number(e.amount) || 0), 0)
+
+  const baseRecord = (row: GenRow) => ({
+    status: 'Pendente',
+    recurrence: 'Mensal',
+    category: 'Salário',
+    employee_id: row.employee!.id,
+    client_id: row.client?.id ?? null,
+    link_id: row.linkId.startsWith('dismissed-') ? null : row.linkId,
+    reference_month: filterMonth,
+  })
+
   const autoGeneratePayment = useMutation({
-    mutationFn: async (row: { employee: { id: string; full_name: string } | undefined; client: { id: string; name: string } | undefined; monthly_amount: number; adjusted_amount?: number; payDay?: number }) => {
+    mutationFn: async (row: GenRow) => {
       if (!row.employee) throw new Error('Sem colaborador')
-      const dueDate = new Date(filterMonth + '-15')
-      dueDate.setDate(row.payDay || 5)
       const monthLabel = new Date(filterMonth + '-15').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
-      const { error } = await supabase.from('payments').insert({
-        description: `Honorários – ${row.employee.full_name}${row.client ? ` (${row.client.name})` : ''} – ${monthLabel}`,
-        amount: row.adjusted_amount ?? row.monthly_amount,
-        due_date: dueDate.toISOString().slice(0, 10),
-        status: 'Pendente',
-        recurrence: 'Mensal',
-        category: 'Salário',
-        type: 'Estimativa',
-        employee_id: row.employee.id,
-        reference_month: filterMonth,
-      })
-      if (error) throw error
+      const who = `${row.employee.full_name}${row.client ? ` (${row.client.name})` : ''}`
+      const extras = empExpensesTotal(row.employee.id) + row.cost_assistance + row.extrasAprovados
+
+      if (row.service_type === 'Consultoria') {
+        // Consultoria: SÓ dia 20 (visitas da 1ª quinzena) e dia 8 do mês seguinte (2ª quinzena)
+        const q1 = row.visits.filter(v => Number(v.visit_date.slice(8, 10)) <= 15).reduce((s, v) => s + (Number(v.visit_rate) || 0), 0)
+        const q2 = row.visits.filter(v => Number(v.visit_date.slice(8, 10)) > 15).reduce((s, v) => s + (Number(v.visit_rate) || 0), 0)
+        if (q1 <= 0 && q2 <= 0 && extras <= 0) throw new Error('Nenhuma visita registrada neste mês — nada a lançar.')
+        const [yr, mo] = filterMonth.split('-').map(Number)
+        const nextMonth = mo === 12 ? `${yr + 1}-01` : `${yr}-${String(mo + 1).padStart(2, '0')}`
+        // Extras (aj. custo/gastos) entram no último lançamento do mês
+        const extrasEmQ2 = q2 > 0 || q1 <= 0
+        if (q1 > 0 || (!extrasEmQ2 && extras > 0)) {
+          await insertPayment({
+            ...baseRecord(row),
+            type: 'Estimativa',
+            description: `Honorários – ${who} – 1ª quinzena ${monthLabel}`,
+            amount: Math.round((q1 + (extrasEmQ2 ? 0 : extras)) * 100) / 100,
+            due_date: `${filterMonth}-20`,
+          })
+        }
+        if (q2 > 0 || (extrasEmQ2 && extras > 0)) {
+          await insertPayment({
+            ...baseRecord(row),
+            type: 'Estimativa',
+            description: `Honorários – ${who} – 2ª quinzena ${monthLabel}`,
+            amount: Math.round((q2 + (extrasEmQ2 ? extras : 0)) * 100) / 100,
+            due_date: `${nextMonth}-08`,
+          })
+        }
+      } else {
+        // Fixo/Plantão/12x36: um pagamento por mês no dia do contrato (8, 15 ou 20)
+        await insertPayment({
+          ...baseRecord(row),
+          type: 'Estimativa',
+          description: `Honorários – ${who} – ${monthLabel}`,
+          amount: Math.round((row.adjusted_amount + extras) * 100) / 100,
+          due_date: `${filterMonth}-${String(row.payDay || 5).padStart(2, '0')}`,
+        })
+      }
     },
     onSuccess: () => {
       toast.success('Lançamento gerado!')
@@ -383,25 +488,21 @@ export default function PaymentList() {
   })
 
   const generateRealPayment = useMutation({
-    mutationFn: async (row: { employee: { id: string; full_name: string } | undefined; client: { id: string; name: string } | undefined; realAmt: number; linkId: string; payDay?: number }) => {
+    mutationFn: async (row: GenRow) => {
       if (!row.employee) throw new Error('Sem colaborador')
       const now = new Date()
       const payDay = row.payDay || 5
       const dueDate = new Date(now.getFullYear(), now.getMonth(), payDay)
       if (dueDate < now) dueDate.setMonth(dueDate.getMonth() + 1)
       const monthLabel = new Date(filterMonth + '-15').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
-      const { error } = await supabase.from('payments').insert({
-        description: `[REAL] Honorários – ${row.employee.full_name}${row.client ? ` (${row.client.name})` : ''} – ${monthLabel}`,
-        amount: row.realAmt,
-        due_date: dueDate.toISOString().slice(0, 10),
-        status: 'Pendente',
-        recurrence: 'Mensal',
-        category: 'Salário',
-        employee_id: row.employee.id,
+      const extras = empExpensesTotal(row.employee.id) + row.cost_assistance + row.extrasAprovados
+      await insertPayment({
+        ...baseRecord(row),
         type: 'Real',
-        reference_month: filterMonth,
+        description: `[REAL] Honorários – ${row.employee.full_name}${row.client ? ` (${row.client.name})` : ''} – ${monthLabel}`,
+        amount: Math.round((row.realAmt + extras) * 100) / 100,
+        due_date: dueDate.toISOString().slice(0, 10),
       })
-      if (error) throw error
     },
     onSuccess: () => {
       toast.success('Pagamento real gerado!')
@@ -425,14 +526,19 @@ export default function PaymentList() {
   })
 
   // Totals driven by active vinculos (folhaData), not by payments records
-  const totalEstimativa = (folhaData ?? []).reduce((s, r) => s + r.monthly_amount + r.cost_assistance, 0)
+  const totalEstimativa = (folhaData ?? []).reduce((s, r) => s + (r.adjusted_amount ?? r.monthly_amount) + r.cost_assistance + (r.extrasAprovados || 0), 0)
   const totalExpenses = expenses?.reduce((s, e) => s + (Number(e.amount) || 0), 0) ?? 0
   const totalPago = payments?.filter(p => p.status === 'Pago').reduce((s, p) => s + (p.amount || 0), 0) ?? 0
   const totalAtrasado = payments?.filter(p => p.status === 'Pendente' && p.due_date < new Date().toISOString().slice(0, 10)).reduce((s, p) => s + (p.amount || 0), 0) ?? 0
 
-  // Find payment record for a given employee this month
-  const payForEmp = (empId: string) =>
-    payments?.find(p => p.employee_id === empId && (!p.type || p.type !== 'Real'))
+  // Lançamento do mês para um vínculo: casa por link_id quando existe (colaborador com
+  // 2 clientes tem lançamentos separados); lançamentos antigos casam por colaborador
+  const payForLink = (row: { linkId: string; employee?: { id: string } }) =>
+    payments?.find(p => {
+      if (p.type === 'Real') return false
+      const plink = (p as { link_id?: string }).link_id
+      return plink ? plink === row.linkId : p.employee_id === row.employee?.id
+    })
 
   // Unlinked payment records (manual, no vínculo)
   const linkedEmpIds = new Set((folhaData ?? []).map(r => r.employee?.id).filter(Boolean))
@@ -699,13 +805,14 @@ export default function PaymentList() {
                     </div>
                     <div className="divide-y divide-gray-100">
                       {group.map(row => {
-                        const pay = payForEmp(row.employee?.id || '')
+                        const pay = payForLink(row)
                         const isConsultoria = row.service_type === 'Consultoria'
                         const salarioBase = isConsultoria ? (row.actualAmount || 0) : row.adjusted_amount
                         const empExpAmt = (expenses?.filter(e => (e as { employee_id?: string }).employee_id === row.employee?.id) ?? []).reduce((s, e) => s + Number(e.amount), 0)
-                        const totalAPagar = salarioBase + empExpAmt + row.cost_assistance
-                        const diff = isConsultoria ? 0 : row.actualDays - row.expDays
-                        const isShort = !isConsultoria && row.actualDays < row.expDays
+                        const totalAPagar = salarioBase + empExpAmt + row.cost_assistance + (row.extrasAprovados || 0)
+                        // Alerta de dias sem registro: compara com o esperado ATÉ 4 dias atrás (tolerância)
+                        const diff = isConsultoria ? 0 : row.actualDays - row.expDaysToDate
+                        const isShort = !isConsultoria && row.actualDays < row.expDaysToDate
 
                         return (
                           <div key={row.linkId} className="p-4">
@@ -770,17 +877,17 @@ export default function PaymentList() {
                                     >Gerar</button>
                                   </>
                                 )}
-                                {!row.hasRealPayment && (
+                                {!isConsultoria && !row.hasRealPayment && (
                                   <button
                                     className="btn-ghost text-xs text-green-600 flex items-center gap-1"
-                                    onClick={() => generateRealPayment.mutate({ ...row, realAmt: isConsultoria ? row.realAmt : row.adjusted_amount })}
+                                    onClick={() => generateRealPayment.mutate(row)}
                                     disabled={generateRealPayment.isPending}
-                                    title="Gerar pagamento real baseado na folha"
+                                    title={`Gerar pagamento pelos dias registrados: ${row.actualDays} dia(s) × (salário ÷ ${row.expDays}) = ${formatCurrency(row.realAmt)}`}
                                   >
                                     <RefreshCw size={12} />Real
                                   </button>
                                 )}
-                                {row.hasRealPayment && (
+                                {!isConsultoria && row.hasRealPayment && (
                                   <span className="flex items-center gap-1 text-green-600 text-xs font-medium"><Check size={12} />Real</span>
                                 )}
                               </div>
@@ -797,6 +904,15 @@ export default function PaymentList() {
                                   Ciclo parcial (início {formatDate(row.startDate!)})
                                   {row.payFullSalary ? ' — salário inteiro' : ` — proporcional: ${formatCurrency(row.adjusted_amount)}`}
                                 </span>
+                              )}
+                              {!isConsultoria && row.startsAfterCycle && !row.payFullSalary && (
+                                <span className="text-red-600 flex items-center gap-1 font-medium">
+                                  <AlertTriangle size={11} />
+                                  Começou {formatDate(row.startDate!)} — após o fechamento do ciclo. Nada a pagar neste mês; 1º pagamento no próximo ciclo.
+                                </span>
+                              )}
+                              {(row.extrasAprovados || 0) > 0 && (
+                                <span className="text-green-600">⭐ Extras aprovados: {formatCurrency(row.extrasAprovados)}</span>
                               )}
                               {!isConsultoria && (
                                 <label className="flex items-center gap-1.5 cursor-pointer select-none">

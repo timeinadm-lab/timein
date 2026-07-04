@@ -143,7 +143,7 @@ export default function Dashboard() {
   const { data: employees } = useQuery({
     queryKey: ['dashboard-employees'],
     queryFn: async () => {
-      const { data } = await supabase.from('employees').select('id,status,dismissal_date,full_name,employee_type')
+      const { data } = await supabase.from('employees').select('id,status,dismissal_date,full_name,employee_type,birth_date')
       return data || []
     },
   })
@@ -340,15 +340,14 @@ export default function Dashboard() {
     enabled: role === 'chefe',
   })
 
+  // Agenda compartilhada: todo mundo vê todos os compromissos (o responsável é só informativo)
   const { data: interviews } = useQuery({
-    queryKey: ['dashboard-interviews', profile?.id],
+    queryKey: ['dashboard-interviews'],
     queryFn: async () => {
-      let q = supabase.from('interviews')
+      const { data } = await supabase.from('interviews')
         .select('*,candidate:candidates(full_name),vacancy:vacancies(title),employee:employees(full_name)')
         .gte('scheduled_at', now.toISOString())
         .order('scheduled_at', { ascending: true }).limit(8)
-      if (role === 'recrutador' && profile?.id) q = q.eq('recruiter_id', profile.id)
-      const { data } = await q
       return data || []
     },
   })
@@ -675,6 +674,25 @@ export default function Dashboard() {
     const client = (l as { client?: { name: string } }).client?.name || ''
     const when = days === 0 ? 'vence hoje!' : `faltam ${days}d`
     amberAlerts.push({ text: `Cobertura Volante: ${name}${client ? ' – ' + client : ''} — ${when}`, path: '/colaboradores' })
+  })
+
+  // Aniversários dos colaboradores — hoje e próximos 7 dias 🎂
+  employees?.forEach(e => {
+    const bd = (e as { birth_date?: string }).birth_date
+    if (!bd || e.status === 'Inativo') return
+    const [, bm, bdd] = bd.split('-').map(Number)
+    if (!bm || !bdd) return
+    const todayMid = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    let next = new Date(now.getFullYear(), bm - 1, bdd)
+    if (next < todayMid) next = new Date(now.getFullYear() + 1, bm - 1, bdd)
+    const days = Math.round((next.getTime() - todayMid.getTime()) / 86400000)
+    if (days > 7) return
+    const when = days === 0 ? 'é HOJE! 🎉' : days === 1 ? 'é amanhã' : `${String(bdd).padStart(2, '0')}/${String(bm).padStart(2, '0')} — em ${days} dias`
+    amberAlerts.push({
+      key: `bday-${e.id}-${next.getFullYear()}`,
+      text: `🎂 Aniversário de ${e.full_name} ${when}`,
+      path: `/colaboradores/${e.id}`,
+    })
   })
 
   // Contrato não anexado — Fixo/Consultoria: aparece imediatamente, vermelho após 48h

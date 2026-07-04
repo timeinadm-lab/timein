@@ -10,7 +10,7 @@ export default function InterviewForm() {
   const { id } = useParams()
   const navigate = useNavigate()
   const qc = useQueryClient()
-  const { role, profile } = useAuth()
+  const { profile } = useAuth()
   const isEdit = !!id
 
   const [form, setForm] = useState({
@@ -124,7 +124,7 @@ export default function InterviewForm() {
     })
   }
 
-  const availableRecruiters = role === 'chefe' ? recruiters : recruiters?.filter(r => r.id === profile?.id)
+  const hasLinks = !!(form.employee_id || form.candidate_id || form.vacancy_id)
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">
@@ -136,35 +136,7 @@ export default function InterviewForm() {
         <div className="grid grid-cols-2 gap-4">
           <div className="col-span-2">
             <label className="label">Título *</label>
-            <input className="input" required placeholder="Ex: Entrevista, Reunião, Visita técnica…" value={form.title} onChange={e => set('title', e.target.value)} />
-          </div>
-          <div>
-            <label className="label">Colaborador <span className="text-gray-400 font-normal">(opcional — férias, licença)</span></label>
-            <select className="input" value={form.employee_id} onChange={e => set('employee_id', e.target.value)}>
-              <option value="">Nenhum</option>
-              {employees?.map(emp => <option key={emp.id} value={emp.id}>{emp.full_name}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="label">Candidato <span className="text-gray-400 font-normal">(opcional)</span></label>
-            <select className="input" value={form.candidate_id} onChange={e => set('candidate_id', e.target.value)}>
-              <option value="">Nenhum</option>
-              {candidates?.map(c => <option key={c.id} value={c.id}>{c.full_name}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="label">Vaga <span className="text-gray-400 font-normal">(opcional)</span></label>
-            <select className="input" value={form.vacancy_id} onChange={e => set('vacancy_id', e.target.value)}>
-              <option value="">Nenhuma</option>
-              {vacancies?.map(v => <option key={v.id} value={v.id}>{v.title}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="label">Recrutador</label>
-            <select className="input" value={form.recruiter_id} onChange={e => set('recruiter_id', e.target.value)}>
-              <option value="">Nenhum</option>
-              {availableRecruiters?.map(r => <option key={r.id} value={r.id}>{r.full_name}</option>)}
-            </select>
+            <input className="input" required placeholder="Ex: Reunião com fornecedor, Entrevista com a Maria…" value={form.title} onChange={e => set('title', e.target.value)} />
           </div>
           <div>
             <label className="label">Data e Hora *</label>
@@ -186,6 +158,13 @@ export default function InterviewForm() {
               <option>Online</option><option>Presencial</option><option>Telefone</option>
             </select>
           </div>
+          <div className="col-span-2">
+            <label className="label">Responsável <span className="text-gray-400 font-normal">(quem vai fazer — pode agendar para qualquer pessoa)</span></label>
+            <select className="input" value={form.recruiter_id} onChange={e => set('recruiter_id', e.target.value)}>
+              <option value="">Ninguém específico</option>
+              {recruiters?.map(r => <option key={r.id} value={r.id}>{r.full_name}</option>)}
+            </select>
+          </div>
           <div className="col-span-2"><label className="label">Link de reunião / Endereço</label><input className="input" value={form.link_or_address} onChange={e => set('link_or_address', e.target.value)} /></div>
           <div className="col-span-2"><label className="label">Notas</label><textarea className="input" rows={3} value={form.notes} onChange={e => set('notes', e.target.value)} /></div>
           {isEdit && (
@@ -197,6 +176,37 @@ export default function InterviewForm() {
             </div>
           )}
         </div>
+
+        {/* Vínculos opcionais — recolhidos para manter o formulário simples */}
+        <details className="border-t border-ink-100 pt-3" open={hasLinks}>
+          <summary className="text-sm text-primary-600 font-medium cursor-pointer hover:underline select-none">
+            Vincular a colaborador, candidato ou vaga (opcional)
+          </summary>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-3">
+            <div>
+              <label className="label">Colaborador <span className="text-gray-400 font-normal">(férias, licença)</span></label>
+              <select className="input" value={form.employee_id} onChange={e => set('employee_id', e.target.value)}>
+                <option value="">Nenhum</option>
+                {employees?.map(emp => <option key={emp.id} value={emp.id}>{emp.full_name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="label">Candidato</label>
+              <select className="input" value={form.candidate_id} onChange={e => set('candidate_id', e.target.value)}>
+                <option value="">Nenhum</option>
+                {candidates?.map(c => <option key={c.id} value={c.id}>{c.full_name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="label">Vaga</label>
+              <select className="input" value={form.vacancy_id} onChange={e => set('vacancy_id', e.target.value)}>
+                <option value="">Nenhuma</option>
+                {vacancies?.map(v => <option key={v.id} value={v.id}>{v.title}</option>)}
+              </select>
+            </div>
+          </div>
+        </details>
+
         <div className="flex gap-3">
           <button type="submit" className="btn-primary" disabled={mutation.isPending}>{mutation.isPending ? 'Salvando...' : 'Salvar'}</button>
           <button type="button" className="btn-secondary" onClick={() => navigate(-1)}>Cancelar</button>

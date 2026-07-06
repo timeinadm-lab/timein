@@ -204,6 +204,18 @@ export default function PortalHome() {
 
       const isNormal = isConsultoria || pontoForm.day_type === 'normal'
 
+      // Relatório: consultoria sempre; Volante em qualquer cobertura (consultoria ou fixo).
+      // NÃO bloqueia o check-in — sem anexo o registro fica com pendência visível
+      // no portal, na ficha do colaborador e na tela de pagamento.
+      const isVolante = link?.service_type === 'Volante'
+      let reportPending = false
+      if (isNormal && (isConsultoria || isVolante) && !reportFile) {
+        const existing = editingPontoId
+          ? (((monthFolha?.visits as { id: string; report_url?: string }[] | undefined) || []).find(v => v.id === editingPontoId))
+          : null
+        if (!existing?.report_url) reportPending = true
+      }
+
       // Visitas do mesmo cliente/mês já carregadas (sem nova consulta ao banco)
       const sameMonthVisits = ((monthFolha?.visits as { id: string; client_id: string; visit_date: string; check_in?: string; check_out?: string }[] | undefined) || [])
         .filter(v => v.client_id === pontoForm.client_id && v.visit_date.slice(0, 7) === pontoForm.visit_date.slice(0, 7) && v.id !== editingPontoId)
@@ -287,7 +299,7 @@ export default function PortalHome() {
           await rpc('portal_set_visit_file', { p_token: token, p_id: recordId, p_field: 'atestado_url', p_url: path })
         }
       }
-      if (reportFile && recordId && isConsultoria) {
+      if (reportFile && recordId && (isConsultoria || link?.service_type === 'Volante')) {
         const ext = reportFile.name.split('.').pop()
         const path = `relatorios/${employeeId}/${recordId}.${ext}`
         const { error: upErr } = await supabase.storage.from('arquivos').upload(path, reportFile, { upsert: true })
@@ -295,9 +307,14 @@ export default function PortalHome() {
           await rpc('portal_set_visit_file', { p_token: token, p_id: recordId, p_field: 'report_url', p_url: path })
         }
       }
+
+      return { reportPending }
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
       toast.success(editingPontoId ? 'Registro atualizado!' : pontoForm.day_type === 'feriado' ? 'Feriado registrado!' : pontoForm.day_type === 'indisponivel' ? 'Falta registrada!' : 'Registro salvo!')
+      if (result?.reportPending) {
+        toast('📄 Relatório pendente — anexe depois tocando no ✏️ do registro.', { icon: '⚠️', duration: 7000 })
+      }
       qc.invalidateQueries({ queryKey: ['portal-month', employeeId] })
       setShowPontoModal(false)
       setPontoForm(EMPTY_PONTO)
@@ -972,6 +989,13 @@ export default function PortalHome() {
                         {extraApproval === 'negada' && <span className="badge bg-gray-100 text-gray-500">Extra não remunerada</span>}
                         {atestadoUrl && <span className="badge bg-green-50 text-green-600">✓ Atestado</span>}
                         {(v as { report_url?: string }).report_url && <span className="badge bg-green-50 text-green-600">✓ Relatório</span>}
+                        {(() => {
+                          // Relatório pendente: consultoria sempre; Volante em qualquer cobertura
+                          if ((v as { report_url?: string }).report_url || isHoliday || isUnavailable || !v.check_in) return null
+                          const vlink = getLinkForClient(v.client_id)
+                          const precisa = vlink && (vlink.service_type === 'Volante' || effectiveType(vlink) === 'Consultoria')
+                          return precisa ? <span className="badge bg-red-100 text-red-700">📄 Relatório pendente — toque no ✏️ para anexar</span> : null
+                        })()}
                       </div>
 
                       {/* Row 3: horários + duração + valor */}
@@ -1709,18 +1733,19 @@ export default function PortalHome() {
                     </div>
                   )
                 })()}
-                {/* Relatório opcional */}
+                {/* Relatório — obrigatório para consultoria */}
                 <div>
-                  <label className="label">Relatório da visita <span className="text-gray-400 font-normal">— opcional</span></label>
+                  <label className="label">Relatório da visita <span className="text-red-500 font-normal">— obrigatório</span></label>
                   <input ref={reportRef} type="file" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" className="hidden"
                     onChange={e => setReportFile(e.target.files?.[0] || null)} />
                   <button
                     type="button"
                     onClick={() => reportRef.current?.click()}
-                    className="w-full border-2 border-dashed border-gray-300 rounded-xl px-4 py-3 text-sm text-gray-500 hover:border-primary-400 hover:text-primary-600 transition-colors text-center"
+                    className={`w-full border-2 border-dashed rounded-xl px-4 py-3 text-sm transition-colors text-center ${reportFile ? 'border-green-300 text-green-700 bg-green-50' : 'border-red-200 text-gray-500 hover:border-primary-400 hover:text-primary-600'}`}
                   >
-                    {reportFile ? `✓ ${reportFile.name}` : '+ Anexar relatório (PDF ou foto)'}
+                    {reportFile ? `✓ ${reportFile.name}` : '+ Anexar relatório (PDF ou foto) *'}
                   </button>
+                  <p className="text-xs text-ink-400 mt-1">Dá para registrar sem o anexo, mas a visita fica marcada como <strong>relatório pendente</strong> até você anexar.</p>
                   {reportFile && (
                     <button type="button" onClick={() => setReportFile(null)} className="text-xs text-red-400 mt-1 hover:underline">Remover arquivo</button>
                   )}
@@ -1818,6 +1843,26 @@ export default function PortalHome() {
             {!isConsultoria && pontoForm.day_type === 'feriado' && (
               <div className="bg-amber-50 rounded-xl px-4 py-3 text-sm text-amber-700">
                 O dia será registrado como feriado — não conta como falta nem como dia trabalhado.
+              </div>
+            )}
+
+            {/* Volante cobrindo Fixo: relatório do dia é obrigatório também */}
+            {!isConsultoria && pontoForm.day_type === 'normal' && modalLink?.service_type === 'Volante' && (
+              <div>
+                <label className="label">Relatório do dia <span className="text-red-500 font-normal">— obrigatório (cobertura volante)</span></label>
+                <input ref={reportRef} type="file" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" className="hidden"
+                  onChange={e => setReportFile(e.target.files?.[0] || null)} />
+                <button
+                  type="button"
+                  onClick={() => reportRef.current?.click()}
+                  className={`w-full border-2 border-dashed rounded-xl px-4 py-3 text-sm transition-colors text-center ${reportFile ? 'border-green-300 text-green-700 bg-green-50' : 'border-red-200 text-gray-500 hover:border-primary-400 hover:text-primary-600'}`}
+                >
+                  {reportFile ? `✓ ${reportFile.name}` : '+ Anexar relatório (PDF ou foto) *'}
+                </button>
+                <p className="text-xs text-ink-400 mt-1">Dá para registrar sem o anexo, mas o dia fica marcado como <strong>relatório pendente</strong> até você anexar.</p>
+                {reportFile && (
+                  <button type="button" onClick={() => setReportFile(null)} className="text-xs text-red-400 mt-1 hover:underline">Remover arquivo</button>
+                )}
               </div>
             )}
 

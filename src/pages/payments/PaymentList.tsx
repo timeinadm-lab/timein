@@ -132,7 +132,7 @@ export default function PaymentList() {
       const activeEmpIds = new Set(activeLinks.map(l => (l as { employee?: { id: string } }).employee?.id).filter(Boolean))
       const { data: monthVisits } = await supabase
         .from('nutritionist_visits')
-        .select('employee_id, client_id, visit_date, check_in, check_out, break_start, break_end, visit_rate, is_unavailable, is_extra, extra_approval, extra_amount, observations')
+        .select('employee_id, client_id, visit_date, check_in, check_out, break_start, break_end, visit_rate, is_unavailable, is_extra, extra_approval, extra_amount, observations, report_url, is_holiday')
         .gte('visit_date', monthStart)
         .lte('visit_date', monthEnd)
 
@@ -271,6 +271,14 @@ export default function PaymentList() {
               .reduce((s, v) => s + (Number((v as { extra_amount?: number }).extra_amount) || 0), 0)
           : 0
 
+        // Relatório exigido: Consultoria sempre; Volante em qualquer cobertura. Fixo puro não.
+        const reportRequired = l.service_type === 'Consultoria' || l.service_type === 'Volante'
+        const visitasTrabalhadas = empVisits.filter(v =>
+          v.check_in && !(v as { is_unavailable?: boolean }).is_unavailable && !(v as { is_holiday?: boolean }).is_holiday)
+        const semRelatorio = reportRequired
+          ? visitasTrabalhadas.filter(v => !(v as { report_url?: string }).report_url).length
+          : 0
+
         const expDays = !isConsultoria ? (l.expected_days_month || expectedDays(l.work_schedule, filterMonth)) : 0
         const fallback = emp?.id ? vacancyFallback[emp.id] : undefined
         const monthlyAmt = Number(l.monthly_amount) || Number(fallback?.salary_amount) || 0
@@ -364,6 +372,8 @@ export default function PaymentList() {
           proportionalFactor,
           extrasAprovados,
           expDaysToDate,
+          reportRequired,
+          semRelatorio,
         }
       })
     },
@@ -914,6 +924,14 @@ export default function PaymentList() {
                               {(row.extrasAprovados || 0) > 0 && (
                                 <span className="text-green-600">⭐ Extras aprovados: {formatCurrency(row.extrasAprovados)}</span>
                               )}
+                              {row.reportRequired && row.semRelatorio > 0 && (
+                                <span className="text-red-600 flex items-center gap-1 font-medium">
+                                  <AlertTriangle size={11} />📄 {row.semRelatorio} visita{row.semRelatorio > 1 ? 's' : ''} sem relatório
+                                </span>
+                              )}
+                              {row.reportRequired && row.semRelatorio === 0 && (row.actualVisits > 0 || row.actualDays > 0) && (
+                                <span className="text-green-600">📄 Relatórios OK</span>
+                              )}
                               {!isConsultoria && (
                                 <label className="flex items-center gap-1.5 cursor-pointer select-none">
                                   <input
@@ -942,13 +960,21 @@ export default function PaymentList() {
                                 {row.visits.length > 0 ? `${row.visits.length} registro(s) de ponto` : 'Gastos'}
                               </summary>
                               {row.visits.length > 0 && (
-                                <div className="mt-2 grid grid-cols-3 gap-1">
-                                  {row.visits.slice(0, 30).map((v, i) => (
-                                    <div key={i} className="text-xs bg-gray-50 rounded px-2 py-1 flex items-center justify-between">
-                                      <span className="text-gray-600">{formatDate(v.visit_date)}</span>
-                                      <span className="text-gray-400">{v.check_in?.slice(0, 5)} – {v.check_out?.slice(0, 5) || '?'}</span>
-                                    </div>
-                                  ))}
+                                <div className="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-1">
+                                  {row.visits.slice(0, 30).map((v, i) => {
+                                    const trabalhada = !!v.check_in && !(v as { is_unavailable?: boolean }).is_unavailable && !(v as { is_holiday?: boolean }).is_holiday
+                                    return (
+                                      <div key={i} className="text-xs bg-gray-50 rounded px-2 py-1 flex items-center justify-between gap-1">
+                                        <span className="text-gray-600">{formatDate(v.visit_date)}</span>
+                                        <span className="text-gray-400">{v.check_in?.slice(0, 5)} – {v.check_out?.slice(0, 5) || '?'}</span>
+                                        {row.reportRequired && trabalhada && (
+                                          (v as { report_url?: string }).report_url
+                                            ? <span className="text-green-600" title="Relatório anexado">📄✓</span>
+                                            : <span className="text-red-500 font-medium" title="Relatório pendente">📄✗</span>
+                                        )}
+                                      </div>
+                                    )
+                                  })}
                                 </div>
                               )}
                               <div className="mt-2 space-y-1">

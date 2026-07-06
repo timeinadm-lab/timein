@@ -1807,10 +1807,19 @@ export default function EmployeeDetail() {
           return Math.max(0, (h2*60+m2)-(h1*60+m1))
         }
         const fmtH = (m: number) => `${Math.floor(m/60)}h${m%60>0?m%60+'min':''}`
-        const visits = (visitHistory || []) as { id: string; visit_date: string; client?: { name?: string }; unit_name?: string; check_in?: string; check_out?: string; break_start?: string; break_end?: string; visit_rate?: number; is_unavailable?: boolean; unavailability_reason?: string; observations?: string }[]
+        const visits = (visitHistory || []) as { id: string; visit_date: string; client_id?: string; client?: { name?: string }; unit_name?: string; check_in?: string; check_out?: string; break_start?: string; break_end?: string; visit_rate?: number; is_unavailable?: boolean; unavailability_reason?: string; observations?: string; is_holiday?: boolean; atestado_url?: string; report_url?: string; is_extra?: boolean; extra_approval?: string; extra_amount?: number; is_swap?: boolean }[]
         const realized = visits.filter(v => !v.is_unavailable && v.check_in && v.check_out)
         const totalMin = realized.reduce((s, v) => s + Math.max(0, durMin(v.check_in, v.check_out) - durMin(v.break_start, v.break_end)), 0)
         const totalVal = realized.reduce((s, v) => s + (Number(v.visit_rate) || 0), 0)
+        const faltas = visits.filter(v => v.is_unavailable)
+        const feriados = visits.filter(v => v.is_holiday)
+        const comRelatorio = realized.filter(v => v.report_url).length
+        // Relatório exigido: vínculo Consultoria sempre; Volante em qualquer cobertura. Fixo puro não exige.
+        const reportRequired = (v: { client_id?: string }) => {
+          const lk = (links || []).find(l => (l as { client_id?: string }).client_id === v.client_id)
+          return !!lk && (lk.service_type === 'Consultoria' || lk.service_type === 'Volante')
+        }
+        const semRelatorio = realized.filter(v => !v.report_url && reportRequired(v)).length
 
         return (
           <div className="card p-5 space-y-4">
@@ -1833,6 +1842,16 @@ export default function EmployeeDetail() {
               </div>
             </div>
 
+            {visits.length > 0 && (
+              <div className="flex items-center gap-2 flex-wrap text-xs">
+                <span className="badge bg-green-100 text-green-700">{realized.length} dia{realized.length !== 1 ? 's' : ''}/visita{realized.length !== 1 ? 's' : ''}</span>
+                {faltas.length > 0 && <span className="badge bg-red-100 text-red-700">{faltas.length} falta{faltas.length > 1 ? 's' : ''}{faltas.some(f => f.atestado_url) ? ` (${faltas.filter(f => f.atestado_url).length} c/ atestado)` : ''}</span>}
+                {feriados.length > 0 && <span className="badge bg-amber-100 text-amber-700">{feriados.length} feriado{feriados.length > 1 ? 's' : ''}</span>}
+                {comRelatorio > 0 && <span className="badge bg-blue-100 text-blue-700">📄 {comRelatorio} relatório{comRelatorio > 1 ? 's' : ''}</span>}
+                {semRelatorio > 0 && <span className="badge bg-red-100 text-red-700">📄 {semRelatorio} sem relatório</span>}
+              </div>
+            )}
+
             {visits.length === 0 && <p className="text-sm text-gray-400">Nenhum registro neste mês.</p>}
 
             <div className="overflow-x-auto">
@@ -1852,9 +1871,24 @@ export default function EmployeeDetail() {
                 <tbody>
                   {visits.map(v => {
                     if (v.is_unavailable) return (
-                      <tr key={v.id} className="border-b border-gray-50">
+                      <tr key={v.id} className="border-b border-gray-50 bg-red-50/40">
                         <td className="py-2 px-2 text-gray-500">{formatDate(v.visit_date)}</td>
-                        <td className="py-2 px-2 text-gray-400" colSpan={7}>Falta — {v.unavailability_reason || 'sem motivo'}</td>
+                        <td className="py-2 px-2" colSpan={7}>
+                          <span className="text-red-600 font-medium">Falta</span>
+                          <span className="text-gray-500"> — {v.unavailability_reason || 'sem motivo'}</span>
+                          {v.atestado_url
+                            ? <SignedLink value={v.atestado_url} bucket="arquivos" className="text-primary-600 underline ml-2 text-xs">📎 ver atestado</SignedLink>
+                            : <span className="text-xs text-red-400 ml-2">sem atestado</span>}
+                        </td>
+                      </tr>
+                    )
+                    if (v.is_holiday) return (
+                      <tr key={v.id} className="border-b border-gray-50 bg-amber-50/40">
+                        <td className="py-2 px-2 text-gray-500">{formatDate(v.visit_date)}</td>
+                        <td className="py-2 px-2" colSpan={7}>
+                          <span className="text-amber-700 font-medium">Feriado</span>
+                          {v.observations && <span className="text-gray-500"> — {v.observations}</span>}
+                        </td>
                       </tr>
                     )
                     const net = Math.max(0, durMin(v.check_in, v.check_out) - durMin(v.break_start, v.break_end))
@@ -1862,7 +1896,15 @@ export default function EmployeeDetail() {
                     return (
                       <>
                         <tr key={v.id} className="border-b border-gray-50 hover:bg-gray-50/50">
-                          <td className="py-2 px-2">{formatDate(v.visit_date)}</td>
+                          <td className="py-2 px-2">
+                            {formatDate(v.visit_date)}
+                            {v.is_extra && (
+                              <span className={`badge text-[10px] ml-1 ${v.extra_approval === 'aprovada' ? 'bg-green-100 text-green-700' : v.extra_approval === 'negada' ? 'bg-gray-100 text-gray-500' : 'bg-purple-100 text-purple-700'}`}>
+                                extra{v.extra_approval === 'aprovada' ? ' ✓' : v.extra_approval === 'pendente' ? ' ⏳' : ''}
+                              </span>
+                            )}
+                            {v.is_swap && <span className="badge bg-blue-100 text-blue-700 text-[10px] ml-1">troca</span>}
+                          </td>
                           <td className="py-2 px-2">{v.client?.name || '-'}</td>
                           <td className="py-2 px-2 text-gray-500">{v.unit_name || '-'}</td>
                           <td className="py-2 px-2 font-mono">{v.check_in?.slice(0,5) || '-'}</td>
@@ -1870,17 +1912,24 @@ export default function EmployeeDetail() {
                           <td className="py-2 px-2">{v.check_in && v.check_out ? fmtH(net) : '-'}</td>
                           <td className="py-2 px-2">{v.visit_rate ? `R$ ${Number(v.visit_rate).toFixed(2)}` : '-'}</td>
                           <td className="py-2 px-2">
-                            <button
-                              className="text-gray-300 hover:text-primary-600 p-1"
-                              title="Editar registro"
-                              onClick={() => {
-                                if (isEditing) { setEditVisitId(null); return }
-                                setEditVisitId(v.id)
-                                setEditVisitForm({ check_in: v.check_in?.slice(0,5) || '', check_out: v.check_out?.slice(0,5) || '', observations: v.observations || '' })
-                              }}
-                            >
-                              <Edit size={14} />
-                            </button>
+                            <div className="flex items-center gap-1 justify-end">
+                              {v.report_url ? (
+                                <SignedLink value={v.report_url} bucket="arquivos" className="text-primary-600 hover:text-primary-800 p-1 text-sm">📄</SignedLink>
+                              ) : reportRequired(v) ? (
+                                <span className="text-xs text-red-500 font-medium px-1" title="Relatório obrigatório ainda não anexado">📄 pendente</span>
+                              ) : null}
+                              <button
+                                className="text-gray-300 hover:text-primary-600 p-1"
+                                title="Editar registro"
+                                onClick={() => {
+                                  if (isEditing) { setEditVisitId(null); return }
+                                  setEditVisitId(v.id)
+                                  setEditVisitForm({ check_in: v.check_in?.slice(0,5) || '', check_out: v.check_out?.slice(0,5) || '', observations: v.observations || '' })
+                                }}
+                              >
+                                <Edit size={14} />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                         {isEditing && (

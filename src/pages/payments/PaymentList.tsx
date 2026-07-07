@@ -14,12 +14,47 @@ import {
 } from 'recharts'
 
 type Tab = 'folha' | 'pagos'
-type WorkerGroup = 'consultoria' | 'fixo_plantao' | 'temporario'
+type WorkerGroup = 'consultoria' | 'fixo_plantao' | 'temporario' | 'freela'
 
 function workerGroup(serviceType: string | null, schedule: string | null): WorkerGroup {
+  if (serviceType === 'Volante') return 'freela'
   if (serviceType === 'Consultoria') return 'consultoria'
   if (schedule?.toLowerCase().includes('tempor')) return 'temporario'
   return 'fixo_plantao'
+}
+
+// Freela: dias previstos de trabalho no mês, dentro do período [start, end] do lançamento,
+// respeitando a escala (12x36 pela data âncora; 5x2/6x1 pelos dias de folga)
+function freelaExpectedDays(
+  month: string,
+  start: string | null,
+  end: string | null,
+  schedType: string | null,
+  daysOff: number[] | null,
+  anchor: string | null,
+): number {
+  const [yr, mo] = month.split('-').map(Number)
+  const dim = getDaysInMonth(new Date(yr, mo - 1))
+  const mStart = `${month}-01`
+  const mEnd = `${month}-${String(dim).padStart(2, '0')}`
+  const from = start && start > mStart ? start : mStart
+  const to = end && end < mEnd ? end : mEnd
+  if (from > to) return 0
+  let count = 0
+  const d = new Date(from + 'T12:00:00')
+  const dEnd = new Date(to + 'T12:00:00')
+  while (d <= dEnd) {
+    let works = true
+    if (schedType === '12x36' && anchor) {
+      const diff = Math.round((d.getTime() - new Date(anchor + 'T12:00:00').getTime()) / 86400000)
+      works = diff >= 0 && diff % 2 === 0
+    } else if (daysOff && daysOff.length > 0) {
+      works = !daysOff.includes(d.getDay())
+    }
+    if (works) count++
+    d.setDate(d.getDate() + 1)
+  }
+  return count
 }
 
 // Expected days by work schedule
@@ -121,6 +156,7 @@ export default function PaymentList() {
         .from('employee_client_links')
         .select(`
           id, service_type, monthly_amount, work_schedule, expected_days_month, cost_assistance, start_date, pay_full_salary,
+          coverage_type, daily_rate, contract_end_date, work_schedule_type, days_off, schedule_anchor_date,
           employee:employees!inner(id, full_name, status),
           client:clients(id, name),
           payment_dates:employee_payment_dates(day_of_month, amount)
@@ -239,6 +275,10 @@ export default function PaymentList() {
         const emp = (l as { employee?: { id: string; full_name: string } }).employee
         const client = (l as { client?: { id: string; name: string } }).client
         const isConsultoria = l.service_type === 'Consultoria'
+        // Freela (Volante): trabalho avulso pago por diária (cobertura fixa) ou por visita (consultoria)
+        const isFreela = l.service_type === 'Volante'
+        const freelaConsultoria = isFreela && (l as { coverage_type?: string }).coverage_type === 'Consultoria'
+        const dailyRate = Number((l as { daily_rate?: number }).daily_rate) || 0
         const empVisits = visits?.filter(v => v.employee_id === emp?.id && v.client_id === client?.id) ?? []
 
         const visitHours = (v: { check_in?: string | null; check_out?: string | null; break_start?: string | null; break_end?: string | null }) => {
@@ -255,13 +295,14 @@ export default function PaymentList() {
           return Math.max(0, min) / 60
         }
 
-        const actualDays = !isConsultoria
+        const actualDays = !isConsultoria && !freelaConsultoria
           ? empVisits.filter(v => v.check_out && !(v as { is_unavailable?: boolean }).is_unavailable).length
           : 0
-        const actualVisits = isConsultoria ? empVisits.length : 0
+        const actualVisits = (isConsultoria || freelaConsultoria) ? empVisits.length : 0
         // Consultoria: visit_rate JÁ é o valor final da visita (o portal grava
         // proporcional às horas combinadas) — aqui só soma, sem recalcular.
-        const actualAmount = isConsultoria
+        // Freela cobrindo consultoria segue a mesma regra.
+        const actualAmount = (isConsultoria || freelaConsultoria)
           ? empVisits.reduce((s, v) => s + (Number(v.visit_rate) || 0), 0)
           : null
         // Fixo: dias extras aprovados pelo chefe entram no pagamento
@@ -279,9 +320,23 @@ export default function PaymentList() {
           ? visitasTrabalhadas.filter(v => !(v as { report_url?: string }).report_url).length
           : 0
 
-        const expDays = !isConsultoria ? (l.expected_days_month || expectedDays(l.work_schedule, filterMonth)) : 0
+        // Freela por diária: dias previstos vêm da escala dentro do período do lançamento
+        const expDays = isFreela
+          ? (freelaConsultoria ? 0 : freelaExpectedDays(
+              filterMonth,
+              (l as { start_date?: string }).start_date || null,
+              (l as { contract_end_date?: string }).contract_end_date || null,
+              (l as { work_schedule_type?: string }).work_schedule_type || null,
+              (l as { days_off?: number[] }).days_off || null,
+              (l as { schedule_anchor_date?: string }).schedule_anchor_date || null,
+            ))
+          : !isConsultoria ? (l.expected_days_month || expectedDays(l.work_schedule, filterMonth)) : 0
         const fallback = emp?.id ? vacancyFallback[emp.id] : undefined
-        const monthlyAmt = Number(l.monthly_amount) || Number(fallback?.salary_amount) || 0
+        // Freela: estimativa = dias previstos × diária (fixo) ou soma das visitas (consultoria).
+        // Nunca usa salário mensal nem fallback de vaga.
+        const monthlyAmt = isFreela
+          ? (freelaConsultoria ? (actualAmount || 0) : Math.round(expDays * dailyRate * 100) / 100)
+          : Number(l.monthly_amount) || Number(fallback?.salary_amount) || 0
 
         // Real gerado: casa por vínculo quando o lançamento tem link_id; senão por colaborador (legado)
         const hasRealPayment = realPayments?.some(rp => {
@@ -293,7 +348,8 @@ export default function PaymentList() {
         const payDates = ((l as { payment_dates?: { day_of_month: number }[] }).payment_dates ?? [])
           .slice().sort((a, b) => a.day_of_month - b.day_of_month)
         // Fixo: um pagamento por mês (dia 8, 15 ou 20). Consultoria: sempre 8 e 20.
-        const payDay = isConsultoria ? 20 : (payDates[0]?.day_of_month || 5)
+        // Freela: dia escolhido no lançamento (default 20 se não houver).
+        const payDay = isConsultoria ? 20 : (payDates[0]?.day_of_month || (isFreela ? 20 : 5))
         const startDate = (l as { start_date?: string }).start_date || null
         const payFullSalary = (l as { pay_full_salary?: boolean }).pay_full_salary ?? false
 
@@ -305,7 +361,8 @@ export default function PaymentList() {
         let startsAfterCycle = false
         let proportionalFactor = 1
 
-        if (!isConsultoria && payDay) {
+        // Freela não tem ciclo mensal: o período é o próprio lançamento (start → end)
+        if (!isConsultoria && !isFreela && payDay) {
           const [yr, mo] = filterMonth.split('-').map(Number)
           const cEnd = new Date(yr, mo - 1, payDay - 1)
           const cStart = new Date(yr, mo - 2, payDay)
@@ -330,7 +387,24 @@ export default function PaymentList() {
         const today = new Date()
         const isCurrentMonth = filterMonth === format(today, 'yyyy-MM')
         let expDaysToDate = expDays
-        if (!isConsultoria && isCurrentMonth) {
+        if (isFreela) {
+          if (freelaConsultoria || filterMonth > format(today, 'yyyy-MM')) {
+            expDaysToDate = 0
+          } else if (isCurrentMonth) {
+            // Só cobra dias previstos até 4 dias atrás, dentro do período do freela
+            const grace = new Date(today.getTime() - 4 * 86400000)
+            const graceIso = format(grace, 'yyyy-MM-dd')
+            const end = (l as { contract_end_date?: string }).contract_end_date || null
+            expDaysToDate = freelaExpectedDays(
+              filterMonth,
+              (l as { start_date?: string }).start_date || null,
+              end && end < graceIso ? end : graceIso,
+              (l as { work_schedule_type?: string }).work_schedule_type || null,
+              (l as { days_off?: number[] }).days_off || null,
+              (l as { schedule_anchor_date?: string }).schedule_anchor_date || null,
+            )
+          }
+        } else if (!isConsultoria && isCurrentMonth) {
           const dim = getDaysInMonth(new Date(filterMonth + '-15'))
           const graceDay = Math.max(0, today.getDate() - 4)
           expDaysToDate = Math.floor(expDays * (graceDay / dim))
@@ -341,15 +415,23 @@ export default function PaymentList() {
         const adjustedAmount = Math.round(monthlyAmt * proportionalFactor * 100) / 100
         // Fixo por dias: valor-dia = salário INTEIRO ÷ dias esperados; quem começou no meio
         // do mês já registra menos dias, então o proporcional sai naturalmente da contagem
-        const realAmt = isConsultoria
-          ? (actualAmount || 0)
-          : expDays > 0 ? Math.round((actualDays / expDays) * monthlyAmt * 100) / 100 : 0
+        // Freela: realizado = dias com check-out × diária (fixo) ou soma das visitas (consultoria)
+        const realAmt = isFreela
+          ? (freelaConsultoria ? (actualAmount || 0) : Math.round(actualDays * dailyRate * 100) / 100)
+          : isConsultoria
+            ? (actualAmount || 0)
+            : expDays > 0 ? Math.round((actualDays / expDays) * monthlyAmt * 100) / 100 : 0
 
         return {
           linkId: l.id,
           employee: emp,
           client,
           service_type: l.service_type,
+          isFreela,
+          freelaConsultoria,
+          dailyRate,
+          freelaStart: (l as { start_date?: string }).start_date || null,
+          freelaEnd: (l as { contract_end_date?: string }).contract_end_date || null,
           work_schedule: l.work_schedule,
           monthly_amount: monthlyAmt,
           adjusted_amount: adjustedAmount,
@@ -481,12 +563,16 @@ export default function PaymentList() {
         }
       } else {
         // Fixo/Plantão/12x36: um pagamento por mês no dia do contrato (8, 15 ou 20)
+        // Freela: um pagamento no dia escolhido no lançamento
+        const isFreela = row.service_type === 'Volante'
+        const amount = Math.round((row.adjusted_amount + extras) * 100) / 100
+        if (isFreela && amount <= 0) throw new Error('Freela sem valor previsto neste mês — nada a lançar.')
         await insertPayment({
           ...baseRecord(row),
           type: 'Estimativa',
-          description: `Honorários – ${who} – ${monthLabel}`,
-          amount: Math.round((row.adjusted_amount + extras) * 100) / 100,
-          due_date: `${filterMonth}-${String(row.payDay || 5).padStart(2, '0')}`,
+          description: `${isFreela ? 'Freela' : 'Honorários'} – ${who} – ${monthLabel}`,
+          amount,
+          due_date: `${filterMonth}-${String(row.payDay || (isFreela ? 20 : 5)).padStart(2, '0')}`,
         })
       }
     },
@@ -509,7 +595,7 @@ export default function PaymentList() {
       await insertPayment({
         ...baseRecord(row),
         type: 'Real',
-        description: `[REAL] Honorários – ${row.employee.full_name}${row.client ? ` (${row.client.name})` : ''} – ${monthLabel}`,
+        description: `[REAL] ${row.service_type === 'Volante' ? 'Freela' : 'Honorários'} – ${row.employee.full_name}${row.client ? ` (${row.client.name})` : ''} – ${monthLabel}`,
         amount: Math.round((row.realAmt + extras) * 100) / 100,
         due_date: dueDate.toISOString().slice(0, 10),
       })
@@ -726,6 +812,7 @@ export default function PaymentList() {
                   { name: 'Consultoria', value: (folhaData ?? []).filter(r => r.group === 'consultoria').reduce((s, r) => s + r.monthly_amount, 0), color: '#f97316' },
                   { name: 'Fixo / Plantão', value: (folhaData ?? []).filter(r => r.group === 'fixo_plantao').reduce((s, r) => s + r.monthly_amount, 0), color: '#3b82f6' },
                   { name: 'Temporário', value: (folhaData ?? []).filter(r => r.group === 'temporario').reduce((s, r) => s + r.monthly_amount, 0), color: '#f59e0b' },
+                  { name: 'Freelas', value: (folhaData ?? []).filter(r => r.group === 'freela').reduce((s, r) => s + r.monthly_amount, 0), color: '#a855f7' },
                 ].filter(g => g.value > 0)
                 const byEmployee = (folhaData ?? []).map(r => ({
                   name: r.employee?.full_name?.split(' ').slice(0, 2).join(' ') || '-',
@@ -789,6 +876,7 @@ export default function PaymentList() {
                 { key: 'consultoria' as WorkerGroup, label: 'Consultoria', icon: '🏥', colors: { bg: 'bg-orange-50', text: 'text-orange-800', badge: 'bg-orange-100 text-orange-700', exp: 'text-orange-700 bg-orange-50' } },
                 { key: 'fixo_plantao' as WorkerGroup, label: 'Fixos / Plantão', icon: '📅', colors: { bg: 'bg-blue-50', text: 'text-blue-800', badge: 'bg-blue-100 text-blue-700', exp: 'text-blue-700 bg-blue-50' } },
                 { key: 'temporario' as WorkerGroup, label: 'Temporários', icon: '⏱', colors: { bg: 'bg-amber-50', text: 'text-amber-800', badge: 'bg-amber-100 text-amber-700', exp: 'text-amber-700 bg-amber-50' } },
+                { key: 'freela' as WorkerGroup, label: 'Freelas', icon: '⚡', colors: { bg: 'bg-purple-50', text: 'text-purple-800', badge: 'bg-purple-100 text-purple-700', exp: 'text-purple-700 bg-purple-50' } },
               ]).map(({ key, label, icon, colors }) => {
                 const group = folhaData?.filter(r => r.group === key) ?? []
                 if (!group.length) return null
@@ -816,7 +904,8 @@ export default function PaymentList() {
                     <div className="divide-y divide-gray-100">
                       {group.map(row => {
                         const pay = payForLink(row)
-                        const isConsultoria = row.service_type === 'Consultoria'
+                        const isFreela = row.service_type === 'Volante'
+                        const isConsultoria = row.service_type === 'Consultoria' || (isFreela && row.freelaConsultoria)
                         const salarioBase = isConsultoria ? (row.actualAmount || 0) : row.adjusted_amount
                         const empExpAmt = (expenses?.filter(e => (e as { employee_id?: string }).employee_id === row.employee?.id) ?? []).reduce((s, e) => s + Number(e.amount), 0)
                         const totalAPagar = salarioBase + empExpAmt + row.cost_assistance + (row.extrasAprovados || 0)
@@ -837,14 +926,19 @@ export default function PaymentList() {
                                   </button>
                                   <span className="text-xs text-gray-400">{row.client?.name}</span>
                                   {row.work_schedule && <span className="badge bg-gray-100 text-gray-600 text-xs">{row.work_schedule}</span>}
-                                  {row.startDate && <span className="text-xs text-gray-400">Início: {formatDate(row.startDate)}</span>}
+                                  {isFreela && <span className="badge bg-purple-100 text-purple-700 text-xs">⚡ Freela{row.freelaConsultoria ? ' · Consultoria' : ''}</span>}
+                                  {isFreela && row.startDate ? (
+                                    <span className="text-xs text-gray-400">{formatDate(row.startDate)}{row.freelaEnd ? ` → ${formatDate(row.freelaEnd)}` : ''}</span>
+                                  ) : row.startDate && <span className="text-xs text-gray-400">Início: {formatDate(row.startDate)}</span>}
                                 </div>
                               </div>
 
                               <div className="flex items-center gap-3 flex-shrink-0">
                                 <div className="text-center px-3">
-                                  <p className="text-xs text-gray-400">Salário</p>
-                                  <p className="text-sm font-semibold text-gray-700">{formatCurrency(row.monthly_amount)}</p>
+                                  <p className="text-xs text-gray-400">{isFreela ? (row.freelaConsultoria ? 'Freela' : 'Diária') : 'Salário'}</p>
+                                  <p className="text-sm font-semibold text-gray-700">
+                                    {isFreela && !row.freelaConsultoria ? formatCurrency(row.dailyRate || 0) : formatCurrency(row.monthly_amount)}
+                                  </p>
                                   {row.isPartialCycle && !row.payFullSalary && (
                                     <p className="text-xs text-amber-600">{Math.round(row.proportionalFactor * 100)}% ciclo</p>
                                   )}
@@ -892,7 +986,9 @@ export default function PaymentList() {
                                     className="btn-ghost text-xs text-green-600 flex items-center gap-1"
                                     onClick={() => generateRealPayment.mutate(row)}
                                     disabled={generateRealPayment.isPending}
-                                    title={`Gerar pagamento pelos dias registrados: ${row.actualDays} dia(s) × (salário ÷ ${row.expDays}) = ${formatCurrency(row.realAmt)}`}
+                                    title={isFreela
+                                      ? `Gerar pagamento pelos dias registrados: ${row.actualDays} dia(s) × ${formatCurrency(row.dailyRate || 0)} = ${formatCurrency(row.realAmt)}`
+                                      : `Gerar pagamento pelos dias registrados: ${row.actualDays} dia(s) × (salário ÷ ${row.expDays}) = ${formatCurrency(row.realAmt)}`}
                                   >
                                     <RefreshCw size={12} />Real
                                   </button>

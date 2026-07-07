@@ -63,7 +63,7 @@ export default function EmployeeDetail() {
     // Consultoria
     coverage_units: [] as CoverageUnit[], visit_frequency: 'Semanal' as 'Semanal' | 'Quinzenal' | 'Mensal', weekly_hours_quota: '',
     // Comum
-    start_date: '', end_date: '', daily_rate: '',
+    start_date: '', end_date: '', daily_rate: '', pay_day: '20',
   })
   const [extendLinkId, setExtendLinkId] = useState<string | null>(null)
   const [newEndDate, setNewEndDate] = useState('')
@@ -249,7 +249,7 @@ export default function EmployeeDetail() {
       if (error) throw error
       return data || []
     },
-    enabled: (employee as { employee_type?: string } | undefined)?.employee_type === 'Volante' && tab === 'vinculos',
+    enabled: tab === 'vinculos',
   })
 
   const { data: coverageClientUnits } = useQuery({
@@ -261,7 +261,7 @@ export default function EmployeeDetail() {
     enabled: !!coverageForm.client_id,
   })
 
-  const EMPTY_COVERAGE = { client_id: '', coverage_type: 'Fixo' as 'Fixo' | 'Consultoria', unit_id: '', work_schedule_type: '', daily_hours: '', days_off: [] as number[], schedule_anchor_date: '', coverage_units: [] as CoverageUnit[], visit_frequency: 'Semanal' as 'Semanal' | 'Quinzenal' | 'Mensal', weekly_hours_quota: '', start_date: '', end_date: '', daily_rate: '' }
+  const EMPTY_COVERAGE = { client_id: '', coverage_type: 'Fixo' as 'Fixo' | 'Consultoria', unit_id: '', work_schedule_type: '', daily_hours: '', days_off: [] as number[], schedule_anchor_date: '', coverage_units: [] as CoverageUnit[], visit_frequency: 'Semanal' as 'Semanal' | 'Quinzenal' | 'Mensal', weekly_hours_quota: '', start_date: '', end_date: '', daily_rate: '', pay_day: '20' }
 
   const addCoverage = useMutation({
     mutationFn: async () => {
@@ -277,7 +277,7 @@ export default function EmployeeDetail() {
         const wh = Number(coverageForm.weekly_hours_quota) || null
         if (wh) monthlyHours = wh * (coverageForm.visit_frequency === 'Mensal' ? 1 : coverageForm.visit_frequency === 'Quinzenal' ? 2 : 4)
       }
-      const { error } = await supabase.from('employee_client_links').insert({
+      const { data: newLink, error } = await supabase.from('employee_client_links').insert({
         employee_id: id,
         client_id: coverageForm.client_id || null,
         service_type: 'Volante',
@@ -297,11 +297,18 @@ export default function EmployeeDetail() {
           weekly_hours_quota: Number(coverageForm.weekly_hours_quota) || null,
           monthly_hours_quota: monthlyHours,
         }),
-      })
+      }).select('id').single()
       if (error) throw error
+      // Dia de pagamento escolhido no lançamento (8, 15 ou 20) — a folha usa este dia
+      if (newLink?.id && coverageForm.pay_day) {
+        await supabase.from('employee_payment_dates').insert({
+          link_id: newLink.id,
+          day_of_month: Number(coverageForm.pay_day),
+        })
+      }
     },
     onSuccess: () => {
-      toast.success('Cobertura adicionada!')
+      toast.success('Freela adicionado!')
       qc.invalidateQueries({ queryKey: ['employee-links', id] })
       setShowCoverageForm(false)
       setCoverageForm(EMPTY_COVERAGE)
@@ -753,13 +760,9 @@ export default function EmployeeDetail() {
             <div className="flex flex-wrap gap-1.5 mt-2">
               <span className={`badge ${employee.status === 'Ativo' ? 'bg-primary-100 text-primary-700' : employee.status === 'Inativo' ? 'bg-gray-100 text-gray-500' : 'bg-ink-100 text-ink-600'}`}>{employee.status}</span>
               {employee.crn_number && <span className="badge bg-blue-50 text-blue-700">CRN {employee.crn_number}/{employee.crn_region}</span>}
-              {(employee as { employee_type?: string }).employee_type === 'Volante' ? (
-                <span className="badge bg-orange-100 text-orange-700">⚡ Volante</span>
-              ) : (
-                [...new Set((links || []).filter(l => l.service_type !== 'Volante').map(l => l.service_type))].map(st => (
-                  <span key={st} className={`badge ${st === 'Consultoria' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'}`}>{st}</span>
-                ))
-              )}
+              {[...new Set((links || []).map(l => l.service_type))].map(st => (
+                <span key={st} className={`badge ${st === 'Volante' ? 'bg-orange-100 text-orange-700' : st === 'Consultoria' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'}`}>{st === 'Volante' ? '⚡ Freela' : st}</span>
+              ))}
             </div>
           </div>
         </div>
@@ -925,20 +928,20 @@ export default function EmployeeDetail() {
         </div>
       )}
 
-      {/* VINCULOS */}
-      {tab === 'vinculos' && (employee as { employee_type?: string }).employee_type === 'Volante' && (
+      {/* VINCULOS — Freelas (trabalho avulso, qualquer colaborador) */}
+      {tab === 'vinculos' && (
         <div className="card p-5 space-y-4">
           <div className="flex items-center justify-between">
-            <h3 className="font-medium">Coberturas</h3>
-            <button className="btn-primary text-sm" onClick={() => setShowCoverageForm(v => !v)}>+ Nova cobertura</button>
+            <h3 className="font-medium">⚡ Freelas</h3>
+            <button className="btn-primary text-sm" onClick={() => setShowCoverageForm(v => !v)}>+ Freela</button>
           </div>
 
           {showCoverageForm && (
             <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 space-y-3">
-              <p className="text-sm font-medium text-orange-800">Nova cobertura</p>
+              <p className="text-sm font-medium text-orange-800">Novo freela</p>
               {/* Tipo */}
               <div>
-                <label className="label">Tipo de cobertura *</label>
+                <label className="label">Tipo de serviço *</label>
                 <div className="flex gap-2">
                   {(['Fixo', 'Consultoria'] as const).map(t => (
                     <button key={t} type="button"
@@ -1080,19 +1083,33 @@ export default function EmployeeDetail() {
                   <input className="input" type="date" value={coverageForm.end_date} onChange={e => setCoverageForm(p => ({ ...p, end_date: e.target.value }))} />
                 </div>
               </div>
-              <div>
-                <label className="label">Diária (R$) *</label>
-                <input className="input" type="number" step="0.01" placeholder="Ex: 150.00" value={coverageForm.daily_rate} onChange={e => setCoverageForm(p => ({ ...p, daily_rate: e.target.value }))} />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="label">Diária (R$) *</label>
+                  <input className="input" type="number" step="0.01" placeholder="Ex: 150.00" value={coverageForm.daily_rate} onChange={e => setCoverageForm(p => ({ ...p, daily_rate: e.target.value }))} />
+                </div>
+                <div>
+                  <label className="label">Dia de pagamento *</label>
+                  <div className="flex gap-1.5">
+                    {(['8', '15', '20'] as const).map(d => (
+                      <button key={d} type="button"
+                        className={`flex-1 py-2 text-sm rounded-lg border font-medium transition-colors ${coverageForm.pay_day === d ? 'bg-orange-500 text-white border-orange-500' : 'bg-white text-gray-600 border-gray-300 hover:border-orange-300'}`}
+                        onClick={() => setCoverageForm(p => ({ ...p, pay_day: d }))}>
+                        {d}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
               <div className="flex gap-2">
-                <button className="btn-primary text-sm" disabled={!coverageForm.client_id || !coverageForm.start_date || !coverageForm.daily_rate || addCoverage.isPending} onClick={() => addCoverage.mutate()}>Salvar cobertura</button>
+                <button className="btn-primary text-sm" disabled={!coverageForm.client_id || !coverageForm.start_date || !coverageForm.daily_rate || addCoverage.isPending} onClick={() => addCoverage.mutate()}>Salvar freela</button>
                 <button className="btn-secondary text-sm" onClick={() => setShowCoverageForm(false)}>Cancelar</button>
               </div>
             </div>
           )}
 
           {(links || []).filter(l => l.service_type === 'Volante').length === 0 && !showCoverageForm && (
-            <p className="text-sm text-gray-400 text-center py-4">Nenhuma cobertura registrada. Clique em "Nova cobertura" para adicionar.</p>
+            <p className="text-sm text-gray-400 text-center py-4">Nenhum freela registrado. Clique em "+ Freela" para lançar um trabalho avulso (cliente, dias e diária).</p>
           )}
 
           <div className="space-y-3">
@@ -1150,7 +1167,7 @@ export default function EmployeeDetail() {
         </div>
       )}
 
-      {tab === 'vinculos' && (employee as { employee_type?: string }).employee_type !== 'Volante' && (
+      {tab === 'vinculos' && (
         <div className="card p-5 space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="font-medium">Clientes Vinculados</h3>
@@ -1170,7 +1187,7 @@ export default function EmployeeDetail() {
           />
 
           <div className="space-y-3">
-            {links?.map(l => {
+            {links?.filter(l => l.service_type !== 'Volante').map(l => {
               const contractEnd = (l as { contract_end_date?: string }).contract_end_date
               const contractFile = (l as { contract_file_url?: string }).contract_file_url
               const linkCreated = (l as { created_at?: string }).created_at

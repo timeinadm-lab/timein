@@ -147,7 +147,7 @@ export default function Dashboard() {
   const { data: employees } = useQuery({
     queryKey: ['dashboard-employees'],
     queryFn: async () => {
-      const { data } = await supabase.from('employees').select('id,status,dismissal_date,full_name,employee_type,birth_date')
+      const { data } = await supabase.from('employees').select('id,status,dismissal_date,full_name,birth_date,is_favorite')
       return data || []
     },
   })
@@ -568,7 +568,8 @@ export default function Dashboard() {
   // Colaboradores ativos por tipo de vínculo
   const colaboradoresPie = [
     { name: 'Consultoria', value: allLinks?.filter(l => l.service_type === 'Consultoria').length ?? 0, color: '#f97316' },
-    { name: 'Fixo', value: allLinks?.filter(l => l.service_type !== 'Consultoria').length ?? 0, color: '#3b82f6' },
+    { name: 'Fixo', value: allLinks?.filter(l => l.service_type !== 'Consultoria' && l.service_type !== 'Volante').length ?? 0, color: '#3b82f6' },
+    { name: 'Freela', value: allLinks?.filter(l => l.service_type === 'Volante').length ?? 0, color: '#a855f7' },
   ].filter(d => d.value > 0)
   const colaboradoresTotal = colaboradoresPie.reduce((s, d) => s + d.value, 0)
 
@@ -606,21 +607,22 @@ export default function Dashboard() {
     { name: 'Inativos', value: employees?.filter(e => e.status === 'Inativo').length ?? 0, color: '#94a3b8' },
   ].filter(d => d.value > 0)
 
-  // Volantes: disponíveis vs. atuando
-  const volantesAll = employees?.filter(e => (e as { employee_type?: string }).employee_type === 'Volante' && e.status !== 'Inativo') ?? []
+  // Freelas: atuando (com link ativo) vs. favoritos disponíveis
   const today = now.toISOString().slice(0, 10)
-  const volantesAtuandoIds = new Set(
+  const freelaAtuandoIds = new Set(
     (volanteLinks || [])
       .filter(l => !l.contract_end_date || l.contract_end_date >= today)
       .map(l => l.employee_id)
   )
-  const volantesAtuando = volantesAll.filter(v => volantesAtuandoIds.has(v.id)).length
-  const volantesDisp = volantesAll.length - volantesAtuando
-  const volantesPie = [
-    { name: 'Atuando', value: volantesAtuando, color: '#f97316' },
-    { name: 'Disponíveis', value: volantesDisp, color: '#22c55e' },
+  const freelaAtuando = freelaAtuandoIds.size
+  const favoritosDisp = (employees || []).filter(e =>
+    (e as { is_favorite?: boolean }).is_favorite && e.status !== 'Inativo' && !freelaAtuandoIds.has(e.id)
+  ).length
+  const freelasPie = [
+    { name: 'Atuando', value: freelaAtuando, color: '#a855f7' },
+    { name: 'Favoritos livres', value: favoritosDisp, color: '#22c55e' },
   ].filter(d => d.value > 0)
-  const volantesTotal = volantesPie.reduce((s, d) => s + d.value, 0)
+  const freelasTotal = freelasPie.reduce((s, d) => s + d.value, 0)
 
   // Alerts grouped by severity — dismiss = esconder temporariamente, resolve = check-in "resolvido"
   const [dismissedAlerts, setDismissedAlerts] = useState<Set<string>>(() => {
@@ -720,10 +722,10 @@ export default function Dashboard() {
     amberAlerts.push({ text: `${pendingExtras!.length} hora(s) extra pendente(s) de aprovação`, path: '/visitas' })
   volantesExpiring?.forEach(l => {
     const days = differenceInDays(parseISO(l.contract_end_date), now)
-    const name = (l as { employee?: { full_name: string } }).employee?.full_name || 'Volante'
+    const name = (l as { employee?: { full_name: string } }).employee?.full_name || 'Colaborador'
     const client = (l as { client?: { name: string } }).client?.name || ''
     const when = days === 0 ? 'vence hoje!' : `faltam ${days}d`
-    amberAlerts.push({ text: `Cobertura Volante: ${name}${client ? ' – ' + client : ''} — ${when}`, path: '/colaboradores' })
+    amberAlerts.push({ text: `Freela: ${name}${client ? ' – ' + client : ''} — ${when}`, path: '/colaboradores' })
   })
 
   // Aniversários dos colaboradores — hoje e próximos 7 dias 🎂
@@ -1328,26 +1330,26 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* ── Volantes ── */}
-        {role === 'chefe' && volantesTotal > 0 && (
+        {/* ── Freelas ── */}
+        {role === 'chefe' && freelasTotal > 0 && (
           <div className="card p-5">
             <h2 className="font-semibold text-gray-900 flex items-center gap-2 mb-4">
-              <Users size={16} className="text-orange-500" />
-              Volantes
+              <Users size={16} className="text-purple-500" />
+              Freelas
             </h2>
             <div className="h-48 relative">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
-                  <Pie data={volantesPie} cx="50%" cy="50%" innerRadius={45} outerRadius={70} dataKey="value" paddingAngle={3} stroke="none">
-                    {volantesPie.map((e, i) => <Cell key={i} fill={e.color} />)}
+                  <Pie data={freelasPie} cx="50%" cy="50%" innerRadius={45} outerRadius={70} dataKey="value" paddingAngle={3} stroke="none">
+                    {freelasPie.map((e, i) => <Cell key={i} fill={e.color} />)}
                   </Pie>
                   <Tooltip />
                   <Legend iconType="circle" iconSize={8} formatter={(v) => <span className="text-xs text-gray-600">{v}</span>} />
                 </PieChart>
               </ResponsiveContainer>
               <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                <span className="text-2xl font-display font-extrabold text-ink-900 tnum">{volantesTotal}</span>
-                <span className="text-[10px] text-ink-400">volantes</span>
+                <span className="text-2xl font-display font-extrabold text-ink-900 tnum">{freelasTotal}</span>
+                <span className="text-[10px] text-ink-400">freelas</span>
               </div>
             </div>
           </div>

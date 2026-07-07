@@ -13,7 +13,7 @@ import { formatDate } from '../../lib/utils'
 import { SignedLink } from '../../components/ui/SignedFile'
 import toast from 'react-hot-toast'
 
-type VisitTab = 'consultoria' | 'fixos' | 'volantes' | 'duvidas'
+type VisitTab = 'consultoria' | 'fixos' | 'freelas' | 'duvidas'
 
 export default function VisitsDashboard() {
   const [month, setMonth] = useState(format(new Date(), 'yyyy-MM'))
@@ -39,7 +39,7 @@ export default function VisitsDashboard() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('employees')
-        .select('id, full_name, cpf, portal_pin, role, employee_type')
+        .select('id, full_name, cpf, portal_pin, role')
         .eq('status', 'Ativo')
         .order('full_name')
       if (error) throw error
@@ -158,15 +158,17 @@ export default function VisitsDashboard() {
     onError: (e: Error) => toast.error(e.message),
   })
 
-  // Split employees by service type
-  const volantEmps = (employees || []).filter(e => (e as { employee_type?: string }).employee_type === 'Volante')
-  const volantIds = new Set(volantEmps.map(e => e.id))
+  // Split employees by service type (based on links, not employee_type)
+  const freelaEmpIds = new Set(
+    (links || []).filter(l => l.service_type === 'Volante').map(l => l.employee_id)
+  )
+  const freelaEmps = (employees || []).filter(e => freelaEmpIds.has(e.id))
 
   const consultoriaEmpIds = new Set(
-    (links || []).filter(l => l.service_type === 'Consultoria' || l.service_type === 'Ambos').map(l => l.employee_id).filter(eid => !volantIds.has(eid))
+    (links || []).filter(l => l.service_type === 'Consultoria' || l.service_type === 'Ambos').map(l => l.employee_id).filter(eid => !freelaEmpIds.has(eid))
   )
   const fixoEmpIds = new Set(
-    (links || []).filter(l => l.service_type !== 'Consultoria' && l.service_type !== 'Volante').map(l => l.employee_id).filter(eid => !volantIds.has(eid))
+    (links || []).filter(l => l.service_type !== 'Consultoria' && l.service_type !== 'Volante').map(l => l.employee_id).filter(eid => !freelaEmpIds.has(eid))
   )
   const consultoriaEmps = (employees || []).filter(e => consultoriaEmpIds.has(e.id))
   const fixoEmps = (employees || []).filter(e => fixoEmpIds.has(e.id))
@@ -753,7 +755,7 @@ export default function VisitsDashboard() {
         {([
           { key: 'consultoria', label: 'Consultoria', count: consultoriaEmps.length },
           { key: 'fixos', label: 'Fixos', count: fixoEmps.length },
-          { key: 'volantes', label: 'Volantes', count: volantEmps.length },
+          { key: 'freelas', label: 'Freelas', count: freelaEmps.length },
           { key: 'duvidas', label: 'Dúvidas', count: pendingDuvidas },
         ] as const).map(t => (
           <button
@@ -765,7 +767,7 @@ export default function VisitsDashboard() {
           >
             {t.key === 'consultoria' && <DollarSign size={14} />}
             {t.key === 'fixos' && <ClipboardList size={14} />}
-            {t.key === 'volantes' && <Zap size={14} />}
+            {t.key === 'freelas' && <Zap size={14} />}
             {t.key === 'duvidas' && <MessageCircle size={14} />}
             {t.label}
             {t.count > 0 && (
@@ -918,22 +920,22 @@ export default function VisitsDashboard() {
         </>
       )}
 
-      {/* ─── VOLANTES TAB ─── */}
-      {tab === 'volantes' && (
+      {/* ─── FREELAS TAB ─── */}
+      {tab === 'freelas' && (
         <div className="space-y-3">
-          {volantEmps.length === 0 && (
+          {freelaEmps.length === 0 && (
             <div className="card p-10 text-center text-gray-400">
               <User size={32} className="mx-auto mb-2 opacity-40" />
-              <p className="font-medium">Nenhum colaborador volante ativo</p>
-              <p className="text-sm mt-1">Crie um colaborador com tipo "Volante" para vê-lo aqui.</p>
+              <p className="font-medium">Nenhum freela ativo no momento</p>
+              <p className="text-sm mt-1">Adicione um freela pelo detalhe do colaborador.</p>
             </div>
           )}
-          {volantEmps.map(emp => {
+          {freelaEmps.map(emp => {
             const empLinks = (links || []).filter(l => l.employee_id === emp.id && l.service_type === 'Volante')
             const empVisits = getEmployeeVisitsThisMonth(emp.id)
             const workedDays = empVisits.filter(v => v.check_out && !v.is_holiday && !v.is_unavailable)
             return (
-              <div key={emp.id} className="card p-4 border-l-4 border-l-orange-400">
+              <div key={emp.id} className="card p-4 border-l-4 border-l-purple-400">
                 <div className="flex items-center justify-between gap-3 flex-wrap">
                   <div>
                     <button className="font-semibold text-gray-900 hover:text-primary-700 hover:underline text-left" onClick={() => navigate(`/colaboradores/${emp.id}`)}>
@@ -945,7 +947,7 @@ export default function VisitsDashboard() {
                         const end = (l as { contract_end_date?: string }).contract_end_date
                         const dr = (l as { daily_rate?: number }).daily_rate
                         return (
-                          <span key={l.id} className="text-orange-700 font-medium">
+                          <span key={l.id} className="text-purple-700 font-medium">
                             ⚡ {(l as { client?: { name: string } }).client?.name}
                             {end ? ` até ${formatDate(end)}` : ''}
                             {dr ? ` · R$ ${Number(dr).toFixed(2)}/dia` : ''}

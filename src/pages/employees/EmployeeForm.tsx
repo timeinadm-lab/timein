@@ -1,4 +1,4 @@
-import { useState, FormEvent, useRef } from 'react'
+import { useState, useEffect, FormEvent, useRef } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Camera } from 'lucide-react'
@@ -15,7 +15,6 @@ const EMPTY = {
   address_street: '', address_number: '', address_neighborhood: '', address_city: '', address_zip: '',
   crn_number: '', crn_region: '', role: '', admission_date: '',
   status: 'Ativo' as 'Ativo' | 'Inativo' | 'Ocioso',
-  employee_type: 'Regular' as 'Regular' | 'Volante',
   dismissal_date: '', dismissal_reason: '',
   bank_name: '', bank_agency: '', bank_account: '', bank_account_type: 'Corrente' as 'Corrente' | 'Poupança', pix: '',
   photo_url: '',
@@ -31,16 +30,21 @@ export default function EmployeeForm() {
   const [uploading, setUploading] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
-  useQuery({
-    queryKey: ['employee', id],
+  const { data: employee, isLoading: empLoading } = useQuery({
+    queryKey: ['employee-edit', id],
     queryFn: async () => {
       const { data, error } = await supabase.from('employees').select('*').eq('id', id).single()
       if (error) throw error
-      setForm({ ...EMPTY, ...Object.fromEntries(Object.entries(data).map(([k, v]) => [k, v == null ? (typeof EMPTY[k as keyof typeof EMPTY] === 'boolean' ? false : '') : v])) } as typeof EMPTY)
       return data
     },
     enabled: isEdit,
   })
+
+  useEffect(() => {
+    if (employee) {
+      setForm({ ...EMPTY, ...Object.fromEntries(Object.entries(employee).map(([k, v]) => [k, v == null ? (typeof EMPTY[k as keyof typeof EMPTY] === 'boolean' ? false : '') : v])) } as typeof EMPTY)
+    }
+  }, [employee])
 
   const mutation = useMutation({
     mutationFn: async (payload: Record<string, unknown>) => {
@@ -114,7 +118,6 @@ export default function EmployeeForm() {
       role: form.role || null,
       admission_date: form.admission_date || null,
       status: form.status,
-      employee_type: form.employee_type,
       dismissal_date: form.dismissal_date || null,
       dismissal_reason: form.dismissal_reason || null,
       bank_name: form.bank_name || null,
@@ -147,7 +150,13 @@ export default function EmployeeForm() {
         ))}
       </div>
 
-      <form onSubmit={handleSubmit}>
+      {isEdit && empLoading && (
+        <div className="card p-10 text-center text-gray-400">
+          <p className="text-sm">Carregando dados...</p>
+        </div>
+      )}
+
+      <form onSubmit={handleSubmit} className={isEdit && empLoading ? 'hidden' : ''}>
         {/* ── DADOS PESSOAIS ── */}
         {tab === 'pessoal' && (
           <div className="card p-6 space-y-5">
@@ -265,21 +274,6 @@ export default function EmployeeForm() {
                   <option>Inativo</option>
                   <option>Ocioso</option>
                 </select>
-              </div>
-              <div className="col-span-2">
-                <label className="label">Tipo de Colaborador</label>
-                <div className="flex gap-2">
-                  {(['Regular', 'Volante'] as const).map(t => (
-                    <button key={t} type="button"
-                      onClick={() => set('employee_type', t)}
-                      className={`flex-1 py-2 rounded-xl text-sm font-medium border transition-colors ${form.employee_type === t ? (t === 'Volante' ? 'bg-orange-500 text-white border-orange-500' : 'bg-primary-600 text-white border-primary-600') : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300'}`}>
-                      {t === 'Regular' ? '📋 Regular' : '⚡ Volante'}
-                    </button>
-                  ))}
-                </div>
-                {form.employee_type === 'Volante' && (
-                  <p className="text-xs text-orange-600 mt-1.5">Freela / cobertura temporária. Diária definida por cobertura, sem contrato fixo.</p>
-                )}
               </div>
             </div>
             {form.status === 'Inativo' && (

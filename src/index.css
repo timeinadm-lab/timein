@@ -92,6 +92,21 @@
     padding-top: 0.7rem;
     padding-bottom: 0.7rem;
   }
+  /* Inputs de data/hora encolhem junto com a coluna (não estouram a tela) */
+  input[type="date"], input[type="datetime-local"],
+  input[type="month"], input[type="time"] {
+    min-width: 0;
+    max-width: 100%;
+  }
+  /* Formulários: campos empilham numa coluna só (nada de 2 espremidos).
+     Escopo em <form> para não afetar os cards de estatística do dashboard. */
+  form .grid.grid-cols-2 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  /* Qualquer filho de grid pode encolher em vez de empurrar a largura */
+  form .grid > * {
+    min-width: 0;
+  }
   /* Tabelas nunca esticam a página: rolam dentro do próprio card */
   table {
     display: block;

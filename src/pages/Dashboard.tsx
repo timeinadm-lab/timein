@@ -1,11 +1,11 @@
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { useState } from 'react'
 import {
   Users, Briefcase, UserPlus, AlertTriangle, CheckCircle,
   Calendar, Plus, TrendingUp, Clock, Clipboard, Download, X,
   BarChart3, Activity, Check, Database, FolderDown, ChevronDown,
-  MessageSquare, FileWarning,
+  MessageSquare, FileWarning, Flag,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { supabase } from '../lib/supabase'
@@ -39,10 +39,14 @@ const FILE_SOURCES: { table: string; col: string; bucket: string; label: string 
 
 export default function Dashboard() {
   const { role, profile } = useAuth()
+  const qc = useQueryClient()
   const [backingUp, setBackingUp] = useState(false)
   const [backingUpDocs, setBackingUpDocs] = useState(false)
   const [docProgress, setDocProgress] = useState('')
   const [showBackupMenu, setShowBackupMenu] = useState(false)
+  const [showPriorityForm, setShowPriorityForm] = useState(false)
+  const [priorityText, setPriorityText] = useState('')
+  const [priorityLevel, setPriorityLevel] = useState<'red' | 'amber'>('amber')
 
   const handleBackupData = async () => {
     setShowBackupMenu(false)
@@ -352,6 +356,44 @@ export default function Dashboard() {
     },
   })
 
+  // Prioridades manuais — criadas por qualquer usuário, aparecem para todos
+  const { data: customPriorities } = useQuery({
+    queryKey: ['custom-priorities'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('custom_priorities')
+        .select('*').eq('resolved', false).order('created_at', { ascending: false })
+      if (error) { console.warn('custom_priorities:', error.message); return [] }
+      return data || []
+    },
+  })
+
+  const addPriority = useMutation({
+    mutationFn: async () => {
+      if (!priorityText.trim()) throw new Error('Escreva a prioridade')
+      const { error } = await supabase.from('custom_priorities').insert({
+        text: priorityText.trim(),
+        level: priorityLevel,
+        created_by_name: profile?.full_name || null,
+      })
+      if (error) throw error
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['custom-priorities'] })
+      setPriorityText(''); setPriorityLevel('amber'); setShowPriorityForm(false)
+      toast.success('Prioridade criada — visível para todos.')
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  const resolvePriority = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from('custom_priorities').update({ resolved: true }).eq('id', id)
+      if (error) throw error
+    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['custom-priorities'] }); toast.success('Prioridade concluída.') },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
   const currentMonthStr = now.toISOString().slice(0, 7) // 'yyyy-MM'
   const monthStartStr = startOfMonth(now).toISOString().slice(0, 10)
   const monthEndStr = endOfMonth(now).toISOString().slice(0, 10)
@@ -602,8 +644,16 @@ export default function Dashboard() {
     })
   }
 
-  const redAlerts: { text: string; action?: string; path?: string; key?: string }[] = []
-  const amberAlerts: { text: string; action?: string; path?: string; key?: string }[] = []
+  type AlertItem = { text: string; action?: string; path?: string; key?: string; customId?: string }
+  const redAlerts: AlertItem[] = []
+  const amberAlerts: AlertItem[] = []
+
+  // Prioridades manuais entram no topo da lista (vermelho ou amarelo conforme criadas)
+  ;(customPriorities || []).forEach(p => {
+    const item: AlertItem = { text: `📌 ${p.text}`, key: `custom-${p.id}`, customId: p.id }
+    if (p.level === 'red') redAlerts.push(item)
+    else amberAlerts.push(item)
+  })
 
   overdue.forEach(p =>
     redAlerts.push({ text: `Pagamento atrasado: ${p.description} — ${formatCurrency(p.amount)}`, path: '/pagamentos' })
@@ -901,10 +951,45 @@ export default function Dashboard() {
             <div className="flex items-center gap-1.5">
               {filteredRed.length > 0 && <span className="badge bg-red-100 text-red-700">{filteredRed.length} crítico{filteredRed.length > 1 ? 's' : ''}</span>}
               {filteredAmber.length > 0 && <span className="badge bg-amber-100 text-amber-700">{filteredAmber.length} atenção</span>}
+              <button onClick={() => setShowPriorityForm(v => !v)} className="btn-secondary text-xs py-1 px-2.5 flex items-center gap-1">
+                <Flag size={12} /> Criar
+              </button>
             </div>
           </div>
 
-          {allAlerts.length === 0 && (
+          {showPriorityForm && (
+            <div className="card p-3 space-y-2.5 border-primary-200">
+              <input
+                className="input text-sm"
+                placeholder="Escreva a prioridade (ex: Ligar para o cliente X sobre renovação)"
+                value={priorityText}
+                autoFocus
+                onChange={e => setPriorityText(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && priorityText.trim()) addPriority.mutate() }}
+              />
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div className="flex gap-1.5">
+                  <button
+                    onClick={() => setPriorityLevel('amber')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${priorityLevel === 'amber' ? 'bg-amber-500 text-white border-amber-500' : 'bg-white text-amber-600 border-amber-200'}`}
+                  >Atenção</button>
+                  <button
+                    onClick={() => setPriorityLevel('red')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${priorityLevel === 'red' ? 'bg-red-600 text-white border-red-600' : 'bg-white text-red-600 border-red-200'}`}
+                  >Crítico</button>
+                </div>
+                <div className="flex gap-1.5 ml-auto">
+                  <button onClick={() => { setShowPriorityForm(false); setPriorityText('') }} className="btn-ghost text-xs">Cancelar</button>
+                  <button onClick={() => addPriority.mutate()} disabled={!priorityText.trim() || addPriority.isPending} className="btn-primary text-xs py-1.5">
+                    {addPriority.isPending ? 'Criando...' : 'Criar prioridade'}
+                  </button>
+                </div>
+              </div>
+              <p className="text-xs text-ink-400">Aparece para todos os usuários até alguém marcar como concluída.</p>
+            </div>
+          )}
+
+          {allAlerts.length === 0 && !showPriorityForm && (
             <div className="card p-6 flex items-center gap-4 border-primary-100 bg-primary-50/40">
               <div className="w-11 h-11 rounded-2xl bg-primary-100 flex items-center justify-center flex-shrink-0">
                 <CheckCircle size={22} className="text-primary-700" />
@@ -929,15 +1014,23 @@ export default function Dashboard() {
                     <p className={`text-sm text-red-800 flex-1 ${a.path ? 'cursor-pointer hover:underline' : ''}`}
                       onClick={() => a.path && navigate(a.path)}>{a.text}</p>
                     <div className="flex items-center gap-1 flex-shrink-0">
-                      {a.key && (
-                        <button onClick={() => resolveAlert(a.key!)} className="text-green-400 hover:text-green-600 opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded" title="Marcar como resolvido">
+                      {a.customId ? (
+                        <button onClick={() => resolvePriority.mutate(a.customId!)} className="text-green-500 hover:text-green-700 md:opacity-0 md:group-hover:opacity-100 transition-opacity p-0.5 rounded" title="Concluir prioridade">
                           <Check size={14} />
                         </button>
-                      )}
-                      {a.key && (
-                        <button onClick={() => dismissAlert(a.key!)} className="text-red-300 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded" title="Dispensar alerta">
-                          <X size={14} />
-                        </button>
+                      ) : (
+                        <>
+                          {a.key && (
+                            <button onClick={() => resolveAlert(a.key!)} className="text-green-400 hover:text-green-600 opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded" title="Marcar como resolvido">
+                              <Check size={14} />
+                            </button>
+                          )}
+                          {a.key && (
+                            <button onClick={() => dismissAlert(a.key!)} className="text-red-300 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded" title="Dispensar alerta">
+                              <X size={14} />
+                            </button>
+                          )}
+                        </>
                       )}
                       {a.path && <span className="text-xs text-red-400">→</span>}
                     </div>
@@ -960,15 +1053,23 @@ export default function Dashboard() {
                     <p className={`text-sm text-amber-800 flex-1 ${a.path ? 'cursor-pointer hover:underline' : ''}`}
                       onClick={() => a.path && navigate(a.path)}>{a.text}</p>
                     <div className="flex items-center gap-1 flex-shrink-0">
-                      {a.key && (
-                        <button onClick={() => resolveAlert(a.key!)} className="text-green-400 hover:text-green-600 opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded" title="Marcar como resolvido">
+                      {a.customId ? (
+                        <button onClick={() => resolvePriority.mutate(a.customId!)} className="text-green-500 hover:text-green-700 md:opacity-0 md:group-hover:opacity-100 transition-opacity p-0.5 rounded" title="Concluir prioridade">
                           <Check size={14} />
                         </button>
-                      )}
-                      {a.key && (
-                        <button onClick={() => dismissAlert(a.key!)} className="text-amber-300 hover:text-amber-600 opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded" title="Dispensar alerta">
-                          <X size={14} />
-                        </button>
+                      ) : (
+                        <>
+                          {a.key && (
+                            <button onClick={() => resolveAlert(a.key!)} className="text-green-400 hover:text-green-600 opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded" title="Marcar como resolvido">
+                              <Check size={14} />
+                            </button>
+                          )}
+                          {a.key && (
+                            <button onClick={() => dismissAlert(a.key!)} className="text-amber-300 hover:text-amber-600 opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded" title="Dispensar alerta">
+                              <X size={14} />
+                            </button>
+                          )}
+                        </>
                       )}
                       {a.path && <span className="text-xs text-amber-400">→</span>}
                     </div>

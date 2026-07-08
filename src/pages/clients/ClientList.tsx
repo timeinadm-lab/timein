@@ -3,7 +3,6 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { Plus, Search, Building2, Trash2 } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
-import { useAuth } from '../../contexts/AuthContext'
 import { formatDate, daysUntil } from '../../lib/utils'
 import Pagination from '../../components/ui/Pagination'
 import DeletePinModal from '../../components/ui/DeletePinModal'
@@ -11,7 +10,8 @@ import { SkeletonCards, EmptyState } from '../../components/ui/Skeleton'
 import toast from 'react-hot-toast'
 
 export default function ClientList() {
-  const { role } = useAuth()
+  // Clientes: recrutador tem os mesmos direitos do chefe (só pagamentos são exclusivos do chefe)
+  const canManageClient = true
   const navigate = useNavigate()
   const qc = useQueryClient()
   const [search, setSearch] = useState('')
@@ -64,7 +64,7 @@ export default function ClientList() {
             {clients && <span className="ml-2 text-base font-semibold text-ink-400 align-middle">{clients.length}</span>}
           </h1>
         </div>
-        {role === 'chefe' && (
+        {canManageClient && (
           <button onClick={() => navigate('/clientes/novo')} className="btn-primary text-sm">
             <Plus size={16} /> Novo Cliente
           </button>
@@ -90,8 +90,8 @@ export default function ClientList() {
           icon={Building2}
           title="Nenhum cliente encontrado"
           hint={search ? 'Tente buscar por outro nome.' : 'Cadastre seu primeiro cliente para começar a abrir vagas.'}
-          actionLabel={role === 'chefe' && !search ? '+ Novo Cliente' : undefined}
-          onAction={role === 'chefe' && !search ? () => navigate('/clientes/novo') : undefined}
+          actionLabel={canManageClient && !search ? '+ Novo Cliente' : undefined}
+          onAction={canManageClient && !search ? () => navigate('/clientes/novo') : undefined}
         />
       ) : (
         <>

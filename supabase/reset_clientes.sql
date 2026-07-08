@@ -84,4 +84,16 @@ WHERE NOT EXISTS (
 
 -- Total: 49 clientes · Supervisão: Casa Virgínia (1x/mês), Due Grani (1x/mês),
 -- Tanka (2x/mês), Espetaria Cons. Carrão (2x/mês)
+
+-- ─── PARTE 3: UNIDADE POR CLIENTE (mesmo nome do cliente) ────────────
+-- Ex.: cliente "AMÉRICA" → unidade "AMÉRICA". É onde o valor da visita
+-- fica amarrado na consultoria.
+INSERT INTO client_units (client_id, name)
+SELECT c.id, c.name
+FROM clients c
+WHERE NOT EXISTS (
+  SELECT 1 FROM client_units u
+  WHERE u.client_id = c.id AND lower(trim(u.name)) = lower(trim(c.name))
+);
+
 NOTIFY pgrst, 'reload schema';

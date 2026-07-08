@@ -72,9 +72,9 @@ export default function App() {
 
               {/* Clients */}
               <Route path="clientes" element={<ClientList />} />
-              <Route path="clientes/novo" element={<RequireChefe><ClientForm /></RequireChefe>} />
+              <Route path="clientes/novo" element={<ClientForm />} />
               <Route path="clientes/:id" element={<ClientDetail />} />
-              <Route path="clientes/:id/editar" element={<RequireChefe><ClientForm /></RequireChefe>} />
+              <Route path="clientes/:id/editar" element={<ClientForm />} />
 
               {/* Contracts */}
               <Route path="contratos" element={<ContractList />} />

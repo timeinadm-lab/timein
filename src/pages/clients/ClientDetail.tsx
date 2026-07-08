@@ -3,7 +3,6 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Edit, Plus, Trash2, Upload, FileText, ExternalLink, Building2 } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
-import { useAuth } from '../../contexts/AuthContext'
 import { SignedLink } from '../../components/ui/SignedFile'
 import DeletePinModal from '../../components/ui/DeletePinModal'
 import { SkeletonDetail } from '../../components/ui/Skeleton'
@@ -14,7 +13,8 @@ import toast from 'react-hot-toast'
 export default function ClientDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const { role } = useAuth()
+  // Clientes: recrutador tem os mesmos direitos do chefe (só pagamentos são exclusivos do chefe)
+  const canManageClient = true
   const qc = useQueryClient()
   const [tab, setTab] = useState<'dados' | 'contratos' | 'colaboradores' | 'vistorias' | 'unidades' | 'documentos'>('contratos')
   const [docForm, setDocForm] = useState({ topic: '', name: '' })
@@ -279,7 +279,7 @@ export default function ClientDetail() {
           <Building2 size={26} className="text-primary-600" />
         </div>
         <h1 className="text-xl md:text-2xl font-display font-extrabold text-ink-900 flex-1 min-w-0 truncate">{client.name}</h1>
-        {role === 'chefe' && (
+        {canManageClient && (
           <div className="flex gap-2 shrink-0">
             <button onClick={() => navigate(`/clientes/${id}/editar`)} className="btn-secondary text-sm">
               <Edit size={16} /> <span className="hidden sm:inline">Editar</span>
@@ -412,7 +412,7 @@ export default function ClientDetail() {
 
           <div className="flex items-center justify-between">
             <h3 className="font-semibold text-gray-900">Contratos Adicionais</h3>
-            {role === 'chefe' && (
+            {canManageClient && (
               <button onClick={() => setShowContractForm(true)} className="btn-secondary text-xs flex items-center gap-1">
                 <Plus size={12} /> Novo Contrato
               </button>
@@ -484,14 +484,14 @@ export default function ClientDetail() {
                           <ExternalLink size={12} /> Ver PDF
                         </SignedLink>
                       ) : null}
-                      {role === 'chefe' && (
+                      {canManageClient && (
                         <button onClick={() => { setUploadingId(c.id); setTimeout(() => fileInputRef.current?.click(), 50) }}
                           className={`btn-secondary text-xs flex items-center gap-1 py-1 px-2 ${uploadingId === c.id ? 'opacity-50' : ''}`}
                           disabled={uploadingId === c.id}>
                           <Upload size={12} /> {uploadingId === c.id ? 'Enviando...' : c.file_url ? 'Trocar PDF' : 'Anexar PDF'}
                         </button>
                       )}
-                      {role === 'chefe' && (
+                      {canManageClient && (
                         <button onClick={() => deleteContract.mutate(c.id)} className="text-red-400 hover:text-red-600 p-1">
                           <Trash2 size={14} />
                         </button>
@@ -526,7 +526,7 @@ export default function ClientDetail() {
           <div className="card p-5">
             <div className="flex items-center justify-between mb-3">
               <h3 className="font-medium">Locais de Vistoria</h3>
-              {role === 'chefe' && (
+              {canManageClient && (
                 <button onClick={() => setShowLocForm(true)} className="btn-secondary text-xs flex items-center gap-1">
                   <Plus size={12} /> Adicionar Local
                 </button>
@@ -546,7 +546,7 @@ export default function ClientDetail() {
                   <span className="text-sm">{l.name}</span>
                   <div className="flex items-center gap-3">
                     <span className="text-xs text-gray-500">{l.hourly_rate ? formatCurrency(l.hourly_rate) + '/h' : '-'}</span>
-                    {role === 'chefe' && (
+                    {canManageClient && (
                       <button onClick={() => deleteLocation.mutate(l.id)} className="text-red-400 hover:text-red-600">
                         <Trash2 size={14} />
                       </button>
@@ -567,7 +567,7 @@ export default function ClientDetail() {
               <h3 className="font-semibold">Unidades do Cliente</h3>
               <p className="text-xs text-gray-400 mt-0.5">Consultoria: valor por visita definido aqui. Escala Fixa: valor definido na vaga.</p>
             </div>
-            {role === 'chefe' && (
+            {canManageClient && (
               <button onClick={() => setShowUnitForm(true)} className="btn-secondary text-xs flex items-center gap-1">
                 <Plus size={12} /> Adicionar Unidade
               </button>
@@ -603,7 +603,7 @@ export default function ClientDetail() {
                     <span className={`badge text-xs ${isConsultoria ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'}`}>
                       {isConsultoria ? 'Consultoria' : 'Escala Fixa'}
                     </span>
-                    {role === 'chefe' && (
+                    {canManageClient && (
                       <button onClick={() => deleteUnit.mutate(u.id)} className="text-red-400 hover:text-red-600">
                         <Trash2 size={14} />
                       </button>

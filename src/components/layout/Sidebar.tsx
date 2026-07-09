@@ -33,6 +33,7 @@ const RECRUTADOR_MENU = [
   { icon: FileText, label: 'Templates', path: '/templates' },
   { icon: Calendar, label: 'Agenda', path: '/agenda' },
   { icon: MessageSquare, label: 'Chat', path: '/chat' },
+  { icon: Settings, label: 'Usuários', path: '/usuarios' },
 ]
 
 interface Props {

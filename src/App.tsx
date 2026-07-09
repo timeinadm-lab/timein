@@ -125,8 +125,8 @@ export default function App() {
               {/* Chat */}
               <Route path="chat" element={<Chat />} />
 
-              {/* Admin (chefe only) */}
-              <Route path="usuarios" element={<RequireChefe><UserManagement /></RequireChefe>} />
+              {/* Usuários (recrutador também acessa) */}
+              <Route path="usuarios" element={<UserManagement />} />
 
               {/* Profile */}
               <Route path="perfil" element={<ProfilePage />} />

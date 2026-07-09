@@ -25,6 +25,7 @@ const CHEFE_MENU = [
 const RECRUTADOR_MENU = [
   { icon: LayoutDashboard, label: 'Dashboard', path: '/' },
   { icon: Users, label: 'Clientes', path: '/clientes' },
+  { icon: ShieldCheck, label: 'Supervisão', path: '/supervisao' },
   { icon: UserCheck, label: 'Colaboradores', path: '/colaboradores' },
   { icon: Briefcase, label: 'Vagas', path: '/vagas' },
   { icon: UserPlus, label: 'Candidatos', path: '/candidatos' },

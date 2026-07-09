@@ -111,8 +111,8 @@ export default function App() {
               <Route path="pagamentos/novo" element={<RequireChefe><PaymentForm /></RequireChefe>} />
               <Route path="pagamentos/:id/editar" element={<RequireChefe><PaymentForm /></RequireChefe>} />
 
-              {/* Supervision (chefe only) */}
-              <Route path="supervisao" element={<RequireChefe><SupervisionDashboard /></RequireChefe>} />
+              {/* Supervision (recrutador também acessa) */}
+              <Route path="supervisao" element={<SupervisionDashboard />} />
 
               {/* Templates */}
               <Route path="templates" element={<TemplateList />} />

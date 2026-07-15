@@ -139,7 +139,7 @@ export default function ContractForm() {
         <h1 className="text-xl font-bold">{isEdit ? 'Editar Contrato' : 'Novo Contrato'}</h1>
       </div>
       <form onSubmit={handleSubmit} className="card p-6 space-y-4">
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="label">Cliente *</label>
             <select className="input" value={form.client_id} onChange={e => {
@@ -160,7 +160,7 @@ export default function ContractForm() {
           </div>
           <div>
             <label className="label">Tipo de Contrato *</label>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {(['Fixo', 'Consultoria'] as const).map(t => (
                 <button key={t} type="button"
                   className={`p-2.5 rounded-lg border-2 text-sm font-medium transition-colors ${form.service_type === t ? 'border-primary-600 bg-primary-50 text-primary-700' : 'border-gray-200 text-gray-600 hover:border-gray-300'}`}
@@ -181,7 +181,7 @@ export default function ContractForm() {
 
         {/* Fields specific to service type */}
         {form.service_type === 'Fixo' ? (
-          <div className="grid grid-cols-2 gap-4 bg-blue-50 p-4 rounded-lg">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-blue-50 p-4 rounded-lg">
             <p className="col-span-2 text-xs font-semibold text-blue-700 uppercase tracking-wide">Detalhes da Escala</p>
             <div>
               <label className="label">Turno</label>
@@ -203,7 +203,7 @@ export default function ContractForm() {
             </div>
           </div>
         ) : (
-          <div className="grid grid-cols-2 gap-4 bg-orange-50 p-4 rounded-lg">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-orange-50 p-4 rounded-lg">
             <p className="col-span-2 text-xs font-semibold text-orange-700 uppercase tracking-wide">Detalhes da Consultoria</p>
             <div>
               <label className="label">Visitas/mês</label>
@@ -221,7 +221,7 @@ export default function ContractForm() {
           </div>
         )}
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {form.type === 'Padrão' && (
             <div>
               <label className="label">Template</label>
@@ -263,7 +263,7 @@ export default function ContractForm() {
             <span className="text-sm font-medium">Requer supervisão</span>
           </label>
           {form.requires_supervision && (
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="label">Visitas por mês</label>
                 <input className="input" type="number" value={form.supervision_visits_per_month} onChange={e => set('supervision_visits_per_month', e.target.value)} />

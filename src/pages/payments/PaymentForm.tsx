@@ -64,7 +64,7 @@ export default function PaymentForm() {
       </div>
       <form onSubmit={handleSubmit} className="card p-6 space-y-4">
         <div><label className="label">Descrição *</label><input className="input" required value={form.description} onChange={e => set('description', e.target.value)} /></div>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div><label className="label">Valor *</label><input className="input" type="number" step="0.01" required value={form.amount} onChange={e => set('amount', e.target.value)} /></div>
           <div><label className="label">Vencimento *</label><input className="input" type="date" required value={form.due_date} onChange={e => set('due_date', e.target.value)} /></div>
           <div>

@@ -1061,7 +1061,7 @@ export default function PortalHome() {
               <div className="card p-4 space-y-3">
                 <h3 className="font-semibold text-sm text-ink-800">Novo gasto</h3>
                 <input className="input w-full" placeholder="Descrição *" value={expenseForm.description} onChange={e => setExpenseForm(p => ({ ...p, description: e.target.value }))} />
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="label">Valor (R$) *</label>
                     <input className="input" type="number" placeholder="0,00" value={expenseForm.amount} onChange={e => setExpenseForm(p => ({ ...p, amount: e.target.value }))} />
@@ -1701,7 +1701,7 @@ export default function PortalHome() {
                     <p className="text-xs text-gray-400">{fmt(total)} de {monthlyQuota}h combinadas no mês.</p>
                   )
                 })()}
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="label">Início *</label>
                     <input className="input" type="time" value={pontoForm.check_in} onChange={e => setPontoForm(p => ({ ...p, check_in: e.target.value }))} />
@@ -1818,7 +1818,7 @@ export default function PortalHome() {
             {/* Normal: entrada / saída / intervalo */}
             {!isConsultoria && pontoForm.day_type === 'normal' && (
               <>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="label">Entrada *</label>
                     <input className="input" type="time" value={pontoForm.check_in} onChange={e => setPontoForm(p => ({ ...p, check_in: e.target.value }))} />

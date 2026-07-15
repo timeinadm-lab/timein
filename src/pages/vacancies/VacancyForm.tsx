@@ -306,7 +306,7 @@ export default function VacancyForm() {
 
           <div>
             <label className="label">Tipo da Vaga *</label>
-            <div className="grid grid-cols-2 gap-3 mt-1">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-1">
               {(['Fixo', 'Consultoria'] as const).map(tipo => (
                 <button
                   key={tipo}
@@ -413,7 +413,7 @@ export default function VacancyForm() {
           {/* ── DADOS DA VAGA ── */}
           <div className="card p-5 space-y-4">
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">3. Dados da Vaga</p>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="col-span-2">
                 <label className="label">Título *</label>
                 <input className="input" required value={form.title} onChange={e => set('title', e.target.value)}
@@ -451,7 +451,7 @@ export default function VacancyForm() {
               {/* Carga horária */}
               <div className="col-span-2 border-t pt-3">
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Carga Horária</p>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {!isConsultoria && (
                     <>
                       <div>
@@ -578,7 +578,7 @@ export default function VacancyForm() {
                   </div>
                 ) : (
                   <>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
                         <label className="label">1º pagamento</label>
                         <select className="input" value={form.payment_day_1} onChange={e => set('payment_day_1', e.target.value)}>
@@ -622,7 +622,7 @@ export default function VacancyForm() {
           <div className="card p-5 space-y-4">
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">4. Perfil Exigido</p>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="label">Formação</label>
                 <select className="input" value={form.formation} onChange={e => set('formation', e.target.value)}>
@@ -663,7 +663,7 @@ export default function VacancyForm() {
           {!isConsultoria ? (
             <div className="card p-5 space-y-4">
               <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">5. Disponibilidade</p>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="label">Turno</label>
                   <select className="input" value={form.shift} onChange={e => set('shift', e.target.value)}>

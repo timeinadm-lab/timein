@@ -136,7 +136,7 @@ export default function ClientForm() {
         {/* Dados da Empresa */}
         <div className="card p-5 space-y-4">
           <h3 className="font-semibold text-gray-900">Dados da Empresa</h3>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="col-span-2">
               <label className="label">Nome *</label>
               <input className="input" required value={form.name} onChange={e => set('name', e.target.value)} placeholder="Ex: Hospital Santa Casa" />
@@ -195,7 +195,7 @@ export default function ClientForm() {
         {/* Contato */}
         <div className="card p-5 space-y-4">
           <h3 className="font-semibold text-gray-900">Contato</h3>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="label">Nome do Contato</label>
               <input className="input" value={form.contact_name} onChange={e => set('contact_name', e.target.value)} />
@@ -214,7 +214,7 @@ export default function ClientForm() {
         {/* Contrato */}
         <div className="card p-5 space-y-4">
           <h3 className="font-semibold text-gray-900">Contrato</h3>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="label">Data Início</label>
               <input className="input" type="date" value={form.contract_start} onChange={e => set('contract_start', e.target.value)} />
@@ -256,7 +256,7 @@ export default function ClientForm() {
             <span className="text-sm">Este cliente requer supervisão periódica</span>
           </label>
           {form.requires_supervision && (
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="label">Visitas de supervisão/mês</label>
                 <input className="input" type="number" value={form.supervision_visits_per_month} onChange={e => set('supervision_visits_per_month', e.target.value)} />

@@ -119,7 +119,7 @@ export default function CandidateForm() {
       <form onSubmit={handleSubmit}>
         {tab === 'geral' && (
           <div className="card p-6 space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="col-span-2"><label className="label">Nome *</label><input className="input" required value={form.full_name} onChange={e => set('full_name', e.target.value)} /></div>
               <div>
                 <label className="label">Estado</label>
@@ -159,7 +159,7 @@ export default function CandidateForm() {
 
         {tab === 'formacao' && (
           <div className="card p-6 space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="label">Formação</label>
                 <select className="input" value={form.formation} onChange={e => set('formation', e.target.value)}>
@@ -192,7 +192,7 @@ export default function CandidateForm() {
 
         {tab === 'disponibilidade' && (
           <div className="card p-6 space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div><label className="label">Início Disponível</label><input className="input" type="date" value={form.available_start} onChange={e => set('available_start', e.target.value)} /></div>
               <div>
                 <label className="label">Turno</label>

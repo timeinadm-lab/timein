@@ -584,16 +584,16 @@ export default function PortalHome() {
       {/* Header com faixa de marca */}
       <div className="bg-gradient-to-br from-primary-600 to-primary-700 text-white px-4 pt-5 pb-4" style={{ paddingTop: 'max(1.25rem, env(safe-area-inset-top))' }}>
         <div className="max-w-lg mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-2xl bg-white/15 backdrop-blur flex items-center justify-center text-white font-display font-extrabold ring-1 ring-white/25">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-11 h-11 rounded-2xl bg-white/15 backdrop-blur flex items-center justify-center text-white font-display font-extrabold ring-1 ring-white/25 shrink-0">
               {employeeName.split(' ').map(n => n[0]).slice(0, 2).join('')}
             </div>
-            <div>
-              <p className="font-display font-bold text-base leading-tight">{employeeName}</p>
+            <div className="min-w-0">
+              <p className="font-display font-bold text-base leading-tight truncate">{employeeName}</p>
               <p className="text-xs text-white/70">TIN · Portal do Nutricionista</p>
             </div>
           </div>
-          <button onClick={logout} className="flex items-center gap-1.5 text-sm text-white/80 hover:text-white px-2.5 py-1.5 rounded-xl hover:bg-white/10 active:scale-95 transition-all">
+          <button onClick={logout} className="flex items-center gap-1.5 text-sm text-white/80 hover:text-white px-2.5 py-1.5 rounded-xl hover:bg-white/10 active:scale-95 transition-all shrink-0">
             <LogOut size={16} />
             <span className="hidden sm:inline">Sair</span>
           </button>

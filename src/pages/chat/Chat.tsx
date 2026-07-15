@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Send, MessageSquare, Users, Search, MessageCircle, Plus, X } from 'lucide-react'
+import { Send, MessageSquare, Users, Search, MessageCircle, Plus, X, ArrowLeft } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { formatDate, getInitials } from '../../lib/utils'
@@ -215,8 +215,8 @@ export default function Chat() {
 
       {tab === 'colaboradores' ? (
         <div className="flex gap-3 flex-1 min-h-0 overflow-hidden">
-          {/* Sidebar */}
-          <div className="w-64 flex-shrink-0 card flex flex-col overflow-hidden p-0">
+          {/* Sidebar — no celular ocupa a tela toda; some quando abre uma conversa */}
+          <div className={`w-full md:w-64 flex-shrink-0 card flex-col overflow-hidden p-0 ${selectedEmployee ? 'hidden md:flex' : 'flex'}`}>
             <div className="p-2 border-b border-gray-100 space-y-2">
               <div className="relative">
                 <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -301,6 +301,9 @@ export default function Chat() {
           {selectedThread ? (
             <div className="flex-1 card flex flex-col overflow-hidden p-0">
               <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-3">
+                <button onClick={() => setSelectedEmployee(null)} className="md:hidden -ml-1 p-1 text-gray-500 hover:text-gray-800 active:scale-95" aria-label="Voltar">
+                  <ArrowLeft size={18} />
+                </button>
                 <div className="w-9 h-9 rounded-full bg-primary-100 flex items-center justify-center text-primary-700 font-bold text-sm flex-shrink-0">
                   {getInitials(selectedThread.employee.full_name)}
                 </div>
@@ -367,7 +370,7 @@ export default function Chat() {
               </div>
             </div>
           ) : (
-            <div className="flex-1 card flex items-center justify-center">
+            <div className="flex-1 card hidden md:flex items-center justify-center">
               <div className="text-center text-gray-400">
                 <MessageCircle size={40} className="mx-auto mb-3 text-gray-200" />
                 <p className="text-sm font-medium">Selecione um colaborador</p>

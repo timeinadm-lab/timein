@@ -98,13 +98,17 @@
     min-width: 0;
     max-width: 100%;
   }
-  /* Formulários: campos empilham numa coluna só (nada de 2 espremidos).
-     Escopo em <form> para não afetar os cards de estatística do dashboard. */
-  form .grid.grid-cols-2 {
+  /* Campos empilham numa coluna só no celular (nada de 2 espremidos).
+     Pega grids com campos de formulário em QUALQUER lugar — inclusive
+     modais e o portal, que não usam <form> — via :has(). Cards de
+     estatística (sem inputs) continuam com 2 colunas. */
+  form .grid.grid-cols-2,
+  .grid.grid-cols-2:has(input, select, textarea, .label) {
     grid-template-columns: minmax(0, 1fr);
   }
   /* Qualquer filho de grid pode encolher em vez de empurrar a largura */
-  form .grid > * {
+  form .grid > *,
+  .grid.grid-cols-2 > * {
     min-width: 0;
   }
   /* Tabelas nunca esticam a página: rolam dentro do próprio card */

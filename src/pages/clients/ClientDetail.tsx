@@ -241,11 +241,10 @@ export default function ClientDetail() {
 
   const addUnit = useMutation({
     mutationFn: async () => {
+      // Unidade é só um local. Tipo (Fixo/Consultoria) e valor são definidos na vaga.
       const { error } = await supabase.from('client_units').insert({
         client_id: id,
         name: newUnit.name,
-        service_type: newUnit.service_type,
-        visit_rate: newUnit.service_type === 'Consultoria' && newUnit.visit_rate ? Number(newUnit.visit_rate) : null,
       })
       if (error) throw error
     },
@@ -565,7 +564,7 @@ export default function ClientDetail() {
           <div className="flex items-center justify-between mb-4">
             <div>
               <h3 className="font-semibold">Unidades do Cliente</h3>
-              <p className="text-xs text-gray-400 mt-0.5">Consultoria: valor por visita definido aqui. Escala Fixa: valor definido na vaga.</p>
+              <p className="text-xs text-gray-400 mt-0.5">Locais onde o cliente opera. O tipo (Fixo/Consultoria) e o valor são definidos ao abrir a vaga.</p>
             </div>
             {canManageClient && (
               <button onClick={() => setShowUnitForm(true)} className="btn-secondary text-xs flex items-center gap-1">
@@ -575,53 +574,29 @@ export default function ClientDetail() {
           </div>
           {showUnitForm && (
             <div className="flex gap-2 mb-4 p-3 bg-gray-50 rounded-xl flex-wrap">
-              <input className="input flex-1 min-w-48" placeholder="Nome da unidade (ex: Unidade Centro)" value={newUnit.name} onChange={e => setNewUnit(p => ({ ...p, name: e.target.value }))} />
-              <select className="input w-40 shrink-0" value={newUnit.service_type} onChange={e => setNewUnit(p => ({ ...p, service_type: e.target.value, visit_rate: '' }))}>
-                <option value="Consultoria">Consultoria</option>
-                <option value="Fixo">Escala Fixa</option>
-              </select>
-              {newUnit.service_type === 'Consultoria' && (
-                <input className="input w-36 shrink-0" placeholder="R$ por visita" type="number" step="0.01" value={newUnit.visit_rate} onChange={e => setNewUnit(p => ({ ...p, visit_rate: e.target.value }))} />
-              )}
+              <input className="input flex-1 min-w-48" placeholder="Nome da unidade (ex: Unidade Centro)" value={newUnit.name} onChange={e => setNewUnit(p => ({ ...p, name: e.target.value }))} onKeyDown={e => { if (e.key === 'Enter' && newUnit.name) addUnit.mutate() }} />
               <button className="btn-primary shrink-0" onClick={() => addUnit.mutate()} disabled={!newUnit.name || addUnit.isPending}>Salvar</button>
               <button className="btn-secondary shrink-0" onClick={() => setShowUnitForm(false)}>×</button>
             </div>
           )}
           <div className="space-y-2">
-            {units?.map(u => {
-              const isConsultoria = (u as { service_type?: string }).service_type !== 'Fixo'
-              return (
-                <div key={u.id} className="flex items-center justify-between p-3 rounded-lg border border-gray-100 hover:bg-gray-50">
-                  <div>
-                    <p className="text-sm font-medium">{u.name}</p>
-                    {isConsultoria && u.visit_rate
-                      ? <p className="text-xs text-gray-400 mt-0.5">{formatCurrency(u.visit_rate)}/visita</p>
-                      : <p className="text-xs text-gray-400 mt-0.5">Valor definido na vaga</p>
-                    }
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className={`badge text-xs ${isConsultoria ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'}`}>
-                      {isConsultoria ? 'Consultoria' : 'Escala Fixa'}
-                    </span>
-                    {canManageClient && (
-                      <button onClick={() => deleteUnit.mutate(u.id)} className="text-red-400 hover:text-red-600">
-                        <Trash2 size={14} />
-                      </button>
-                    )}
-                  </div>
-                </div>
-              )
-            })}
+            {units?.map(u => (
+              <div key={u.id} className="flex items-center justify-between p-3 rounded-lg border border-gray-100 hover:bg-gray-50">
+                <p className="text-sm font-medium">{u.name}</p>
+                {canManageClient && (
+                  <button onClick={() => deleteUnit.mutate(u.id)} className="text-red-400 hover:text-red-600">
+                    <Trash2 size={14} />
+                  </button>
+                )}
+              </div>
+            ))}
             {!units?.length && (
               <p className="text-sm text-gray-400">Nenhuma unidade cadastrada.</p>
             )}
           </div>
           {units && units.length > 0 && (
-            <div className="mt-4 pt-3 border-t border-gray-100 flex items-center justify-between text-sm">
+            <div className="mt-4 pt-3 border-t border-gray-100 text-sm">
               <span className="text-gray-500">{units.length} unidade{units.length !== 1 ? 's' : ''}</span>
-              <span className="text-xs text-gray-400">
-                {units.filter(u => (u as { service_type?: string }).service_type !== 'Fixo').length} consultoria · {units.filter(u => (u as { service_type?: string }).service_type === 'Fixo').length} escala fixa
-              </span>
             </div>
           )}
         </div>

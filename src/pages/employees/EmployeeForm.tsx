@@ -181,7 +181,7 @@ export default function EmployeeForm() {
             <div>
               <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Identificação</p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="col-span-2">
+                <div className="col-span-full">
                   <label className="label">Nome Completo *</label>
                   <input className="input" required value={form.full_name} onChange={e => set('full_name', e.target.value)} />
                 </div>
@@ -213,11 +213,11 @@ export default function EmployeeForm() {
                   <label className="label">WhatsApp</label>
                   <input className="input" placeholder="(00) 90000-0000" value={form.whatsapp} onChange={e => set('whatsapp', e.target.value)} />
                 </div>
-                <div className="col-span-2">
+                <div className="col-span-full">
                   <label className="label">E-mail</label>
                   <input className="input" type="email" value={form.email} onChange={e => set('email', e.target.value)} />
                 </div>
-                <div className="col-span-2">
+                <div className="col-span-full">
                   <label className="label">Telefone de Emergência</label>
                   <input className="input" placeholder="Nome e telefone do contato de emergência" value={form.emergency_phone} onChange={e => set('emergency_phone', e.target.value)} />
                 </div>
@@ -228,7 +228,7 @@ export default function EmployeeForm() {
             <div>
               <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Endereço</p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="col-span-2">
+                <div className="col-span-full">
                   <label className="label">Rua / Avenida</label>
                   <input className="input" placeholder="Ex: Rua das Flores" value={form.address_street} onChange={e => set('address_street', e.target.value)} />
                 </div>
@@ -301,7 +301,7 @@ export default function EmployeeForm() {
         {tab === 'bancario' && (
           <div className="card p-6 space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="col-span-2"><label className="label">Banco</label><input className="input" placeholder="Ex: Nubank, Itaú, Bradesco..." value={form.bank_name} onChange={e => set('bank_name', e.target.value)} /></div>
+              <div className="col-span-full"><label className="label">Banco</label><input className="input" placeholder="Ex: Nubank, Itaú, Bradesco..." value={form.bank_name} onChange={e => set('bank_name', e.target.value)} /></div>
               <div><label className="label">Agência</label><input className="input" placeholder="0000-0" value={form.bank_agency} onChange={e => set('bank_agency', e.target.value)} /></div>
               <div><label className="label">Conta Corrente</label><input className="input" placeholder="00000-0" value={form.bank_account} onChange={e => set('bank_account', e.target.value)} /></div>
               <div>

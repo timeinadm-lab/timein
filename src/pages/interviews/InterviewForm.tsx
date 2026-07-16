@@ -134,7 +134,7 @@ export default function InterviewForm() {
       </div>
       <form onSubmit={handleSubmit} className="card p-6 space-y-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="col-span-2">
+          <div className="col-span-full">
             <label className="label">Título *</label>
             <input className="input" required placeholder="Ex: Reunião com fornecedor, Entrevista com a Maria…" value={form.title} onChange={e => set('title', e.target.value)} />
           </div>
@@ -158,15 +158,15 @@ export default function InterviewForm() {
               <option>Online</option><option>Presencial</option><option>Telefone</option>
             </select>
           </div>
-          <div className="col-span-2">
+          <div className="col-span-full">
             <label className="label">Responsável <span className="text-gray-400 font-normal">(quem vai fazer — pode agendar para qualquer pessoa)</span></label>
             <select className="input" value={form.recruiter_id} onChange={e => set('recruiter_id', e.target.value)}>
               <option value="">Ninguém específico</option>
               {recruiters?.map(r => <option key={r.id} value={r.id}>{r.full_name}</option>)}
             </select>
           </div>
-          <div className="col-span-2"><label className="label">Link de reunião / Endereço</label><input className="input" value={form.link_or_address} onChange={e => set('link_or_address', e.target.value)} /></div>
-          <div className="col-span-2"><label className="label">Notas</label><textarea className="input" rows={3} value={form.notes} onChange={e => set('notes', e.target.value)} /></div>
+          <div className="col-span-full"><label className="label">Link de reunião / Endereço</label><input className="input" value={form.link_or_address} onChange={e => set('link_or_address', e.target.value)} /></div>
+          <div className="col-span-full"><label className="label">Notas</label><textarea className="input" rows={3} value={form.notes} onChange={e => set('notes', e.target.value)} /></div>
           {isEdit && (
             <div>
               <label className="label">Status</label>

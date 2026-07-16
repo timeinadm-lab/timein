@@ -79,7 +79,7 @@ export default function PaymentForm() {
               <option>Único</option><option>Mensal</option>
             </select>
           </div>
-          <div className="col-span-2">
+          <div className="col-span-full">
             <label className="label">Categoria</label>
             <select className="input" value={form.category} onChange={e => set('category', e.target.value)}>
               <option>Salário</option><option>Fornecedor</option><option>Imposto</option><option>Outro</option>

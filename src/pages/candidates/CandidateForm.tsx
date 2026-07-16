@@ -120,7 +120,7 @@ export default function CandidateForm() {
         {tab === 'geral' && (
           <div className="card p-6 space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="col-span-2"><label className="label">Nome *</label><input className="input" required value={form.full_name} onChange={e => set('full_name', e.target.value)} /></div>
+              <div className="col-span-full"><label className="label">Nome *</label><input className="input" required value={form.full_name} onChange={e => set('full_name', e.target.value)} /></div>
               <div>
                 <label className="label">Estado</label>
                 <select className="input" value={form.state} onChange={e => set('state', e.target.value)}>
@@ -168,7 +168,7 @@ export default function CandidateForm() {
                 </select>
               </div>
               <div><label className="label">Ano de formação</label><input className="input" type="number" value={form.graduation_year} onChange={e => set('graduation_year', e.target.value)} /></div>
-              <div className="col-span-2"><label className="label">Instituição</label><input className="input" value={form.institution} onChange={e => set('institution', e.target.value)} /></div>
+              <div className="col-span-full"><label className="label">Instituição</label><input className="input" value={form.institution} onChange={e => set('institution', e.target.value)} /></div>
               <div>
                 <label className="label">Tempo de Experiência</label>
                 <select className="input" value={form.experience_time} onChange={e => set('experience_time', e.target.value)}>

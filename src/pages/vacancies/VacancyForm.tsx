@@ -414,7 +414,7 @@ export default function VacancyForm() {
           <div className="card p-5 space-y-4">
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">3. Dados da Vaga</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="col-span-2">
+              <div className="col-span-full">
                 <label className="label">Título *</label>
                 <input className="input" required value={form.title} onChange={e => set('title', e.target.value)}
                   placeholder={isConsultoria ? 'Ex: Nutricionista Consultoria – Santa Casa' : 'Ex: Nutricionista UAN – SP'} />
@@ -449,7 +449,7 @@ export default function VacancyForm() {
               </div>
 
               {/* Carga horária */}
-              <div className="col-span-2 border-t pt-3">
+              <div className="col-span-full border-t pt-3">
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Carga Horária</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {!isConsultoria && (
@@ -471,7 +471,7 @@ export default function VacancyForm() {
 
                       {/* 12x36: âncora da escala — dia sim, dia não a partir desta data */}
                       {form.work_schedule_type === '12x36' && (
-                        <div className="col-span-2">
+                        <div className="col-span-full">
                           <label className="label">Primeiro dia de trabalho da escala 12x36 *</label>
                           <input className="input" type="date" value={form.schedule_anchor_date} onChange={e => set('schedule_anchor_date', e.target.value)} />
                           <p className="text-xs text-gray-400 mt-1">
@@ -493,7 +493,7 @@ export default function VacancyForm() {
                           }
                         }
                         return (
-                          <div className="col-span-2">
+                          <div className="col-span-full">
                             <label className="label">
                               Dia(s) de folga — escolha {maxOff === 1 ? '1 dia' : '2 dias'}
                               {form.work_schedule_type === '6x1' && <span className="text-gray-400 font-normal ml-1">— se a folga for rotativa, marque como rotativo</span>}
@@ -561,7 +561,7 @@ export default function VacancyForm() {
                         <label className="label">Horas no mês <span className="text-gray-400 font-normal">— automático</span></label>
                         <div className="input bg-gray-50 text-gray-600 flex items-center">{monthlyHoursCalc > 0 ? `${monthlyHoursCalc}h (${form.weekly_hours}h × ${freqLabel})` : '—'}</div>
                       </div>
-                      <p className="col-span-2 text-xs text-blue-600">
+                      <p className="col-span-full text-xs text-blue-600">
                         Combinado: <strong>{monthlyHoursCalc > 0 ? `${monthlyHoursCalc}h/mês` : 'horas por visita × visitas/mês'}</strong>. Se passar disso em mais de 1h, o excedente vai pra <strong>sua aprovação</strong> — você decide se paga, caso a caso.
                       </p>
                     </>
@@ -570,7 +570,7 @@ export default function VacancyForm() {
               </div>
 
               {/* Payment days — shown for all vacancy types */}
-              <div className="col-span-2 border-t pt-3">
+              <div className="col-span-full border-t pt-3">
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Dia(s) de Pagamento</p>
                 {form.vacancy_type === 'Consultoria' ? (
                   <div className="bg-orange-50 rounded-lg px-3 py-2 text-sm text-orange-700">

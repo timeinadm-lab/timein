@@ -137,7 +137,7 @@ export default function ClientForm() {
         <div className="card p-5 space-y-4">
           <h3 className="font-semibold text-gray-900">Dados da Empresa</h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="col-span-2">
+            <div className="col-span-full">
               <label className="label">Nome *</label>
               <input className="input" required value={form.name} onChange={e => set('name', e.target.value)} placeholder="Ex: Hospital Santa Casa" />
             </div>
@@ -145,7 +145,7 @@ export default function ClientForm() {
               <label className="label">CNPJ</label>
               <input className="input" value={form.cnpj} onChange={e => set('cnpj', e.target.value)} placeholder="00.000.000/0001-00" />
             </div>
-            <div className="col-span-2">
+            <div className="col-span-full">
               <label className="label">Endereço</label>
               <input className="input" value={form.address} onChange={e => set('address', e.target.value)} />
             </div>
@@ -204,7 +204,7 @@ export default function ClientForm() {
               <label className="label">Telefone</label>
               <input className="input" value={form.contact_phone} onChange={e => set('contact_phone', e.target.value)} />
             </div>
-            <div className="col-span-2">
+            <div className="col-span-full">
               <label className="label">E-mail</label>
               <input className="input" type="email" value={form.contact_email} onChange={e => set('contact_email', e.target.value)} />
             </div>
@@ -225,7 +225,7 @@ export default function ClientForm() {
                 <input className="input" type="date" value={form.contract_end} onChange={e => set('contract_end', e.target.value)} />
               </div>
             )}
-            <div className="col-span-2">
+            <div className="col-span-full">
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
                   type="checkbox"
@@ -240,7 +240,7 @@ export default function ClientForm() {
             {form.contract_start && form.contract_end && form.contract_end !== '__indeterminate__' && (() => {
               const months = Math.round((new Date(form.contract_end).getTime() - new Date(form.contract_start).getTime()) / (1000 * 60 * 60 * 24 * 30.44))
               return months > 0 ? (
-                <div className="col-span-2 bg-blue-50 rounded-lg px-3 py-2 text-xs text-blue-700">
+                <div className="col-span-full bg-blue-50 rounded-lg px-3 py-2 text-xs text-blue-700">
                   Duração: <strong>{months} meses</strong>
                 </div>
               ) : null

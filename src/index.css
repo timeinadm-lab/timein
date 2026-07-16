@@ -106,6 +106,14 @@
   .grid.grid-cols-2:has(input, select, textarea, .label) {
     grid-template-columns: minmax(0, 1fr);
   }
+  /* CRÍTICO: quando o grid vira 1 coluna, filhos com col-span-2 criariam
+     uma coluna fantasma implícita (campos sobrepostos). grid-column:auto
+     neutraliza o span e cada campo ocupa a linha inteira. */
+  form .grid.grid-cols-2 > *,
+  .grid.grid-cols-2:has(input, select, textarea, .label) > * {
+    grid-column: auto;
+    min-width: 0;
+  }
   /* Qualquer filho de grid pode encolher em vez de empurrar a largura */
   form .grid > *,
   .grid.grid-cols-2 > * {

@@ -182,7 +182,7 @@ export default function ContractForm() {
         {/* Fields specific to service type */}
         {form.service_type === 'Fixo' ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-blue-50 p-4 rounded-lg">
-            <p className="col-span-2 text-xs font-semibold text-blue-700 uppercase tracking-wide">Detalhes da Escala</p>
+            <p className="col-span-full text-xs font-semibold text-blue-700 uppercase tracking-wide">Detalhes da Escala</p>
             <div>
               <label className="label">Turno</label>
               <select className="input" value={form.work_shift} onChange={e => set('work_shift', e.target.value)}>
@@ -197,14 +197,14 @@ export default function ContractForm() {
                 <option>5x2</option><option>6x1</option><option>12x36</option><option>12x60</option><option>Plantão</option>
               </select>
             </div>
-            <div className="col-span-2">
+            <div className="col-span-full">
               <label className="label">Valor Mensal (R$)</label>
               <input className="input" type="number" placeholder="0,00" value={form.monthly_amount} onChange={e => set('monthly_amount', e.target.value)} />
             </div>
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-orange-50 p-4 rounded-lg">
-            <p className="col-span-2 text-xs font-semibold text-orange-700 uppercase tracking-wide">Detalhes da Consultoria</p>
+            <p className="col-span-full text-xs font-semibold text-orange-700 uppercase tracking-wide">Detalhes da Consultoria</p>
             <div>
               <label className="label">Visitas/mês</label>
               <input className="input" type="number" min="1" placeholder="Ex: 4" value={form.visits_per_month} onChange={e => set('visits_per_month', e.target.value)} />
@@ -214,7 +214,7 @@ export default function ContractForm() {
               <input className="input" type="number" placeholder="0,00" value={form.visit_amount} onChange={e => set('visit_amount', e.target.value)} />
             </div>
             {form.visits_per_month && form.visit_amount && (
-              <div className="col-span-2 text-sm font-medium text-orange-800">
+              <div className="col-span-full text-sm font-medium text-orange-800">
                 Total mensal: R$ {(Number(form.visits_per_month) * Number(form.visit_amount)).toFixed(2)}
               </div>
             )}
@@ -251,7 +251,7 @@ export default function ContractForm() {
               <input className="input" type="date" value={form.signed_at} onChange={e => set('signed_at', e.target.value)} />
             </div>
           )}
-          <div className="col-span-2">
+          <div className="col-span-full">
             <label className="label">Colaborador Responsável</label>
             <input className="input" value={form.employee_responsible} onChange={e => set('employee_responsible', e.target.value)} />
           </div>

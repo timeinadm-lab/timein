@@ -10,23 +10,45 @@ import Pagination from '../../components/ui/Pagination'
 import { SkeletonRows, EmptyState } from '../../components/ui/Skeleton'
 
 const FAVORITES_KEY = '__favorites__'
+const ACTING_KEY = '__acting__'
+
+// UF pela faixa de CEP (padrão dos Correios) — permite filtrar por estado
+// mesmo quando só o CEP foi cadastrado
+const CEP_UF: [number, number, string][] = [
+  [1000, 19999, 'SP'], [20000, 28999, 'RJ'], [29000, 29999, 'ES'], [30000, 39999, 'MG'],
+  [40000, 48999, 'BA'], [49000, 49999, 'SE'], [50000, 56999, 'PE'], [57000, 57999, 'AL'],
+  [58000, 58999, 'PB'], [59000, 59999, 'RN'], [60000, 63999, 'CE'], [64000, 64999, 'PI'],
+  [65000, 65999, 'MA'], [66000, 68899, 'PA'], [68900, 68999, 'AP'], [69000, 69299, 'AM'],
+  [69300, 69399, 'RR'], [69400, 69899, 'AM'], [69900, 69999, 'AC'], [70000, 72799, 'DF'],
+  [72800, 72999, 'GO'], [73000, 73699, 'DF'], [73700, 76799, 'GO'], [76800, 76999, 'RO'],
+  [77000, 77999, 'TO'], [78000, 78899, 'MT'], [78900, 78999, 'RO'], [79000, 79999, 'MS'],
+  [80000, 87999, 'PR'], [88000, 89999, 'SC'], [90000, 99999, 'RS'],
+]
+function cepToUF(zip?: string | null): string | null {
+  const digits = (zip || '').replace(/\D/g, '')
+  if (digits.length < 5) return null
+  const n = Number(digits.slice(0, 5))
+  return CEP_UF.find(([a, b]) => n >= a && n <= b)?.[2] ?? null
+}
 
 export default function EmployeeList() {
   const navigate = useNavigate()
   const qc = useQueryClient()
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('Ativo')
+  const [cityFilter, setCityFilter] = useState('')
+  const [ufFilter, setUfFilter] = useState('')
   const [page, setPage] = useState(1)
   const PAGE_SIZE = 50
 
   const { data: employees, isLoading } = useQuery({
     queryKey: ['employees', search, status],
     queryFn: async () => {
-      let q = supabase.from('employees').select('id,full_name,role,status,admission_date,photo_url,email,whatsapp,is_favorite')
+      let q = supabase.from('employees').select('id,full_name,role,status,admission_date,photo_url,email,whatsapp,is_favorite,address_city,address_zip')
       if (status === FAVORITES_KEY) {
         q = q.eq('is_favorite', true)
-      } else {
-        if (status) q = q.eq('status', status)
+      } else if (status && status !== ACTING_KEY) {
+        q = q.eq('status', status)
       }
       if (search) q = q.ilike('full_name', `%${search}%`)
       q = q.order('is_favorite', { ascending: false }).order('full_name')
@@ -35,6 +57,33 @@ export default function EmployeeList() {
       return data || []
     },
   })
+
+  // Vínculos ativos por colaborador — pro filtro "Atuando" e a contagem na linha
+  const { data: linkCounts } = useQuery({
+    queryKey: ['employee-active-link-counts'],
+    queryFn: async () => {
+      const today = new Date().toISOString().slice(0, 10)
+      const { data, error } = await supabase.from('employee_client_links').select('employee_id, contract_end_date')
+      if (error) throw error
+      const map = new Map<string, number>()
+      for (const l of data || []) {
+        if (l.contract_end_date && l.contract_end_date < today) continue
+        map.set(l.employee_id, (map.get(l.employee_id) || 0) + 1)
+      }
+      return map
+    },
+  })
+
+  // Filtros locais: atuando, cidade e UF (derivada do CEP)
+  const filtered = (employees ?? []).filter(e => {
+    if (status === ACTING_KEY && !linkCounts?.get(e.id)) return false
+    if (cityFilter && (e.address_city || '').trim().toLowerCase() !== cityFilter.toLowerCase()) return false
+    if (ufFilter && cepToUF(e.address_zip) !== ufFilter) return false
+    return true
+  })
+
+  const cityOptions = [...new Set((employees ?? []).map(e => (e.address_city || '').trim()).filter(Boolean))].sort()
+  const ufOptions = [...new Set((employees ?? []).map(e => cepToUF(e.address_zip)).filter(Boolean) as string[])].sort()
 
   const { data: pendingDocs } = useQuery({
     queryKey: ['employees-pending-docs'],
@@ -53,14 +102,17 @@ export default function EmployeeList() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['employees'] }),
   })
 
-  const paginated = employees?.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE) ?? []
+  const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
 
   const handleExport = () => {
-    if (!employees) return
-    exportToCSV(employees.map(e => ({
+    if (!filtered.length) return
+    exportToCSV(filtered.map(e => ({
       Nome: e.full_name,
       Cargo: e.role || '',
       Status: e.status,
+      'Vínculos ativos': linkCounts?.get(e.id) || 0,
+      Cidade: e.address_city || '',
+      UF: cepToUF(e.address_zip) || '',
       Admissão: formatDate(e.admission_date),
       Email: e.email || '',
       WhatsApp: e.whatsapp || '',
@@ -73,6 +125,7 @@ export default function EmployeeList() {
   const filterTabs = [
     { label: '⭐ Favoritos', value: FAVORITES_KEY },
     { label: 'Ativos', value: 'Ativo' },
+    { label: '⚡ Atuando', value: ACTING_KEY },
     { label: 'Inativos', value: 'Inativo' },
     { label: 'Ociosos', value: 'Ocioso' },
     { label: 'Todos', value: '' },
@@ -85,7 +138,7 @@ export default function EmployeeList() {
           <p className="eyebrow mb-1">Equipe</p>
           <h1 className="text-2xl md:text-3xl font-display font-extrabold text-ink-900">
             Colaboradores
-            {employees && <span className="ml-2 text-base font-semibold text-ink-400 align-middle">{employees.length}</span>}
+            {employees && <span className="ml-2 text-base font-semibold text-ink-400 align-middle">{filtered.length}</span>}
           </h1>
         </div>
         <div className="flex gap-2">
@@ -110,14 +163,30 @@ export default function EmployeeList() {
             </button>
           ))}
         </div>
+        {(ufOptions.length > 0 || cityOptions.length > 0) && (
+          <div className="flex gap-2 flex-wrap w-full sm:w-auto">
+            {ufOptions.length > 0 && (
+              <select className="input text-xs py-1.5 w-auto" value={ufFilter} onChange={e => { setUfFilter(e.target.value); setPage(1) }}>
+                <option value="">Estado (todos)</option>
+                {ufOptions.map(uf => <option key={uf} value={uf}>{uf}</option>)}
+              </select>
+            )}
+            {cityOptions.length > 0 && (
+              <select className="input text-xs py-1.5 w-auto" value={cityFilter} onChange={e => { setCityFilter(e.target.value); setPage(1) }}>
+                <option value="">Cidade (todas)</option>
+                {cityOptions.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            )}
+          </div>
+        )}
       </div>
 
       {isLoading ? (
         <SkeletonRows count={8} />
-      ) : employees?.length === 0 ? (
+      ) : filtered.length === 0 ? (
         <EmptyState
           icon={status === FAVORITES_KEY ? Star : Search}
-          title={status === FAVORITES_KEY ? 'Nenhum favorito ainda' : 'Nenhum colaborador encontrado'}
+          title={status === FAVORITES_KEY ? 'Nenhum favorito ainda' : status === ACTING_KEY ? 'Ninguém atuando com esses filtros' : 'Nenhum colaborador encontrado'}
           hint={status === FAVORITES_KEY ? 'Clique na ⭐ de um colaborador para favoritá-lo.' : 'Ajuste os filtros ou cadastre um novo.'}
         />
       ) : (
@@ -160,9 +229,14 @@ export default function EmployeeList() {
                   {/* Cargo — desktop */}
                   <div className="hidden md:block md:col-span-3 text-sm text-ink-600 truncate">{e.role || '-'}</div>
 
-                  {/* Status */}
-                  <div className="md:col-span-2 row-start-1 md:row-auto col-start-3 md:col-auto justify-self-end md:justify-self-start">
+                  {/* Status + vínculos ativos */}
+                  <div className="md:col-span-2 row-start-1 md:row-auto col-start-3 md:col-auto justify-self-end md:justify-self-start flex items-center gap-1.5 flex-wrap">
                     <span className={`badge ${statusBadge(e.status)}`}>{e.status}</span>
+                    {(linkCounts?.get(e.id) ?? 0) > 0 && (
+                      <span className="badge bg-blue-50 text-blue-600 text-[10px]" title="Vínculos ativos">
+                        {linkCounts!.get(e.id)} vínculo{linkCounts!.get(e.id)! > 1 ? 's' : ''}
+                      </span>
+                    )}
                   </div>
 
                   {/* Admissão + estrela + chevron */}
@@ -184,7 +258,7 @@ export default function EmployeeList() {
             })}
           </div>
 
-          <Pagination page={page} total={employees?.length ?? 0} pageSize={PAGE_SIZE} onChange={setPage} />
+          <Pagination page={page} total={filtered.length} pageSize={PAGE_SIZE} onChange={setPage} />
         </>
       )}
     </div>

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Edit, MessageCircle, ChevronDown, ChevronUp, FileText, CheckCircle, Clock } from 'lucide-react'
+import { ArrowLeft, Edit, MessageCircle, ChevronDown, ChevronUp, FileText, CheckCircle, Clock, Zap } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { formatDate, formatWhatsApp, BRAZIL_STATES, DEFAULT_DOCUMENTS } from '../../lib/utils'
 import { getCityRegion } from '../../lib/geoRegions'
@@ -58,6 +58,10 @@ export default function VacancyDetail() {
   const [showMatchFilters, setShowMatchFilters] = useState(false)
   const [onlyCompatible, setOnlyCompatible] = useState(false)
 
+  // Escalar: vínculo avulso de 1 dia para uma auditoria/serviço pontual
+  const [escalarOpen, setEscalarOpen] = useState(false)
+  const [escalarForm, setEscalarForm] = useState({ employee_id: '', value: '', date: '', time: '', notes: '', pay_day: '20' })
+
   // Step 1: deadline modal — shown when clicking "Contratar"
   const [deadlineModal, setDeadlineModal] = useState<{ interestId: string; candidateId: string } | null>(null)
   const [deadlineHours, setDeadlineHours] = useState<24 | 48 | 72>(48)
@@ -101,6 +105,66 @@ export default function VacancyDetail() {
       if (error) throw error
       return data || []
     },
+  })
+
+  // Pessoas cadastradas para escalar (auditores/freelas do pool)
+  const { data: escalarEmployees } = useQuery({
+    queryKey: ['escalar-employees'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('employees').select('id,full_name,address_city').neq('status', 'Inativo').order('full_name')
+      if (error) throw error
+      return data || []
+    },
+    enabled: escalarOpen,
+  })
+
+  // Escalar: cria um vínculo avulso (freela consultoria, valor fixo por visita)
+  // de 1 dia + o dia na agenda da pessoa (com hora e observação). Não mexe na vaga.
+  const escalar = useMutation({
+    mutationFn: async () => {
+      if (!escalarForm.employee_id) throw new Error('Escolha a pessoa')
+      if (!escalarForm.value) throw new Error('Informe o valor da auditoria')
+      if (!escalarForm.date) throw new Error('Escolha a data')
+      if (!vacancy?.client_id) throw new Error('Esta vaga não tem cliente. Edite a vaga e selecione o cliente antes de escalar.')
+      const units = (clientLocations || []).map(u => ({ unit_id: u.id, unit_name: u.name, visit_rate: Number(escalarForm.value) }))
+      if (units.length === 0) throw new Error('O cliente desta vaga não tem nenhuma unidade. Adicione uma unidade ao cliente antes de escalar.')
+      // 1) vínculo avulso de 1 dia — consultoria (paga por visita) sem cota (valor cheio)
+      const { data: newLink, error } = await supabase.from('employee_client_links').insert({
+        employee_id: escalarForm.employee_id,
+        client_id: vacancy.client_id,
+        vacancy_id: id,
+        service_type: 'Volante',
+        coverage_type: 'Consultoria',
+        visit_frequency: 'Avulso',
+        link_units: units,
+        start_date: escalarForm.date,
+        contract_end_date: escalarForm.date,
+        agenda_mode: 'gestor',
+        monthly_amount: null,
+      }).select('id').single()
+      if (error) throw error
+      if (newLink?.id) {
+        await supabase.from('employee_payment_dates').insert({ link_id: newLink.id, day_of_month: Number(escalarForm.pay_day) })
+      }
+      // 2) o dia na agenda da pessoa (fixado pelo RH: hora + observação)
+      const { error: agErr } = await supabase.from('nutritionist_agenda').insert({
+        employee_id: escalarForm.employee_id,
+        client_id: vacancy.client_id,
+        unit_id: (clientLocations || [])[0]?.id || null,
+        planned_date: escalarForm.date,
+        planned_time: escalarForm.time || null,
+        notes: escalarForm.notes || null,
+        created_by_admin: true,
+      })
+      if (agErr) throw agErr
+    },
+    onSuccess: () => {
+      toast.success('Pessoa escalada! Ela verá o dia no portal.')
+      qc.invalidateQueries({ queryKey: ['vacancy-hired', id] })
+      setEscalarOpen(false)
+      setEscalarForm({ employee_id: '', value: '', date: '', time: '', notes: '', pay_day: '20' })
+    },
+    onError: (e: Error) => toast.error(e.message),
   })
 
   // Ao abrir o Match, os filtros já vêm com o que a vaga exige (estado, formação).
@@ -792,11 +856,61 @@ export default function VacancyDetail() {
               <button onClick={() => setShowExtendModal(true)} className="btn-secondary text-sm">Prolongar contrato</button>
             </>
           )}
+          <button onClick={() => setEscalarOpen(true)} className="btn-secondary text-sm border-orange-200 text-orange-600 hover:bg-orange-50">
+            <Zap size={16} /> Escalar (avulso)
+          </button>
           {(vacancy.status === 'Aberta' || vacancy.status === 'Atuando' || vacancy.status === 'Preenchida') && (
             <button onClick={() => { setConfirmCloseText(''); setConfirmCloseModal(true) }} className="btn-ghost text-sm text-ink-500 ml-auto">Fechar Vaga</button>
           )}
         </div>
       </div>
+
+      {/* Modal: Escalar (auditoria/serviço avulso) */}
+      {escalarOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl p-5 max-w-md w-full space-y-4 max-h-[90vh] overflow-y-auto">
+            <div>
+              <h3 className="font-semibold text-gray-900 flex items-center gap-1.5"><Zap size={17} className="text-orange-500" /> Escalar para serviço avulso</h3>
+              <p className="text-xs text-gray-400 mt-0.5">Vínculo de 1 dia. A pessoa vê o dia no portal, registra entrada/saída e recebe o valor. Não fecha a vaga.</p>
+            </div>
+            <div>
+              <label className="label">Pessoa *</label>
+              <select className="input" value={escalarForm.employee_id} onChange={e => setEscalarForm(p => ({ ...p, employee_id: e.target.value }))}>
+                <option value="">Selecionar...</option>
+                {escalarEmployees?.map(e => <option key={e.id} value={e.id}>{e.full_name}{e.address_city ? ` — ${e.address_city}` : ''}</option>)}
+              </select>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="label">Valor (R$) *</label>
+                <input className="input" type="number" step="0.01" placeholder="Ex: 300.00" value={escalarForm.value} onChange={e => setEscalarForm(p => ({ ...p, value: e.target.value }))} />
+              </div>
+              <div>
+                <label className="label">Dia de pagamento</label>
+                <select className="input" value={escalarForm.pay_day} onChange={e => setEscalarForm(p => ({ ...p, pay_day: e.target.value }))}>
+                  <option value="8">Dia 8</option><option value="15">Dia 15</option><option value="20">Dia 20</option>
+                </select>
+              </div>
+              <div>
+                <label className="label">Data *</label>
+                <input className="input" type="date" value={escalarForm.date} onChange={e => setEscalarForm(p => ({ ...p, date: e.target.value }))} />
+              </div>
+              <div>
+                <label className="label">Hora <span className="text-gray-400 font-normal">(opcional)</span></label>
+                <input className="input" type="time" value={escalarForm.time} onChange={e => setEscalarForm(p => ({ ...p, time: e.target.value }))} />
+              </div>
+            </div>
+            <div>
+              <label className="label">Observação <span className="text-gray-400 font-normal">— aparece no portal dela</span></label>
+              <textarea className="input" rows={2} placeholder="Ex: endereço do local, o que levar, contato no local..." value={escalarForm.notes} onChange={e => setEscalarForm(p => ({ ...p, notes: e.target.value }))} />
+            </div>
+            <div className="flex gap-2 pt-1">
+              <button className="btn-primary flex-1" disabled={escalar.isPending} onClick={() => escalar.mutate()}>{escalar.isPending ? 'Escalando...' : 'Escalar'}</button>
+              <button className="btn-secondary" onClick={() => setEscalarOpen(false)}>Cancelar</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">

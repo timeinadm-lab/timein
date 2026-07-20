@@ -37,7 +37,7 @@ export default function EmployeeDetail() {
   const [agendaMonth, setAgendaMonth] = useState(format(new Date(), 'yyyy-MM'))
   const [visMonth, setVisMonth] = useState(format(new Date(), 'yyyy-MM'))
   const [showAgendaForm, setShowAgendaForm] = useState(false)
-  const [agendaForm, setAgendaForm] = useState({ client_id: '', unit_id: '', planned_date: '', notes: '', hours_expected: '' })
+  const [agendaForm, setAgendaForm] = useState({ client_id: '', unit_id: '', planned_date: '', planned_time: '', notes: '', hours_expected: '' })
   const [showHistoryForm, setShowHistoryForm] = useState(false)
   const [histForm, setHistForm] = useState({ type: 'Anotação', description: '', responsible: '' })
   const [showLinkForm, setShowLinkForm] = useState(false)
@@ -370,6 +370,18 @@ export default function EmployeeDetail() {
     enabled: !!agendaForm.client_id,
   })
 
+  const setAgendaMode = useMutation({
+    mutationFn: async ({ linkId, mode }: { linkId: string; mode: 'colaborador' | 'gestor' }) => {
+      const { error } = await supabase.from('employee_client_links').update({ agenda_mode: mode }).eq('id', linkId)
+      if (error) throw error
+    },
+    onSuccess: () => {
+      toast.success('Permissão de agenda atualizada!')
+      qc.invalidateQueries({ queryKey: ['employee-links', id] })
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
   const addAgendaItem = useMutation({
     mutationFn: async () => {
       const { error } = await supabase.from('nutritionist_agenda').insert({
@@ -377,6 +389,7 @@ export default function EmployeeDetail() {
         client_id: agendaForm.client_id,
         unit_id: agendaForm.unit_id || null,
         planned_date: agendaForm.planned_date,
+        planned_time: agendaForm.planned_time || null,
         notes: agendaForm.notes || null,
         hours_expected: agendaForm.hours_expected ? Number(agendaForm.hours_expected) : null,
         created_by_admin: true,
@@ -387,7 +400,7 @@ export default function EmployeeDetail() {
       toast.success('Data agendada!')
       qc.invalidateQueries({ queryKey: ['employee-agenda', id, agendaMonth] })
       setShowAgendaForm(false)
-      setAgendaForm({ client_id: '', unit_id: '', planned_date: '', notes: '', hours_expected: '' })
+      setAgendaForm({ client_id: '', unit_id: '', planned_date: '', planned_time: '', notes: '', hours_expected: '' })
     },
     onError: (e: Error) => toast.error(e.message),
   })
@@ -1753,6 +1766,31 @@ export default function EmployeeDetail() {
             </div>
           </div>
 
+          {/* Permissão de agenda por cliente de consultoria */}
+          {(links || []).filter(l => l.service_type === 'Consultoria').length > 0 && (
+            <div className="rounded-xl border border-gray-100 divide-y divide-gray-50">
+              {(links || []).filter(l => l.service_type === 'Consultoria').map(l => {
+                const mode = (l as { agenda_mode?: string }).agenda_mode || 'colaborador'
+                return (
+                  <div key={l.id} className="flex items-center justify-between gap-3 px-3 py-2.5 flex-wrap">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-gray-800">{(l.client as { name?: string })?.name || '—'}</p>
+                      <p className="text-xs text-gray-400">{mode === 'gestor' ? 'O RH monta a agenda (ela só vê)' : 'O colaborador monta a própria agenda'}</p>
+                    </div>
+                    <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs shrink-0">
+                      {([['colaborador', '👤 Colaborador'], ['gestor', '🏢 RH monta']] as const).map(([v, t]) => (
+                        <button key={v} onClick={() => setAgendaMode.mutate({ linkId: l.id, mode: v })}
+                          className={`px-2.5 py-1.5 font-medium transition-colors ${mode === v ? 'bg-primary-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>
+                          {t}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
           {showAgendaForm && (
             <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 space-y-3">
               <p className="text-sm font-medium text-orange-800">Nova data na agenda</p>
@@ -1760,6 +1798,10 @@ export default function EmployeeDetail() {
                 <div>
                   <label className="label">Data *</label>
                   <input type="date" className="input" value={agendaForm.planned_date} onChange={e => setAgendaForm(p => ({ ...p, planned_date: e.target.value }))} />
+                </div>
+                <div>
+                  <label className="label">Hora <span className="text-gray-400 font-normal">(opcional)</span></label>
+                  <input type="time" className="input" value={agendaForm.planned_time} onChange={e => setAgendaForm(p => ({ ...p, planned_time: e.target.value }))} />
                 </div>
                 <div>
                   <label className="label">Cliente *</label>
@@ -1790,17 +1832,17 @@ export default function EmployeeDetail() {
               </div>
               <div className="flex gap-2">
                 <button className="btn-primary text-sm" onClick={() => addAgendaItem.mutate()} disabled={!agendaForm.planned_date || !agendaForm.client_id || addAgendaItem.isPending}>Salvar</button>
-                <button className="btn-secondary text-sm" onClick={() => { setShowAgendaForm(false); setAgendaForm({ client_id: '', unit_id: '', planned_date: '', notes: '', hours_expected: '' }) }}>Cancelar</button>
+                <button className="btn-secondary text-sm" onClick={() => { setShowAgendaForm(false); setAgendaForm({ client_id: '', unit_id: '', planned_date: '', planned_time: '', notes: '', hours_expected: '' }) }}>Cancelar</button>
               </div>
             </div>
           )}
 
           <div className="space-y-2">
             {agendaItems?.length === 0 && <p className="text-sm text-gray-400">Nenhuma data agendada para este mês.</p>}
-            {(agendaItems || []).map((a: { id: string; planned_date: string; client?: { name?: string }; unit?: { name?: string }; notes?: string; rescheduled_at?: string; original_date?: string; hours_expected?: number; created_by_admin?: boolean }) => (
+            {(agendaItems || []).map((a: { id: string; planned_date: string; planned_time?: string; client?: { name?: string }; unit?: { name?: string }; notes?: string; rescheduled_at?: string; original_date?: string; hours_expected?: number; created_by_admin?: boolean }) => (
               <div key={a.id} className="flex items-center justify-between p-3 rounded-lg border border-orange-100 bg-orange-50/40 gap-3">
                 <div className="flex items-center gap-3 min-w-0 flex-wrap">
-                  <span className="text-sm font-semibold text-orange-700 whitespace-nowrap">{formatDate(a.planned_date)}</span>
+                  <span className="text-sm font-semibold text-orange-700 whitespace-nowrap">{formatDate(a.planned_date)}{a.planned_time ? ` · ${a.planned_time.slice(0, 5)}` : ''}</span>
                   <span className="text-sm text-gray-700">{a.client?.name || '-'}</span>
                   {a.unit?.name && <span className="text-xs text-gray-400">· {a.unit.name}</span>}
                   {a.hours_expected && <span className="text-xs bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded">{a.hours_expected}h</span>}

@@ -33,7 +33,8 @@ export default function VacancyForm() {
     work_schedule_type: '' as '' | '5x2' | '6x1' | '12x36' | 'Plantão',
     daily_hours: '',
     schedule_anchor_date: '', // 12x36: primeiro dia de trabalho da escala (dia sim, dia não a partir dele)
-    visit_frequency: 'Semanal' as 'Semanal' | 'Quinzenal' | 'Mensal',
+    visit_frequency: 'Semanal' as 'Semanal' | 'Quinzenal' | 'Mensal' | 'Avulso',
+    agenda_mode: 'colaborador' as 'colaborador' | 'gestor', // quem monta a agenda deste vínculo
     weekly_hours: '',      // Consultoria: horas por visita
     visits_per_week: '',   // Consultoria: combinado de visitas (opcional — referência)
     pay_extra_visits: true, // Consultoria: visita além do combinado é paga?
@@ -112,7 +113,8 @@ export default function VacancyForm() {
       work_schedule_type: data.work_schedule_type || '',
       daily_hours: data.daily_hours ? String(data.daily_hours) : '',
       schedule_anchor_date: data.schedule_anchor_date || '',
-      visit_frequency: (data.visit_frequency as 'Semanal' | 'Quinzenal' | 'Mensal') || 'Semanal',
+      visit_frequency: (data.visit_frequency as 'Semanal' | 'Quinzenal' | 'Mensal' | 'Avulso') || 'Semanal',
+      agenda_mode: (data.agenda_mode as 'colaborador' | 'gestor') || 'colaborador',
       weekly_hours: data.weekly_hours ? String(data.weekly_hours) : '',
       visits_per_week: data.visits_per_week ? String(data.visits_per_week) : '',
       pay_extra_visits: data.pay_extra_visits !== false,
@@ -170,8 +172,10 @@ export default function VacancyForm() {
               linkUpdate.link_units = mapped.length ? mapped : null
               linkUpdate.monthly_amount = avg > 0 ? Math.round(avg * 4 * 100) / 100 : null
               linkUpdate.visit_frequency = payload.visit_frequency ?? 'Semanal'
+              linkUpdate.agenda_mode = payload.agenda_mode ?? 'colaborador'
               linkUpdate.weekly_hours_quota = payload.weekly_hours ?? null
-              linkUpdate.monthly_hours_quota = payload.monthly_hours ?? null
+              // Avulso: sem cota mensal fixa (dias vêm da agenda)
+              linkUpdate.monthly_hours_quota = payload.visit_frequency === 'Avulso' ? null : (payload.monthly_hours ?? null)
               linkUpdate.visits_per_week = payload.visits_per_week ?? null
             } else if (payload.salary_amount != null) {
               linkUpdate.monthly_amount = payload.salary_amount
@@ -206,8 +210,11 @@ export default function VacancyForm() {
     })
   }
 
-  const freqMultiplier = form.visit_frequency === 'Mensal' ? 1 : form.visit_frequency === 'Quinzenal' ? 2 : 4
-  const freqLabel = form.visit_frequency === 'Mensal' ? '1 visita/mês' : form.visit_frequency === 'Quinzenal' ? '2 visitas/mês' : '4 visitas/mês'
+  // Avulso: sem cadência fixa — os dias vêm da agenda montada, então não há
+  // estimativa mensal automática (0 = "varia conforme a agenda")
+  const isAvulso = form.visit_frequency === 'Avulso'
+  const freqMultiplier = isAvulso ? 0 : form.visit_frequency === 'Mensal' ? 1 : form.visit_frequency === 'Quinzenal' ? 2 : 4
+  const freqLabel = isAvulso ? 'sem cadência fixa (RH monta os dias)' : form.visit_frequency === 'Mensal' ? '1 visita/mês' : form.visit_frequency === 'Quinzenal' ? '2 visitas/mês' : '4 visitas/mês'
   const monthlyHoursCalc = form.weekly_hours ? Number(form.weekly_hours) * freqMultiplier : 0
   const avgUnitRate = vacancyUnits.length ? vacancyUnits.reduce((s, u) => s + (Number(u.visit_rate) || 0), 0) / vacancyUnits.length : 0
   const monthlyEstimate = avgUnitRate * freqMultiplier
@@ -257,7 +264,8 @@ export default function VacancyForm() {
       daily_hours: !isConsultoria && form.daily_hours ? Number(form.daily_hours) : null,
       schedule_anchor_date: !isConsultoria && form.work_schedule_type === '12x36' && form.schedule_anchor_date ? form.schedule_anchor_date : null,
       visit_frequency: isConsultoria ? (form.visit_frequency || 'Semanal') : null,
-      monthly_hours: isConsultoria && form.weekly_hours ? Number(form.weekly_hours) * freqMultiplier : null,
+      agenda_mode: isConsultoria ? form.agenda_mode : 'colaborador',
+      monthly_hours: isConsultoria && !isAvulso && form.weekly_hours ? Number(form.weekly_hours) * freqMultiplier : null,
       weekly_hours: isConsultoria && form.weekly_hours ? Number(form.weekly_hours) : null,
       visits_per_week: isConsultoria && form.visits_per_week ? Number(form.visits_per_week) : null,
       pay_extra_visits: isConsultoria ? form.pay_extra_visits : true,
@@ -551,19 +559,50 @@ export default function VacancyForm() {
                           <option value="Semanal">Semanal (4×/mês)</option>
                           <option value="Quinzenal">Quinzenal (2×/mês)</option>
                           <option value="Mensal">Mensal (1×/mês)</option>
+                          <option value="Avulso">Avulso (RH monta os dias)</option>
                         </select>
                       </div>
                       <div>
                         <label className="label">Horas por visita *</label>
                         <input className="input" type="number" min={0.5} max={60} step="0.5" placeholder="Ex: 4" value={form.weekly_hours} onChange={e => set('weekly_hours', e.target.value)} />
                       </div>
-                      <div>
-                        <label className="label">Horas no mês <span className="text-gray-400 font-normal">— automático</span></label>
-                        <div className="input bg-gray-50 text-gray-600 flex items-center">{monthlyHoursCalc > 0 ? `${monthlyHoursCalc}h (${form.weekly_hours}h × ${freqLabel})` : '—'}</div>
+                      {!isAvulso ? (
+                        <div>
+                          <label className="label">Horas no mês <span className="text-gray-400 font-normal">— automático</span></label>
+                          <div className="input bg-gray-50 text-gray-600 flex items-center">{monthlyHoursCalc > 0 ? `${monthlyHoursCalc}h (${form.weekly_hours}h × ${freqLabel})` : '—'}</div>
+                        </div>
+                      ) : (
+                        <div>
+                          <label className="label">Horas no mês</label>
+                          <div className="input bg-gray-50 text-gray-500 flex items-center text-sm">Varia conforme a agenda</div>
+                        </div>
+                      )}
+                      {isAvulso ? (
+                        <p className="col-span-full text-xs text-orange-600">
+                          <strong>Avulso:</strong> sem cadência fixa. Os dias são montados pelo RH na agenda da pessoa (data e hora). Cada visita realizada paga o valor combinado por vistoria — meses sem visita não geram pagamento.
+                        </p>
+                      ) : (
+                        <p className="col-span-full text-xs text-blue-600">
+                          Combinado: <strong>{monthlyHoursCalc > 0 ? `${monthlyHoursCalc}h/mês` : 'horas por visita × visitas/mês'}</strong>. Se passar disso em mais de 1h, o excedente vai pra <strong>sua aprovação</strong> — você decide se paga, caso a caso.
+                        </p>
+                      )}
+                      {/* Quem monta a agenda deste contrato */}
+                      <div className="col-span-full">
+                        <label className="label">Quem monta a agenda deste cliente?</label>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          {([
+                            { v: 'colaborador', t: '👤 O colaborador', d: 'A pessoa escolhe os próprios dias no portal.' },
+                            { v: 'gestor', t: '🏢 O RH monta', d: 'Você define os dias na agenda dela; ela só vê.' },
+                          ] as const).map(o => (
+                            <button key={o.v} type="button" onClick={() => set('agenda_mode', o.v)}
+                              className={`text-left p-2.5 rounded-lg border-2 transition-colors ${form.agenda_mode === o.v ? 'border-primary-600 bg-primary-50' : 'border-gray-200 hover:border-gray-300'}`}>
+                              <p className="text-sm font-medium text-gray-800">{o.t}</p>
+                              <p className="text-xs text-gray-500">{o.d}</p>
+                            </button>
+                          ))}
+                        </div>
+                        <p className="text-xs text-gray-400 mt-1">Dá pra mudar depois no vínculo do colaborador.</p>
                       </div>
-                      <p className="col-span-full text-xs text-blue-600">
-                        Combinado: <strong>{monthlyHoursCalc > 0 ? `${monthlyHoursCalc}h/mês` : 'horas por visita × visitas/mês'}</strong>. Se passar disso em mais de 1h, o excedente vai pra <strong>sua aprovação</strong> — você decide se paga, caso a caso.
-                      </p>
                     </>
                   )}
                 </div>

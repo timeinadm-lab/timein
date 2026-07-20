@@ -1369,17 +1369,25 @@ export default function PortalHome() {
                     <h3 className="section-title text-base">Visitas planejadas</h3>
                     <p className="text-xs text-ink-400">Organize suas próximas visitas.</p>
                   </div>
-                  <button
-                    onClick={() => {
-                      const consult = (links || []).find(l => effectiveType(l as FolhaLink) === 'Consultoria')
-                      const client = (consult as { client?: { id: string; name: string } } | undefined)?.client
-                      if (client) setAgendaForm({ clientId: client.id, clientName: client.name })
-                    }}
-                    className="btn-primary text-sm shrink-0"
-                  >
-                    <Plus size={16} /> Agendar
-                  </button>
+                {(() => {
+                  const selfLinks = (links || []).filter(l => effectiveType(l as FolhaLink) === 'Consultoria' && (l as { agenda_mode?: string }).agenda_mode !== 'gestor')
+                  if (selfLinks.length === 0) return null
+                  return (
+                    <button
+                      onClick={() => {
+                        const client = (selfLinks[0] as { client?: { id: string; name: string } }).client
+                        if (client) setAgendaForm({ clientId: client.id, clientName: client.name })
+                      }}
+                      className="btn-primary text-sm shrink-0"
+                    >
+                      <Plus size={16} /> Agendar
+                    </button>
+                  )
+                })()}
                 </div>
+                {(links || []).some(l => effectiveType(l as FolhaLink) === 'Consultoria' && (l as { agenda_mode?: string }).agenda_mode === 'gestor') && (
+                  <p className="text-xs text-ink-500 bg-orange-50 rounded-lg px-3 py-2">Alguns clientes têm a agenda montada pelo RH — esses dias aparecem aqui e não podem ser alterados por você.</p>
+                )}
                 <p className="text-xs text-ink-500 bg-ink-50 rounded-lg px-3 py-2">No dia da visita, toque em <strong className="text-primary-700">Registrar</strong> para confirmar e lançar a hora de entrada e saída.</p>
                 {agenda?.length === 0 && (
                   <div className="text-center py-6">
@@ -1481,7 +1489,7 @@ export default function PortalHome() {
               <h3 className="font-semibold text-gray-900">Planejar visita</h3>
               <p className="text-xs text-gray-400 mt-0.5">Escolha só o dia que pretende ir. O horário você lança no dia, ao registrar.</p>
               <div className="flex gap-2 mt-2 flex-wrap">
-                {links?.map(l => {
+                {links?.filter(l => (l as { agenda_mode?: string }).agenda_mode !== 'gestor').map(l => {
                   const c = (l as { client?: { id: string; name: string } }).client
                   if (!c) return null
                   return (

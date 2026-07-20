@@ -532,6 +532,16 @@ export default function VacancyDetail() {
     onError: (e: Error) => toast.error(e.message),
   })
 
+  // Reabrir uma vaga fechada (voltar atrás)
+  const reopenVacancy = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase.from('vacancies').update({ status: 'Aberta' }).eq('id', id)
+      if (error) throw error
+    },
+    onSuccess: () => { toast.success('Vaga reaberta!'); qc.invalidateQueries({ queryKey: ['vacancy', id] }); qc.invalidateQueries({ queryKey: ['vacancies'] }) },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
   // Precisa de mais gente: +1 posição e reabre
   const increasePositions = useMutation({
     mutationFn: async () => {
@@ -855,6 +865,11 @@ export default function VacancyDetail() {
               <button onClick={() => increasePositions.mutate()} disabled={increasePositions.isPending} className="btn-secondary text-sm">＋ Aumentar posições</button>
               <button onClick={() => setShowExtendModal(true)} className="btn-secondary text-sm">Prolongar contrato</button>
             </>
+          )}
+          {vacancy.status === 'Fechada' && (
+            <button onClick={() => reopenVacancy.mutate()} disabled={reopenVacancy.isPending} className="btn-primary text-sm">
+              <CheckCircle size={16} /> Reabrir vaga
+            </button>
           )}
           <button onClick={() => setEscalarOpen(true)} className="btn-secondary text-sm border-orange-200 text-orange-600 hover:bg-orange-50">
             <Zap size={16} /> Escalar (avulso)

@@ -599,21 +599,22 @@ export default function VacancyDetail() {
     enabled: !!interests && !!vacancy,
   })
 
-  // Auto-corrige status e hired_count quando colaboradores ficam inativos fora do fluxo normal
+  // Auto-corrige status e hired_count SÓ quando o nº de contratados realmente mudou
+  // (ex: alguém ficou inativo fora do fluxo normal). Se nada mudou, respeita o status
+  // definido na mão — senão "Completar Vaga" era desfeito sozinho no F5.
   useEffect(() => {
     if (!vacancy || hiredEmps === undefined || vacancy.status === 'Fechada') return
     const activeCount = hiredEmps
       .filter(h => h.link?.service_type !== 'Volante' && h.emp?.status === 'Ativo').length
+    if (activeCount === (vacancy.hired_count ?? 0)) return
     const positions = vacancy.positions_count || 1
     const expectedStatus = activeCount === 0 ? 'Aberta'
       : activeCount >= positions ? (vacancy.status === 'Atuando' ? 'Atuando' : 'Preenchida')
       : 'Aberta'
-    if (expectedStatus !== vacancy.status || activeCount !== (vacancy.hired_count ?? activeCount)) {
-      supabase.from('vacancies')
-        .update({ status: expectedStatus, hired_count: activeCount })
-        .eq('id', id)
-        .then(() => qc.invalidateQueries({ queryKey: ['vacancy', id] }))
-    }
+    supabase.from('vacancies')
+      .update({ status: expectedStatus, hired_count: activeCount })
+      .eq('id', id)
+      .then(() => qc.invalidateQueries({ queryKey: ['vacancy', id] }))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hiredEmps])
 

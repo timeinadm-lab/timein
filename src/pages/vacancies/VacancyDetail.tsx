@@ -866,9 +866,9 @@ export default function VacancyDetail() {
               <button onClick={() => setShowExtendModal(true)} className="btn-secondary text-sm">Prolongar contrato</button>
             </>
           )}
-          {vacancy.status === 'Fechada' && (
-            <button onClick={() => reopenVacancy.mutate()} disabled={reopenVacancy.isPending} className="btn-primary text-sm">
-              <CheckCircle size={16} /> Reabrir vaga
+          {vacancy.status !== 'Aberta' && (
+            <button onClick={() => reopenVacancy.mutate()} disabled={reopenVacancy.isPending} className="btn-secondary text-sm">
+              <ArrowLeft size={16} /> Reabrir vaga
             </button>
           )}
           <button onClick={() => setEscalarOpen(true)} className="btn-secondary text-sm border-orange-200 text-orange-600 hover:bg-orange-50">

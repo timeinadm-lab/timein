@@ -778,9 +778,16 @@ export default function PaymentList() {
         <div className="space-y-4">
           {isLoading || folhaLoading
             ? <SkeletonRows count={6} />
-            : (folhaData?.length ?? 0) === 0
+            : (folhaData?.length ?? 0) === 0 && unlinkedPayments.length === 0
               ? <div className="card p-8 text-center text-gray-400">Nenhum colaborador com vínculo ativo e valor definido. Adicione um vínculo com salário para aparecer aqui.</div>
               : <>
+              {/* Sem vínculo ativo, mas existem lançamentos avulsos no mês —
+                  mostra o aviso e deixa "Outros Lançamentos" visível abaixo */}
+              {(folhaData?.length ?? 0) === 0 && (
+                <div className="card p-5 text-center text-gray-400 text-sm">
+                  Nenhum colaborador com vínculo ativo e valor definido — abaixo estão os lançamentos avulsos deste mês.
+                </div>
+              )}
               {/* Resumo cards */}
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 {[

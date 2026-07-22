@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Download, Check, RefreshCw, AlertTriangle, ChevronDown, ChevronUp, BarChart3 } from 'lucide-react'
+import { Plus, Download, Check, RefreshCw, AlertTriangle, ChevronDown, ChevronUp, BarChart3, Trash2 } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { formatDate, formatCurrency } from '../../lib/utils'
 import { exportToCSV } from '../../lib/exportUtils'
@@ -652,6 +652,16 @@ export default function PaymentList() {
     onError: (e: Error) => toast.error(e.message),
   })
 
+  // Excluir de vez — só permitido para lançamento já Cancelado (2 passos de segurança)
+  const deletePayment = useMutation({
+    mutationFn: async (paymentId: string) => {
+      const { error } = await supabase.from('payments').delete().eq('id', paymentId)
+      if (error) throw error
+    },
+    onSuccess: () => { toast.success('Lançamento excluído.'); qc.invalidateQueries({ queryKey: ['payments'] }) },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
   // Helper: render a payment row table (used for unlinked/manual payments)
   const PaymentTable = ({ list }: { list: typeof unlinkedPayments }) => (
     list.length === 0
@@ -703,6 +713,12 @@ export default function PaymentList() {
                         </>
                       )}
                       <button onClick={() => navigate(`/pagamentos/${p.id}/editar`)} className="btn-ghost text-xs">Editar</button>
+                      {p.status === 'Cancelado' && (
+                        <button
+                          onClick={() => { if (window.confirm('Excluir este lançamento de vez? Não dá pra desfazer.')) deletePayment.mutate(p.id) }}
+                          className="btn-ghost text-xs text-red-500 hover:text-red-700 flex items-center gap-1"
+                        ><Trash2 size={12} />Excluir</button>
+                      )}
                     </div>
                   </td>
                 </tr>

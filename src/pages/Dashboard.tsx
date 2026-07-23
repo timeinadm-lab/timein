@@ -367,6 +367,19 @@ export default function Dashboard() {
     },
   })
 
+  // Minhas atividades de hoje (checklist do administrativo)
+  const { data: myActivities } = useQuery({
+    queryKey: ['dashboard-my-activities', profile?.id],
+    queryFn: async () => {
+      const today = now.toISOString().slice(0, 10)
+      const { data, error } = await supabase.from('activity_logs')
+        .select('id,activity_name,done').eq('user_id', profile?.id).eq('activity_date', today)
+      if (error) { console.warn('activity_logs:', error.message); return [] }
+      return data || []
+    },
+    enabled: !!profile?.id,
+  })
+
   const addPriority = useMutation({
     mutationFn: async () => {
       if (!priorityText.trim()) throw new Error('Escreva a prioridade')
@@ -1149,6 +1162,60 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+      {/* ── Minhas Atividades de hoje (checklist com progresso) ── */}
+      {(myActivities?.length ?? 0) > 0 && (() => {
+        const total = myActivities!.length
+        const feitas = myActivities!.filter(a => (a as { done?: boolean }).done === true).length
+        const naoFeitas = myActivities!.filter(a => (a as { done?: boolean }).done === false).length
+        const pendentes = total - feitas - naoFeitas
+        const pct = Math.round((feitas / total) * 100)
+        // vermelho → amarelo → verde conforme completa
+        const cor = pct >= 67 ? '#22c55e' : pct >= 34 ? '#f59e0b' : '#ef4444'
+        const pie = [
+          { name: 'Feitas', value: feitas, color: cor },
+          { name: 'Não feitas', value: naoFeitas, color: '#fca5a5' },
+          { name: 'Pendentes', value: pendentes, color: '#e5e7eb' },
+        ].filter(d => d.value > 0)
+        return (
+          <div className="card p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="section-title text-base">
+                <Clipboard size={16} className="text-primary-600" /> Minhas Atividades de hoje
+              </h2>
+              <button onClick={() => navigate('/atividades')} className="text-xs text-primary-600 hover:underline font-medium">Abrir →</button>
+            </div>
+            <div className="flex items-center gap-5 flex-wrap">
+              <div className="h-32 w-32 relative shrink-0">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={pie} cx="50%" cy="50%" innerRadius={38} outerRadius={58} dataKey="value" paddingAngle={3} stroke="none">
+                      {pie.map((e, i) => <Cell key={i} fill={e.color} />)}
+                    </Pie>
+                    <Tooltip />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                  <span className="text-2xl font-display font-extrabold tnum" style={{ color: cor }}>{pct}%</span>
+                  <span className="text-[10px] text-ink-400">{feitas}/{total} feitas</span>
+                </div>
+              </div>
+              <div className="flex-1 min-w-[140px] space-y-1.5">
+                {myActivities!.slice(0, 5).map(a => {
+                  const done = (a as { done?: boolean }).done
+                  return (
+                    <div key={a.id} className="flex items-center gap-2 text-sm">
+                      <span className={`w-2 h-2 rounded-full shrink-0 ${done === true ? 'bg-green-500' : done === false ? 'bg-red-400' : 'bg-ink-200'}`} />
+                      <span className={`truncate ${done === true ? 'text-ink-400 line-through' : 'text-ink-700'}`}>{(a as { activity_name: string }).activity_name}</span>
+                    </div>
+                  )
+                })}
+                {total > 5 && <p className="text-xs text-ink-400">+{total - 5} atividade(s)</p>}
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* ── KPI Cards ── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

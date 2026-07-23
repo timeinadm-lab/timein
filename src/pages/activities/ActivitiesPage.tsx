@@ -45,13 +45,15 @@ export default function ActivitiesPage() {
   })
   const nameOf = (id: string | null) => people?.find(p => p.id === id)?.full_name || '—'
 
+  // Lista pré-cadastrada é POR USUÁRIO (cada login tem a sua)
   const { data: types } = useQuery({
-    queryKey: ['activity-types'],
+    queryKey: ['activity-types', uid],
     queryFn: async () => {
-      const { data, error } = await supabase.from('activity_types').select('id,name').order('name')
+      const { data, error } = await supabase.from('activity_types').select('id,name').eq('user_id', uid).order('name')
       if (error) throw error
       return (data || []) as ActType[]
     },
+    enabled: !!uid,
   })
 
   const { data: dayLogs } = useQuery({
@@ -87,10 +89,10 @@ export default function ActivitiesPage() {
       if (!n) throw new Error('Escreva o nome')
       // evita duplicar
       if (types?.some(t => t.name.toLowerCase() === n.toLowerCase())) return
-      const { error } = await supabase.from('activity_types').insert({ name: n })
+      const { error } = await supabase.from('activity_types').insert({ name: n, user_id: uid })
       if (error) throw error
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['activity-types'] }); setNewType('') },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['activity-types', uid] }); setNewType('') },
     onError: (e: Error) => toast.error(e.message),
   })
 
@@ -99,7 +101,7 @@ export default function ActivitiesPage() {
       const { error } = await supabase.from('activity_types').delete().eq('id', typeId)
       if (error) throw error
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['activity-types'] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['activity-types', uid] }),
     onError: (e: Error) => toast.error(e.message),
   })
 
@@ -113,14 +115,14 @@ export default function ActivitiesPage() {
         notes: notes.trim() || null, done: null, assigned_by: uid,
       })
       if (error) throw error
-      // Vira memória: atividade digitada no "Outro" entra na lista pré-cadastrada
+      // Vira memória: atividade digitada no "Outro" entra na MINHA lista pré-cadastrada
       if (isOther && !types?.some(t => t.name.toLowerCase() === name.toLowerCase())) {
-        await supabase.from('activity_types').insert({ name })
+        await supabase.from('activity_types').insert({ name, user_id: uid })
       }
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['activity-logs-day', ownerId, date] })
-      qc.invalidateQueries({ queryKey: ['activity-types'] })
+      qc.invalidateQueries({ queryKey: ['activity-types', uid] })
       setPickedName(''); setIsOther(false); setCustomName(''); setNotes('')
     },
     onError: (e: Error) => toast.error(e.message),

@@ -41,6 +41,7 @@ import TemplateList from './pages/templates/TemplateList'
 import TemplateEditor from './pages/templates/TemplateEditor'
 
 import Chat from './pages/chat/Chat'
+import ActivitiesPage from './pages/activities/ActivitiesPage'
 import UserManagement from './pages/admin/UserManagement'
 import ProfilePage from './pages/admin/ProfilePage'
 import InspectionPublic from './pages/inspections/InspectionPublic'
@@ -125,8 +126,11 @@ export default function App() {
               {/* Chat */}
               <Route path="chat" element={<Chat />} />
 
-              {/* Usuários (recrutador também acessa) */}
-              <Route path="usuarios" element={<UserManagement />} />
+              {/* Atividades do administrativo */}
+              <Route path="atividades" element={<ActivitiesPage />} />
+
+              {/* Admin (chefe only) — protege o PIN de exclusão e a gestão de contas */}
+              <Route path="usuarios" element={<RequireChefe><UserManagement /></RequireChefe>} />
 
               {/* Profile */}
               <Route path="perfil" element={<ProfilePage />} />

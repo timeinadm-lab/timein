@@ -3,7 +3,7 @@ import { NavLink, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Users, FileText, ShieldCheck, UserCheck,
   CreditCard, Calendar, MessageSquare, Settings, LogOut,
-  ChevronLeft, ChevronRight, Briefcase, UserPlus, X, ClipboardList, UserCog
+  ChevronLeft, ChevronRight, Briefcase, UserPlus, X, ClipboardList, UserCog, ListChecks
 } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import { getInitials } from '../../lib/utils'
@@ -18,6 +18,7 @@ const CHEFE_MENU = [
   { icon: UserPlus, label: 'Candidatos', path: '/candidatos' },
   { icon: CreditCard, label: 'Pagamentos', path: '/pagamentos' },
   { icon: Calendar, label: 'Agenda', path: '/agenda' },
+  { icon: ListChecks, label: 'Atividades', path: '/atividades' },
   { icon: MessageSquare, label: 'Chat', path: '/chat' },
   { icon: Settings, label: 'Usuários', path: '/usuarios' },
 ]
@@ -32,8 +33,8 @@ const RECRUTADOR_MENU = [
   { icon: ClipboardList, label: 'Visitas', path: '/visitas' },
   { icon: FileText, label: 'Templates', path: '/templates' },
   { icon: Calendar, label: 'Agenda', path: '/agenda' },
+  { icon: ListChecks, label: 'Atividades', path: '/atividades' },
   { icon: MessageSquare, label: 'Chat', path: '/chat' },
-  { icon: Settings, label: 'Usuários', path: '/usuarios' },
 ]
 
 interface Props {

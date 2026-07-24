@@ -2326,6 +2326,7 @@ function VisaoGeral({
     },
   })
 
+  // Próximas visitas agendadas (lista) — só do dia de hoje em diante
   const { data: agendaItems } = useQuery({
     queryKey: ['visao-agenda', employeeId],
     queryFn: async () => {
@@ -2341,11 +2342,28 @@ function VisaoGeral({
     },
   })
 
+  // Agenda do MÊS selecionado — pra pintar os dias agendados no calendário (igual ao portal)
+  const { data: monthAgenda } = useQuery({
+    queryKey: ['visao-agenda-cal', employeeId, selectedMonth],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('nutritionist_agenda')
+        .select('id, planned_date, planned_time, notes, client:clients(name), unit:client_units(name)')
+        .eq('employee_id', employeeId)
+        .gte('planned_date', monthStart)
+        .lte('planned_date', monthEnd)
+        .order('planned_date')
+      if (error) throw error
+      return data || []
+    },
+  })
+
   // Calendar data
   const daysInMonth = getDaysInMonth(monthDate)
   const firstDow = getDay(startOfMonth(monthDate)) // 0=Sun
   const today = new Date().toISOString().slice(0, 10)
   const visitedDays = new Set(visits?.map(v => Number(v.visit_date?.slice(8, 10))) ?? [])
+  const plannedDays = new Set((monthAgenda || []).map(a => Number(a.planned_date?.slice(8, 10))))
   const todayDay = selectedMonth === format(new Date(), 'yyyy-MM') ? new Date().getDate() : null
 
   // Stats
@@ -2470,15 +2488,20 @@ function VisaoGeral({
           {Array.from({ length: daysInMonth }).map((_, i) => {
             const day = i + 1
             const hasVisit = visitedDays.has(day)
+            const isPlanned = plannedDays.has(day) && !hasVisit  // agendado mas ainda não feito
             const isToday = todayDay === day
             const isFuture = selectedMonth === format(new Date(), 'yyyy-MM') && day > (new Date().getDate())
+            const clickable = hasVisit || isPlanned
             return (
               <button
                 key={day}
-                onClick={() => hasVisit && setDayDetail(day)}
-                disabled={!hasVisit}
+                onClick={() => clickable && setDayDetail(day)}
+                disabled={!clickable}
                 className={`aspect-square flex items-center justify-center rounded-lg text-xs font-medium transition-colors
-                  ${hasVisit ? 'bg-primary-600 text-white shadow-sm hover:bg-primary-700 cursor-pointer' : isToday ? 'ring-2 ring-primary-400 text-primary-700 bg-primary-50' : isFuture ? 'text-gray-300' : 'text-gray-500'}
+                  ${hasVisit ? 'bg-primary-600 text-white shadow-sm hover:bg-primary-700 cursor-pointer'
+                    : isPlanned ? 'bg-amber-100 text-amber-800 border border-amber-300 hover:bg-amber-200 cursor-pointer'
+                    : isToday ? 'ring-2 ring-primary-400 text-primary-700 bg-primary-50' : isFuture ? 'text-gray-300' : 'text-gray-500'}
+                  ${isPlanned && isToday ? 'ring-2 ring-primary-400' : ''}
                 `}
               >
                 {day}
@@ -2487,8 +2510,9 @@ function VisaoGeral({
           })}
         </div>
 
-        <div className="flex items-center gap-4 mt-3 text-xs text-gray-500">
-          <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-primary-600 inline-block" /> Trabalhou <span className="text-gray-400">(clique pra ver)</span></span>
+        <div className="flex items-center gap-4 mt-3 text-xs text-gray-500 flex-wrap">
+          <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-primary-600 inline-block" /> Trabalhou</span>
+          <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-amber-100 border border-amber-300 inline-block" /> Agendado (pendente)</span>
           <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded ring-2 ring-primary-400 inline-block" /> Hoje</span>
         </div>
       </div>
@@ -2497,6 +2521,7 @@ function VisaoGeral({
       {dayDetail !== null && (() => {
         const dayStr = `${selectedMonth}-${String(dayDetail).padStart(2, '0')}`
         const dayVisits = (visits || []).filter(v => v.visit_date === dayStr)
+        const dayPlanned = (monthAgenda || []).filter(a => a.planned_date === dayStr)
         const dur = (a?: string | null, b?: string | null) => {
           if (!a || !b) return 0
           const [h1, m1] = a.slice(0, 5).split(':').map(Number)
@@ -2511,7 +2536,20 @@ function VisaoGeral({
                 <h3 className="font-semibold text-gray-900">{formatDate(dayStr)}</h3>
                 <button onClick={() => setDayDetail(null)} className="text-gray-400 hover:text-gray-700 p-1"><X size={18} /></button>
               </div>
-              {dayVisits.length === 0 && <p className="text-sm text-gray-400">Sem registro neste dia.</p>}
+
+              {/* Agendado (pendente) — o que ela deveria fazer neste dia */}
+              {dayPlanned.length > 0 && dayVisits.length === 0 && dayPlanned.map(a => (
+                <div key={a.id} className="rounded-xl border border-amber-200 bg-amber-50 p-3 space-y-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="font-semibold text-sm text-amber-900">{(a.client as { name?: string })?.name || '—'}{(a.unit as { name?: string })?.name ? ` · ${(a.unit as { name?: string }).name}` : ''}</p>
+                    <span className="badge bg-amber-100 text-amber-700 text-xs">Agendado</span>
+                  </div>
+                  <p className="text-xs text-amber-700">{a.planned_time ? `Horário: ${a.planned_time.slice(0, 5)}` : 'Sem horário definido'}{a.notes ? ` · ${a.notes}` : ''}</p>
+                  <p className="text-[11px] text-amber-600">Ainda não registrado no portal.</p>
+                </div>
+              ))}
+
+              {dayVisits.length === 0 && dayPlanned.length === 0 && <p className="text-sm text-gray-400">Sem registro neste dia.</p>}
               {dayVisits.map(v => {
                 const net = Math.max(0, dur(v.check_in, v.check_out) - dur(v.break_start, v.break_end))
                 return (

@@ -47,6 +47,7 @@ export default function Dashboard() {
   const [showPriorityForm, setShowPriorityForm] = useState(false)
   const [priorityText, setPriorityText] = useState('')
   const [priorityLevel, setPriorityLevel] = useState<'red' | 'amber'>('amber')
+  const [confetti, setConfetti] = useState(false)
 
   const handleBackupData = async () => {
     setShowBackupMenu(false)
@@ -406,6 +407,17 @@ export default function Dashboard() {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['custom-priorities'] }); toast.success('Prioridade concluída.') },
     onError: (e: Error) => toast.error(e.message),
   })
+
+  // Marcar atividade feito/desfeito direto no dashboard
+  const toggleActivity = useMutation({
+    mutationFn: async ({ id, done }: { id: string; done: boolean | null }) => {
+      const { error } = await supabase.from('activity_logs').update({ done }).eq('id', id)
+      if (error) throw error
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['dashboard-my-activities', profile?.id] }),
+    onError: (e: Error) => toast.error(e.message),
+  })
+  const fireConfetti = () => { setConfetti(true); setTimeout(() => setConfetti(false), 1800) }
 
   const currentMonthStr = now.toISOString().slice(0, 7) // 'yyyy-MM'
   const monthStartStr = startOfMonth(now).toISOString().slice(0, 10)
@@ -1177,8 +1189,23 @@ export default function Dashboard() {
           { name: 'Não feitas', value: naoFeitas, color: '#fca5a5' },
           { name: 'Pendentes', value: pendentes, color: '#e5e7eb' },
         ].filter(d => d.value > 0)
+        const restante = total - feitas
+        const microcopy = feitas === 0 ? 'Bora começar 👊'
+          : restante === 0 ? '🎉 Tudo feito hoje!'
+          : restante === 1 ? 'Falta só 1! 💪'
+          : `Mandou bem — faltam ${restante}`
+        const CONF = ['#22c55e', '#f59e0b', '#3b82f6', '#ef4444', '#a855f7', '#ec4899']
         return (
-          <div className="card p-5">
+          <div className="card p-5 relative overflow-hidden">
+            {confetti && (
+              <div className="pointer-events-none absolute inset-0 z-10">
+                {Array.from({ length: 34 }).map((_, i) => (
+                  <span key={i} className="absolute top-0 w-2 h-2 rounded-[2px]"
+                    style={{ left: `${Math.random() * 100}%`, background: CONF[i % CONF.length],
+                      animation: `confetti-fall ${1 + Math.random() * 0.8}s ease-in forwards`, animationDelay: `${Math.random() * 0.3}s` }} />
+                ))}
+              </div>
+            )}
             <div className="flex items-center justify-between mb-3">
               <h2 className="section-title text-base">
                 <Clipboard size={16} className="text-primary-600" /> Minhas Atividades de hoje
@@ -1196,21 +1223,30 @@ export default function Dashboard() {
                   </PieChart>
                 </ResponsiveContainer>
                 <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                  <span className="text-2xl font-display font-extrabold tnum" style={{ color: cor }}>{pct}%</span>
+                  <span className="text-2xl font-display font-extrabold tnum transition-colors duration-500" style={{ color: cor }}>{pct}%</span>
                   <span className="text-[10px] text-ink-400">{feitas}/{total} feitas</span>
                 </div>
               </div>
-              <div className="flex-1 min-w-[140px] space-y-1.5">
-                {myActivities!.slice(0, 5).map(a => {
-                  const done = (a as { done?: boolean }).done
+              <div className="flex-1 min-w-[160px] space-y-1">
+                <p className="text-xs font-semibold mb-1" style={{ color: restante === 0 ? '#16a34a' : '#78776f' }}>{microcopy}</p>
+                {myActivities!.slice(0, 6).map(a => {
+                  const done = (a as { done?: boolean }).done === true
                   return (
-                    <div key={a.id} className="flex items-center gap-2 text-sm">
-                      <span className={`w-2 h-2 rounded-full shrink-0 ${done === true ? 'bg-green-500' : done === false ? 'bg-red-400' : 'bg-ink-200'}`} />
-                      <span className={`truncate ${done === true ? 'text-ink-400 line-through' : 'text-ink-700'}`}>{(a as { activity_name: string }).activity_name}</span>
-                    </div>
+                    <button key={a.id}
+                      onClick={() => {
+                        const next = done ? null : true
+                        if (next === true && feitas + 1 === total) fireConfetti()
+                        toggleActivity.mutate({ id: a.id, done: next })
+                      }}
+                      className="w-full flex items-center gap-2 text-sm text-left group py-0.5">
+                      <span className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-all ${done ? 'bg-green-500 border-green-500 animate-check-pop' : 'border-ink-300 group-hover:border-green-400'}`}>
+                        {done && <Check size={12} className="text-white" strokeWidth={3.5} />}
+                      </span>
+                      <span className={`truncate transition-colors ${done ? 'text-ink-400 line-through' : 'text-ink-700 group-hover:text-ink-900'}`}>{(a as { activity_name: string }).activity_name}</span>
+                    </button>
                   )
                 })}
-                {total > 5 && <p className="text-xs text-ink-400">+{total - 5} atividade(s)</p>}
+                {total > 6 && <p className="text-xs text-ink-400 pt-0.5">+{total - 6} atividade(s)</p>}
               </div>
             </div>
           </div>

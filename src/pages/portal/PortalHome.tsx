@@ -602,7 +602,7 @@ export default function PortalHome() {
 
       {/* Tabs — 5 abas compactas */}
       <div className="sticky top-0 z-20 bg-[#f6f7f6]/90 backdrop-blur border-b border-ink-100">
-        <div className="max-w-lg mx-auto flex gap-1 p-2">
+        <div className="max-w-lg mx-auto flex gap-1 px-4 py-2">
           {([
             ['home',    Home,          'Início',   null],
             ['folha',   Clock,         'Ponto',    null],

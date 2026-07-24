@@ -1791,6 +1791,39 @@ export default function EmployeeDetail() {
             </div>
           )}
 
+          {/* Calendário do mês — clique num dia pra montar o que ele faz naquele dia */}
+          {(() => {
+            const [yr, mo] = agendaMonth.split('-').map(Number)
+            const firstWeekday = new Date(yr, mo - 1, 1).getDay()
+            const daysInMonth = new Date(yr, mo, 0).getDate()
+            const todayStr = new Date().toISOString().slice(0, 10)
+            const byDay: Record<string, number> = {}
+            ;(agendaItems || []).forEach((a: { planned_date: string }) => { byDay[a.planned_date] = (byDay[a.planned_date] || 0) + 1 })
+            const cells: (number | null)[] = [...Array(firstWeekday).fill(null), ...Array.from({ length: daysInMonth }, (_, i) => i + 1)]
+            return (
+              <div>
+                <p className="text-xs text-gray-400 mb-2">Clique num dia para adicionar o que ele deve fazer.</p>
+                <div className="grid grid-cols-7 gap-1 text-center">
+                  {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'].map((d, i) => <div key={i} className="text-[10px] font-semibold text-gray-400 py-1">{d}</div>)}
+                  {cells.map((day, i) => {
+                    if (day === null) return <div key={i} />
+                    const dateStr = `${agendaMonth}-${String(day).padStart(2, '0')}`
+                    const count = byDay[dateStr] || 0
+                    const isToday = dateStr === todayStr
+                    return (
+                      <button key={i}
+                        onClick={() => { setAgendaForm(p => ({ ...p, planned_date: dateStr })); setShowAgendaForm(true) }}
+                        className={`aspect-square rounded-lg flex items-center justify-center text-sm transition-colors relative ${count > 0 ? 'bg-orange-100 text-orange-800 font-bold hover:bg-orange-200' : 'hover:bg-gray-100 text-gray-700'} ${isToday ? 'ring-2 ring-primary-400' : ''}`}>
+                        {day}
+                        {count > 0 && <span className="absolute bottom-1 text-[9px] font-bold text-orange-600">●{count > 1 ? count : ''}</span>}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )
+          })()}
+
           {showAgendaForm && (
             <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 space-y-3">
               <p className="text-sm font-medium text-orange-800">Nova data na agenda</p>

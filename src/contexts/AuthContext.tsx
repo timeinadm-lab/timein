@@ -7,7 +7,8 @@ interface AuthContextType {
   session: Session | null
   user: User | null
   profile: UserProfile | null
-  role: 'chefe' | 'recrutador' | null
+  role: 'chefe' | 'recrutador' | null       // efetivo: contabilidade é tratado como chefe (acesso total)
+  isContabilidade: boolean                  // só o Financeiro usa isso
   loading: boolean
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>
   signOut: () => void
@@ -71,12 +72,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     window.location.href = '/login'
   }
 
+  const realRole = profile?.role ?? null
+  // Contabilidade herda todo o acesso do chefe; o role "efetivo" vira 'chefe'
+  const effectiveRole = realRole === 'contabilidade' ? 'chefe' : realRole
+
   return (
     <AuthContext.Provider value={{
       session,
       user: session?.user ?? null,
       profile,
-      role: profile?.role ?? null,
+      role: effectiveRole,
+      isContabilidade: realRole === 'contabilidade',
       loading,
       signIn,
       signOut,

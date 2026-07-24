@@ -1,4 +1,4 @@
-export type Role = 'chefe' | 'recrutador'
+export type Role = 'chefe' | 'recrutador' | 'contabilidade'
 
 export interface UserProfile {
   id: string

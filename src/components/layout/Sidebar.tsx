@@ -3,7 +3,7 @@ import { NavLink, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Users, FileText, ShieldCheck, UserCheck,
   CreditCard, Calendar, MessageSquare, Settings, LogOut,
-  ChevronLeft, ChevronRight, Briefcase, UserPlus, X, ClipboardList, UserCog, ListChecks
+  ChevronLeft, ChevronRight, Briefcase, UserPlus, X, ClipboardList, UserCog, ListChecks, Wallet
 } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import { getInitials } from '../../lib/utils'
@@ -45,9 +45,13 @@ interface Props {
 }
 
 export default function Sidebar({ collapsed, onCollapse, mobileOpen, onMobileClose }: Props) {
-  const { profile, role, signOut } = useAuth()
+  const { profile, role, isContabilidade, signOut } = useAuth()
   const navigate = useNavigate()
-  const menu = role === 'chefe' ? CHEFE_MENU : RECRUTADOR_MENU
+  const baseMenu = role === 'chefe' ? CHEFE_MENU : RECRUTADOR_MENU
+  // Contabilidade tem tudo do chefe + o Financeiro
+  const menu = isContabilidade
+    ? [...baseMenu, { icon: Wallet, label: 'Financeiro', path: '/financeiro' }]
+    : baseMenu
 
   const handleSignOut = () => { signOut() }
 
@@ -73,8 +77,8 @@ export default function Sidebar({ collapsed, onCollapse, mobileOpen, onMobileClo
             </div>
             <div className="overflow-hidden">
               <p className="text-sm font-semibold text-ink-900 truncate leading-tight">{profile?.full_name}</p>
-              <span className={`badge text-[10px] mt-0.5 ${role === 'chefe' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
-                {role === 'chefe' ? 'Chefe' : 'Recrutador'}
+              <span className={`badge text-[10px] mt-0.5 ${isContabilidade ? 'bg-emerald-100 text-emerald-700' : role === 'chefe' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
+                {isContabilidade ? 'Contabilidade' : role === 'chefe' ? 'Chefe' : 'Recrutador'}
               </span>
             </div>
           </div>

@@ -2,7 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from 'react-hot-toast'
 import { AuthProvider } from './contexts/AuthContext'
-import { RequireAuth, RequireChefe } from './components/layout/RequireAuth'
+import { RequireAuth, RequireChefe, RequireContabilidade } from './components/layout/RequireAuth'
 import Layout from './components/layout/Layout'
 
 import Login from './pages/Login'
@@ -42,6 +42,7 @@ import TemplateEditor from './pages/templates/TemplateEditor'
 
 import Chat from './pages/chat/Chat'
 import ActivitiesPage from './pages/activities/ActivitiesPage'
+import FinanceiroPage from './pages/financeiro/FinanceiroPage'
 import UserManagement from './pages/admin/UserManagement'
 import ProfilePage from './pages/admin/ProfilePage'
 import InspectionPublic from './pages/inspections/InspectionPublic'
@@ -128,6 +129,9 @@ export default function App() {
 
               {/* Atividades do administrativo */}
               <Route path="atividades" element={<ActivitiesPage />} />
+
+              {/* Financeiro — só contabilidade */}
+              <Route path="financeiro" element={<RequireContabilidade><FinanceiroPage /></RequireContabilidade>} />
 
               {/* Admin (chefe only) — protege o PIN de exclusão e a gestão de contas */}
               <Route path="usuarios" element={<RequireChefe><UserManagement /></RequireChefe>} />

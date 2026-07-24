@@ -11,9 +11,9 @@ export default function UserManagement() {
   const { user: currentUser, role } = useAuth()
   const qc = useQueryClient()
   const [editingId, setEditingId] = useState<string | null>(null)
-  const [editRole, setEditRole] = useState<'chefe' | 'recrutador'>('recrutador')
+  const [editRole, setEditRole] = useState<'chefe' | 'recrutador' | 'contabilidade'>('recrutador')
   const [showNewForm, setShowNewForm] = useState(false)
-  const [newForm, setNewForm] = useState({ full_name: '', email: '', password: '', role: 'recrutador' as 'chefe' | 'recrutador' })
+  const [newForm, setNewForm] = useState({ full_name: '', email: '', password: '', role: 'recrutador' as 'chefe' | 'recrutador' | 'contabilidade' })
   const [pinValue, setPinValue] = useState('')
   const [pinConfirm, setPinConfirm] = useState('')
 
@@ -51,7 +51,7 @@ export default function UserManagement() {
   })
 
   const updateRole = useMutation({
-    mutationFn: async ({ id, role }: { id: string; role: 'chefe' | 'recrutador' }) => {
+    mutationFn: async ({ id, role }: { id: string; role: 'chefe' | 'recrutador' | 'contabilidade' }) => {
       const { error } = await supabase.from('user_profiles').update({ role }).eq('id', id)
       if (error) throw error
     },
@@ -155,9 +155,10 @@ export default function UserManagement() {
             <div><label className="label">Senha *</label><input className="input" type="password" required value={newForm.password} onChange={e => setNewForm(p => ({ ...p, password: e.target.value }))} /></div>
             <div>
               <label className="label">Role *</label>
-              <select className="input" value={newForm.role} onChange={e => setNewForm(p => ({ ...p, role: e.target.value as 'chefe' | 'recrutador' }))}>
+              <select className="input" value={newForm.role} onChange={e => setNewForm(p => ({ ...p, role: e.target.value as 'chefe' | 'recrutador' | 'contabilidade' }))}>
                 <option value="recrutador">Recrutador</option>
                 <option value="chefe">Chefe</option>
+                <option value="contabilidade">Contabilidade</option>
               </select>
             </div>
           </div>
@@ -188,16 +189,17 @@ export default function UserManagement() {
                 <div className="flex items-center gap-2">
                   {editingId === u.id ? (
                     <>
-                      <select className="input text-sm w-32" value={editRole} onChange={e => setEditRole(e.target.value as 'chefe' | 'recrutador')}>
+                      <select className="input text-sm w-36" value={editRole} onChange={e => setEditRole(e.target.value as 'chefe' | 'recrutador' | 'contabilidade')}>
                         <option value="recrutador">Recrutador</option>
                         <option value="chefe">Chefe</option>
+                        <option value="contabilidade">Contabilidade</option>
                       </select>
                       <button onClick={() => updateRole.mutate({ id: u.id, role: editRole })} className="btn-ghost p-1 text-green-600"><Check size={16} /></button>
                       <button onClick={() => setEditingId(null)} className="btn-ghost p-1 text-red-500"><X size={16} /></button>
                     </>
                   ) : (
                     <>
-                      <span className={`badge ${u.role === 'chefe' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>{u.role === 'chefe' ? 'Chefe' : 'Recrutador'}</span>
+                      <span className={`badge ${u.role === 'contabilidade' ? 'bg-emerald-100 text-emerald-700' : u.role === 'chefe' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>{u.role === 'contabilidade' ? 'Contabilidade' : u.role === 'chefe' ? 'Chefe' : 'Recrutador'}</span>
                       {!isCurrent && (
                         <>
                           <button onClick={() => { setEditingId(u.id); setEditRole(u.role) }} className="btn-ghost p-2"><Edit size={14} /></button>

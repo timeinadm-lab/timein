@@ -18,3 +18,10 @@ export function RequireChefe({ children }: { children: React.ReactNode }) {
   if (role !== 'chefe') return <Navigate to="/" replace />
   return <>{children}</>
 }
+
+export function RequireContabilidade({ children }: { children: React.ReactNode }) {
+  const { isContabilidade, loading } = useAuth()
+  if (loading) return null
+  if (!isContabilidade) return <Navigate to="/" replace />
+  return <>{children}</>
+}

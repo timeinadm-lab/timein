@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react'
 import { useParams, useNavigate, useLocation, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Edit, Plus, Trash2, CheckCircle, Clock, XCircle, Download, Upload, ExternalLink, AlertTriangle, Star } from 'lucide-react'
+import { ArrowLeft, Edit, Plus, Trash2, CheckCircle, Clock, XCircle, Download, Upload, ExternalLink, AlertTriangle, Star, X, FileText } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { formatDate, formatCurrency, getInitials } from '../../lib/utils'
 import { exportEmployeeToPDF } from '../../lib/exportUtils'
@@ -2305,6 +2305,7 @@ function VisaoGeral({
 }) {
   const { role } = useAuth()
   const [selectedMonth, setSelectedMonth] = useState(format(new Date(), 'yyyy-MM'))
+  const [dayDetail, setDayDetail] = useState<number | null>(null)
 
   const monthDate = new Date(selectedMonth + '-15')
   const monthStart = format(startOfMonth(monthDate), 'yyyy-MM-dd')
@@ -2315,7 +2316,7 @@ function VisaoGeral({
     queryFn: async () => {
       const { data, error } = await supabase
         .from('nutritionist_visits')
-        .select('id, visit_date, check_in, check_out, unit_name, visit_rate, client_id, client:clients(name)')
+        .select('id, visit_date, check_in, check_out, break_start, break_end, unit_name, visit_rate, observations, report_url, is_holiday, is_unavailable, client_id, client:clients(name)')
         .eq('employee_id', employeeId)
         .gte('visit_date', monthStart)
         .lte('visit_date', monthEnd)
@@ -2472,23 +2473,77 @@ function VisaoGeral({
             const isToday = todayDay === day
             const isFuture = selectedMonth === format(new Date(), 'yyyy-MM') && day > (new Date().getDate())
             return (
-              <div
+              <button
                 key={day}
+                onClick={() => hasVisit && setDayDetail(day)}
+                disabled={!hasVisit}
                 className={`aspect-square flex items-center justify-center rounded-lg text-xs font-medium transition-colors
-                  ${hasVisit ? 'bg-primary-600 text-white shadow-sm' : isToday ? 'ring-2 ring-primary-400 text-primary-700 bg-primary-50' : isFuture ? 'text-gray-300' : 'text-gray-500 hover:bg-gray-50'}
+                  ${hasVisit ? 'bg-primary-600 text-white shadow-sm hover:bg-primary-700 cursor-pointer' : isToday ? 'ring-2 ring-primary-400 text-primary-700 bg-primary-50' : isFuture ? 'text-gray-300' : 'text-gray-500'}
                 `}
               >
                 {day}
-              </div>
+              </button>
             )
           })}
         </div>
 
         <div className="flex items-center gap-4 mt-3 text-xs text-gray-500">
-          <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-primary-600 inline-block" /> Trabalhou</span>
+          <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-primary-600 inline-block" /> Trabalhou <span className="text-gray-400">(clique pra ver)</span></span>
           <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded ring-2 ring-primary-400 inline-block" /> Hoje</span>
         </div>
       </div>
+
+      {/* Detalhe do dia — visitas do portal (entrada/saída, valor, obs, relatório) */}
+      {dayDetail !== null && (() => {
+        const dayStr = `${selectedMonth}-${String(dayDetail).padStart(2, '0')}`
+        const dayVisits = (visits || []).filter(v => v.visit_date === dayStr)
+        const dur = (a?: string | null, b?: string | null) => {
+          if (!a || !b) return 0
+          const [h1, m1] = a.slice(0, 5).split(':').map(Number)
+          const [h2, m2] = b.slice(0, 5).split(':').map(Number)
+          return Math.max(0, (h2 * 60 + m2) - (h1 * 60 + m1))
+        }
+        const fmt = (min: number) => `${Math.floor(min / 60)}h${min % 60 > 0 ? `${min % 60}min` : ''}`
+        return (
+          <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-4" onClick={() => setDayDetail(null)}>
+            <div className="bg-white rounded-2xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto p-5 space-y-3" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between">
+                <h3 className="font-semibold text-gray-900">{formatDate(dayStr)}</h3>
+                <button onClick={() => setDayDetail(null)} className="text-gray-400 hover:text-gray-700 p-1"><X size={18} /></button>
+              </div>
+              {dayVisits.length === 0 && <p className="text-sm text-gray-400">Sem registro neste dia.</p>}
+              {dayVisits.map(v => {
+                const net = Math.max(0, dur(v.check_in, v.check_out) - dur(v.break_start, v.break_end))
+                return (
+                  <div key={v.id} className="rounded-xl border border-gray-100 p-3 space-y-2">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <p className="font-semibold text-sm text-gray-900">{(v.client as { name?: string })?.name || '—'}{v.unit_name ? ` · ${v.unit_name}` : ''}</p>
+                      {v.is_unavailable ? <span className="badge bg-red-100 text-red-600 text-xs">Falta</span>
+                        : v.is_holiday ? <span className="badge bg-amber-100 text-amber-700 text-xs">Feriado</span>
+                        : <span className="badge bg-green-100 text-green-700 text-xs">Trabalhou</span>}
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 text-center text-sm">
+                      <div className="bg-gray-50 rounded-lg py-1.5"><p className="font-semibold text-gray-800">{v.check_in?.slice(0, 5) || '—'}</p><p className="text-[10px] text-gray-400">entrada</p></div>
+                      <div className="bg-gray-50 rounded-lg py-1.5"><p className="font-semibold text-gray-800">{v.check_out?.slice(0, 5) || '—'}</p><p className="text-[10px] text-gray-400">saída</p></div>
+                      <div className="bg-gray-50 rounded-lg py-1.5"><p className="font-semibold text-gray-800">{v.check_in && v.check_out ? fmt(net) : '—'}</p><p className="text-[10px] text-gray-400">horas</p></div>
+                    </div>
+                    {(v.break_start || v.break_end) && (
+                      <p className="text-xs text-gray-500">Intervalo: {v.break_start?.slice(0, 5) || '—'} às {v.break_end?.slice(0, 5) || '—'}</p>
+                    )}
+                    {role === 'chefe' && v.visit_rate ? <p className="text-sm font-semibold text-green-700">R$ {Number(v.visit_rate).toFixed(2)}</p> : null}
+                    {v.observations && <p className="text-sm text-gray-600"><span className="text-gray-400 text-xs">Obs:</span> {v.observations}</p>}
+                    <div>
+                      {v.report_url
+                        ? <SignedLink value={v.report_url} bucket="arquivos" className="btn-secondary text-xs inline-flex items-center gap-1 py-1"><FileText size={13} /> Ver relatório</SignedLink>
+                        : <span className="text-xs text-amber-600">Sem relatório anexado</span>}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )
+      })()}
 
       {/* ── Agenda ── */}
       {agendaItems && agendaItems.length > 0 && (

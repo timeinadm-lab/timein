@@ -753,7 +753,7 @@ export default function Dashboard() {
     amberAlerts.push({ text: `Freela: ${name}${client ? ' – ' + client : ''} — ${when}`, path: '/colaboradores' })
   })
 
-  // Aniversários dos colaboradores — hoje e próximos 7 dias 🎂
+  // Aniversários dos colaboradores — só hoje e amanhã (avisa 1 dia antes) 🎂
   employees?.forEach(e => {
     const bd = (e as { birth_date?: string }).birth_date
     if (!bd || e.status === 'Inativo') return
@@ -763,7 +763,7 @@ export default function Dashboard() {
     let next = new Date(now.getFullYear(), bm - 1, bdd)
     if (next < todayMid) next = new Date(now.getFullYear() + 1, bm - 1, bdd)
     const days = Math.round((next.getTime() - todayMid.getTime()) / 86400000)
-    if (days > 7) return
+    if (days > 1) return
     const when = days === 0 ? 'é HOJE! 🎉' : days === 1 ? 'é amanhã' : `${String(bdd).padStart(2, '0')}/${String(bm).padStart(2, '0')} — em ${days} dias`
     amberAlerts.push({
       key: `bday-${e.id}-${next.getFullYear()}`,

@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Edit, MessageCircle, ChevronDown, ChevronUp, FileText, CheckCircle, Clock, Zap } from 'lucide-react'
+import { ArrowLeft, Edit, MessageCircle, ChevronDown, ChevronUp, FileText, CheckCircle, Clock, Zap, Trash2 } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
-import { formatDate, formatWhatsApp, BRAZIL_STATES, DEFAULT_DOCUMENTS } from '../../lib/utils'
+import { useAuth } from '../../contexts/AuthContext'
+import { formatDate, formatWhatsApp, formatCurrency, BRAZIL_STATES, DEFAULT_DOCUMENTS } from '../../lib/utils'
 import { getCityRegion } from '../../lib/geoRegions'
 import { SignedLink } from '../../components/ui/SignedFile'
 import { SkeletonDetail } from '../../components/ui/Skeleton'
@@ -61,6 +62,57 @@ export default function VacancyDetail() {
   // Escalar: vínculo avulso de 1 dia para uma auditoria/serviço pontual
   const [escalarOpen, setEscalarOpen] = useState(false)
   const [escalarForm, setEscalarForm] = useState({ employee_id: '', value: '', date: '', time: '', notes: '', pay_day: '20' })
+
+  // Financeiro da vaga (só contabilidade): o que a EMPRESA recebe por essa vaga
+  const { isContabilidade } = useAuth()
+  const [finOpen, setFinOpen] = useState(false)
+  const [finForm, setFinForm] = useState({ description: '', amount: '', category: '', date: '', recurrence: 'mensal' as 'unica' | 'mensal' | 'ate_data', recurrence_until: '' })
+
+  const { data: vacancyRevenue } = useQuery({
+    queryKey: ['vacancy-revenue', id],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('financial_entries')
+        .select('id, description, amount, category, entry_date, recurrence, recurrence_until')
+        .eq('vacancy_id', id).eq('kind', 'entrada').order('entry_date', { ascending: false })
+      if (error) throw error
+      return data || []
+    },
+    enabled: isContabilidade,
+  })
+
+  const addRevenue = useMutation({
+    mutationFn: async () => {
+      if (!finForm.amount || Number(finForm.amount) <= 0) throw new Error('Informe o valor')
+      if (finForm.recurrence === 'ate_data' && !finForm.recurrence_until) throw new Error('Escolha até quando')
+      const { error } = await supabase.from('financial_entries').insert({
+        kind: 'entrada',
+        description: finForm.description.trim() || `Receita — ${vacancy?.title || 'vaga'}`,
+        amount: Number(finForm.amount),
+        category: finForm.category.trim() || null,
+        client_id: vacancy?.client_id || null,
+        vacancy_id: id,
+        entry_date: finForm.date || new Date().toISOString().slice(0, 10),
+        recurrence: finForm.recurrence,
+        recurrence_until: finForm.recurrence === 'ate_data' ? finForm.recurrence_until : null,
+      })
+      if (error) throw error
+    },
+    onSuccess: () => {
+      toast.success('Receita registrada no Financeiro!')
+      qc.invalidateQueries({ queryKey: ['vacancy-revenue', id] })
+      setFinOpen(false); setFinForm({ description: '', amount: '', category: '', date: '', recurrence: 'mensal', recurrence_until: '' })
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  const delRevenue = useMutation({
+    mutationFn: async (rid: string) => {
+      const { error } = await supabase.from('financial_entries').delete().eq('id', rid)
+      if (error) throw error
+    },
+    onSuccess: () => { toast.success('Removido.'); qc.invalidateQueries({ queryKey: ['vacancy-revenue', id] }) },
+    onError: (e: Error) => toast.error(e.message),
+  })
 
   // Step 1: deadline modal — shown when clicking "Contratar"
   const [deadlineModal, setDeadlineModal] = useState<{ interestId: string; candidateId: string } | null>(null)
@@ -925,6 +977,63 @@ export default function VacancyDetail() {
               <button className="btn-secondary" onClick={() => setEscalarOpen(false)}>Cancelar</button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Financeiro da vaga — só Contabilidade: o que a EMPRESA recebe */}
+      {isContabilidade && (
+        <div className="card p-4 border-l-4 border-l-emerald-400 space-y-3">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <h3 className="font-semibold text-gray-900 text-sm flex items-center gap-1.5">💰 Financeiro da vaga <span className="text-xs font-normal text-gray-400">(o que a empresa recebe)</span></h3>
+            <button onClick={() => setFinOpen(v => !v)} className="btn-secondary text-xs border-emerald-200 text-emerald-700 hover:bg-emerald-50">{finOpen ? 'Cancelar' : '+ Registrar receita'}</button>
+          </div>
+
+          {finOpen && (
+            <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="label">Valor que entra (R$) *</label>
+                  <input className="input" type="number" step="0.01" placeholder="Ex: 3000.00" value={finForm.amount} onChange={e => setFinForm(p => ({ ...p, amount: e.target.value }))} />
+                </div>
+                <div>
+                  <label className="label">Data de início</label>
+                  <input className="input" type="date" value={finForm.date} onChange={e => setFinForm(p => ({ ...p, date: e.target.value }))} />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="label">Descrição <span className="text-gray-400 font-normal">(opcional)</span></label>
+                  <input className="input" placeholder={`Receita — ${vacancy.title}`} value={finForm.description} onChange={e => setFinForm(p => ({ ...p, description: e.target.value }))} />
+                </div>
+              </div>
+              <div>
+                <label className="label">Vence / repete</label>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  {([['unica', 'Só uma vez'], ['mensal', 'Todo mês'], ['ate_data', 'Todo mês até...']] as const).map(([v, t]) => (
+                    <button key={v} type="button" onClick={() => setFinForm(p => ({ ...p, recurrence: v }))}
+                      className={`p-2.5 rounded-lg border-2 text-sm font-medium transition-colors ${finForm.recurrence === v ? 'border-emerald-600 bg-emerald-100 text-emerald-800' : 'border-gray-200 text-gray-600 hover:border-gray-300'}`}>{t}</button>
+                  ))}
+                </div>
+                {finForm.recurrence === 'ate_data' && (
+                  <input className="input mt-2" type="date" value={finForm.recurrence_until} onChange={e => setFinForm(p => ({ ...p, recurrence_until: e.target.value }))} />
+                )}
+              </div>
+              <button className="btn-primary w-full" disabled={addRevenue.isPending} onClick={() => addRevenue.mutate()}>{addRevenue.isPending ? 'Salvando...' : 'Registrar receita'}</button>
+            </div>
+          )}
+
+          {(vacancyRevenue || []).length === 0 && !finOpen && <p className="text-sm text-gray-400">Nenhuma receita registrada nesta vaga.</p>}
+          {(vacancyRevenue || []).map(r => (
+            <div key={r.id} className="flex items-center justify-between gap-3 p-2.5 rounded-lg border border-gray-100">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-gray-800">{r.description}</p>
+                <p className="text-xs text-gray-400">{r.recurrence === 'mensal' ? '🔁 todo mês' : r.recurrence === 'ate_data' ? `🔁 até ${r.recurrence_until ? formatDate(r.recurrence_until) : ''}` : 'única'} · desde {formatDate(r.entry_date)}</p>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="font-bold text-emerald-700 tnum text-sm">+ {formatCurrency(Number(r.amount))}</span>
+                <button onClick={() => delRevenue.mutate(r.id)} className="text-gray-300 hover:text-red-500 p-1"><Trash2 size={14} /></button>
+              </div>
+            </div>
+          ))}
+          <p className="text-[11px] text-gray-400">A confirmação mensal ("entrou mesmo") é feita no módulo <strong>Financeiro</strong>.</p>
         </div>
       )}
 

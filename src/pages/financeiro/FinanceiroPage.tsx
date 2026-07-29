@@ -10,8 +10,9 @@ import toast from 'react-hot-toast'
 type Kind = 'entrada' | 'saida'
 type Entry = {
   id: string; kind: Kind; description: string; amount: number; category: string | null
-  client_id: string | null; entry_date: string; recurrence: 'unica' | 'mensal' | 'ate_data'
-  recurrence_until: string | null; client?: { name: string } | null
+  client_id: string | null; vacancy_id: string | null; entry_date: string
+  recurrence: 'unica' | 'mensal' | 'ate_data'; recurrence_until: string | null
+  client?: { name: string } | null; vacancy?: { title: string } | null
 }
 
 const EMPTY = { description: '', amount: '', category: '', client_id: '', entry_date: format(new Date(), 'yyyy-MM-dd'), recurrence: 'unica' as Entry['recurrence'], recurrence_until: '' }
@@ -30,11 +31,23 @@ export default function FinanceiroPage() {
     queryKey: ['financial-entries'],
     queryFn: async () => {
       const { data, error } = await supabase.from('financial_entries')
-        .select('*, client:clients(name)').order('entry_date', { ascending: false })
+        .select('*, client:clients(name), vacancy:vacancies(title)').order('entry_date', { ascending: false })
       if (error) throw error
       return (data || []) as Entry[]
     },
   })
+
+  // Confirmações do mês (check-in "entrou mesmo")
+  const { data: confirmations } = useQuery({
+    queryKey: ['financial-confirmations', month],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('financial_confirmations')
+        .select('entry_id, received').eq('month', month)
+      if (error) throw error
+      return data || []
+    },
+  })
+  const confirmedIds = new Set((confirmations || []).filter(c => c.received).map(c => c.entry_id))
 
   const { data: clients } = useQuery({
     queryKey: ['clients-fin'],
@@ -69,10 +82,12 @@ export default function FinanceiroPage() {
   const monthEntries = (entries || []).filter(appliesToMonth)
   const entradas = monthEntries.filter(e => e.kind === 'entrada')
   const despesas = monthEntries.filter(e => e.kind === 'saida')
-  const totalEntradas = entradas.reduce((s, e) => s + Number(e.amount), 0)
+  // Entrou = só o que foi confirmado (check-in). O resto é "a receber".
+  const totalRecebido = entradas.filter(e => confirmedIds.has(e.id)).reduce((s, e) => s + Number(e.amount), 0)
+  const totalAReceber = entradas.filter(e => !confirmedIds.has(e.id)).reduce((s, e) => s + Number(e.amount), 0)
   const totalDespesas = despesas.reduce((s, e) => s + Number(e.amount), 0)
   const folha = folhaPaga ?? 0
-  const saldo = totalEntradas - folha - totalDespesas
+  const saldo = totalRecebido - folha - totalDespesas
 
   const addEntry = useMutation({
     mutationFn: async (kind: Kind) => {
@@ -109,30 +124,57 @@ export default function FinanceiroPage() {
     onError: (e: Error) => toast.error(e.message),
   })
 
+  // Check-in: confirma (ou desfaz) que a entrada caiu neste mês
+  const confirmEntry = useMutation({
+    mutationFn: async ({ entryId, on }: { entryId: string; on: boolean }) => {
+      if (on) {
+        const { error } = await supabase.from('financial_confirmations').upsert(
+          { entry_id: entryId, month, received: true, received_at: new Date().toISOString() },
+          { onConflict: 'entry_id,month' })
+        if (error) throw error
+      } else {
+        const { error } = await supabase.from('financial_confirmations').delete().eq('entry_id', entryId).eq('month', month)
+        if (error) throw error
+      }
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['financial-confirmations', month] }),
+    onError: (e: Error) => toast.error(e.message),
+  })
+
   const recLabel = (e: Entry) => e.recurrence === 'mensal' ? '🔁 mensal' : e.recurrence === 'ate_data' ? `🔁 até ${e.recurrence_until ? formatDate(e.recurrence_until) : ''}` : ''
 
   const List = ({ list, kind }: { list: Entry[]; kind: Kind }) => (
     <div className="space-y-2">
       {list.length === 0 && <p className="text-sm text-ink-400">Nenhum lançamento neste mês.</p>}
-      {list.map(e => (
-        <div key={e.id} className="flex items-start justify-between gap-3 p-3 rounded-xl border border-ink-100">
-          <div className="min-w-0">
-            <p className="text-sm font-semibold text-ink-800">{e.description}</p>
-            <div className="flex items-center gap-2 flex-wrap mt-0.5">
-              {e.category && <span className="badge bg-ink-100 text-ink-500 text-[10px]">{e.category}</span>}
-              {e.client?.name && <span className="badge bg-blue-50 text-blue-600 text-[10px]">{e.client.name}</span>}
-              {e.recurrence !== 'unica' && <span className="text-[11px] text-primary-600">{recLabel(e)}</span>}
-              <span className="text-[11px] text-ink-400">{formatDate(e.entry_date)}</span>
+      {list.map(e => {
+        const confirmed = confirmedIds.has(e.id)
+        return (
+          <div key={e.id} className={`flex items-start justify-between gap-3 p-3 rounded-xl border ${kind === 'entrada' && confirmed ? 'border-green-200 bg-green-50/40' : 'border-ink-100'}`}>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-ink-800">{e.description}</p>
+              <div className="flex items-center gap-2 flex-wrap mt-0.5">
+                {e.category && <span className="badge bg-ink-100 text-ink-500 text-[10px]">{e.category}</span>}
+                {e.client?.name && <span className="badge bg-blue-50 text-blue-600 text-[10px]">{e.client.name}</span>}
+                {e.vacancy?.title && <span className="badge bg-purple-50 text-purple-600 text-[10px]">Vaga: {e.vacancy.title}</span>}
+                {e.recurrence !== 'unica' && <span className="text-[11px] text-primary-600">{recLabel(e)}</span>}
+                <span className="text-[11px] text-ink-400">{formatDate(e.entry_date)}</span>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <span className={`font-bold tnum text-sm ${kind === 'entrada' ? (confirmed ? 'text-green-700' : 'text-ink-400') : 'text-red-600'}`}>
+                {kind === 'entrada' ? '+' : '−'} {formatCurrency(Number(e.amount))}
+              </span>
+              {kind === 'entrada' && (
+                <button onClick={() => confirmEntry.mutate({ entryId: e.id, on: !confirmed })}
+                  className={`text-xs font-medium px-2 py-1 rounded-lg border shrink-0 ${confirmed ? 'bg-green-600 text-white border-green-600' : 'bg-white text-ink-500 border-ink-200 hover:border-green-400'}`}>
+                  {confirmed ? '✓ Entrou' : 'Confirmar'}
+                </button>
+              )}
+              <button onClick={() => delEntry.mutate(e.id)} className="text-ink-300 hover:text-red-500 p-1"><Trash2 size={14} /></button>
             </div>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <span className={`font-bold tnum text-sm ${kind === 'entrada' ? 'text-green-700' : 'text-red-600'}`}>
-              {kind === 'entrada' ? '+' : '−'} {formatCurrency(Number(e.amount))}
-            </span>
-            <button onClick={() => delEntry.mutate(e.id)} className="text-ink-300 hover:text-red-500 p-1"><Trash2 size={14} /></button>
-          </div>
-        </div>
-      ))}
+        )
+      })}
     </div>
   )
 
@@ -152,7 +194,8 @@ export default function FinanceiroPage() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <div className="card p-4 border-l-4 border-l-green-400">
           <p className="text-xs text-ink-500 font-semibold flex items-center gap-1"><TrendingUp size={13} className="text-green-500" /> Entrou</p>
-          <p className="text-2xl font-display font-extrabold text-green-700 mt-1 tnum">{formatCurrency(totalEntradas)}</p>
+          <p className="text-2xl font-display font-extrabold text-green-700 mt-1 tnum">{formatCurrency(totalRecebido)}</p>
+          {totalAReceber > 0 && <p className="text-[10px] text-amber-600">a receber: {formatCurrency(totalAReceber)}</p>}
         </div>
         <div className="card p-4 border-l-4 border-l-red-400">
           <p className="text-xs text-ink-500 font-semibold flex items-center gap-1"><TrendingDown size={13} className="text-red-500" /> Folha (salários)</p>

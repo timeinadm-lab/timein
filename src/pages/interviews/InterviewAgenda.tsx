@@ -4,8 +4,8 @@ import { useNavigate } from 'react-router-dom'
 import { Plus, Calendar, List, Edit, Trash2 } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
-import { formatDate, formatDateTime } from '../../lib/utils'
-import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, parseISO, addMonths, subMonths } from 'date-fns'
+import { formatDate, formatLocalDateTime, parseLocal } from '../../lib/utils'
+import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, addMonths, subMonths } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import toast from 'react-hot-toast'
 
@@ -74,9 +74,9 @@ export default function InterviewAgenda() {
   })
 
   const monthDays = eachDayOfInterval({ start: startOfMonth(currentMonth), end: endOfMonth(currentMonth) })
-  const dayInterviews = (day: Date) => interviews?.filter(i => isSameDay(parseISO(i.scheduled_at), day)) ?? []
+  const dayInterviews = (day: Date) => interviews?.filter(i => { const d = parseLocal(i.scheduled_at); return d && isSameDay(d, day) }) ?? []
 
-  const displayInterviews = selectedDay ? interviews?.filter(i => isSameDay(parseISO(i.scheduled_at), selectedDay)) : interviews
+  const displayInterviews = selectedDay ? interviews?.filter(i => { const d = parseLocal(i.scheduled_at); return d && isSameDay(d, selectedDay) }) : interviews
 
   return (
     <div className="space-y-4">
@@ -161,7 +161,7 @@ export default function InterviewAgenda() {
                   <span className={`badge ${STATUS_COLORS[i.status] || 'bg-gray-100'}`}>{i.status}</span>
                 </div>
                 <p className="text-sm text-gray-500 mt-1">
-                  {formatDateTime(i.scheduled_at)}
+                  {formatLocalDateTime(i.scheduled_at)}
                   {i.end_date ? ` → ${formatDate(i.end_date)}` : ` · ${i.duration_min}min`}
                 </p>
                 {(i as { employee?: { id: string; full_name: string } }).employee?.full_name && <p className="text-xs text-gray-400">Colaborador: <span className="cursor-pointer hover:text-primary-600" onClick={() => (i as { employee?: { id: string } }).employee?.id && navigate(`/colaboradores/${(i as { employee?: { id: string } }).employee?.id}`)}>{(i as { employee?: { full_name: string } }).employee?.full_name}</span></p>}

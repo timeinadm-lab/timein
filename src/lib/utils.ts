@@ -16,6 +16,24 @@ export function formatDateTime(date: string | Date | null | undefined): string {
   return formatDate(date, 'dd/MM/yyyy HH:mm')
 }
 
+// Agenda/compromissos são gravados como "hora de parede" (naive). Estes helpers
+// tratam a data como LOCAL — ignoram o fuso do banco — pra mostrar exatamente a
+// hora digitada (ex: cadastrou 19h → mostra 19h, sem virar 16h).
+export function parseLocal(date?: string | null): Date | null {
+  if (!date) return null
+  const clean = date.replace(/(Z|[+-]\d{2}:?\d{2})$/, '')  // remove o fuso do fim
+  const d = parseISO(clean)
+  return isValid(d) ? d : null
+}
+export function formatLocalDateTime(date?: string | null): string {
+  const d = parseLocal(date)
+  return d ? format(d, 'dd/MM/yyyy HH:mm', { locale: ptBR }) : '-'
+}
+export function formatLocalTime(date?: string | null): string {
+  const d = parseLocal(date)
+  return d ? format(d, 'HH:mm', { locale: ptBR }) : '-'
+}
+
 export function formatCurrency(value: number | null | undefined): string {
   if (value == null) return 'R$ 0,00'
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value)

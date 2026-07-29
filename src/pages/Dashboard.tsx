@@ -10,7 +10,7 @@ import {
 import toast from 'react-hot-toast'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
-import { formatDate, formatCurrency, formatDateTime } from '../lib/utils'
+import { formatDate, formatCurrency, formatLocalDateTime, formatLocalTime, parseLocal } from '../lib/utils'
 import { addDays, startOfMonth, endOfMonth, isBefore, parseISO, isAfter, differenceInDays, subMonths } from 'date-fns'
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend,
@@ -1137,7 +1137,7 @@ export default function Dashboard() {
             ) : (
               <div className="space-y-1.5">
                 {interviews?.map((i: { id: string; title?: string; candidate?: { full_name: string }; employee?: { full_name: string }; scheduled_at: string; end_date?: string; modality: string; status: string; vacancy?: { title: string } }) => {
-                  const d = new Date(i.scheduled_at)
+                  const d = parseLocal(i.scheduled_at) ?? new Date(i.scheduled_at)
                   const isToday = d.toDateString() === now.toDateString()
                   const isTomorrow = d.toDateString() === addDays(now, 1).toDateString()
                   return (
@@ -1151,13 +1151,13 @@ export default function Dashboard() {
                           <span className="text-sm font-bold leading-none">{d.getDate()}</span>
                         )}
                         <span className={`text-[9px] leading-none mt-1 ${isToday ? 'text-primary-100' : 'text-primary-400'}`}>
-                          {isToday || isTomorrow ? formatDate(i.scheduled_at, 'HH:mm') : d.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '')}
+                          {isToday || isTomorrow ? formatLocalTime(i.scheduled_at) : d.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '')}
                         </span>
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-semibold text-ink-900 truncate">{i.title || i.candidate?.full_name || 'Compromisso'}</p>
                         <p className="text-xs text-ink-400 truncate">
-                          {formatDateTime(i.scheduled_at)}
+                          {formatLocalDateTime(i.scheduled_at)}
                           {i.employee?.full_name ? ` · ${i.employee.full_name}` : ''}
                           {i.candidate?.full_name ? ` · ${i.candidate.full_name}` : ''}
                         </p>

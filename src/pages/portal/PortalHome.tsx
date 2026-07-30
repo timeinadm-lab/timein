@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { LogOut, Clock, Calendar, Plus, ChevronDown, ChevronUp, CalendarDays, Trash2, CheckCircle2, Download, MessageCircle, Send, Home, CreditCard, TrendingUp, CheckCheck } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
-import { formatDate } from '../../lib/utils'
+import { formatDate, getInitials } from '../../lib/utils'
 import { format, getDaysInMonth, startOfMonth, endOfMonth } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import toast from 'react-hot-toast'
@@ -14,7 +14,9 @@ export default function PortalHome() {
   const navigate = useNavigate()
   const qc = useQueryClient()
   const employeeId = localStorage.getItem('portal_employee_id')
-  const employeeName = localStorage.getItem('portal_employee_name')
+  // localStorage pode devolver null (sessão antiga/limpa) — sem o fallback, o
+  // .split() abaixo quebrava a tela toda
+  const employeeName = localStorage.getItem('portal_employee_name') || ''
   const token = localStorage.getItem('portal_token')
   const [tab, setTab] = useState<Tab>('home')
   const [folhaMonth, setFolhaMonth] = useState(format(new Date(), 'yyyy-MM'))
@@ -586,7 +588,7 @@ export default function PortalHome() {
         <div className="max-w-lg mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3 min-w-0">
             <div className="w-11 h-11 rounded-2xl bg-white/15 backdrop-blur flex items-center justify-center text-white font-display font-extrabold ring-1 ring-white/25 shrink-0">
-              {employeeName.split(' ').map(n => n[0]).slice(0, 2).join('')}
+              {getInitials(employeeName)}
             </div>
             <div className="min-w-0">
               <p className="font-display font-bold text-base leading-tight truncate">{employeeName}</p>
@@ -644,7 +646,7 @@ export default function PortalHome() {
             <div className="space-y-4">
               <div className="bg-white rounded-2xl p-4 shadow-soft border border-ink-100">
                 <p className="text-xs text-ink-400 mb-1">Olá,</p>
-                <h2 className="text-xl font-display font-extrabold text-ink-900 leading-tight">{employeeName.split(' ')[0]} 👋</h2>
+                <h2 className="text-xl font-display font-extrabold text-ink-900 leading-tight">{employeeName.split(' ')[0] || 'Olá'} 👋</h2>
                 <p className="text-xs text-ink-400 mt-0.5">{new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}</p>
               </div>
 

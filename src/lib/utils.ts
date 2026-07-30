@@ -56,13 +56,15 @@ export function formatWhatsApp(phone: string | null | undefined): string {
   return `https://wa.me/55${digits}`
 }
 
-export function getInitials(name: string): string {
-  return name
+// Aceita null/undefined: dados do banco podem vir vazios e não devem quebrar a tela
+export function getInitials(name?: string | null): string {
+  if (!name) return '?'
+  return String(name)
     .split(' ')
     .filter(Boolean)
     .slice(0, 2)
-    .map(w => w[0].toUpperCase())
-    .join('')
+    .map(w => (w[0] || '').toUpperCase())
+    .join('') || '?'
 }
 
 export const DEFAULT_DOCUMENTS = [

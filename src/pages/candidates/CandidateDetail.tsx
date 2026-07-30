@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Edit, MessageCircle, Plus } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
-import { formatDate, formatWhatsApp, PIPELINE_COLORS } from '../../lib/utils'
+import { formatDate, formatWhatsApp, getInitials, PIPELINE_COLORS } from '../../lib/utils'
 import { SkeletonDetail } from '../../components/ui/Skeleton'
 import toast from 'react-hot-toast'
 
@@ -71,7 +71,7 @@ export default function CandidateDetail() {
         <div className="flex items-start justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-4 min-w-0">
             <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-primary-400 to-primary-600 flex items-center justify-center text-white font-display font-extrabold text-lg flex-shrink-0">
-              {candidate.full_name.split(' ').map((n: string) => n[0]).slice(0, 2).join('')}
+              {getInitials(candidate.full_name)}
             </div>
             <div className="min-w-0">
               <h1 className="text-xl md:text-2xl font-display font-extrabold text-ink-900 truncate">{candidate.full_name}</h1>

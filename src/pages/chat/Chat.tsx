@@ -283,7 +283,7 @@ export default function Chat() {
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex justify-between items-center mb-0.5">
-                          <p className="text-xs font-semibold text-gray-900 truncate">{t.employee.full_name.split(' ')[0]}</p>
+                          <p className="text-xs font-semibold text-gray-900 truncate">{(t.employee.full_name || '').split(' ')[0] || '—'}</p>
                           {t.unread > 0 && (
                             <span className="w-4 h-4 bg-red-500 text-white text-xs rounded-full flex items-center justify-center flex-shrink-0">{t.unread}</span>
                           )}

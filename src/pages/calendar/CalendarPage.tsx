@@ -1,9 +1,10 @@
 import { useState, useMemo } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { CalendarDays, ChevronLeft, ChevronRight, X, FileText, Clock } from 'lucide-react'
+import { CalendarDays, ChevronLeft, ChevronRight, X, FileText, Clock, Plus } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { formatDate, formatLocalTime } from '../../lib/utils'
+import toast from 'react-hot-toast'
 
 import { format, startOfMonth, endOfMonth, getDaysInMonth, getDay, addMonths, subMonths } from 'date-fns'
 import { SignedLink } from '../../components/ui/SignedFile'
@@ -29,12 +30,22 @@ const KIND_META: Record<EventKind, { label: string; dot: string; chip: string }>
   compromisso:  { label: 'Compromisso',      dot: 'bg-blue-400',     chip: 'bg-blue-50 text-blue-700 border-blue-200' },
 }
 
+const EMPTY_ADD = {
+  vacancy_id: '', employee_id: '', client_id: '', unit_id: '',
+  time: '', hours: '', notes: '', title: '', reason: '',
+  manualKind: 'planejada' as 'planejada' | 'ausencia' | 'compromisso',
+}
+
 export default function CalendarPage() {
   const navigate = useNavigate()
+  const qc = useQueryClient()
   const [cursor, setCursor] = useState(new Date())
   const [dayOpen, setDayOpen] = useState<string | null>(null)
   const [fEmployee, setFEmployee] = useState('')
   const [fClient, setFClient] = useState('')
+  const [addOpen, setAddOpen] = useState(false)
+  const [addTab, setAddTab] = useState<'vincular' | 'manual'>('vincular')
+  const [addForm, setAddForm] = useState(EMPTY_ADD)
 
   const monthKey = format(cursor, 'yyyy-MM')
   const mStart = format(startOfMonth(cursor), 'yyyy-MM-dd')
@@ -86,6 +97,156 @@ export default function CalendarPage() {
       if (error) { console.warn('interviews:', error.message); return [] }
       return data || []
     },
+  })
+
+  // ── Dados de apoio pra adicionar no dia ──
+  const { data: vagas } = useQuery({
+    queryKey: ['cal-vagas'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('vacancies')
+        .select('id, title, client_id, weekly_hours, status, client:clients(name)')
+        .neq('status', 'Fechada').order('title')
+      if (error) throw error
+      return data || []
+    },
+    enabled: addOpen,
+  })
+
+  // Vínculos por vaga — pra saber quais nutricionistas estão naquela vaga
+  const { data: vagaLinks } = useQuery({
+    queryKey: ['cal-vaga-links'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('employee_client_links')
+        .select('id, employee_id, vacancy_id, client_id, weekly_hours_quota, employee:employees(id, full_name)')
+        .not('vacancy_id', 'is', null)
+      if (error) throw error
+      return data || []
+    },
+    enabled: addOpen,
+  })
+
+  const { data: allClients } = useQuery({
+    queryKey: ['cal-clients'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('clients').select('id, name').order('name')
+      if (error) throw error
+      return data || []
+    },
+    enabled: addOpen,
+  })
+
+  const { data: allEmployees } = useQuery({
+    queryKey: ['cal-employees'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('employees').select('id, full_name').neq('status', 'Inativo').order('full_name')
+      if (error) throw error
+      return data || []
+    },
+    enabled: addOpen,
+  })
+
+  // Unidades do cliente escolhido
+  const chosenVaga = (vagas || []).find(v => v.id === addForm.vacancy_id)
+  const targetClientId = addTab === 'vincular' ? (chosenVaga?.client_id || '') : addForm.client_id
+  const { data: unitOpts } = useQuery({
+    queryKey: ['cal-units', targetClientId],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('client_units').select('id, name').eq('client_id', targetClientId).order('name')
+      if (error) throw error
+      return data || []
+    },
+    enabled: addOpen && !!targetClientId,
+  })
+
+  const invalidateAll = () => {
+    qc.invalidateQueries({ queryKey: ['cal-visits', monthKey] })
+    qc.invalidateQueries({ queryKey: ['cal-agenda', monthKey] })
+    qc.invalidateQueries({ queryKey: ['cal-notices', monthKey] })
+    qc.invalidateQueries({ queryKey: ['cal-appointments', monthKey] })
+  }
+
+  const closeAdd = () => { setAddOpen(false); setAddForm(EMPTY_ADD) }
+
+  // Vincular: agenda uma visita a partir da vaga (cliente e horas já vêm dela)
+  const addFromVaga = useMutation({
+    mutationFn: async () => {
+      if (!dayOpen) throw new Error('Dia inválido')
+      if (!addForm.vacancy_id) throw new Error('Escolha a vaga')
+      if (!addForm.employee_id) throw new Error('Escolha o nutricionista')
+      const clientId = chosenVaga?.client_id
+      if (!clientId) throw new Error('Esta vaga não tem cliente definido')
+      const link = (vagaLinks || []).find(l => l.vacancy_id === addForm.vacancy_id && l.employee_id === addForm.employee_id)
+      const hours = addForm.hours ? Number(addForm.hours)
+        : (link?.weekly_hours_quota ? Number(link.weekly_hours_quota) : (chosenVaga?.weekly_hours ? Number(chosenVaga.weekly_hours) : null))
+      const { error } = await supabase.from('nutritionist_agenda').insert({
+        employee_id: addForm.employee_id,
+        client_id: clientId,
+        unit_id: addForm.unit_id || null,
+        planned_date: dayOpen,
+        planned_time: addForm.time || null,
+        hours_expected: hours,
+        notes: addForm.notes || null,
+        created_by_admin: true,
+      })
+      if (error) throw error
+    },
+    onSuccess: () => { toast.success('Visita agendada!'); invalidateAll(); closeAdd() },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  // Manual: visita planejada, ausência avisada ou compromisso
+  const addManual = useMutation({
+    mutationFn: async () => {
+      if (!dayOpen) throw new Error('Dia inválido')
+      const k = addForm.manualKind
+      if (k === 'planejada') {
+        if (!addForm.client_id) throw new Error('Escolha o cliente')
+        if (!addForm.employee_id) throw new Error('Escolha o colaborador')
+        const { error } = await supabase.from('nutritionist_agenda').insert({
+          employee_id: addForm.employee_id,
+          client_id: addForm.client_id,
+          unit_id: addForm.unit_id || null,
+          planned_date: dayOpen,
+          planned_time: addForm.time || null,
+          hours_expected: addForm.hours ? Number(addForm.hours) : null,
+          notes: addForm.notes || null,
+          created_by_admin: true,
+        })
+        if (error) throw error
+      } else if (k === 'ausencia') {
+        if (!addForm.employee_id) throw new Error('Escolha o colaborador')
+        if (!addForm.reason.trim()) throw new Error('Escreva o motivo (ex: médico)')
+        // Sem cliente escolhido, usa o primeiro vínculo da pessoa (a tabela espera um cliente)
+        let clientId = addForm.client_id
+        if (!clientId) {
+          const { data } = await supabase.from('employee_client_links').select('client_id').eq('employee_id', addForm.employee_id).limit(1)
+          clientId = data?.[0]?.client_id || ''
+        }
+        if (!clientId) throw new Error('Escolha o cliente (esta pessoa não tem vínculo)')
+        const { error } = await supabase.from('schedule_notices').insert({
+          employee_id: addForm.employee_id,
+          client_id: clientId,
+          type: 'falta',
+          notice_date: dayOpen,
+          reason: addForm.reason.trim(),
+        })
+        if (error) throw error
+      } else {
+        if (!addForm.title.trim()) throw new Error('Escreva o título do compromisso')
+        const { error } = await supabase.from('interviews').insert({
+          title: addForm.title.trim(),
+          employee_id: addForm.employee_id || null,
+          scheduled_at: `${dayOpen}T${addForm.time || '09:00'}:00`,
+          duration_min: 60,
+          modality: 'Presencial',
+          status: 'Agendada',
+          notes: addForm.notes || null,
+        })
+        if (error) throw error
+      }
+    },
+    onSuccess: () => { toast.success('Adicionado ao calendário!'); invalidateAll(); closeAdd() },
+    onError: (e: Error) => toast.error(e.message),
   })
 
   const durH = (a?: string | null, b?: string | null, bs?: string | null, be?: string | null) => {
@@ -224,9 +385,9 @@ export default function CalendarPage() {
             const isToday = dateStr === todayStr
             const kinds = [...new Set(evs.map(e => e.kind))]
             return (
-              <button key={day} onClick={() => evs.length && setDayOpen(dateStr)} disabled={!evs.length}
-                className={`min-h-[62px] md:min-h-[76px] rounded-xl border p-1.5 flex flex-col items-start gap-1 transition-colors text-left
-                  ${evs.length ? 'border-ink-200 hover:border-primary-300 hover:bg-primary-50/40 cursor-pointer' : 'border-ink-100'}
+              <button key={day} onClick={() => { setDayOpen(dateStr); setAddOpen(false); setAddForm(EMPTY_ADD) }}
+                className={`min-h-[62px] md:min-h-[76px] rounded-xl border p-1.5 flex flex-col items-start gap-1 transition-colors text-left cursor-pointer
+                  ${evs.length ? 'border-ink-200 hover:border-primary-300 hover:bg-primary-50/40' : 'border-ink-100 hover:border-primary-200 hover:bg-ink-50/60'}
                   ${isToday ? 'ring-2 ring-primary-400' : ''}`}>
                 <span className={`text-xs font-bold ${isToday ? 'text-primary-700' : 'text-ink-600'}`}>{day}</span>
                 {evs.length > 0 && (
@@ -261,6 +422,130 @@ export default function CalendarPage() {
               </div>
               <button onClick={() => setDayOpen(null)} className="text-gray-400 hover:text-gray-700 p-1"><X size={18} /></button>
             </div>
+            {(byDay[dayOpen] || []).length === 0 && !addOpen && (
+              <p className="text-sm text-ink-400">Nada neste dia ainda.</p>
+            )}
+
+            {/* Adicionar no dia */}
+            {!addOpen ? (
+              <button onClick={() => setAddOpen(true)} className="btn-primary w-full text-sm"><Plus size={15} /> Adicionar neste dia</button>
+            ) : (
+              <div className="rounded-xl border border-primary-200 bg-primary-50/40 p-3 space-y-3">
+                <div className="flex gap-1">
+                  {([['vincular', '🔗 Vincular vaga'], ['manual', '✏️ Digitar']] as const).map(([k, t]) => (
+                    <button key={k} onClick={() => setAddTab(k)}
+                      className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-colors ${addTab === k ? 'bg-primary-600 text-white' : 'bg-white text-ink-500 border border-ink-200'}`}>{t}</button>
+                  ))}
+                </div>
+
+                {addTab === 'vincular' ? (
+                  <>
+                    <div>
+                      <label className="label">Vaga *</label>
+                      <select className="input" value={addForm.vacancy_id}
+                        onChange={e => setAddForm(p => ({ ...p, vacancy_id: e.target.value, employee_id: '', unit_id: '' }))}>
+                        <option value="">Selecionar vaga...</option>
+                        {vagas?.map(v => <option key={v.id} value={v.id}>{v.title}{(v as { client?: { name: string } }).client?.name ? ` — ${(v as { client?: { name: string } }).client!.name}` : ''}</option>)}
+                      </select>
+                    </div>
+                    {addForm.vacancy_id && (() => {
+                      const opts = (vagaLinks || []).filter(l => l.vacancy_id === addForm.vacancy_id)
+                      return (
+                        <div>
+                          <label className="label">Nutricionista *</label>
+                          <select className="input" value={addForm.employee_id} onChange={e => setAddForm(p => ({ ...p, employee_id: e.target.value }))}>
+                            <option value="">{opts.length ? 'Selecionar...' : 'Nenhum vinculado — escolha abaixo'}</option>
+                            {opts.map(l => <option key={l.id} value={l.employee_id}>{(l as { employee?: { full_name: string } }).employee?.full_name}</option>)}
+                            {opts.length === 0 && allEmployees?.map(e => <option key={e.id} value={e.id}>{e.full_name}</option>)}
+                          </select>
+                          {chosenVaga?.weekly_hours && <p className="text-[11px] text-primary-600 mt-1">Horas da vaga: {chosenVaga.weekly_hours}h por visita</p>}
+                        </div>
+                      )
+                    })()}
+                  </>
+                ) : (
+                  <>
+                    <div>
+                      <label className="label">O que é? *</label>
+                      <div className="grid grid-cols-3 gap-1.5">
+                        {([['planejada', '🟡 Visita'], ['ausencia', '🔴 Ausência'], ['compromisso', '🔵 Compromisso']] as const).map(([k, t]) => (
+                          <button key={k} onClick={() => setAddForm(p => ({ ...p, manualKind: k }))}
+                            className={`py-2 px-1 text-xs font-medium rounded-lg border-2 transition-colors ${addForm.manualKind === k ? 'border-primary-600 bg-white' : 'border-ink-200 bg-white/60 text-ink-500'}`}>{t}</button>
+                        ))}
+                      </div>
+                    </div>
+                    {addForm.manualKind === 'compromisso' ? (
+                      <div>
+                        <label className="label">Título *</label>
+                        <input className="input" placeholder="Ex: Reunião de alinhamento" value={addForm.title} onChange={e => setAddForm(p => ({ ...p, title: e.target.value }))} />
+                      </div>
+                    ) : (
+                      <div>
+                        <label className="label">Cliente {addForm.manualKind === 'planejada' ? '*' : <span className="text-gray-400 font-normal">(opcional)</span>}</label>
+                        <select className="input" value={addForm.client_id} onChange={e => setAddForm(p => ({ ...p, client_id: e.target.value, unit_id: '' }))}>
+                          <option value="">Selecionar...</option>
+                          {allClients?.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                        </select>
+                      </div>
+                    )}
+                    <div>
+                      <label className="label">Colaborador {addForm.manualKind === 'compromisso' ? <span className="text-gray-400 font-normal">(opcional)</span> : '*'}</label>
+                      <select className="input" value={addForm.employee_id} onChange={e => setAddForm(p => ({ ...p, employee_id: e.target.value }))}>
+                        <option value="">Selecionar...</option>
+                        {allEmployees?.map(e => <option key={e.id} value={e.id}>{e.full_name}</option>)}
+                      </select>
+                    </div>
+                    {addForm.manualKind === 'ausencia' && (
+                      <div>
+                        <label className="label">Motivo *</label>
+                        <input className="input" placeholder="Ex: médico, pessoal, atestado..." value={addForm.reason} onChange={e => setAddForm(p => ({ ...p, reason: e.target.value }))} />
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {/* Campos comuns */}
+                {(addTab === 'vincular' || addForm.manualKind !== 'ausencia') && (
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="label">Hora <span className="text-gray-400 font-normal">(opcional)</span></label>
+                      <input className="input" type="time" value={addForm.time} onChange={e => setAddForm(p => ({ ...p, time: e.target.value }))} />
+                    </div>
+                    {addForm.manualKind !== 'compromisso' && (
+                      <div>
+                        <label className="label">Horas <span className="text-gray-400 font-normal">(opcional)</span></label>
+                        <input className="input" type="number" step="0.5" placeholder="Ex: 4" value={addForm.hours} onChange={e => setAddForm(p => ({ ...p, hours: e.target.value }))} />
+                      </div>
+                    )}
+                  </div>
+                )}
+                {(unitOpts?.length ?? 0) > 0 && addForm.manualKind !== 'compromisso' && addForm.manualKind !== 'ausencia' && (
+                  <div>
+                    <label className="label">Unidade <span className="text-gray-400 font-normal">(opcional)</span></label>
+                    <select className="input" value={addForm.unit_id} onChange={e => setAddForm(p => ({ ...p, unit_id: e.target.value }))}>
+                      <option value="">Qualquer</option>
+                      {unitOpts?.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                    </select>
+                  </div>
+                )}
+                {addForm.manualKind !== 'ausencia' && (
+                  <div>
+                    <label className="label">Observação <span className="text-gray-400 font-normal">(opcional)</span></label>
+                    <input className="input" placeholder="O que precisa saber..." value={addForm.notes} onChange={e => setAddForm(p => ({ ...p, notes: e.target.value }))} />
+                  </div>
+                )}
+
+                <div className="flex gap-2">
+                  <button className="btn-primary flex-1 text-sm"
+                    disabled={addFromVaga.isPending || addManual.isPending}
+                    onClick={() => addTab === 'vincular' ? addFromVaga.mutate() : addManual.mutate()}>
+                    {(addFromVaga.isPending || addManual.isPending) ? 'Salvando...' : 'Salvar'}
+                  </button>
+                  <button className="btn-secondary text-sm" onClick={closeAdd}>Cancelar</button>
+                </div>
+              </div>
+            )}
+
             {(byDay[dayOpen] || []).map((e, idx) => (
               <div key={idx} className={`rounded-xl border p-3 space-y-1 ${KIND_META[e.kind].chip}`}>
                 <div className="flex items-center justify-between gap-2 flex-wrap">

@@ -104,11 +104,20 @@
     padding-top: 0.7rem;
     padding-bottom: 0.7rem;
   }
-  /* Inputs de data/hora encolhem junto com a coluna (não estouram a tela) */
+  /* Inputs de data/hora no iOS têm largura própria e estouram o container —
+     força a mesma largura dos outros campos (fim do desalinhamento) */
   input[type="date"], input[type="datetime-local"],
   input[type="month"], input[type="time"] {
     min-width: 0;
     max-width: 100%;
+    width: 100%;
+    -webkit-appearance: none;
+    appearance: none;
+  }
+  /* Rolagem com a inércia natural do dedo (iOS) */
+  html, body {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-y: none;
   }
   /* Campos empilham numa coluna só no celular (nada de 2 espremidos).
      Pega grids com campos de formulário em QUALQUER lugar — inclusive

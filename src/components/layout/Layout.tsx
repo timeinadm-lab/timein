@@ -42,15 +42,17 @@ export default function Layout() {
         { icon: Calendar, label: 'Agenda', path: '/agenda' },
       ]
 
+  // No celular a PÁGINA rola (mantém a inércia natural do dedo no iOS).
+  // No desktop, o container interno rola e o menu fica fixo.
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div className="flex min-h-screen md:h-screen md:overflow-hidden">
       <Sidebar
         collapsed={collapsed}
         onCollapse={setCollapsed}
         mobileOpen={mobileOpen}
         onMobileClose={() => setMobileOpen(false)}
       />
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+      <div className="flex-1 flex flex-col min-w-0 md:overflow-hidden">
         {/* Mobile topbar */}
         <div className="flex md:hidden items-center gap-3 px-4 py-3 bg-white/80 backdrop-blur border-b border-ink-100 flex-shrink-0 sticky top-0 z-20">
           <button onClick={() => setMobileOpen(true)} className="p-1.5 -ml-1.5 rounded-lg hover:bg-ink-100 active:scale-95 transition-all" aria-label="Abrir menu">
@@ -81,7 +83,7 @@ export default function Layout() {
           </button>
         </div>
 
-        <main className="flex-1 overflow-y-auto overflow-x-hidden p-4 md:p-6 pb-24 md:pb-6">
+        <main className="flex-1 md:overflow-y-auto overflow-x-hidden p-4 md:p-6 pb-24 md:pb-6">
           <div className="min-w-0 w-full max-w-7xl mx-auto animate-fade-in">
             <Outlet />
           </div>

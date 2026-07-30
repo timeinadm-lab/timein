@@ -3,7 +3,7 @@ import { NavLink, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Users, FileText, ShieldCheck, UserCheck,
   CreditCard, Calendar, MessageSquare, Settings, LogOut,
-  ChevronLeft, ChevronRight, Briefcase, UserPlus, X, ClipboardList, UserCog, ListChecks, Wallet
+  ChevronLeft, ChevronRight, Briefcase, UserPlus, X, ClipboardList, UserCog, ListChecks, Wallet, CalendarDays
 } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import { getInitials } from '../../lib/utils'
@@ -17,6 +17,7 @@ const CHEFE_MENU = [
   { icon: Briefcase, label: 'Vagas', path: '/vagas' },
   { icon: UserPlus, label: 'Candidatos', path: '/candidatos' },
   { icon: CreditCard, label: 'Pagamentos', path: '/pagamentos' },
+  { icon: CalendarDays, label: 'Calendário', path: '/calendario' },
   { icon: Calendar, label: 'Agenda', path: '/agenda' },
   { icon: ListChecks, label: 'Atividades', path: '/atividades' },
   { icon: MessageSquare, label: 'Chat', path: '/chat' },
@@ -32,6 +33,7 @@ const RECRUTADOR_MENU = [
   { icon: UserPlus, label: 'Candidatos', path: '/candidatos' },
   { icon: ClipboardList, label: 'Visitas', path: '/visitas' },
   { icon: FileText, label: 'Templates', path: '/templates' },
+  { icon: CalendarDays, label: 'Calendário', path: '/calendario' },
   { icon: Calendar, label: 'Agenda', path: '/agenda' },
   { icon: ListChecks, label: 'Atividades', path: '/atividades' },
   { icon: MessageSquare, label: 'Chat', path: '/chat' },

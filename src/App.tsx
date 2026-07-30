@@ -43,6 +43,7 @@ import TemplateEditor from './pages/templates/TemplateEditor'
 import Chat from './pages/chat/Chat'
 import ActivitiesPage from './pages/activities/ActivitiesPage'
 import FinanceiroPage from './pages/financeiro/FinanceiroPage'
+import CalendarPage from './pages/calendar/CalendarPage'
 import UserManagement from './pages/admin/UserManagement'
 import ProfilePage from './pages/admin/ProfilePage'
 import InspectionPublic from './pages/inspections/InspectionPublic'
@@ -126,6 +127,9 @@ export default function App() {
 
               {/* Chat */}
               <Route path="chat" element={<Chat />} />
+
+              {/* Calendário vivo da empresa */}
+              <Route path="calendario" element={<CalendarPage />} />
 
               {/* Atividades do administrativo */}
               <Route path="atividades" element={<ActivitiesPage />} />

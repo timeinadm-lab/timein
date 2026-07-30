@@ -16,7 +16,9 @@ export default function ClientDetail() {
   // Clientes: recrutador tem os mesmos direitos do chefe (só pagamentos são exclusivos do chefe)
   const canManageClient = true
   const qc = useQueryClient()
-  const [tab, setTab] = useState<'dados' | 'contratos' | 'colaboradores' | 'vistorias' | 'unidades' | 'documentos'>('contratos')
+  const [tab, setTab] = useState<'dados' | 'contratos' | 'colaboradores' | 'vistorias' | 'unidades' | 'documentos' | 'calendario'>('contratos')
+  const [calMonth, setCalMonth] = useState(new Date().toISOString().slice(0, 7))
+  const [calDayOpen, setCalDayOpen] = useState<string | null>(null)
   const [docForm, setDocForm] = useState({ topic: '', name: '' })
   const [docFile, setDocFile] = useState<File | null>(null)
   const [uploadingDoc, setUploadingDoc] = useState(false)
@@ -239,6 +241,34 @@ export default function ClientDetail() {
     },
   })
 
+  // ── Calendário do cliente: visitas realizadas + planejadas ──
+  const calStart = `${calMonth}-01`
+  const calEnd = `${calMonth}-${String(new Date(Number(calMonth.slice(0, 4)), Number(calMonth.slice(5, 7)), 0).getDate()).padStart(2, '0')}`
+
+  const { data: calVisits } = useQuery({
+    queryKey: ['client-cal-visits', id, calMonth],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('nutritionist_visits')
+        .select('id, visit_date, check_in, check_out, break_start, break_end, unit_name, observations, report_url, is_unavailable, employee_id, employee:employees(full_name)')
+        .eq('client_id', id).gte('visit_date', calStart).lte('visit_date', calEnd)
+      if (error) throw error
+      return data || []
+    },
+    enabled: tab === 'calendario',
+  })
+
+  const { data: calAgenda } = useQuery({
+    queryKey: ['client-cal-agenda', id, calMonth],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('nutritionist_agenda')
+        .select('id, planned_date, planned_time, notes, hours_expected, employee_id, employee:employees(full_name), unit:client_units(name)')
+        .eq('client_id', id).gte('planned_date', calStart).lte('planned_date', calEnd)
+      if (error) throw error
+      return data || []
+    },
+    enabled: tab === 'calendario',
+  })
+
   const addUnit = useMutation({
     mutationFn: async () => {
       // Unidade é só um local. Tipo (Fixo/Consultoria) e valor são definidos na vaga.
@@ -301,10 +331,10 @@ export default function ClientDetail() {
 
       {/* Tabs */}
       <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-        {(['contratos', 'dados', 'unidades', 'colaboradores', 'vistorias', 'documentos'] as const).map(t => (
+        {(['contratos', 'dados', 'unidades', 'colaboradores', 'calendario', 'vistorias', 'documentos'] as const).map(t => (
           <button key={t} onClick={() => setTab(t as typeof tab)}
             className={`px-3.5 py-2 text-sm font-semibold whitespace-nowrap rounded-xl transition-all active:scale-95 ${tab === t ? 'bg-primary-600 text-white shadow-soft' : 'bg-white border border-ink-100 text-ink-500 hover:text-ink-800 hover:border-ink-200'}`}>
-            {t === 'unidades' ? 'Unidades' : t === 'contratos' ? 'Contratos' : t === 'documentos' ? 'Documentos' : t.charAt(0).toUpperCase() + t.slice(1)}
+            {t === 'unidades' ? 'Unidades' : t === 'contratos' ? 'Contratos' : t === 'documentos' ? 'Documentos' : t === 'calendario' ? 'Calendário' : t.charAt(0).toUpperCase() + t.slice(1)}
           </button>
         ))}
       </div>
@@ -558,6 +588,120 @@ export default function ClientDetail() {
           </div>
         </div>
       )}
+
+      {tab === 'calendario' && (() => {
+        // Junta realizadas + planejadas por dia (planejada não duplica se já foi feita)
+        type CEv = { kind: 'realizada' | 'planejada' | 'ausencia'; employee: string; unit?: string; time?: string | null; hours?: number | null; note?: string | null; employeeId?: string }
+        const byDay: Record<string, CEv[]> = {}
+        const push = (d: string, ev: CEv) => { (byDay[d] ||= []).push(ev) }
+        const m = (t: string) => { const [h, mm] = t.slice(0, 5).split(':').map(Number); return h * 60 + mm }
+        for (const v of calVisits || []) {
+          let hours: number | null = null
+          if (v.check_in && v.check_out) {
+            let net = m(v.check_out) - m(v.check_in)
+            if (v.break_start && v.break_end) net -= Math.max(0, m(v.break_end) - m(v.break_start))
+            hours = net > 0 ? Math.round((net / 60) * 10) / 10 : null
+          }
+          push(v.visit_date, {
+            kind: v.is_unavailable ? 'ausencia' : 'realizada',
+            employee: (v as { employee?: { full_name: string } }).employee?.full_name || '—',
+            unit: v.unit_name || undefined,
+            time: v.check_in ? v.check_in.slice(0, 5) : null,
+            hours, note: v.is_unavailable ? 'Falta' : v.observations, employeeId: v.employee_id,
+          })
+        }
+        for (const a of calAgenda || []) {
+          const already = (calVisits || []).some(v => v.visit_date === a.planned_date && v.employee_id === a.employee_id && !v.is_unavailable)
+          if (already) continue
+          push(a.planned_date, {
+            kind: 'planejada',
+            employee: (a as { employee?: { full_name: string } }).employee?.full_name || '—',
+            unit: (a as { unit?: { name: string } }).unit?.name,
+            time: a.planned_time ? a.planned_time.slice(0, 5) : null,
+            hours: a.hours_expected ?? null, note: a.notes, employeeId: a.employee_id,
+          })
+        }
+        const [yy, mm2] = calMonth.split('-').map(Number)
+        const dim = new Date(yy, mm2, 0).getDate()
+        const firstDow = new Date(yy, mm2 - 1, 1).getDay()
+        const todayStr = new Date().toISOString().slice(0, 10)
+        const DOT = { realizada: 'bg-primary-600', planejada: 'bg-amber-400', ausencia: 'bg-red-400' }
+        const realizadas = Object.values(byDay).flat().filter(e => e.kind === 'realizada').length
+        const planejadas = Object.values(byDay).flat().filter(e => e.kind === 'planejada').length
+        return (
+          <div className="card p-4 space-y-3">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div>
+                <h3 className="font-semibold text-gray-900 text-sm">Calendário do cliente</h3>
+                <p className="text-xs text-gray-400">Quem vem, em que dias. Clique num dia pra ver o detalhe.</p>
+              </div>
+              <input type="month" className="input w-auto text-sm py-1" value={calMonth} onChange={e => setCalMonth(e.target.value)} />
+            </div>
+            <div className="flex gap-2 flex-wrap">
+              <span className="badge bg-primary-50 text-primary-700">{realizadas} realizadas</span>
+              <span className="badge bg-amber-50 text-amber-700">{planejadas} planejadas</span>
+            </div>
+            <div className="grid grid-cols-7 mb-1">
+              {['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'].map(d => <div key={d} className="text-center text-[11px] text-gray-400 font-semibold py-1">{d}</div>)}
+            </div>
+            <div className="grid grid-cols-7 gap-1">
+              {Array.from({ length: firstDow }).map((_, i) => <div key={`b${i}`} />)}
+              {Array.from({ length: dim }).map((_, i) => {
+                const day = i + 1
+                const dateStr = `${calMonth}-${String(day).padStart(2, '0')}`
+                const evs = byDay[dateStr] || []
+                const isToday = dateStr === todayStr
+                const kinds = [...new Set(evs.map(e => e.kind))]
+                return (
+                  <button key={day} onClick={() => evs.length && setCalDayOpen(dateStr)} disabled={!evs.length}
+                    className={`min-h-[58px] rounded-xl border p-1.5 flex flex-col items-start gap-1 text-left transition-colors
+                      ${evs.length ? 'border-gray-200 hover:border-primary-300 hover:bg-primary-50/40 cursor-pointer' : 'border-gray-100'}
+                      ${isToday ? 'ring-2 ring-primary-400' : ''}`}>
+                    <span className={`text-xs font-bold ${isToday ? 'text-primary-700' : 'text-gray-600'}`}>{day}</span>
+                    {evs.length > 0 && (
+                      <>
+                        <div className="flex gap-0.5">{kinds.map(k => <span key={k} className={`w-1.5 h-1.5 rounded-full ${DOT[k]}`} />)}</div>
+                        <span className="text-[10px] text-gray-500 leading-tight truncate w-full">{evs.length === 1 ? evs[0].employee.split(' ')[0] : `${evs.length} visitas`}</span>
+                      </>
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+            <div className="flex items-center gap-3 text-[11px] text-gray-500 flex-wrap">
+              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-primary-600" /> Realizada</span>
+              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-amber-400" /> Planejada</span>
+              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-red-400" /> Ausência</span>
+            </div>
+
+            {calDayOpen && (
+              <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-4" onClick={() => setCalDayOpen(null)}>
+                <div className="bg-white rounded-2xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto p-5 space-y-3" onClick={e => e.stopPropagation()}>
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-semibold text-gray-900">{formatDate(calDayOpen)}</h3>
+                    <button onClick={() => setCalDayOpen(null)} className="text-gray-400 hover:text-gray-700 p-1">✕</button>
+                  </div>
+                  {(byDay[calDayOpen] || []).map((e, idx) => (
+                    <div key={idx} className={`rounded-xl border p-3 space-y-1 ${e.kind === 'realizada' ? 'border-primary-200 bg-primary-50/50' : e.kind === 'planejada' ? 'border-amber-200 bg-amber-50/50' : 'border-red-200 bg-red-50/50'}`}>
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <p className="font-semibold text-sm text-gray-900">{e.employee}</p>
+                        <span className="text-[10px] font-semibold uppercase text-gray-500">{e.kind}</span>
+                      </div>
+                      {e.unit && <p className="text-xs text-gray-500">{e.unit}</p>}
+                      <div className="flex gap-3 text-xs text-gray-600">
+                        {e.time && <span>🕐 {e.time}</span>}
+                        {e.hours != null && <span>{e.hours}h</span>}
+                      </div>
+                      {e.note && <p className="text-xs text-gray-600">{e.note}</p>}
+                      {e.employeeId && <button onClick={() => navigate(`/colaboradores/${e.employeeId}`)} className="btn-secondary text-xs py-1 mt-1">Abrir colaborador</button>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )
+      })()}
 
       {tab === 'unidades' && (
         <div className="card p-5">

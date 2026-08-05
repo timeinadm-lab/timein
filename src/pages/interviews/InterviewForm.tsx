@@ -14,16 +14,26 @@ export default function InterviewForm() {
   const isEdit = !!id
 
   const [form, setForm] = useState({
-    title: '', category: 'Reunião', candidate_id: '', vacancy_id: '', employee_id: '', recruiter_id: profile?.id || '',
+    title: '', category: 'Reunião', client_id: '', candidate_id: '', vacancy_id: '', employee_id: '', recruiter_id: profile?.id || '',
     scheduled_at: '', end_date: '', duration_min: '30', modality: 'Online',
     link_or_address: '', notes: '', status: 'Agendada',
   })
   const [noDate, setNoDate] = useState(false)
+  const [targetMonth, setTargetMonth] = useState(new Date().toISOString().slice(0, 7)) // YYYY-MM
 
   const { data: employees } = useQuery({
     queryKey: ['employees-select'],
     queryFn: async () => {
       const { data, error } = await supabase.from('employees').select('id,full_name').eq('status', 'Ativo').order('full_name')
+      if (error) throw error
+      return data || []
+    },
+  })
+
+  const { data: clients } = useQuery({
+    queryKey: ['clients-select'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('clients').select('id,name').order('name')
       if (error) throw error
       return data || []
     },
@@ -64,6 +74,7 @@ export default function InterviewForm() {
       setForm({
         title: data.title || '',
         category: data.category || 'Reunião',
+        client_id: data.client_id || '',
         candidate_id: data.candidate_id || '',
         vacancy_id: data.vacancy_id || '',
         employee_id: data.employee_id || '',
@@ -77,6 +88,7 @@ export default function InterviewForm() {
         status: data.status || 'Agendada',
       })
       setNoDate(!data.scheduled_at)
+      if (data.target_month) setTargetMonth(String(data.target_month).slice(0, 7))
       return data
     },
     enabled: isEdit,
@@ -112,14 +124,17 @@ export default function InterviewForm() {
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault()
     if (!noDate && !form.scheduled_at) { toast.error('Escolha a data, ou marque "sem data (a agendar)"'); return }
+    if (form.category === 'Visita' && !form.client_id) { toast.error('Escolha o cliente da visita'); return }
     mutation.mutate({
       title: form.title || null,
       category: form.category || null,
+      client_id: form.client_id || null,
       candidate_id: form.candidate_id || null,
       vacancy_id: form.vacancy_id || null,
       employee_id: form.employee_id || null,
       recruiter_id: form.recruiter_id || null,
       scheduled_at: noDate ? null : form.scheduled_at,
+      target_month: noDate ? `${targetMonth}-01` : null,
       end_date: form.end_date || null,
       duration_min: Number(form.duration_min),
       modality: form.modality,
@@ -155,6 +170,15 @@ export default function InterviewForm() {
             <label className="label">Título *</label>
             <input className="input" required placeholder="Ex: Visita SLA, Reunião com fornecedor, Entrevista com a Maria…" value={form.title} onChange={e => set('title', e.target.value)} />
           </div>
+          {form.category === 'Visita' && (
+            <div className="col-span-full">
+              <label className="label">Cliente da visita *</label>
+              <select className="input" value={form.client_id} onChange={e => set('client_id', e.target.value)}>
+                <option value="">Selecionar cliente...</option>
+                {clients?.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+          )}
           <div>
             <label className="label">Data e Hora {noDate ? <span className="text-gray-400 font-normal">(a agendar)</span> : '*'}</label>
             <input className="input" type="datetime-local" required={!noDate} disabled={noDate} value={form.scheduled_at} onChange={e => set('scheduled_at', e.target.value)} />
@@ -162,6 +186,12 @@ export default function InterviewForm() {
               <input type="checkbox" checked={noDate} onChange={e => { setNoDate(e.target.checked); if (e.target.checked) set('scheduled_at', '') }} className="rounded" />
               Sem data definida <span className="text-ink-400">(a pessoa só precisa saber que tem que fazer)</span>
             </label>
+            {noDate && (
+              <div className="mt-2">
+                <label className="label">De qual mês? <span className="text-gray-400 font-normal">(prazo pra agendar)</span></label>
+                <input type="month" className="input" value={targetMonth} onChange={e => setTargetMonth(e.target.value)} />
+              </div>
+            )}
           </div>
           <div>
             <label className="label">Até <span className="text-gray-400 font-normal">(opcional — férias, período)</span></label>

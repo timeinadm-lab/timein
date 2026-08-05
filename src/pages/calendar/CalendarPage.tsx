@@ -92,7 +92,7 @@ export default function CalendarPage() {
     queryKey: ['cal-appointments', monthKey],
     queryFn: async () => {
       const { data, error } = await supabase.from('interviews')
-        .select('id, title, scheduled_at, modality, status, employee:employees(full_name), candidate:candidates(full_name), vacancy:vacancies(title), recruiter:user_profiles(full_name)')
+        .select('id, title, scheduled_at, modality, status, category, employee:employees(full_name), candidate:candidates(full_name), vacancy:vacancies(title), recruiter:user_profiles(full_name), client:clients(name)')
         .gte('scheduled_at', mStart).lte('scheduled_at', mEnd + 'T23:59:59')
       if (error) { console.warn('interviews:', error.message); return [] }
       return data || []
@@ -349,8 +349,9 @@ export default function CalendarPage() {
         employee: (ap as { employee?: { full_name: string } }).employee?.full_name
           || (ap as { candidate?: { full_name: string } }).candidate?.full_name
           || (ap as { recruiter?: { full_name: string } }).recruiter?.full_name || '—',
+        client: (ap as { client?: { name: string } }).client?.name,
         time: formatLocalTime(ap.scheduled_at),
-        note: ap.title || (ap as { vacancy?: { title: string } }).vacancy?.title,
+        note: [(ap as { category?: string }).category, ap.title || (ap as { vacancy?: { title: string } }).vacancy?.title].filter(Boolean).join(' · '),
       })
     }
     return out

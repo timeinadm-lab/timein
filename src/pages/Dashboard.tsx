@@ -357,13 +357,28 @@ export default function Dashboard() {
     },
   })
 
-  // Meus itens "a agendar" (sem data) — pra eu lembrar que preciso fazer
+  // Meus itens "a agendar" (sem data) — pra eu lembrar que preciso definir a data
   const { data: myPending } = useQuery({
     queryKey: ['dashboard-pending', profile?.id],
     queryFn: async () => {
       const { data } = await supabase.from('interviews')
-        .select('id,title')
+        .select('id,title,category,target_month,client:clients(name)')
         .is('scheduled_at', null).eq('status', 'Agendada').eq('recruiter_id', profile?.id)
+      return data || []
+    },
+    enabled: !!profile?.id,
+  })
+
+  // Minhas visitas com data chegando (~3 dias antes) — volta a lembrar
+  const { data: myUpcomingVisits } = useQuery({
+    queryKey: ['dashboard-upcoming-visits', profile?.id],
+    queryFn: async () => {
+      const in3 = new Date(now); in3.setDate(in3.getDate() + 3)
+      const { data } = await supabase.from('interviews')
+        .select('id,title,scheduled_at,client:clients(name)')
+        .eq('recruiter_id', profile?.id).eq('category', 'Visita').eq('status', 'Agendada')
+        .not('scheduled_at', 'is', null)
+        .gte('scheduled_at', now.toISOString()).lte('scheduled_at', in3.toISOString())
       return data || []
     },
     enabled: !!profile?.id,
@@ -694,15 +709,29 @@ export default function Dashboard() {
     else amberAlerts.push(item)
   })
 
-  // Meus compromissos sem data ainda — lembrete pra agendar
-  if ((myPending?.length ?? 0) > 0) {
+  // Meus itens sem data ainda — lembrete pra DEFINIR A DATA (fica até resolver)
+  const MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
+  ;(myPending || []).forEach(p => {
+    const isVisita = (p as { category?: string }).category === 'Visita'
+    const cli = (p as { client?: { name: string } }).client?.name
+    const tm = (p as { target_month?: string }).target_month
+    const mesTxt = tm ? ` (${MESES[Number(String(tm).slice(5, 7)) - 1]}/${String(tm).slice(0, 4)})` : ''
     amberAlerts.push({
-      text: myPending!.length === 1
-        ? `Você tem 1 item a agendar: "${myPending![0].title || 'Compromisso'}"`
-        : `Você tem ${myPending!.length} itens a agendar (sem data definida)`,
+      text: `📌 Definir data d${isVisita ? 'a visita' : 'o compromisso'}: "${p.title || 'Compromisso'}"${cli ? ` — ${cli}` : ''}${mesTxt}`,
       path: '/agenda',
     })
-  }
+  })
+
+  // Minhas visitas chegando (~3 dias) — volta a lembrar
+  ;(myUpcomingVisits || []).forEach(v => {
+    const d = new Date(v.scheduled_at as string)
+    const dias = Math.max(0, Math.ceil((d.getTime() - now.getTime()) / 86400000))
+    const cli = (v as { client?: { name: string } }).client?.name
+    amberAlerts.push({
+      text: `🗓️ Visita ${dias === 0 ? 'hoje' : dias === 1 ? 'amanhã' : `em ${dias} dias`}: "${v.title || 'Visita'}"${cli ? ` — ${cli}` : ''}`,
+      path: '/agenda',
+    })
+  })
 
   overdue.forEach(p =>
     redAlerts.push({ text: `Pagamento atrasado: ${p.description} — ${formatCurrency(p.amount)}`, path: '/pagamentos' })

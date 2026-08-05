@@ -32,7 +32,7 @@ const KIND_META: Record<EventKind, { label: string; dot: string; chip: string }>
 
 const EMPTY_ADD = {
   vacancy_id: '', employee_id: '', client_id: '', unit_id: '',
-  time: '', hours: '', notes: '', title: '', reason: '',
+  time: '', hours: '', notes: '', title: '', reason: '', assignee: '',
   manualKind: 'planejada' as 'planejada' | 'ausencia' | 'compromisso',
 }
 
@@ -92,7 +92,7 @@ export default function CalendarPage() {
     queryKey: ['cal-appointments', monthKey],
     queryFn: async () => {
       const { data, error } = await supabase.from('interviews')
-        .select('id, title, scheduled_at, modality, status, employee:employees(full_name), candidate:candidates(full_name), vacancy:vacancies(title)')
+        .select('id, title, scheduled_at, modality, status, employee:employees(full_name), candidate:candidates(full_name), vacancy:vacancies(title), recruiter:user_profiles(full_name)')
         .gte('scheduled_at', mStart).lte('scheduled_at', mEnd + 'T23:59:59')
       if (error) { console.warn('interviews:', error.message); return [] }
       return data || []
@@ -139,6 +139,17 @@ export default function CalendarPage() {
     queryKey: ['cal-employees'],
     queryFn: async () => {
       const { data, error } = await supabase.from('employees').select('id, full_name').neq('status', 'Inativo').order('full_name')
+      if (error) throw error
+      return data || []
+    },
+    enabled: addOpen,
+  })
+
+  // Equipe do RH (usuários do sistema) — pra atribuir compromisso a alguém do RH
+  const { data: rhUsers } = useQuery({
+    queryKey: ['cal-rh-users'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('user_profiles').select('id, full_name').order('full_name')
       if (error) throw error
       return data || []
     },
@@ -233,9 +244,13 @@ export default function CalendarPage() {
         if (error) throw error
       } else {
         if (!addForm.title.trim()) throw new Error('Escreva o título do compromisso')
+        // assignee vem como 'emp:<id>' (colaborador) ou 'rh:<id>' (equipe RH).
+        // Se for RH, grava recruiter_id → o compromisso aparece na Agenda dessa pessoa.
+        const [who, whoId] = (addForm.assignee || '').split(':')
         const { error } = await supabase.from('interviews').insert({
           title: addForm.title.trim(),
-          employee_id: addForm.employee_id || null,
+          employee_id: who === 'emp' ? whoId : null,
+          recruiter_id: who === 'rh' ? whoId : null,
           scheduled_at: `${dayOpen}T${addForm.time || '09:00'}:00`,
           duration_min: 60,
           modality: 'Presencial',
@@ -307,7 +322,8 @@ export default function CalendarPage() {
         kind: 'compromisso',
         date: (ap.scheduled_at || '').slice(0, 10),
         employee: (ap as { employee?: { full_name: string } }).employee?.full_name
-          || (ap as { candidate?: { full_name: string } }).candidate?.full_name || '—',
+          || (ap as { candidate?: { full_name: string } }).candidate?.full_name
+          || (ap as { recruiter?: { full_name: string } }).recruiter?.full_name || '—',
         time: formatLocalTime(ap.scheduled_at),
         note: ap.title || (ap as { vacancy?: { title: string } }).vacancy?.title,
       })
@@ -488,13 +504,29 @@ export default function CalendarPage() {
                         </select>
                       </div>
                     )}
-                    <div>
-                      <label className="label">Colaborador {addForm.manualKind === 'compromisso' ? <span className="text-gray-400 font-normal">(opcional)</span> : '*'}</label>
-                      <select className="input" value={addForm.employee_id} onChange={e => setAddForm(p => ({ ...p, employee_id: e.target.value }))}>
-                        <option value="">Selecionar...</option>
-                        {allEmployees?.map(e => <option key={e.id} value={e.id}>{e.full_name}</option>)}
-                      </select>
-                    </div>
+                    {addForm.manualKind === 'compromisso' ? (
+                      <div>
+                        <label className="label">Para quem? <span className="text-gray-400 font-normal">(opcional)</span></label>
+                        <select className="input" value={addForm.assignee} onChange={e => setAddForm(p => ({ ...p, assignee: e.target.value }))}>
+                          <option value="">Selecionar...</option>
+                          <optgroup label="Colaboradores">
+                            {allEmployees?.map(e => <option key={e.id} value={`emp:${e.id}`}>{e.full_name}</option>)}
+                          </optgroup>
+                          <optgroup label="Equipe RH">
+                            {rhUsers?.map(u => <option key={u.id} value={`rh:${u.id}`}>{u.full_name}</option>)}
+                          </optgroup>
+                        </select>
+                        <p className="text-[11px] text-ink-400 mt-1">Se escolher alguém da Equipe RH, o compromisso aparece na Agenda dessa pessoa.</p>
+                      </div>
+                    ) : (
+                      <div>
+                        <label className="label">Colaborador *</label>
+                        <select className="input" value={addForm.employee_id} onChange={e => setAddForm(p => ({ ...p, employee_id: e.target.value }))}>
+                          <option value="">Selecionar...</option>
+                          {allEmployees?.map(e => <option key={e.id} value={e.id}>{e.full_name}</option>)}
+                        </select>
+                      </div>
+                    )}
                     {addForm.manualKind === 'ausencia' && (
                       <div>
                         <label className="label">Motivo *</label>

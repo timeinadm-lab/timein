@@ -20,6 +20,14 @@ const STATUS_COLORS: Record<string, string> = {
   Cancelada: 'bg-gray-100 text-gray-700',
   Falta: 'bg-red-100 text-red-700',
 }
+const CATEGORY_COLORS: Record<string, string> = {
+  Reunião: 'bg-blue-100 text-blue-700',
+  Visita: 'bg-primary-100 text-primary-700',
+  Treinamento: 'bg-purple-100 text-purple-700',
+  Ligação: 'bg-cyan-100 text-cyan-700',
+  Entrevista: 'bg-indigo-100 text-indigo-700',
+  Outro: 'bg-gray-100 text-gray-600',
+}
 
 export default function InterviewAgenda() {
   const { role, profile } = useAuth()
@@ -136,7 +144,10 @@ export default function InterviewAgenda() {
             <div key={i.id} className="rounded-xl bg-white border border-amber-100 p-3">
               <div className="flex items-start justify-between gap-3 flex-wrap">
                 <div className="min-w-0">
-                  <p className="font-medium text-sm">{i.title || 'Compromisso'}</p>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {(i as { category?: string }).category && <span className={`badge ${CATEGORY_COLORS[(i as { category?: string }).category!] || 'bg-gray-100 text-gray-600'}`}>{(i as { category?: string }).category}</span>}
+                    <p className="font-medium text-sm">{i.title || 'Compromisso'}</p>
+                  </div>
                   {(i as { recruiter?: { full_name: string } }).recruiter?.full_name && <p className="text-xs text-gray-400">Responsável: {(i as { recruiter?: { full_name: string } }).recruiter?.full_name}</p>}
                   {i.notes && <p className="text-xs text-gray-500 mt-0.5">{i.notes}</p>}
                 </div>
@@ -209,6 +220,7 @@ export default function InterviewAgenda() {
               <div className="flex-1">
                 <div className="flex items-center gap-2 flex-wrap">
                   <p className="font-medium">{i.title || (i as { candidate?: { full_name: string } }).candidate?.full_name || 'Compromisso'}</p>
+                  {(i as { category?: string }).category && <span className={`badge ${CATEGORY_COLORS[(i as { category?: string }).category!] || 'bg-gray-100 text-gray-600'}`}>{(i as { category?: string }).category}</span>}
                   <span className={`badge ${MODAL_COLORS[i.modality] || 'bg-gray-100'}`}>{i.modality}</span>
                   <span className={`badge ${STATUS_COLORS[i.status] || 'bg-gray-100'}`}>{i.status}</span>
                 </div>

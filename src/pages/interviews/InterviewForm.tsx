@@ -14,7 +14,7 @@ export default function InterviewForm() {
   const isEdit = !!id
 
   const [form, setForm] = useState({
-    title: '', candidate_id: '', vacancy_id: '', employee_id: '', recruiter_id: profile?.id || '',
+    title: '', category: 'Reunião', candidate_id: '', vacancy_id: '', employee_id: '', recruiter_id: profile?.id || '',
     scheduled_at: '', end_date: '', duration_min: '30', modality: 'Online',
     link_or_address: '', notes: '', status: 'Agendada',
   })
@@ -63,6 +63,7 @@ export default function InterviewForm() {
       if (error) throw error
       setForm({
         title: data.title || '',
+        category: data.category || 'Reunião',
         candidate_id: data.candidate_id || '',
         vacancy_id: data.vacancy_id || '',
         employee_id: data.employee_id || '',
@@ -113,6 +114,7 @@ export default function InterviewForm() {
     if (!noDate && !form.scheduled_at) { toast.error('Escolha a data, ou marque "sem data (a agendar)"'); return }
     mutation.mutate({
       title: form.title || null,
+      category: form.category || null,
       candidate_id: form.candidate_id || null,
       vacancy_id: form.vacancy_id || null,
       employee_id: form.employee_id || null,
@@ -138,8 +140,20 @@ export default function InterviewForm() {
       <form onSubmit={handleSubmit} className="card p-6 space-y-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="col-span-full">
+            <label className="label">Tipo</label>
+            <div className="flex flex-wrap gap-1.5">
+              {['Reunião', 'Visita', 'Treinamento', 'Ligação', 'Entrevista', 'Outro'].map(c => (
+                <button key={c} type="button"
+                  onClick={() => setForm(p => ({ ...p, category: c, modality: c === 'Visita' ? 'Presencial' : c === 'Ligação' ? 'Telefone' : p.modality }))}
+                  className={`px-3 py-1.5 rounded-xl text-sm font-medium border-2 transition-colors ${form.category === c ? 'border-primary-600 bg-primary-50 text-primary-700' : 'border-ink-200 text-ink-500 hover:border-ink-300'}`}>
+                  {c}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="col-span-full">
             <label className="label">Título *</label>
-            <input className="input" required placeholder="Ex: Reunião com fornecedor, Entrevista com a Maria…" value={form.title} onChange={e => set('title', e.target.value)} />
+            <input className="input" required placeholder="Ex: Visita SLA, Reunião com fornecedor, Entrevista com a Maria…" value={form.title} onChange={e => set('title', e.target.value)} />
           </div>
           <div>
             <label className="label">Data e Hora {noDate ? <span className="text-gray-400 font-normal">(a agendar)</span> : '*'}</label>

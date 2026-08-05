@@ -52,6 +52,7 @@ export default function EmployeeDetail() {
   const [editContractDate, setEditContractDate] = useState<{ linkId: string; date: string } | null>(null)
   const [confirmRemoveLinkId, setConfirmRemoveLinkId] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [statusMenuOpen, setStatusMenuOpen] = useState(false)
   const [editVisitId, setEditVisitId] = useState<string | null>(null)
   const [editVisitForm, setEditVisitForm] = useState({ check_in: '', check_out: '', observations: '' })
   const [showCoverageForm, setShowCoverageForm] = useState(false)
@@ -98,6 +99,24 @@ export default function EmployeeDetail() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['employee', id] })
       qc.invalidateQueries({ queryKey: ['employees'] })
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  // Troca rápida de status (Ativo/Ocioso/Inativo) direto na tela do colaborador
+  const updateStatus = useMutation({
+    mutationFn: async (status: 'Ativo' | 'Ocioso' | 'Inativo') => {
+      const patch: { status: string; dismissal_date?: null; dismissal_reason?: null } = { status }
+      // Reativando: limpa dados de saída pra não ficar resíduo de desligamento
+      if (status !== 'Inativo') { patch.dismissal_date = null; patch.dismissal_reason = null }
+      const { error } = await supabase.from('employees').update(patch).eq('id', id)
+      if (error) throw error
+    },
+    onSuccess: (_d, status) => {
+      toast.success(`Status alterado para ${status}`)
+      qc.invalidateQueries({ queryKey: ['employee', id] })
+      qc.invalidateQueries({ queryKey: ['employees'] })
+      setStatusMenuOpen(false)
     },
     onError: (e: Error) => toast.error(e.message),
   })
@@ -788,7 +807,29 @@ export default function EmployeeDetail() {
             <h1 className="text-xl md:text-2xl font-display font-extrabold text-ink-900 truncate">{employee.full_name}</h1>
             <p className="text-sm text-ink-500">{employee.role || 'Sem cargo'}</p>
             <div className="flex flex-wrap gap-1.5 mt-2">
-              <span className={`badge ${employee.status === 'Ativo' ? 'bg-primary-100 text-primary-700' : employee.status === 'Inativo' ? 'bg-gray-100 text-gray-500' : 'bg-ink-100 text-ink-600'}`}>{employee.status}</span>
+              {/* Status editável: clica no badge e escolhe Ativo / Ocioso / Inativo */}
+              <div className="relative">
+                <button onClick={() => setStatusMenuOpen(o => !o)}
+                  className={`badge cursor-pointer hover:ring-2 hover:ring-primary-200 transition-all ${employee.status === 'Ativo' ? 'bg-primary-100 text-primary-700' : employee.status === 'Inativo' ? 'bg-gray-100 text-gray-500' : 'bg-amber-100 text-amber-700'}`}
+                  title="Clique para alterar o status">
+                  {employee.status} <Edit size={11} className="opacity-60" />
+                </button>
+                {statusMenuOpen && (
+                  <>
+                    <div className="fixed inset-0 z-20" onClick={() => setStatusMenuOpen(false)} />
+                    <div className="absolute z-30 mt-1 left-0 bg-white rounded-xl shadow-lift border border-ink-100 p-1 w-44">
+                      {([['Ativo', '🟢 Ativo', 'Trabalha na empresa'], ['Ocioso', '🟡 Ocioso', 'Ativo, sem vínculo agora'], ['Inativo', '⚪ Inativo', 'Desligado']] as const).map(([s, label, hint]) => (
+                        <button key={s} disabled={updateStatus.isPending}
+                          onClick={() => updateStatus.mutate(s)}
+                          className={`w-full text-left px-3 py-2 rounded-lg hover:bg-ink-50 transition-colors ${employee.status === s ? 'bg-ink-50' : ''}`}>
+                          <span className={`text-sm ${employee.status === s ? 'font-bold text-ink-900' : 'text-ink-700'}`}>{label}</span>
+                          <span className="block text-[11px] text-ink-400">{hint}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
               {employee.crn_number && <span className="badge bg-blue-50 text-blue-700">CRN {employee.crn_number}/{employee.crn_region}</span>}
               {[...new Set((links || []).map(l => l.service_type))].map(st => (
                 <span key={st} className={`badge ${st === 'Volante' ? 'bg-orange-100 text-orange-700' : st === 'Consultoria' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'}`}>{st === 'Volante' ? '⚡ Freela' : st}</span>

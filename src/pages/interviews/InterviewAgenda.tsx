@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Calendar, List, Edit, Trash2 } from 'lucide-react'
+import { Plus, Calendar, List, Edit, Trash2, CalendarClock, Check } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { formatDate, formatLocalDateTime, parseLocal } from '../../lib/utils'
@@ -30,6 +30,8 @@ export default function InterviewAgenda() {
   const [filterMine, setFilterMine] = useState(role === 'recrutador')
   const [currentMonth, setCurrentMonth] = useState(new Date())
   const [selectedDay, setSelectedDay] = useState<Date | null>(null)
+  const [schedulingId, setSchedulingId] = useState<string | null>(null)
+  const [scheduleValue, setScheduleValue] = useState('')
 
   const { data: interviews } = useQuery({
     queryKey: ['interviews', filterStatus, filterMine, profile?.id],
@@ -73,10 +75,24 @@ export default function InterviewAgenda() {
     onError: (e: Error) => toast.error(e.message),
   })
 
+  // Define a data de um item que estava "a agendar"
+  const setDate = useMutation({
+    mutationFn: async ({ id, dt }: { id: string; dt: string }) => {
+      const { error } = await supabase.from('interviews').update({ scheduled_at: dt }).eq('id', id)
+      if (error) throw error
+    },
+    onSuccess: () => { toast.success('Data definida!'); qc.invalidateQueries({ queryKey: ['interviews'] }); setSchedulingId(null); setScheduleValue('') },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  // Itens SEM data ainda (a agendar) — separados da lista normal
+  const pending = (interviews || []).filter(i => !i.scheduled_at && i.status === 'Agendada')
+
   const monthDays = eachDayOfInterval({ start: startOfMonth(currentMonth), end: endOfMonth(currentMonth) })
   const dayInterviews = (day: Date) => interviews?.filter(i => { const d = parseLocal(i.scheduled_at); return d && isSameDay(d, day) }) ?? []
 
-  const displayInterviews = selectedDay ? interviews?.filter(i => { const d = parseLocal(i.scheduled_at); return d && isSameDay(d, selectedDay) }) : interviews
+  const dated = interviews?.filter(i => i.scheduled_at)
+  const displayInterviews = selectedDay ? dated?.filter(i => { const d = parseLocal(i.scheduled_at); return d && isSameDay(d, selectedDay) }) : dated
 
   return (
     <div className="space-y-4">
@@ -108,6 +124,42 @@ export default function InterviewAgenda() {
           </label>
         )}
       </div>
+
+      {/* A AGENDAR — itens sem data ainda. Fica no topo pra ninguém esquecer. */}
+      {pending.length > 0 && (
+        <div className="card p-4 border-amber-200 bg-amber-50/40 space-y-2">
+          <div className="flex items-center gap-2">
+            <CalendarClock size={16} className="text-amber-600" />
+            <h3 className="font-semibold text-amber-800 text-sm">A agendar <span className="font-normal text-amber-600">— {pending.length} sem data definida</span></h3>
+          </div>
+          {pending.map(i => (
+            <div key={i.id} className="rounded-xl bg-white border border-amber-100 p-3">
+              <div className="flex items-start justify-between gap-3 flex-wrap">
+                <div className="min-w-0">
+                  <p className="font-medium text-sm">{i.title || 'Compromisso'}</p>
+                  {(i as { recruiter?: { full_name: string } }).recruiter?.full_name && <p className="text-xs text-gray-400">Responsável: {(i as { recruiter?: { full_name: string } }).recruiter?.full_name}</p>}
+                  {i.notes && <p className="text-xs text-gray-500 mt-0.5">{i.notes}</p>}
+                </div>
+                <div className="flex gap-1 items-center">
+                  {schedulingId === i.id ? (
+                    <>
+                      <input type="datetime-local" className="input w-auto text-xs py-1.5" value={scheduleValue} onChange={e => setScheduleValue(e.target.value)} />
+                      <button disabled={!scheduleValue || setDate.isPending} onClick={() => setDate.mutate({ id: i.id, dt: scheduleValue })} className="btn-primary text-xs px-2 py-1.5"><Check size={13} /></button>
+                      <button onClick={() => { setSchedulingId(null); setScheduleValue('') }} className="btn-ghost text-xs px-2 py-1.5">✕</button>
+                    </>
+                  ) : (
+                    <>
+                      <button onClick={() => { setSchedulingId(i.id); setScheduleValue('') }} className="btn-secondary text-xs">Definir data</button>
+                      <button onClick={() => navigate(`/agenda/${i.id}/editar`)} className="btn-ghost p-2"><Edit size={14} /></button>
+                      <button onClick={() => { if (confirm('Excluir?')) deleteInterview.mutate(i.id) }} className="btn-ghost p-2 text-red-400"><Trash2 size={14} /></button>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {view === 'calendar' && (
         <div className="card p-5">

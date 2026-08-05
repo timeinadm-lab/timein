@@ -18,6 +18,7 @@ export default function InterviewForm() {
     scheduled_at: '', end_date: '', duration_min: '30', modality: 'Online',
     link_or_address: '', notes: '', status: 'Agendada',
   })
+  const [noDate, setNoDate] = useState(false)
 
   const { data: employees } = useQuery({
     queryKey: ['employees-select'],
@@ -74,6 +75,7 @@ export default function InterviewForm() {
         notes: data.notes || '',
         status: data.status || 'Agendada',
       })
+      setNoDate(!data.scheduled_at)
       return data
     },
     enabled: isEdit,
@@ -108,13 +110,14 @@ export default function InterviewForm() {
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault()
+    if (!noDate && !form.scheduled_at) { toast.error('Escolha a data, ou marque "sem data (a agendar)"'); return }
     mutation.mutate({
       title: form.title || null,
       candidate_id: form.candidate_id || null,
       vacancy_id: form.vacancy_id || null,
       employee_id: form.employee_id || null,
       recruiter_id: form.recruiter_id || null,
-      scheduled_at: form.scheduled_at,
+      scheduled_at: noDate ? null : form.scheduled_at,
       end_date: form.end_date || null,
       duration_min: Number(form.duration_min),
       modality: form.modality,
@@ -139,8 +142,12 @@ export default function InterviewForm() {
             <input className="input" required placeholder="Ex: Reunião com fornecedor, Entrevista com a Maria…" value={form.title} onChange={e => set('title', e.target.value)} />
           </div>
           <div>
-            <label className="label">Data e Hora *</label>
-            <input className="input" type="datetime-local" required value={form.scheduled_at} onChange={e => set('scheduled_at', e.target.value)} />
+            <label className="label">Data e Hora {noDate ? <span className="text-gray-400 font-normal">(a agendar)</span> : '*'}</label>
+            <input className="input" type="datetime-local" required={!noDate} disabled={noDate} value={form.scheduled_at} onChange={e => set('scheduled_at', e.target.value)} />
+            <label className="flex items-center gap-2 mt-1.5 text-xs text-ink-600 cursor-pointer select-none">
+              <input type="checkbox" checked={noDate} onChange={e => { setNoDate(e.target.checked); if (e.target.checked) set('scheduled_at', '') }} className="rounded" />
+              Sem data definida <span className="text-ink-400">(a pessoa só precisa saber que tem que fazer)</span>
+            </label>
           </div>
           <div>
             <label className="label">Até <span className="text-gray-400 font-normal">(opcional — férias, período)</span></label>

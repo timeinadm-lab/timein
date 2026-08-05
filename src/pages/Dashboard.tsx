@@ -357,6 +357,18 @@ export default function Dashboard() {
     },
   })
 
+  // Meus itens "a agendar" (sem data) — pra eu lembrar que preciso fazer
+  const { data: myPending } = useQuery({
+    queryKey: ['dashboard-pending', profile?.id],
+    queryFn: async () => {
+      const { data } = await supabase.from('interviews')
+        .select('id,title')
+        .is('scheduled_at', null).eq('status', 'Agendada').eq('recruiter_id', profile?.id)
+      return data || []
+    },
+    enabled: !!profile?.id,
+  })
+
   // Prioridades manuais — criadas por qualquer usuário, aparecem para todos
   const { data: customPriorities } = useQuery({
     queryKey: ['custom-priorities'],
@@ -681,6 +693,16 @@ export default function Dashboard() {
     if (p.level === 'red') redAlerts.push(item)
     else amberAlerts.push(item)
   })
+
+  // Meus compromissos sem data ainda — lembrete pra agendar
+  if ((myPending?.length ?? 0) > 0) {
+    amberAlerts.push({
+      text: myPending!.length === 1
+        ? `Você tem 1 item a agendar: "${myPending![0].title || 'Compromisso'}"`
+        : `Você tem ${myPending!.length} itens a agendar (sem data definida)`,
+      path: '/agenda',
+    })
+  }
 
   overdue.forEach(p =>
     redAlerts.push({ text: `Pagamento atrasado: ${p.description} — ${formatCurrency(p.amount)}`, path: '/pagamentos' })

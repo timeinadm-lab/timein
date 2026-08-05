@@ -142,7 +142,7 @@ CREATE TABLE IF NOT EXISTS employee_client_links (
   id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   employee_id         UUID NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
   client_id           UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
-  service_type        TEXT NOT NULL DEFAULT 'PJ' CHECK (service_type IN ('PJ', 'Consultoria')),
+  service_type        TEXT NOT NULL DEFAULT 'PJ' CHECK (service_type IN ('PJ', 'Consultoria', 'Fixo', 'Volante', 'Ambos')),
   monthly_amount      NUMERIC(10,2),
   weekly_hours_quota  NUMERIC(5,2),
   start_date          DATE,

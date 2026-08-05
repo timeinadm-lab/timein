@@ -306,6 +306,23 @@ export default function EmployeeDetail() {
           day_of_month: Number(coverageForm.pay_day),
         })
       }
+      // Agenda o dia no calendário/portal (mesma lógica do "Escalar"):
+      // sem isto o freela virava só um vínculo sem data e não aparecia em lugar nenhum.
+      if (coverageForm.start_date) {
+        const { error: agErr } = await supabase.from('nutritionist_agenda').insert({
+          employee_id: id,
+          client_id: coverageForm.client_id || null,
+          unit_id: isFixo ? (coverageForm.unit_id || null) : null,
+          planned_date: coverageForm.start_date,
+          hours_expected: isFixo
+            ? (coverageForm.daily_hours ? Number(coverageForm.daily_hours) : null)
+            : (Number(coverageForm.weekly_hours_quota) || null),
+          notes: 'Freela avulso',
+          created_by_admin: true,
+        })
+        // Vínculo já foi criado; se a agenda falhar não quebra o cadastro.
+        if (agErr) console.warn('agenda do freela:', agErr.message)
+      }
     },
     onSuccess: () => {
       toast.success('Freela adicionado!')

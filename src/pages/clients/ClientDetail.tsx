@@ -289,10 +289,35 @@ export default function ClientDetail() {
 
   const deleteUnit = useMutation({
     mutationFn: async (unitId: string) => {
+      // Limpa a unidade de qualquer vínculo/vaga que ainda a referencie — senão ela vira uma
+      // unidade "fantasma": some da lista mas continua contando escondida na média/estimativa.
+      const { data: links } = await supabase.from('employee_client_links')
+        .select('id,link_units').eq('client_id', id).not('link_units', 'is', null)
+      for (const link of links || []) {
+        const units = (link.link_units as { unit_id: string }[] | null) || []
+        if (units.some(u => u.unit_id === unitId)) {
+          await supabase.from('employee_client_links')
+            .update({ link_units: units.filter(u => u.unit_id !== unitId) }).eq('id', link.id)
+        }
+      }
+      const { data: vacs } = await supabase.from('vacancies')
+        .select('id,vacancy_units').eq('client_id', id).not('vacancy_units', 'is', null)
+      for (const vac of vacs || []) {
+        const units = (vac.vacancy_units as { unit_id: string }[] | null) || []
+        if (units.some(u => u.unit_id === unitId)) {
+          await supabase.from('vacancies')
+            .update({ vacancy_units: units.filter(u => u.unit_id !== unitId) }).eq('id', vac.id)
+        }
+      }
       const { error } = await supabase.from('client_units').delete().eq('id', unitId)
       if (error) throw error
     },
-    onSuccess: () => { toast.success('Unidade removida!'); qc.invalidateQueries({ queryKey: ['client-units', id] }) },
+    onSuccess: () => {
+      toast.success('Unidade removida!')
+      qc.invalidateQueries({ queryKey: ['client-units', id] })
+      qc.invalidateQueries({ queryKey: ['employee-links'] })
+      qc.invalidateQueries({ queryKey: ['edit-client-units'] })
+    },
     onError: (e: Error) => toast.error(e.message),
   })
 

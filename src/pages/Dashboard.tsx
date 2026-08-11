@@ -1061,19 +1061,22 @@ export default function Dashboard() {
             return (
               <div
                 key={i}
-                className={`rounded-xl p-2 min-h-[5.5rem] border transition-colors ${
+                className={`rounded-xl p-2 min-h-[4rem] border transition-colors ${
                   isToday ? 'border-primary-400 bg-primary-50/60' : 'border-ink-100 bg-ink-50/40'
                 }`}
               >
-                <div className="text-center mb-1.5">
+                <div className="flex items-baseline justify-center gap-1 mb-1">
                   <p className={`text-[10px] uppercase font-semibold ${isToday ? 'text-primary-600' : 'text-ink-400'}`}>
                     {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'][i]}
                   </p>
-                  <p className={`text-sm font-bold leading-tight ${isToday ? 'text-primary-700' : 'text-ink-700'}`}>
+                  <p className={`text-sm font-bold leading-none ${isToday ? 'text-primary-700' : 'text-ink-700'}`}>
                     {day.getDate()}
                   </p>
                 </div>
                 <div className="space-y-1">
+                  {dayEvents.length === 0 && (
+                    <p className="text-[10px] text-ink-300 text-center leading-tight">—</p>
+                  )}
                   {dayEvents.slice(0, 2).map(e => (
                     <div
                       key={e.id}
@@ -1204,7 +1207,7 @@ export default function Dashboard() {
                 <Clock size={14} className="text-white" />
                 <span className="text-sm font-semibold text-white">{filteredAmber.length} Atenção</span>
               </div>
-              <div className="divide-y divide-amber-100">
+              <div className="divide-y divide-amber-100 max-h-[19rem] overflow-y-auto">
                 {filteredAmber.map((a, i) => (
                   <div key={i} className="flex items-center gap-3 px-4 py-2.5 group">
                     <span className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" />
@@ -1260,10 +1263,10 @@ export default function Dashboard() {
           </div>
           <div className="card p-3">
             {interviews?.length === 0 ? (
-              <div className="text-center py-8">
-                <Calendar size={28} className="text-ink-200 mx-auto mb-2" />
+              <div className="text-center py-5">
+                <Calendar size={24} className="text-ink-200 mx-auto mb-1.5" />
                 <p className="text-sm text-ink-400">Nenhum compromisso agendado</p>
-                <button onClick={() => navigate('/agenda/nova')} className="text-xs text-primary-600 font-semibold hover:underline mt-2">+ Agendar compromisso</button>
+                <button onClick={() => navigate('/agenda/nova')} className="text-xs text-primary-600 font-semibold hover:underline mt-1.5">+ Agendar compromisso</button>
               </div>
             ) : (
               <div className="space-y-1.5">
@@ -1302,6 +1305,30 @@ export default function Dashboard() {
                 })}
               </div>
             )}
+          </div>
+
+          {/* Atalhos — ficam aqui pra preencher a coluna e deixar as ações à mão */}
+          <div className="flex items-center justify-between px-0.5 pt-1">
+            <h2 className="section-title text-base">
+              <TrendingUp size={16} className="text-primary-600" />
+              Atalhos
+            </h2>
+          </div>
+          <div className="card p-3 grid grid-cols-2 gap-2">
+            {[
+              { label: 'Colaborador', path: '/colaboradores/novo', color: 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100' },
+              { label: 'Vaga', path: '/vagas/nova', color: 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100' },
+              { label: 'Candidato', path: '/candidatos/novo', color: 'bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100' },
+              { label: 'Compromisso', path: '/agenda/nova', color: 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100' },
+              { label: 'Contrato', path: '/contratos/novo', color: 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100' },
+              { label: 'Kanban', path: '/candidatos/kanban', color: 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100' },
+            ].map(q => (
+              <button key={q.path} onClick={() => navigate(q.path)}
+                className={`flex items-center gap-1.5 px-2.5 py-2 rounded-xl border text-xs font-semibold transition-colors ${q.color}`}>
+                <Plus size={12} className="flex-shrink-0" />
+                <span className="truncate">{q.label}</span>
+              </button>
+            ))}
           </div>
         </div>
       </div>
@@ -1479,45 +1506,29 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* ── Vagas & Contratos ── */}
-        <div className="card p-5">
-          <h2 className="section-title text-base mb-4">
-            <Briefcase size={16} className="text-primary-600" />
-            Vagas & Contratos
-          </h2>
-          <div className="grid grid-cols-2 gap-5">
-            <MiniDonut title="Vagas" data={vagasPie} total={vagasTotal} empty="Nenhuma vaga" />
-            <div className="sm:border-l sm:border-ink-100 sm:pl-5">
-              <MiniDonut title="Contratos" data={contratosPie} total={contratosTotal} empty="Nenhum contrato" />
-            </div>
-          </div>
+      {/* ── Panorama — todos os donuts numa faixa só, sem buraco em branco ── */}
+      <div className="card p-5">
+        <h2 className="section-title text-base mb-4">
+          <BarChart3 size={16} className="text-primary-600" />
+          Panorama
+        </h2>
+        <div className={`grid grid-cols-2 sm:grid-cols-3 ${role === 'chefe' ? 'lg:grid-cols-5' : 'lg:grid-cols-2'} gap-x-5 gap-y-6 divide-ink-100 lg:divide-x`}>
+          <div className="lg:pr-5"><MiniDonut title="Vagas" data={vagasPie} total={vagasTotal} empty="Nenhuma vaga" /></div>
+          <div className="lg:px-5"><MiniDonut title="Contratos" data={contratosPie} total={contratosTotal} empty="Nenhum contrato" /></div>
+          {role === 'chefe' && (
+            <>
+              <div className="lg:px-5"><MiniDonut title="Colaboradores" data={colaboradoresPie} total={colaboradoresTotal} empty="Nenhum colaborador" /></div>
+              <div className="lg:px-5"><MiniDonut title="Visitas do mês" data={visitasPie} total={visitasTotal} empty="Sem visitas" /></div>
+              <div className="lg:pl-5"><MiniDonut title="Documentos" data={documentosPie} total={documentosTotal} empty="Sem documentos" /></div>
+            </>
+          )}
         </div>
+      </div>
 
-        {/* ── Equipe & Operação (chefe) ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* ── Contratações (últimos 6 meses) — ocupa 2 colunas ── */}
         {role === 'chefe' && (
           <div className="card p-5 lg:col-span-2">
-            <h2 className="section-title text-base mb-4">
-              <Users size={16} className="text-primary-600" />
-              Equipe & Operação
-            </h2>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-5 divide-y sm:divide-y-0 sm:divide-x divide-ink-100">
-              <div className="sm:pr-5">
-                <MiniDonut title="Colaboradores" data={colaboradoresPie} total={colaboradoresTotal} empty="Nenhum colaborador" />
-              </div>
-              <div className="pt-5 sm:pt-0 sm:px-5">
-                <MiniDonut title="Visitas do mês" data={visitasPie} total={visitasTotal} empty="Sem visitas" />
-              </div>
-              <div className="pt-5 sm:pt-0 sm:pl-5">
-                <MiniDonut title="Documentos" data={documentosPie} total={documentosTotal} empty="Sem documentos" />
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ── Contratações (últimos 6 meses) + Status dos Colaboradores ── */}
-        {role === 'chefe' && (
-          <div className="card p-5">
             <h2 className="font-semibold text-gray-900 flex items-center gap-2 mb-4">
               <BarChart3 size={16} className="text-primary-600" />
               Contratações — Últimos 6 meses
@@ -1564,9 +1575,9 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* ── Freelas ── */}
+        {/* ── Freelas — ocupa a linha toda se não houver docs pendentes ao lado ── */}
         {role === 'chefe' && freelasTotal > 0 && (
-          <div className="card p-5">
+          <div className={`card p-5 ${(pendingDocs?.length ?? 0) > 0 ? '' : 'lg:col-span-3'}`}>
             <h2 className="font-semibold text-gray-900 flex items-center gap-2 mb-4">
               <Users size={16} className="text-purple-500" />
               Freelas
@@ -1591,7 +1602,7 @@ export default function Dashboard() {
 
         {/* ── Pendências de Documentação (chefe) ── */}
         {role === 'chefe' && (pendingDocs?.length ?? 0) > 0 && (
-          <div className="card p-5">
+          <div className={`card p-5 ${freelasTotal > 0 ? 'lg:col-span-2' : 'lg:col-span-3'}`}>
             <div className="flex items-center justify-between mb-3">
               <h2 className="font-semibold text-gray-900 flex items-center gap-2">
                 <Clipboard size={16} className="text-amber-500" />
@@ -1600,7 +1611,7 @@ export default function Dashboard() {
               </h2>
               <button onClick={() => navigate('/colaboradores')} className="text-xs text-primary-600 hover:underline">Ver colaboradores →</button>
             </div>
-            <div className="space-y-1.5 max-h-48 overflow-y-auto">
+            <div className={`grid gap-1.5 max-h-48 overflow-y-auto ${freelasTotal > 0 ? 'sm:grid-cols-2' : 'sm:grid-cols-3'}`}>
               {pendingDocs?.slice(0, 15).map(d => (
                 <div key={d.id} className="flex items-center justify-between px-3 py-2 bg-amber-50 rounded-lg cursor-pointer hover:bg-amber-100"
                   onClick={() => navigate(`/colaboradores/${(d as { employee?: { id: string } }).employee?.id}?tab=arquivos`)}>
@@ -1620,29 +1631,6 @@ export default function Dashboard() {
 
       </div>
 
-      {/* ── Quick Actions ── */}
-      <div className="card p-5">
-        <h2 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
-          <TrendingUp size={16} className="text-primary-600" />
-          Atalhos Rápidos
-        </h2>
-        <div className="flex flex-wrap gap-2">
-          {[
-            { label: 'Novo Colaborador', path: '/colaboradores/novo', color: 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100' },
-            { label: 'Nova Vaga', path: '/vagas/nova', color: 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100' },
-            { label: 'Novo Candidato', path: '/candidatos/novo', color: 'bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100' },
-            { label: 'Pipeline Kanban', path: '/candidatos/kanban', color: 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100' },
-            { label: 'Novo Compromisso', path: '/agenda/nova', color: 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100' },
-            { label: 'Novo Contrato', path: '/contratos/novo', color: 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100' },
-          ].map(q => (
-            <button key={q.path} onClick={() => navigate(q.path)}
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-sm font-medium transition-colors ${q.color}`}>
-              <Plus size={13} />
-              {q.label}
-            </button>
-          ))}
-        </div>
-      </div>
     </div>
   )
 }

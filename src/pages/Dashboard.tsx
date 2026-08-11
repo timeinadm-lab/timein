@@ -386,6 +386,22 @@ export default function Dashboard() {
     enabled: !!profile?.id,
   })
 
+  // Compromissos da semana atual — alimenta o mini calendário no topo do dashboard
+  const weekStart = (() => { const d = new Date(now); d.setDate(d.getDate() - d.getDay()); d.setHours(0, 0, 0, 0); return d })()
+  const weekEnd = (() => { const d = new Date(weekStart); d.setDate(d.getDate() + 7); return d })()
+  const { data: weekEvents } = useQuery({
+    queryKey: ['dashboard-week', weekStart.toDateString()],
+    queryFn: async () => {
+      const { data } = await supabase.from('interviews')
+        .select('id,title,category,scheduled_at,status,client:clients(name)')
+        .not('scheduled_at', 'is', null)
+        .gte('scheduled_at', weekStart.toISOString()).lt('scheduled_at', weekEnd.toISOString())
+        .neq('status', 'Cancelada')
+        .order('scheduled_at', { ascending: true })
+      return data || []
+    },
+  })
+
   // Prioridades manuais — criadas por qualquer usuário, aparecem para todos
   const { data: customPriorities } = useQuery({
     queryKey: ['custom-priorities'],
@@ -1018,6 +1034,68 @@ export default function Dashboard() {
           <p className="text-sm text-ink-400 capitalize">{now.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}</p>
         </div>
       </div>
+
+      {/* ── Mini calendário da semana — clique abre o calendário completo ── */}
+      <button
+        onClick={() => navigate('/calendario')}
+        className="card p-4 w-full text-left hover:border-primary-300 hover:shadow-md transition-all group"
+      >
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="section-title text-base mb-0">
+            <Calendar size={16} className="text-primary-600" />
+            Minha semana
+          </h2>
+          <span className="text-xs text-ink-400 group-hover:text-primary-600 transition-colors">
+            Ver calendário completo →
+          </span>
+        </div>
+        <div className="grid grid-cols-7 gap-1.5">
+          {Array.from({ length: 7 }).map((_, i) => {
+            const day = new Date(weekStart)
+            day.setDate(day.getDate() + i)
+            const isToday = day.toDateString() === now.toDateString()
+            const dayEvents = (weekEvents || []).filter(e => {
+              const d = parseLocal(e.scheduled_at)
+              return d && d.toDateString() === day.toDateString()
+            })
+            return (
+              <div
+                key={i}
+                className={`rounded-xl p-2 min-h-[5.5rem] border transition-colors ${
+                  isToday ? 'border-primary-400 bg-primary-50/60' : 'border-ink-100 bg-ink-50/40'
+                }`}
+              >
+                <div className="text-center mb-1.5">
+                  <p className={`text-[10px] uppercase font-semibold ${isToday ? 'text-primary-600' : 'text-ink-400'}`}>
+                    {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'][i]}
+                  </p>
+                  <p className={`text-sm font-bold leading-tight ${isToday ? 'text-primary-700' : 'text-ink-700'}`}>
+                    {day.getDate()}
+                  </p>
+                </div>
+                <div className="space-y-1">
+                  {dayEvents.slice(0, 2).map(e => (
+                    <div
+                      key={e.id}
+                      title={`${formatLocalTime(e.scheduled_at)} · ${e.title || 'Compromisso'}`}
+                      className={`text-[10px] leading-tight px-1 py-0.5 rounded truncate ${
+                        e.category === 'Visita'
+                          ? 'bg-primary-100 text-primary-700'
+                          : 'bg-blue-100 text-blue-700'
+                      }`}
+                    >
+                      {formatLocalTime(e.scheduled_at)} {e.title || 'Compromisso'}
+                    </div>
+                  ))}
+                  {dayEvents.length > 2 && (
+                    <p className="text-[10px] text-ink-400 px-1">+{dayEvents.length - 2} mais</p>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </button>
 
       {/* ── Prioridades + Agenda do RH — o que importa primeiro ── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6 items-start">

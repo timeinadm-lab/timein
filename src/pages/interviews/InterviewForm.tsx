@@ -193,22 +193,28 @@ export default function InterviewForm() {
               </div>
             )}
           </div>
-          <div>
-            <label className="label">Até <span className="text-gray-400 font-normal">(opcional — férias, período)</span></label>
-            <input className="input" type="date" value={form.end_date} onChange={e => set('end_date', e.target.value)} />
-          </div>
-          <div>
-            <label className="label">Duração</label>
-            <select className="input" value={form.duration_min} onChange={e => set('duration_min', e.target.value)}>
-              <option value="30">30 min</option><option value="45">45 min</option><option value="60">60 min</option><option value="90">90 min</option>
-            </select>
-          </div>
-          <div>
-            <label className="label">Modalidade</label>
-            <select className="input" value={form.modality} onChange={e => set('modality', e.target.value)}>
-              <option>Online</option><option>Presencial</option><option>Telefone</option>
-            </select>
-          </div>
+          {form.category !== 'Visita' && (
+            <div>
+              <label className="label">Até <span className="text-gray-400 font-normal">(opcional — férias, período)</span></label>
+              <input className="input" type="date" value={form.end_date} onChange={e => set('end_date', e.target.value)} />
+            </div>
+          )}
+          {form.category !== 'Visita' && (
+            <>
+              <div>
+                <label className="label">Duração</label>
+                <select className="input" value={form.duration_min} onChange={e => set('duration_min', e.target.value)}>
+                  <option value="30">30 min</option><option value="45">45 min</option><option value="60">60 min</option><option value="90">90 min</option>
+                </select>
+              </div>
+              <div>
+                <label className="label">Modalidade</label>
+                <select className="input" value={form.modality} onChange={e => set('modality', e.target.value)}>
+                  <option>Online</option><option>Presencial</option><option>Telefone</option>
+                </select>
+              </div>
+            </>
+          )}
           <div className="col-span-full">
             <label className="label">Responsável <span className="text-gray-400 font-normal">(quem vai fazer — pode agendar para qualquer pessoa)</span></label>
             <select className="input" value={form.recruiter_id} onChange={e => set('recruiter_id', e.target.value)}>
@@ -216,7 +222,7 @@ export default function InterviewForm() {
               {recruiters?.map(r => <option key={r.id} value={r.id}>{r.full_name}</option>)}
             </select>
           </div>
-          <div className="col-span-full"><label className="label">Link de reunião / Endereço</label><input className="input" value={form.link_or_address} onChange={e => set('link_or_address', e.target.value)} /></div>
+          <div className="col-span-full"><label className="label">{form.category === 'Visita' ? 'Endereço da visita' : 'Link de reunião / Endereço'}</label><input className="input" placeholder={form.category === 'Visita' ? 'Endereço do cliente' : ''} value={form.link_or_address} onChange={e => set('link_or_address', e.target.value)} /></div>
           <div className="col-span-full"><label className="label">Notas</label><textarea className="input" rows={3} value={form.notes} onChange={e => set('notes', e.target.value)} /></div>
           {isEdit && (
             <div>

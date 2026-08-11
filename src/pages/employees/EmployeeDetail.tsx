@@ -611,7 +611,9 @@ export default function EmployeeDetail() {
       let monthly: number | null = null
       let linkUnits: unknown = null
       if (isConsult) {
-        const activeUnits = vals.units.filter(u => u.visit_rate)
+        // Descarta unidades "fantasma" — que ficaram no vínculo mas não existem mais na lista atual do cliente
+        const validUnitIds = new Set((editClientUnits || []).map(u => u.id))
+        const activeUnits = vals.units.filter(u => u.visit_rate && (validUnitIds.size === 0 || validUnitIds.has(u.unit_id)))
         linkUnits = activeUnits.map(u => ({ unit_id: u.unit_id, unit_name: u.unit_name, visit_rate: Number(u.visit_rate) }))
         // Estimativa mensal = média dos valores das unidades × frequência (o real vem da folha de ponto)
         const avgRate = activeUnits.length ? activeUnits.reduce((s, u) => s + Number(u.visit_rate), 0) / activeUnits.length : 0
@@ -1343,7 +1345,9 @@ export default function EmployeeDetail() {
                       {/* Inline edit */}
                       {editLinkValues?.linkId === l.id && (() => {
                         const isConsult = editLinkValues.serviceType === 'Consultoria'
-                        const ratedUnits = isConsult ? editLinkValues.units.filter(u => u.visit_rate) : []
+                        // Descarta unidades "fantasma" que não existem mais na lista atual do cliente
+                        const validUnitIds = new Set((editClientUnits || []).map(u => u.id))
+                        const ratedUnits = isConsult ? editLinkValues.units.filter(u => u.visit_rate && (validUnitIds.size === 0 || validUnitIds.has(u.unit_id))) : []
                         const avgRate = ratedUnits.length ? ratedUnits.reduce((s, u) => s + Number(u.visit_rate), 0) / ratedUnits.length : 0
                         const freqMultiplier = editLinkValues.visit_frequency === 'Mensal' ? 1 : editLinkValues.visit_frequency === 'Quinzenal' ? 2 : 4
                         const consultTotal = avgRate * freqMultiplier

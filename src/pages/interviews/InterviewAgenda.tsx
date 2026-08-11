@@ -41,6 +41,16 @@ export default function InterviewAgenda() {
   const [schedulingId, setSchedulingId] = useState<string | null>(null)
   const [scheduleValue, setScheduleValue] = useState('')
 
+  const { data: allProfiles } = useQuery({
+    queryKey: ['user-profiles-names'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('user_profiles').select('id,full_name')
+      if (error) throw error
+      return data || []
+    },
+  })
+  const profileName = (pid: string) => allProfiles?.find(p => p.id === pid)?.full_name || '?'
+
   const { data: interviews } = useQuery({
     queryKey: ['interviews', filterStatus, filterMine, profile?.id],
     queryFn: async () => {
@@ -48,7 +58,7 @@ export default function InterviewAgenda() {
         .select('*,candidate:candidates(id,full_name),vacancy:vacancies(id,title),recruiter:user_profiles(full_name),employee:employees(id,full_name)')
         .order('scheduled_at', { ascending: true })
       if (filterStatus) q = q.eq('status', filterStatus)
-      if (filterMine && profile?.id) q = q.eq('recruiter_id', profile.id)
+      if (filterMine && profile?.id) q = q.or(`recruiter_id.eq.${profile.id},participant_ids.cs.{${profile.id}}`)
       const { data, error } = await q
       if (error) throw error
       return data || []
@@ -148,7 +158,7 @@ export default function InterviewAgenda() {
                     {(i as { category?: string }).category && <span className={`badge ${CATEGORY_COLORS[(i as { category?: string }).category!] || 'bg-gray-100 text-gray-600'}`}>{(i as { category?: string }).category}</span>}
                     <p className="font-medium text-sm">{i.title || 'Compromisso'}</p>
                   </div>
-                  {(i as { recruiter?: { full_name: string } }).recruiter?.full_name && <p className="text-xs text-gray-400">Responsável: {(i as { recruiter?: { full_name: string } }).recruiter?.full_name}</p>}
+                  {!!(i as { participant_ids?: string[] }).participant_ids?.length && <p className="text-xs text-gray-400">Participantes: {(i as { participant_ids?: string[] }).participant_ids!.map(profileName).join(', ')}</p>}
                   {i.notes && <p className="text-xs text-gray-500 mt-0.5">{i.notes}</p>}
                 </div>
                 <div className="flex gap-1 items-center">
@@ -233,7 +243,7 @@ export default function InterviewAgenda() {
                 {(i as { vacancy?: { title: string } }).vacancy?.title && <p className="text-xs text-gray-400">Vaga: {(i as { vacancy?: { title: string } }).vacancy?.title}</p>}
                 {i.link_or_address && <p className="text-xs text-primary-600 mt-0.5">{i.link_or_address}</p>}
                 {i.notes && <p className="text-xs text-gray-500 mt-0.5">{i.notes}</p>}
-                {(i as { recruiter?: { full_name: string } }).recruiter?.full_name && <p className="text-xs text-gray-400 mt-0.5">Responsável: {(i as { recruiter?: { full_name: string } }).recruiter?.full_name}</p>}
+                {!!(i as { participant_ids?: string[] }).participant_ids?.length && <p className="text-xs text-gray-400 mt-0.5">Participantes: {(i as { participant_ids?: string[] }).participant_ids!.map(profileName).join(', ')}</p>}
               </div>
               <div className="flex gap-1">
                 {i.status === 'Agendada' && (

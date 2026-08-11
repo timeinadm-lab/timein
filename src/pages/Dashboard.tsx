@@ -363,7 +363,8 @@ export default function Dashboard() {
     queryFn: async () => {
       const { data } = await supabase.from('interviews')
         .select('id,title,category,target_month,client:clients(name)')
-        .is('scheduled_at', null).eq('status', 'Agendada').eq('recruiter_id', profile?.id)
+        .is('scheduled_at', null).eq('status', 'Agendada')
+        .or(`recruiter_id.eq.${profile?.id},participant_ids.cs.{${profile?.id}}`)
       return data || []
     },
     enabled: !!profile?.id,
@@ -376,7 +377,8 @@ export default function Dashboard() {
       const in3 = new Date(now); in3.setDate(in3.getDate() + 3)
       const { data } = await supabase.from('interviews')
         .select('id,title,scheduled_at,client:clients(name)')
-        .eq('recruiter_id', profile?.id).eq('category', 'Visita').eq('status', 'Agendada')
+        .or(`recruiter_id.eq.${profile?.id},participant_ids.cs.{${profile?.id}}`)
+        .eq('category', 'Visita').eq('status', 'Agendada')
         .not('scheduled_at', 'is', null)
         .gte('scheduled_at', now.toISOString()).lte('scheduled_at', in3.toISOString())
       return data || []

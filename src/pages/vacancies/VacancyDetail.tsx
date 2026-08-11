@@ -408,13 +408,15 @@ export default function VacancyDetail() {
         }
 
         // Fixo: salário vem da vaga. Consultoria: unidades com valor da vistoria + horas/semana;
-        // estimativa mensal = média dos valores das unidades × 4 semanas (o real vem da folha de ponto)
+        // estimativa mensal = média dos valores das unidades × frequência (o real vem da folha de ponto)
         let monthlyAmt: number | null = null
         let linkUnits: { unit_id: string; unit_name: string; visit_rate: number }[] | null = null
         if (isConsult && vac.vacancy_units?.length) {
           linkUnits = vac.vacancy_units.map(u => ({ unit_id: u.unit_id, unit_name: u.unit_name, visit_rate: Number(u.visit_rate) || 0 }))
           const avgRate = linkUnits.reduce((s, u) => s + u.visit_rate, 0) / linkUnits.length
-          monthlyAmt = Math.round(avgRate * 4 * 100) / 100 || null
+          const freq = details.visitFrequency || (vac as { visit_frequency?: string }).visit_frequency || 'Semanal'
+          const freqMultiplier = freq === 'Mensal' ? 1 : freq === 'Quinzenal' ? 2 : 4
+          monthlyAmt = Math.round(avgRate * freqMultiplier * 100) / 100 || null
         } else if (!isConsult && vac.salary_amount) {
           monthlyAmt = Number(vac.salary_amount)
         }
@@ -1265,6 +1267,8 @@ export default function VacancyDetail() {
                 {isConsultoria && (() => {
                   const units = vac.vacancy_units || []
                   const avgRate = units.length ? units.reduce((s, u) => s + (Number(u.visit_rate) || 0), 0) / units.length : 0
+                  const freq = (vac as { visit_frequency?: string }).visit_frequency || 'Semanal'
+                  const freqMultiplier = freq === 'Mensal' ? 1 : freq === 'Quinzenal' ? 2 : 4
                   return (
                     <div className="space-y-2">
                       <div className="grid grid-cols-2 gap-3 text-sm">
@@ -1295,7 +1299,7 @@ export default function VacancyDetail() {
                           ))}
                           {avgRate > 0 && (
                             <div className="bg-green-50 rounded-lg px-3 py-2 text-xs text-green-800">
-                              Estimativa mensal (média das unidades × 4 semanas): <strong>R$ {(avgRate * 4).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong> — o valor real é calculado pelas horas da folha de ponto
+                              Estimativa mensal (média das unidades × {freqMultiplier}x/mês): <strong>R$ {(avgRate * freqMultiplier).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong> — o valor real é calculado pelas horas da folha de ponto
                             </div>
                           )}
                         </div>

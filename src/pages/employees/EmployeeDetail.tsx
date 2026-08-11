@@ -613,9 +613,10 @@ export default function EmployeeDetail() {
       if (isConsult) {
         const activeUnits = vals.units.filter(u => u.visit_rate)
         linkUnits = activeUnits.map(u => ({ unit_id: u.unit_id, unit_name: u.unit_name, visit_rate: Number(u.visit_rate) }))
-        // Estimativa mensal = média dos valores das unidades × 4 semanas (o real vem da folha de ponto)
+        // Estimativa mensal = média dos valores das unidades × frequência (o real vem da folha de ponto)
         const avgRate = activeUnits.length ? activeUnits.reduce((s, u) => s + Number(u.visit_rate), 0) / activeUnits.length : 0
-        monthly = avgRate > 0 ? Math.round(avgRate * 4 * 100) / 100 : null
+        const freqMultiplier = vals.visit_frequency === 'Mensal' ? 1 : vals.visit_frequency === 'Quinzenal' ? 2 : 4
+        monthly = avgRate > 0 ? Math.round(avgRate * freqMultiplier * 100) / 100 : null
       } else {
         monthly = vals.monthly_amount ? Number(vals.monthly_amount) : null
       }
@@ -1344,7 +1345,8 @@ export default function EmployeeDetail() {
                         const isConsult = editLinkValues.serviceType === 'Consultoria'
                         const ratedUnits = isConsult ? editLinkValues.units.filter(u => u.visit_rate) : []
                         const avgRate = ratedUnits.length ? ratedUnits.reduce((s, u) => s + Number(u.visit_rate), 0) / ratedUnits.length : 0
-                        const consultTotal = avgRate * 4
+                        const freqMultiplier = editLinkValues.visit_frequency === 'Mensal' ? 1 : editLinkValues.visit_frequency === 'Quinzenal' ? 2 : 4
+                        const consultTotal = avgRate * freqMultiplier
                         const fixoTotal = !isConsult ? (Number(editLinkValues.monthly_amount) || 0) + (Number(editLinkValues.cost_assistance) || 0) : 0
 
                         return (
@@ -1437,7 +1439,7 @@ export default function EmployeeDetail() {
                                 {consultTotal > 0 && (
                                   <div className="bg-orange-100 rounded-lg px-3 py-2 text-sm font-semibold text-orange-800">
                                     Estimativa mensal: R$ {consultTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                                    <span className="text-xs font-normal text-orange-600 ml-1">(média das unidades R$ {avgRate.toFixed(2)} × 4 semanas — o pagamento real é pelas horas da folha de ponto)</span>
+                                    <span className="text-xs font-normal text-orange-600 ml-1">(média das unidades R$ {avgRate.toFixed(2)} × {freqMultiplier}x/mês — o pagamento real é pelas horas da folha de ponto)</span>
                                   </div>
                                 )}
                               </>

@@ -14,12 +14,15 @@ export default function InterviewForm() {
   const isEdit = !!id
 
   const [form, setForm] = useState({
-    title: '', category: 'Reunião', client_id: '', candidate_id: '', vacancy_id: '', employee_id: '', recruiter_id: profile?.id || '',
+    title: '', category: 'Reunião', client_id: '', candidate_id: '', vacancy_id: '', employee_id: '',
     scheduled_at: '', end_date: '', duration_min: '30', modality: 'Online',
     link_or_address: '', notes: '', status: 'Agendada',
   })
   const [noDate, setNoDate] = useState(false)
   const [targetMonth, setTargetMonth] = useState(new Date().toISOString().slice(0, 7)) // YYYY-MM
+  const [participantIds, setParticipantIds] = useState<string[]>(profile?.id ? [profile.id] : [])
+  const toggleParticipant = (pid: string) =>
+    setParticipantIds(p => p.includes(pid) ? p.filter(x => x !== pid) : [...p, pid])
 
   const { data: employees } = useQuery({
     queryKey: ['employees-select'],
@@ -78,7 +81,6 @@ export default function InterviewForm() {
         candidate_id: data.candidate_id || '',
         vacancy_id: data.vacancy_id || '',
         employee_id: data.employee_id || '',
-        recruiter_id: data.recruiter_id || '',
         scheduled_at: data.scheduled_at ? data.scheduled_at.slice(0, 16) : '',
         end_date: data.end_date || '',
         duration_min: String(data.duration_min || 30),
@@ -87,6 +89,8 @@ export default function InterviewForm() {
         notes: data.notes || '',
         status: data.status || 'Agendada',
       })
+      const existingParticipants = (data as { participant_ids?: string[] }).participant_ids
+      setParticipantIds(existingParticipants?.length ? existingParticipants : (data.recruiter_id ? [data.recruiter_id] : []))
       setNoDate(!data.scheduled_at)
       if (data.target_month) setTargetMonth(String(data.target_month).slice(0, 7))
       return data
@@ -132,7 +136,8 @@ export default function InterviewForm() {
       candidate_id: form.candidate_id || null,
       vacancy_id: form.vacancy_id || null,
       employee_id: form.employee_id || null,
-      recruiter_id: form.recruiter_id || null,
+      recruiter_id: participantIds[0] || null,
+      participant_ids: participantIds,
       scheduled_at: noDate ? null : form.scheduled_at,
       target_month: noDate ? `${targetMonth}-01` : null,
       end_date: form.end_date || null,
@@ -216,11 +221,19 @@ export default function InterviewForm() {
             </>
           )}
           <div className="col-span-full">
-            <label className="label">Responsável <span className="text-gray-400 font-normal">(quem vai fazer — pode agendar para qualquer pessoa)</span></label>
-            <select className="input" value={form.recruiter_id} onChange={e => set('recruiter_id', e.target.value)}>
-              <option value="">Ninguém específico</option>
-              {recruiters?.map(r => <option key={r.id} value={r.id}>{r.full_name}</option>)}
-            </select>
+            <label className="label">Participantes <span className="text-gray-400 font-normal">(quem vai — pode marcar mais de uma pessoa, todas veem na própria agenda)</span></label>
+            <div className="flex flex-wrap gap-1.5">
+              {recruiters?.map(r => {
+                const active = participantIds.includes(r.id)
+                return (
+                  <button key={r.id} type="button" onClick={() => toggleParticipant(r.id)}
+                    className={`px-3 py-1.5 rounded-xl text-sm font-medium border-2 transition-colors ${active ? 'border-primary-600 bg-primary-50 text-primary-700' : 'border-ink-200 text-ink-500 hover:border-ink-300'}`}>
+                    {r.full_name}
+                  </button>
+                )
+              })}
+            </div>
+            {participantIds.length === 0 && <p className="text-xs text-ink-400 mt-1">Ninguém marcado — o compromisso não aparece na agenda de ninguém.</p>}
           </div>
           <div className="col-span-full"><label className="label">{form.category === 'Visita' ? 'Endereço da visita' : 'Link de reunião / Endereço'}</label><input className="input" placeholder={form.category === 'Visita' ? 'Endereço do cliente' : ''} value={form.link_or_address} onChange={e => set('link_or_address', e.target.value)} /></div>
           <div className="col-span-full"><label className="label">Notas</label><textarea className="input" rows={3} value={form.notes} onChange={e => set('notes', e.target.value)} /></div>

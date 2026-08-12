@@ -1184,7 +1184,28 @@ export default function PaymentList() {
                   <span className="text-sm font-medium text-green-800">Total Real Pago</span>
                   <span className="text-xl font-bold text-green-800">{formatCurrency(totalReal)}</span>
                 </div>
-                <div className="card overflow-hidden">
+                {/* Celular: cards — a tabela cortava o valor na lateral */}
+                <div className="md:hidden space-y-2">
+                  {paidList.map(p => {
+                    const emp = (p as { employee?: { full_name: string } }).employee
+                    return (
+                      <div key={p.id} className="card p-3 cursor-pointer active:scale-[0.99] transition-transform"
+                        onClick={() => navigate(`/pagamentos/${p.id}`)}>
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="font-semibold text-ink-900 truncate">{emp?.full_name || '—'}</p>
+                            <p className="text-xs text-ink-500 truncate">{p.description}</p>
+                            <p className="text-xs text-ink-400 mt-0.5">Vence {formatDate(p.due_date)}</p>
+                          </div>
+                          <span className="font-bold text-green-700 whitespace-nowrap">{formatCurrency(p.amount || 0)}</span>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+
+                {/* Computador: tabela */}
+                <div className="hidden md:block card overflow-hidden">
                   <table className="w-full text-sm">
                     <thead className="bg-gray-50 border-b">
                       <tr>

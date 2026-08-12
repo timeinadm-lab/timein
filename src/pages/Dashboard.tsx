@@ -1049,7 +1049,49 @@ export default function Dashboard() {
             Ver calendário completo →
           </span>
         </div>
-        <div className="grid grid-cols-7 gap-1.5">
+        {/* Celular: lista dos dias — 7 colunas viram ~45px cada, ilegível no dedo */}
+        <div className="sm:hidden space-y-1.5">
+          {Array.from({ length: 7 }).map((_, i) => {
+            const day = new Date(weekStart)
+            day.setDate(day.getDate() + i)
+            const isToday = day.toDateString() === now.toDateString()
+            const dayEvents = (weekEvents || []).filter(e => {
+              const d = parseLocal(e.scheduled_at)
+              return d && d.toDateString() === day.toDateString()
+            })
+            if (dayEvents.length === 0 && !isToday) return null
+            return (
+              <div key={i} className={`flex gap-3 rounded-xl border p-2.5 ${isToday ? 'border-primary-400 bg-primary-50/60' : 'border-ink-100 bg-ink-50/40'}`}>
+                <div className="w-11 flex-shrink-0 text-center">
+                  <p className={`text-[10px] uppercase font-semibold ${isToday ? 'text-primary-600' : 'text-ink-400'}`}>
+                    {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'][i]}
+                  </p>
+                  <p className={`text-lg font-bold leading-none ${isToday ? 'text-primary-700' : 'text-ink-700'}`}>
+                    {day.getDate()}
+                  </p>
+                </div>
+                <div className="flex-1 min-w-0 space-y-1">
+                  {dayEvents.length === 0 ? (
+                    <p className="text-xs text-ink-400 leading-relaxed">Nada marcado hoje</p>
+                  ) : dayEvents.map(e => (
+                    <div key={e.id}
+                      className={`text-xs leading-tight px-2 py-1 rounded-lg truncate ${
+                        e.category === 'Visita' ? 'bg-primary-100 text-primary-700' : 'bg-blue-100 text-blue-700'
+                      }`}>
+                      <span className="font-semibold">{formatLocalTime(e.scheduled_at)}</span> {e.title || 'Compromisso'}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )
+          })}
+          {(weekEvents || []).length === 0 && (
+            <p className="text-xs text-ink-400 text-center py-1">Nenhum compromisso nesta semana.</p>
+          )}
+        </div>
+
+        {/* Tablet/computador: grade da semana */}
+        <div className="hidden sm:grid grid-cols-7 gap-1.5">
           {Array.from({ length: 7 }).map((_, i) => {
             const day = new Date(weekStart)
             day.setDate(day.getDate() + i)

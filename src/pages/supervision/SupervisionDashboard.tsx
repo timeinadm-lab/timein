@@ -82,7 +82,52 @@ export default function SupervisionDashboard() {
         <input className="input w-36" type="month" value={month} onChange={e => setMonth(e.target.value)} />
       </div>
 
-      <div className="card overflow-hidden">
+      {/* Celular: cards — a tabela de 6 colunas não cabe e escondia "Pendentes" */}
+      <div className="md:hidden space-y-2">
+        {contracts?.map(c => {
+          const done = visitCounts[c.id] || 0
+          const planned = c.supervision_visits_per_month || 0
+          const pending = Math.max(0, planned - done)
+          return (
+            <div key={c.id} className={`card p-4 space-y-3 ${pending > 0 ? 'border-red-200 bg-red-50/50' : ''}`}>
+              <div>
+                <p className="font-semibold text-ink-900">{c.name || '-'}</p>
+                <p className="text-xs text-ink-400">
+                  Supervisor: {(c as { supervisor?: { full_name: string } }).supervisor?.full_name || '—'}
+                </p>
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div className="rounded-xl bg-ink-50 py-2">
+                  <p className="text-[10px] uppercase text-ink-400 font-semibold">Previstas</p>
+                  <p className="text-lg font-bold text-ink-800 tnum">{planned}</p>
+                </div>
+                <div className={`rounded-xl py-2 ${done >= planned ? 'bg-green-50' : 'bg-amber-50'}`}>
+                  <p className="text-[10px] uppercase text-ink-400 font-semibold">Realizadas</p>
+                  <p className={`text-lg font-bold tnum ${done >= planned ? 'text-green-700' : 'text-amber-700'}`}>{done}</p>
+                </div>
+                <div className={`rounded-xl py-2 ${pending > 0 ? 'bg-red-100' : 'bg-green-50'}`}>
+                  <p className="text-[10px] uppercase text-ink-400 font-semibold">Pendentes</p>
+                  <p className={`text-lg font-bold tnum ${pending > 0 ? 'text-red-700' : 'text-green-700'}`}>{pending}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setVisitForm({ contractId: c.id, date: new Date().toISOString().slice(0, 10), supervisorId: '', obs: '' })}
+                className="btn-secondary text-sm w-full flex items-center justify-center gap-1"
+              >
+                <Plus size={14} />Registrar visita
+              </button>
+            </div>
+          )
+        })}
+        {contracts?.length === 0 && (
+          <div className="card p-6 text-center text-sm text-gray-400">
+            Nenhum cliente com supervisão configurada. Configure "Visitas/mês" no cadastro do cliente.
+          </div>
+        )}
+      </div>
+
+      {/* Computador: tabela */}
+      <div className="hidden md:block card overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-gray-50 border-b">
             <tr>

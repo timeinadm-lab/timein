@@ -174,3 +174,13 @@ export const PIPELINE_COLORS: Record<string, string> = {
   'Reprovado': 'bg-red-100 text-red-700',
   'Inativo': 'bg-gray-700 text-white',
 }
+
+/**
+ * Nome do tipo de vínculo como o usuário conhece.
+ * O banco guarda 'Volante', mas em toda a interface isso se chama "Freela".
+ * Use sempre esta função ao exibir service_type — nunca o valor cru.
+ */
+export function serviceTypeLabel(serviceType?: string | null): string {
+  if (!serviceType) return '—'
+  return serviceType === 'Volante' ? '⚡ Freela' : serviceType
+}

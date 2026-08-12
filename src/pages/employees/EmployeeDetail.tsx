@@ -3,7 +3,7 @@ import { useParams, useNavigate, useLocation, useSearchParams } from 'react-rout
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Edit, Plus, Trash2, CheckCircle, Clock, XCircle, Download, Upload, ExternalLink, AlertTriangle, Star, X, FileText } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
-import { formatDate, formatCurrency, getInitials } from '../../lib/utils'
+import { formatDate, formatCurrency, getInitials, serviceTypeLabel } from '../../lib/utils'
 import { exportEmployeeToPDF } from '../../lib/exportUtils'
 import { SignedLink, SignedImage } from '../../components/ui/SignedFile'
 import DeletePinModal from '../../components/ui/DeletePinModal'
@@ -280,7 +280,7 @@ export default function EmployeeDetail() {
     enabled: !!coverageForm.client_id,
   })
 
-  const EMPTY_COVERAGE = { client_id: '', coverage_type: 'Fixo' as 'Fixo' | 'Consultoria', unit_id: '', work_schedule_type: '', daily_hours: '', days_off: [] as number[], schedule_anchor_date: '', coverage_units: [] as CoverageUnit[], visit_frequency: 'Semanal' as 'Semanal' | 'Quinzenal' | 'Mensal', weekly_hours_quota: '', start_date: '', end_date: '', daily_rate: '', pay_day: '20' }
+  const EMPTY_COVERAGE = { client_id: '', coverage_type: 'Fixo' as 'Fixo' | 'Consultoria', unit_id: '', work_schedule_type: '', daily_hours: '', days_off: [] as number[], schedule_anchor_date: '', coverage_units: [] as CoverageUnit[], visit_frequency: 'Semanal' as 'Semanal' | 'Quinzenal' | 'Mensal', weekly_hours_quota: '', start_date: '', end_date: '', daily_rate: '', pay_day: '20', agenda_mode: '' as '' | 'colaborador' | 'gestor' }
 
   const addCoverage = useMutation({
     mutationFn: async () => {
@@ -301,6 +301,7 @@ export default function EmployeeDetail() {
         client_id: coverageForm.client_id || null,
         service_type: 'Volante',
         coverage_type: coverageForm.coverage_type,
+        agenda_mode: coverageForm.agenda_mode || 'colaborador',
         daily_rate: Number(coverageForm.daily_rate) || null,
         start_date: coverageForm.start_date || null,
         contract_end_date: coverageForm.end_date || null,
@@ -337,7 +338,9 @@ export default function EmployeeDetail() {
             ? (coverageForm.daily_hours ? Number(coverageForm.daily_hours) : null)
             : (Number(coverageForm.weekly_hours_quota) || null),
           notes: 'Freela avulso',
-          created_by_admin: true,
+          // Se o RH monta a agenda, o dia fica travado pra ela. Se ela monta,
+          // esse primeiro dia é dela e pode ser remarcado no portal.
+          created_by_admin: coverageForm.agenda_mode === 'gestor',
         })
         // Vínculo já foi criado; se a agenda falhar não quebra o cadastro.
         if (agErr) console.warn('agenda do freela:', agErr.message)
@@ -360,7 +363,7 @@ export default function EmployeeDetail() {
       if (error) throw error
     },
     onSuccess: () => {
-      toast.success('Cobertura estendida!')
+      toast.success('Freela estendido!')
       qc.invalidateQueries({ queryKey: ['employee-links', id] })
       setExtendLinkId(null)
       setNewEndDate('')
@@ -1013,6 +1016,30 @@ export default function EmployeeDetail() {
           {showCoverageForm && (
             <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 space-y-3">
               <p className="text-sm font-medium text-orange-800">Novo freela</p>
+
+              {/* Quem monta a agenda — escolha obrigatória, define se ela pode
+                  marcar dias por conta própria (e receber por eles). */}
+              <div className="rounded-xl border-2 border-orange-300 bg-white p-3">
+                <label className="label !text-orange-800">Quem monta os dias? *</label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {([
+                    { v: 'gestor', t: '🏢 O RH monta', d: 'Você define os dias. Ela não pode adicionar nem remarcar — só cumpre e registra o ponto.' },
+                    { v: 'colaborador', t: '👤 Ela monta', d: 'Ela escolhe os próprios dias no portal, dentro do período combinado.' },
+                  ] as const).map(o => (
+                    <button key={o.v} type="button" onClick={() => setCoverageForm(p => ({ ...p, agenda_mode: o.v }))}
+                      className={`text-left p-2.5 rounded-lg border-2 transition-colors ${coverageForm.agenda_mode === o.v ? 'border-orange-500 bg-orange-50' : 'border-gray-200 hover:border-gray-300'}`}>
+                      <p className="text-sm font-semibold text-gray-800">{o.t}</p>
+                      <p className="text-xs text-gray-500 leading-snug mt-0.5">{o.d}</p>
+                    </button>
+                  ))}
+                </div>
+                {!coverageForm.agenda_mode && (
+                  <p className="text-xs text-orange-600 mt-1.5">
+                    Escolha antes de salvar — é isso que decide se ela pode marcar dias sozinha e receber por eles.
+                  </p>
+                )}
+              </div>
+
               {/* Tipo */}
               <div>
                 <label className="label">Tipo de serviço *</label>
@@ -1176,7 +1203,7 @@ export default function EmployeeDetail() {
                 </div>
               </div>
               <div className="flex gap-2">
-                <button className="btn-primary text-sm" disabled={!coverageForm.client_id || !coverageForm.start_date || !coverageForm.daily_rate || addCoverage.isPending} onClick={() => addCoverage.mutate()}>Salvar freela</button>
+                <button className="btn-primary text-sm" disabled={!coverageForm.agenda_mode || !coverageForm.client_id || !coverageForm.start_date || !coverageForm.daily_rate || addCoverage.isPending} onClick={() => addCoverage.mutate()}>Salvar freela</button>
                 <button className="btn-secondary text-sm" onClick={() => setShowCoverageForm(false)}>Cancelar</button>
               </div>
             </div>
@@ -1279,8 +1306,16 @@ export default function EmployeeDetail() {
                     <div className="flex-1 min-w-0">
                       <p className="font-medium">{(l as { client?: { name: string } }).client?.name}</p>
                       <div className="flex gap-2 mt-1 flex-wrap items-center">
-                        <span className={`badge ${l.service_type === 'Consultoria' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'}`}>{l.service_type}</span>
-                        {l.monthly_amount && role === 'chefe' && <span className="badge bg-gray-100 text-gray-600">{formatCurrency(l.monthly_amount)}/mês{l.service_type === 'Consultoria' ? ' (est.)' : ''}</span>}
+                        <span className={`badge ${l.service_type === 'Consultoria' ? 'bg-orange-100 text-orange-700' : l.service_type === 'Volante' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'}`}>{serviceTypeLabel(l.service_type)}</span>
+                        {/* Consultoria/Freela: o valor real vem da folha de ponto — marcado como
+                            estimativa em âmbar pra não ser lido como combinado (cinza). */}
+                        {l.monthly_amount && role === 'chefe' && (
+                          l.service_type === 'Fixo'
+                            ? <span className="badge bg-gray-100 text-gray-600" title="Valor combinado em contrato">{formatCurrency(l.monthly_amount)}/mês</span>
+                            : <span className="badge bg-amber-100 text-amber-800" title="Estimativa — o valor real é calculado pelas horas da folha de ponto">
+                                ~{formatCurrency(l.monthly_amount)}/mês estimado
+                              </span>
+                        )}
                         {(l as { cost_assistance?: number }).cost_assistance ? <span className="badge bg-blue-50 text-blue-600">+{formatCurrency((l as { cost_assistance?: number }).cost_assistance!)} aj.custo</span> : null}
                         {l.weekly_hours_quota && <span className="badge bg-gray-100 text-gray-600">{l.weekly_hours_quota}h/visita</span>}
                         {(l as { visit_frequency?: string }).visit_frequency && l.service_type === 'Consultoria' && <span className="badge bg-orange-50 text-orange-600">{(l as { visit_frequency?: string }).visit_frequency}</span>}
@@ -1830,15 +1865,19 @@ export default function EmployeeDetail() {
             </div>
           </div>
 
-          {/* Permissão de agenda por cliente de consultoria */}
-          {(links || []).filter(l => l.service_type === 'Consultoria').length > 0 && (
+          {/* Permissão de agenda — consultoria e freela (freela é onde mais importa:
+              se ela monta os próprios dias, recebe pelos dias que ela escolheu) */}
+          {(links || []).filter(l => l.service_type === 'Consultoria' || l.service_type === 'Volante').length > 0 && (
             <div className="rounded-xl border border-gray-100 divide-y divide-gray-50">
-              {(links || []).filter(l => l.service_type === 'Consultoria').map(l => {
+              {(links || []).filter(l => l.service_type === 'Consultoria' || l.service_type === 'Volante').map(l => {
                 const mode = (l as { agenda_mode?: string }).agenda_mode || 'colaborador'
                 return (
                   <div key={l.id} className="flex items-center justify-between gap-3 px-3 py-2.5 flex-wrap">
                     <div className="min-w-0">
-                      <p className="text-sm font-medium text-gray-800">{(l.client as { name?: string })?.name || '—'}</p>
+                      <p className="text-sm font-medium text-gray-800">
+                        {(l.client as { name?: string })?.name || '—'}
+                        {l.service_type === 'Volante' && <span className="ml-1.5 badge bg-orange-100 text-orange-700 text-[10px]">⚡ Freela</span>}
+                      </p>
                       <p className="text-xs text-gray-400">{mode === 'gestor' ? 'O RH monta a agenda (ela só vê)' : 'O colaborador monta a própria agenda'}</p>
                     </div>
                     <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs shrink-0">
@@ -2249,7 +2288,7 @@ export default function EmployeeDetail() {
                     <div key={p.id} className="p-3 rounded-lg border-l-4 border-gray-300 bg-gray-50/50">
                       <div className="flex items-center justify-between gap-2 flex-wrap">
                         <div className="flex items-center gap-2 flex-wrap min-w-0">
-                          {p.service_type && <span className={`badge ${svcColor}`}>{p.service_type}</span>}
+                          {p.service_type && <span className={`badge ${svcColor}`}>{serviceTypeLabel(p.service_type)}</span>}
                           <span className="font-medium text-sm text-gray-800 truncate">{p.client_name}</span>
                           {p.vacancy_title && <span className="text-xs text-gray-500">· {p.vacancy_title}</span>}
                         </div>
@@ -2490,12 +2529,19 @@ function VisaoGeral({
               <div className="flex items-center justify-between">
                 <p className="font-semibold text-sm text-gray-900">{client?.name}</p>
                 <span className={`badge text-xs ${isConsultoria ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'}`}>
-                  {l.service_type}
+                  {serviceTypeLabel(l.service_type)}
                 </span>
               </div>
               <div className="flex flex-wrap gap-2 mt-1.5">
+                {/* Só o Fixo tem valor mensal combinado. Consultoria/Freela é estimativa —
+                    o valor real sai da folha de ponto, então precisa ficar explícito. */}
                 {l.monthly_amount && role === 'chefe' && (
-                  <span className="text-xs text-gray-600 flex items-center gap-1">💰 {formatCurrency(l.monthly_amount)}/mês</span>
+                  l.service_type === 'Fixo'
+                    ? <span className="text-xs text-gray-600 flex items-center gap-1">💰 {formatCurrency(l.monthly_amount)}/mês</span>
+                    : <span className="text-xs text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded flex items-center gap-1"
+                        title="Estimativa — o valor real é calculado pelas horas da folha de ponto">
+                        ~{formatCurrency(l.monthly_amount)}/mês estimado
+                      </span>
                 )}
                 {l.weekly_hours_quota && (
                   <span className="text-xs text-gray-600 flex items-center gap-1">⏱ {l.weekly_hours_quota}h/semana</span>

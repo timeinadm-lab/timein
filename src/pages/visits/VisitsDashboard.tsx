@@ -942,7 +942,7 @@ export default function VisitsDashboard() {
                       {emp.full_name}
                     </button>
                     <div className="flex gap-2 mt-1 flex-wrap text-xs">
-                      {empLinks.length === 0 && <span className="text-gray-400">Sem cobertura ativa</span>}
+                      {empLinks.length === 0 && <span className="text-gray-400">Sem freela ativo</span>}
                       {empLinks.map(l => {
                         const end = (l as { contract_end_date?: string }).contract_end_date
                         const dr = (l as { daily_rate?: number }).daily_rate

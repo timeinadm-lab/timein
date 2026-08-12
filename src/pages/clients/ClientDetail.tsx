@@ -6,7 +6,7 @@ import { supabase } from '../../lib/supabase'
 import { SignedLink } from '../../components/ui/SignedFile'
 import DeletePinModal from '../../components/ui/DeletePinModal'
 import { SkeletonDetail } from '../../components/ui/Skeleton'
-import { formatDate, formatCurrency } from '../../lib/utils'
+import { formatDate, formatCurrency, serviceTypeLabel } from '../../lib/utils'
 import { differenceInDays, parseISO } from 'date-fns'
 import toast from 'react-hot-toast'
 
@@ -800,7 +800,7 @@ export default function ClientDetail() {
                         </button>
                         {emp?.role && <p className="text-xs text-gray-500">{emp.role}</p>}
                       </div>
-                      <span className={`badge flex-shrink-0 ${isFixo ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'}`}>{l.service_type}</span>
+                      <span className={`badge flex-shrink-0 ${isFixo ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'}`}>{serviceTypeLabel(l.service_type)}</span>
                     </div>
 
                     {/* Grid de informações */}

@@ -1859,7 +1859,7 @@ export default function PortalHome() {
             {/* Volante cobrindo Fixo: relatório do dia é obrigatório também */}
             {!isConsultoria && pontoForm.day_type === 'normal' && modalLink?.service_type === 'Volante' && (
               <div>
-                <label className="label">Relatório do dia <span className="text-red-500 font-normal">— obrigatório (cobertura volante)</span></label>
+                <label className="label">Relatório do dia <span className="text-red-500 font-normal">— obrigatório (freela)</span></label>
                 <input ref={reportRef} type="file" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" className="hidden"
                   onChange={e => setReportFile(e.target.files?.[0] || null)} />
                 <button

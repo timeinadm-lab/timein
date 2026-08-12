@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Edit, MessageCircle, ChevronDown, ChevronUp, FileText, CheckCircle, Clock, Zap, Trash2 } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
-import { formatDate, formatWhatsApp, formatCurrency, BRAZIL_STATES, DEFAULT_DOCUMENTS } from '../../lib/utils'
+import { formatDate, formatWhatsApp, formatCurrency, BRAZIL_STATES, DEFAULT_DOCUMENTS, serviceTypeLabel } from '../../lib/utils'
 import { getCityRegion } from '../../lib/geoRegions'
 import { SignedLink } from '../../components/ui/SignedFile'
 import { SkeletonDetail } from '../../components/ui/Skeleton'
@@ -1090,7 +1090,7 @@ export default function VacancyDetail() {
                     </button>
                     <div className="flex items-center gap-2 mt-0.5 flex-wrap text-xs">
                       <span className="badge bg-green-100 text-green-700">Ativo</span>
-                      {link?.service_type && <span className={`badge ${link.service_type === 'Consultoria' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'}`}>{link.service_type}</span>}
+                      {link?.service_type && <span className={`badge ${link.service_type === 'Fixo' ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'}`}>{serviceTypeLabel(link.service_type)}</span>}
                       <span className="text-gray-400">Contratado em {formatDate(interest.hired_at)}</span>
                       {contractEnd ? <span className="text-gray-500">Contrato até {formatDate(contractEnd)}</span> : <span className="text-gray-400">Contrato indeterminado</span>}
                     </div>
@@ -1131,7 +1131,7 @@ export default function VacancyDetail() {
                         <span className="font-semibold text-gray-500">{p.employee_name}</span>
                       )}
                       <div className="flex items-center gap-2 mt-0.5 flex-wrap text-xs">
-                        {p.service_type && <span className="badge bg-gray-100 text-gray-500">{p.service_type}</span>}
+                        {p.service_type && <span className="badge bg-gray-100 text-gray-500">{serviceTypeLabel(p.service_type)}</span>}
                         <span className="text-gray-500">
                           {p.start_date ? formatDate(p.start_date) : '?'} → {formatDate(p.end_date)}
                           {days !== null && ` · ${days} dia${days === 1 ? '' : 's'}`}

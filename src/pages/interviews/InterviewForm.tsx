@@ -100,23 +100,41 @@ export default function InterviewForm() {
 
   const mutation = useMutation({
     mutationFn: async (payload: Record<string, unknown>) => {
-      if (isEdit) {
-        const { error } = await supabase.from('interviews').update(payload).eq('id', id)
-        if (error) throw error
-      } else {
-        const { error } = await supabase.from('interviews').insert(payload)
-        if (error) throw error
-        // Update candidate stage
-        if (payload.candidate_id) {
-          await supabase.from('candidates').update({
-            pipeline_stage: 'Entrevista Agendada',
-            interview_scheduled_at: payload.scheduled_at,
-          }).eq('id', payload.candidate_id)
-        }
+      // Colunas que dependem de migração. Se o banco ainda não tiver alguma delas,
+      // o Postgrest devolve "Could not find the 'X' column" — nesse caso a gente
+      // remove só a coluna que faltou e tenta de novo, em vez de travar o usuário.
+      const OPTIONAL_COLS = ['category', 'client_id', 'target_month', 'participant_ids']
+      const run = async (body: Record<string, unknown>) =>
+        isEdit
+          ? supabase.from('interviews').update(body).eq('id', id)
+          : supabase.from('interviews').insert(body)
+
+      let body = { ...payload }
+      let dropped: string[] = []
+      for (let attempt = 0; attempt <= OPTIONAL_COLS.length; attempt++) {
+        const { error } = await run(body)
+        if (!error) break
+        const missing = OPTIONAL_COLS.find(c =>
+          error.message.includes(`'${c}' column`) || error.message.includes(`column "${c}"`))
+        if (!missing || !(missing in body)) throw error
+        delete body[missing]
+        dropped.push(missing)
       }
+
+      if (!isEdit && payload.candidate_id) {
+        await supabase.from('candidates').update({
+          pipeline_stage: 'Entrevista Agendada',
+          interview_scheduled_at: payload.scheduled_at,
+        }).eq('id', payload.candidate_id)
+      }
+      return { dropped }
     },
-    onSuccess: () => {
+    onSuccess: (res) => {
       toast.success(isEdit ? 'Compromisso atualizado!' : 'Compromisso agendado!')
+      if (res?.dropped.length) {
+        toast('Salvo, mas o banco ainda não tem: ' + res.dropped.join(', ') + '. Rode a migração pendente no Supabase.',
+          { icon: '⚠️', duration: 8000 })
+      }
       qc.invalidateQueries({ queryKey: ['interviews'] })
       navigate('/agenda')
     },

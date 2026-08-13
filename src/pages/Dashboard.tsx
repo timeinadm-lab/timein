@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   Users, Briefcase, UserPlus, AlertTriangle, CheckCircle,
   Calendar, Plus, TrendingUp, Clock, Clipboard, Download, X,
@@ -51,6 +51,24 @@ export default function Dashboard() {
   const [priorityText, setPriorityText] = useState('')
   const [priorityLevel, setPriorityLevel] = useState<'red' | 'amber'>('amber')
   const [confetti, setConfetti] = useState(false)
+
+  // Consulta que falha deixava o card em zero — visualmente igual a "não tem nada".
+  // Agora todas lançam erro e este observador do cache mostra o que não carregou.
+  const [failedQueries, setFailedQueries] = useState<string[]>([])
+  useEffect(() => {
+    const cache = qc.getQueryCache()
+    const update = () => {
+      const errs = Array.from(new Set(
+        cache.getAll()
+          .filter(q => q.state.status === 'error')
+          .map(q => String(Array.isArray(q.queryKey) ? q.queryKey[0] : q.queryKey))
+          .filter(k => k.startsWith('dashboard') || k === 'custom-priorities')
+      )).sort()
+      setFailedQueries(prev => (prev.join('|') === errs.join('|') ? prev : errs))
+    }
+    update()
+    return cache.subscribe(update)
+  }, [qc])
 
   const handleBackupData = async () => {
     setShowBackupMenu(false)
@@ -169,7 +187,8 @@ export default function Dashboard() {
   const { data: employees } = useQuery({
     queryKey: ['dashboard-employees'],
     queryFn: async () => {
-      const { data } = await supabase.from('employees').select('id,status,dismissal_date,full_name,birth_date,is_favorite')
+      const { data, error } = await supabase.from('employees').select('id,status,dismissal_date,full_name,birth_date,is_favorite')
+      if (error) throw error
       return data || []
     },
   })
@@ -177,7 +196,8 @@ export default function Dashboard() {
   const { data: contracts } = useQuery({
     queryKey: ['dashboard-contracts'],
     queryFn: async () => {
-      const { data } = await supabase.from('contracts').select('id,end_date,signed,signed_at')
+      const { data, error } = await supabase.from('contracts').select('id,end_date,signed,signed_at')
+      if (error) throw error
       return data || []
     },
   })
@@ -185,7 +205,8 @@ export default function Dashboard() {
   const { data: vacancies } = useQuery({
     queryKey: ['dashboard-vacancies'],
     queryFn: async () => {
-      const { data } = await supabase.from('vacancies').select('id,status,hired_count,positions_count,title')
+      const { data, error } = await supabase.from('vacancies').select('id,status,hired_count,positions_count,title')
+      if (error) throw error
       return data || []
     },
   })
@@ -203,11 +224,12 @@ export default function Dashboard() {
       if (!interests?.length) return []
 
       const ids = [...new Set(interests.map((i: { candidate_id: string }) => i.candidate_id))]
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('candidates').select('id,pipeline_stage,updated_at,full_name')
         .in('id', ids)
         .not('pipeline_stage', 'in', '("Contratado","Inativo")')
         .limit(2000)
+      if (error) throw error
       return data || []
     },
   })
@@ -215,10 +237,11 @@ export default function Dashboard() {
   const { data: vacanciesExpiring } = useQuery({
     queryKey: ['dashboard-vacancies-expiring'],
     queryFn: async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('vacancies')
         .select('id,title,deadline,hired_count,positions_count')
         .eq('status', 'Aberta')
+      if (error) throw error
       return data || []
     },
   })
@@ -226,10 +249,11 @@ export default function Dashboard() {
   const { data: clientContractsExpiring } = useQuery({
     queryKey: ['dashboard-client-contracts-expiring'],
     queryFn: async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('clients').select('id,name,contract_end')
         .not('contract_end', 'is', null)
         .lte('contract_end', in40.toISOString().slice(0, 10))
+      if (error) throw error
       return data || []
     },
   })
@@ -237,10 +261,11 @@ export default function Dashboard() {
   const { data: pendingContractInterests } = useQuery({
     queryKey: ['dashboard-pending-contract-interests'],
     queryFn: async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('vacancy_interests')
         .select('id,deadline,candidate:candidates(full_name),vacancy:vacancies(title)')
         .eq('status', 'Em contrato').not('deadline', 'is', null)
+      if (error) throw error
       return data || []
     },
   })
@@ -248,11 +273,12 @@ export default function Dashboard() {
   const { data: employeeContractsExpiring } = useQuery({
     queryKey: ['dashboard-employee-contracts-expiring'],
     queryFn: async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('employee_client_links')
         .select('id,contract_end_date,employee:employees(full_name),client:clients(name)')
         .not('contract_end_date', 'is', null)
         .lte('contract_end_date', in40.toISOString().slice(0, 10))
+      if (error) throw error
       return data || []
     },
   })
@@ -271,11 +297,12 @@ export default function Dashboard() {
     queryFn: async () => {
       const twoMonthsAgo = addDays(startOfMonth(now), -60).toISOString().slice(0, 10)
       const twoMonthsAhead = addDays(endOfMonth(now), 60).toISOString().slice(0, 10)
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('payments')
         .select('id,description,amount,due_date,status,employee_id,category,type')
         .gte('due_date', twoMonthsAgo)
         .lte('due_date', twoMonthsAhead)
+      if (error) throw error
       return data || []
     },
     enabled: role === 'chefe',
@@ -284,11 +311,12 @@ export default function Dashboard() {
   const { data: pendingExpenses } = useQuery({
     queryKey: ['dashboard-pending-expenses'],
     queryFn: async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('employee_expenses')
         .select('id,description,amount,employee:employees(full_name)')
         .is('receipt_url', null)
         .gte('created_at', addDays(now, -30).toISOString())
+      if (error) throw error
       return data || []
     },
     enabled: role === 'chefe',
@@ -306,9 +334,10 @@ export default function Dashboard() {
   const { data: pendingExtras } = useQuery({
     queryKey: ['dashboard-pending-extras'],
     queryFn: async () => {
-      const { data } = await supabase.from('nutritionist_visits')
+      const { data, error } = await supabase.from('nutritionist_visits')
         .select('id,employee:employees(full_name),client:clients(name)')
         .eq('extra_approval', 'pendente')
+      if (error) throw error
       return data || []
     },
     enabled: role === 'chefe',
@@ -317,12 +346,13 @@ export default function Dashboard() {
   const { data: volantesExpiring } = useQuery({
     queryKey: ['dashboard-volantes-expiring'],
     queryFn: async () => {
-      const { data } = await supabase.from('employee_client_links')
+      const { data, error } = await supabase.from('employee_client_links')
         .select('id,contract_end_date,employee:employees(full_name),client:clients(name)')
         .eq('service_type', 'Volante')
         .not('contract_end_date', 'is', null)
         .gte('contract_end_date', now.toISOString().slice(0, 10))
         .lte('contract_end_date', in15.toISOString().slice(0, 10))
+      if (error) throw error
       return data || []
     },
   })
@@ -331,7 +361,7 @@ export default function Dashboard() {
   const { data: pendingContractFiles } = useQuery({
     queryKey: ['dashboard-pending-contract-files'],
     queryFn: async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('employee_client_links')
         .select('id,created_at,service_type,employee_id,employee:employees(id,full_name,status),client:clients(name)')
         .in('service_type', ['Fixo', 'Consultoria'])
@@ -345,7 +375,7 @@ export default function Dashboard() {
   const { data: contractLinks } = useQuery({
     queryKey: ['dashboard-contract-links'],
     queryFn: async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('employee_client_links')
         .select('id,contract_file_url,service_type,employee:employees(status)')
         .neq('service_type', 'Volante')
@@ -356,7 +386,7 @@ export default function Dashboard() {
   const { data: pendingDocs } = useQuery({
     queryKey: ['dashboard-pending-docs'],
     queryFn: async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('employee_documents')
         .select('id,name,status,employee:employees(id,full_name,status)')
         .is('file_url', null)
@@ -370,10 +400,11 @@ export default function Dashboard() {
   const { data: interviews } = useQuery({
     queryKey: ['dashboard-interviews'],
     queryFn: async () => {
-      const { data } = await supabase.from('interviews')
+      const { data, error } = await supabase.from('interviews')
         .select('*,candidate:candidates(full_name),vacancy:vacancies(title),employee:employees(full_name)')
         .gte('scheduled_at', now.toISOString())
         .order('scheduled_at', { ascending: true }).limit(8)
+      if (error) throw error
       return data || []
     },
   })
@@ -382,10 +413,11 @@ export default function Dashboard() {
   const { data: myPending } = useQuery({
     queryKey: ['dashboard-pending', profile?.id],
     queryFn: async () => {
-      const { data } = await supabase.from('interviews')
+      const { data, error } = await supabase.from('interviews')
         .select('id,title,category,target_month,client:clients(name)')
         .is('scheduled_at', null).eq('status', 'Agendada')
         .or(`recruiter_id.eq.${profile?.id},participant_ids.cs.{${profile?.id}}`)
+      if (error) throw error
       return data || []
     },
     enabled: !!profile?.id,
@@ -396,12 +428,13 @@ export default function Dashboard() {
     queryKey: ['dashboard-upcoming-visits', profile?.id],
     queryFn: async () => {
       const in3 = new Date(now); in3.setDate(in3.getDate() + 3)
-      const { data } = await supabase.from('interviews')
+      const { data, error } = await supabase.from('interviews')
         .select('id,title,scheduled_at,client:clients(name)')
         .or(`recruiter_id.eq.${profile?.id},participant_ids.cs.{${profile?.id}}`)
         .eq('category', 'Visita').eq('status', 'Agendada')
         .not('scheduled_at', 'is', null)
         .gte('scheduled_at', now.toISOString()).lte('scheduled_at', in3.toISOString())
+      if (error) throw error
       return data || []
     },
     enabled: !!profile?.id,
@@ -413,12 +446,13 @@ export default function Dashboard() {
   const { data: weekEvents } = useQuery({
     queryKey: ['dashboard-week', weekStart.toDateString()],
     queryFn: async () => {
-      const { data } = await supabase.from('interviews')
+      const { data, error } = await supabase.from('interviews')
         .select('id,title,category,scheduled_at,status,client:clients(name)')
         .not('scheduled_at', 'is', null)
         .gte('scheduled_at', weekStart.toISOString()).lt('scheduled_at', weekEnd.toISOString())
         .neq('status', 'Cancelada')
         .order('scheduled_at', { ascending: true })
+      if (error) throw error
       return data || []
     },
   })
@@ -498,7 +532,7 @@ export default function Dashboard() {
   const { data: consultoriaLinks } = useQuery({
     queryKey: ['dashboard-consultoria-links'],
     queryFn: async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('employee_client_links')
         .select('id,employee_id,client_id,monthly_hours_quota,weekly_hours_quota,visits_per_week,start_date,created_at,employee:employees(full_name,status),client:clients(name)')
         .eq('service_type', 'Consultoria')
@@ -511,11 +545,12 @@ export default function Dashboard() {
   const { data: consultoriaVisits } = useQuery({
     queryKey: ['dashboard-consultoria-visits', currentMonthStr],
     queryFn: async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('nutritionist_visits')
         .select('employee_id,client_id,visit_date,check_in,check_out,break_start,break_end,is_unavailable')
         .gte('visit_date', monthStartStr)
         .lte('visit_date', monthEndStr)
+      if (error) throw error
       return data || []
     },
     enabled: role === 'chefe',
@@ -525,11 +560,12 @@ export default function Dashboard() {
   const { data: consultoriaPrevVisits } = useQuery({
     queryKey: ['dashboard-consultoria-prev-visits', prevMonthStr],
     queryFn: async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('nutritionist_visits')
         .select('employee_id,client_id,visit_date,check_in,check_out,break_start,break_end,is_unavailable')
         .gte('visit_date', prevMonthStartStr)
         .lte('visit_date', prevMonthEndStr)
+      if (error) throw error
       return data || []
     },
     enabled: role === 'chefe' && isFirstOfMonth,
@@ -539,7 +575,7 @@ export default function Dashboard() {
   const { data: allLinks } = useQuery({
     queryKey: ['dashboard-all-links'],
     queryFn: async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('employee_client_links')
         .select('service_type,employee:employees(status)')
       return (data || []).filter((l: { employee?: { status?: string } }) => l.employee?.status === 'Ativo')
@@ -551,11 +587,12 @@ export default function Dashboard() {
   const { data: agendaThisMonth } = useQuery({
     queryKey: ['dashboard-agenda-month', currentMonthStr],
     queryFn: async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('nutritionist_agenda')
         .select('id,planned_date')
         .gte('planned_date', monthStartStr)
         .lte('planned_date', monthEndStr)
+      if (error) throw error
       return data || []
     },
     enabled: role === 'chefe',
@@ -565,7 +602,7 @@ export default function Dashboard() {
   const { data: deliveredDocsCount } = useQuery({
     queryKey: ['dashboard-delivered-docs'],
     queryFn: async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('employee_documents')
         .select('id,file_url,employee:employees(status)')
         .not('file_url', 'is', null)
@@ -580,10 +617,11 @@ export default function Dashboard() {
     queryFn: async () => {
       const sixAgo = subMonths(now, 5)
       const from = startOfMonth(sixAgo).toISOString().slice(0, 10)
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('employee_client_links')
         .select('id,created_at')
         .gte('created_at', from)
+      if (error) throw error
       return data || []
     },
     enabled: role === 'chefe',
@@ -593,10 +631,11 @@ export default function Dashboard() {
   const { data: volanteLinks } = useQuery({
     queryKey: ['dashboard-volante-links'],
     queryFn: async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('employee_client_links')
         .select('employee_id,contract_end_date')
         .eq('service_type', 'Volante')
+      if (error) throw error
       return data || []
     },
     enabled: role === 'chefe',
@@ -1055,6 +1094,25 @@ export default function Dashboard() {
           <p className="text-sm text-ink-400 capitalize">{now.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}</p>
         </div>
       </div>
+
+      {/* Algo não carregou — sem isto o card ficaria em zero sem avisar ninguém */}
+      {failedQueries.length > 0 && (
+        <div className="card p-4 border-red-200 bg-red-50 flex items-start gap-3">
+          <FileWarning size={18} className="text-red-600 flex-shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-red-800">
+              {failedQueries.length} informação{failedQueries.length > 1 ? 'ões' : ''} não carregou
+            </p>
+            <p className="text-xs text-red-600 mt-0.5">
+              Alguns números abaixo podem estar incompletos ou zerados. Recarregue a página; se continuar, avise o suporte.
+            </p>
+            <p className="text-[11px] text-red-400 mt-1 break-words">{failedQueries.join(', ')}</p>
+          </div>
+          <button onClick={() => qc.refetchQueries()} className="btn-secondary text-xs flex-shrink-0">
+            Tentar de novo
+          </button>
+        </div>
+      )}
 
       {/* ── Mini calendário da semana — clique abre o calendário completo ── */}
       <button

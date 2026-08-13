@@ -1,6 +1,20 @@
 -- ============================================================
--- TIME IN — SCHEMA COMPLETO
--- Execute no SQL Editor do Supabase
+-- TIME IN — SCHEMA INICIAL (INCOMPLETO — NÃO USE PARA RESTAURAR)
+-- ------------------------------------------------------------
+-- ⚠️  ATENÇÃO: este arquivo é o schema de ORIGEM do projeto. Ele descreve
+-- 21 tabelas, mas o sistema hoje usa 36. Rodar só isto NÃO reconstrói o
+-- sistema — faltam, entre outras, as tabelas de visitas, agenda e
+-- unidades de cliente, que foram criadas depois direto no painel:
+--
+--   nutritionist_visits, nutritionist_agenda, client_units,
+--   schedule_notices, client_contracts, shared_documents,
+--   employee_questions
+--
+-- Para ter o esquema real e atualizado, rode supabase/EXTRAIR_SCHEMA_REAL.sql
+-- no SQL Editor e salve o resultado como supabase/schema_real.sql.
+--
+-- As demais tabelas que faltam aqui estão nas migrações numeradas
+-- (migration_003, 017, 018, 025, 027, 030, 031...).
 -- ============================================================
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";

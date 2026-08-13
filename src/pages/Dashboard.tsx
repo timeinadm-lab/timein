@@ -5,12 +5,12 @@ import {
   Users, Briefcase, UserPlus, AlertTriangle, CheckCircle,
   Calendar, Plus, TrendingUp, Clock, Clipboard, Download, X,
   BarChart3, Activity, Check, Database, FolderDown, ChevronDown,
-  MessageSquare, FileWarning, Flag,
+  MessageSquare, FileWarning, Flag, Video, MapPin,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
-import { formatDate, formatCurrency, formatLocalDateTime, formatLocalTime, parseLocal } from '../lib/utils'
+import { formatDate, formatCurrency, formatLocalTime, parseLocal, isMeetingLink, mapsUrl } from '../lib/utils'
 import { addDays, startOfMonth, endOfMonth, isBefore, parseISO, isAfter, differenceInDays, subMonths } from 'date-fns'
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend,
@@ -1412,13 +1412,13 @@ export default function Dashboard() {
               </div>
             ) : (
               <div className="space-y-1.5">
-                {interviews?.map((i: { id: string; title?: string; candidate?: { full_name: string }; employee?: { full_name: string }; scheduled_at: string; end_date?: string; modality: string; status: string; vacancy?: { title: string } }) => {
+                {interviews?.map((i: { id: string; title?: string; candidate?: { full_name: string }; employee?: { full_name: string }; scheduled_at: string; end_date?: string; modality: string; status: string; vacancy?: { title: string }; link_or_address?: string }) => {
                   const d = parseLocal(i.scheduled_at) ?? new Date(i.scheduled_at)
                   const isToday = d.toDateString() === now.toDateString()
                   const isTomorrow = d.toDateString() === addDays(now, 1).toDateString()
                   return (
                     <div key={i.id}
-                      className={`flex items-center gap-3 p-2.5 rounded-xl cursor-pointer border transition-colors ${isToday ? 'border-primary-200 bg-primary-50/60 hover:bg-primary-50' : 'border-ink-100 hover:bg-ink-50'}`}
+                      className={`flex items-start gap-3 p-2.5 rounded-xl cursor-pointer border transition-colors ${isToday ? 'border-primary-200 bg-primary-50/60 hover:bg-primary-50' : 'border-ink-100 hover:bg-ink-50'}`}
                       onClick={() => navigate('/agenda')}>
                       <div className={`w-11 h-11 rounded-xl flex flex-col items-center justify-center flex-shrink-0 ${isToday ? 'bg-primary-600 text-white' : 'bg-primary-50 text-primary-700'}`}>
                         {isToday || isTomorrow ? (
@@ -1433,10 +1433,27 @@ export default function Dashboard() {
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-semibold text-ink-900 truncate">{i.title || i.candidate?.full_name || 'Compromisso'}</p>
                         <p className="text-xs text-ink-400 truncate">
-                          {formatLocalDateTime(i.scheduled_at)}
+                          {formatLocalTime(i.scheduled_at)}
                           {i.employee?.full_name ? ` · ${i.employee.full_name}` : ''}
                           {i.candidate?.full_name ? ` · ${i.candidate.full_name}` : ''}
                         </p>
+                        {/* Entrar na reunião direto daqui — stopPropagation pra não navegar pra agenda */}
+                        {i.link_or_address && (
+                          isMeetingLink(i.link_or_address) ? (
+                            <a href={i.link_or_address} target="_blank" rel="noopener noreferrer"
+                              onClick={e => e.stopPropagation()}
+                              className="inline-flex items-center gap-1 mt-1.5 px-2.5 py-1 rounded-lg bg-primary-600 text-white text-xs font-semibold hover:bg-primary-700 active:scale-95 transition-all">
+                              <Video size={12} /> Entrar
+                            </a>
+                          ) : (
+                            <a href={mapsUrl(i.link_or_address)} target="_blank" rel="noopener noreferrer"
+                              onClick={e => e.stopPropagation()}
+                              className="inline-flex items-center gap-1 mt-1 text-xs text-primary-700 hover:underline max-w-full">
+                              <MapPin size={11} className="flex-shrink-0" />
+                              <span className="truncate">{i.link_or_address}</span>
+                            </a>
+                          )
+                        )}
                         <div className="flex gap-1 mt-1 flex-wrap">
                           <span className={`badge text-[10px] ${MODAL_COLORS[i.modality] || 'bg-gray-100 text-gray-700'}`}>{i.modality}</span>
                           <span className={`badge text-[10px] ${STATUS_COLORS[i.status] || 'bg-gray-100 text-gray-700'}`}>{i.status}</span>

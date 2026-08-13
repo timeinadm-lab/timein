@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Calendar, List, Edit, Trash2, CalendarClock, Check } from 'lucide-react'
+import { Plus, Calendar, List, Edit, Trash2, CalendarClock, Check, Video, MapPin } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
-import { formatDate, formatLocalDateTime, parseLocal } from '../../lib/utils'
+import { formatDate, formatLocalDateTime, parseLocal, isMeetingLink, mapsUrl } from '../../lib/utils'
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, addMonths, subMonths } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import toast from 'react-hot-toast'
@@ -225,26 +225,75 @@ export default function InterviewAgenda() {
         {displayInterviews?.length === 0 && (
           <div className="card p-8 text-center text-gray-400">Nenhum compromisso encontrado</div>
         )}
-        {displayInterviews?.map(i => (
-          <div key={i.id} className="card p-4">
+        {displayInterviews?.map(i => {
+          const d = parseLocal(i.scheduled_at)
+          const isHoje = d && d.toDateString() === new Date().toDateString()
+          const emp = (i as { employee?: { id: string; full_name: string } }).employee
+          const cand = (i as { candidate?: { id: string; full_name: string } }).candidate
+          const vaga = (i as { vacancy?: { title: string } }).vacancy
+          const pids = (i as { participant_ids?: string[] }).participant_ids
+          const cat = (i as { category?: string }).category
+          // Detalhes secundários juntos numa linha só, em vez de 5 linhas empilhadas
+          const detalhes = [
+            emp?.full_name && { label: 'Colaborador', value: emp.full_name, path: emp.id ? `/colaboradores/${emp.id}` : null },
+            cand?.full_name && { label: 'Candidato', value: cand.full_name, path: cand.id ? `/candidatos/${cand.id}` : null },
+            vaga?.title && { label: 'Vaga', value: vaga.title, path: null },
+          ].filter(Boolean) as { label: string; value: string; path: string | null }[]
+
+          return (
+          <div key={i.id} className={`card p-4 ${isHoje ? 'border-primary-300 bg-primary-50/30' : ''}`}>
             <div className="flex items-start justify-between gap-3">
-              <div className="flex-1">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <p className="font-medium">{i.title || (i as { candidate?: { full_name: string } }).candidate?.full_name || 'Compromisso'}</p>
-                  {(i as { category?: string }).category && <span className={`badge ${CATEGORY_COLORS[(i as { category?: string }).category!] || 'bg-gray-100 text-gray-600'}`}>{(i as { category?: string }).category}</span>}
-                  <span className={`badge ${MODAL_COLORS[i.modality] || 'bg-gray-100'}`}>{i.modality}</span>
-                  <span className={`badge ${STATUS_COLORS[i.status] || 'bg-gray-100'}`}>{i.status}</span>
+              <div className="flex-1 min-w-0 space-y-2">
+                {/* Título + o que é */}
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="font-semibold text-ink-900">{i.title || cand?.full_name || 'Compromisso'}</p>
+                    {cat && <span className={`badge ${CATEGORY_COLORS[cat] || 'bg-gray-100 text-gray-600'}`}>{cat}</span>}
+                    <span className={`badge ${STATUS_COLORS[i.status] || 'bg-gray-100'}`}>{i.status}</span>
+                  </div>
+                  <p className="text-sm text-ink-500 mt-0.5">
+                    {isHoje && <span className="font-semibold text-primary-700">Hoje · </span>}
+                    {formatLocalDateTime(i.scheduled_at)}
+                    {i.end_date ? ` → ${formatDate(i.end_date)}` : ` · ${i.duration_min}min`}
+                    <span className="text-ink-300"> · </span>
+                    <span className={`${MODAL_COLORS[i.modality]?.includes('blue') ? 'text-blue-600' : 'text-ink-500'}`}>{i.modality}</span>
+                  </p>
                 </div>
-                <p className="text-sm text-gray-500 mt-1">
-                  {formatLocalDateTime(i.scheduled_at)}
-                  {i.end_date ? ` → ${formatDate(i.end_date)}` : ` · ${i.duration_min}min`}
-                </p>
-                {(i as { employee?: { id: string; full_name: string } }).employee?.full_name && <p className="text-xs text-gray-400">Colaborador: <span className="cursor-pointer hover:text-primary-600" onClick={() => (i as { employee?: { id: string } }).employee?.id && navigate(`/colaboradores/${(i as { employee?: { id: string } }).employee?.id}`)}>{(i as { employee?: { full_name: string } }).employee?.full_name}</span></p>}
-                {(i as { candidate?: { full_name: string } }).candidate?.full_name && <p className="text-xs text-gray-400">Candidato: <span className="cursor-pointer hover:text-primary-600" onClick={() => i.candidate?.id && navigate(`/candidatos/${i.candidate.id}`)}>{(i as { candidate?: { full_name: string } }).candidate?.full_name}</span></p>}
-                {(i as { vacancy?: { title: string } }).vacancy?.title && <p className="text-xs text-gray-400">Vaga: {(i as { vacancy?: { title: string } }).vacancy?.title}</p>}
-                {i.link_or_address && <p className="text-xs text-primary-600 mt-0.5">{i.link_or_address}</p>}
-                {i.notes && <p className="text-xs text-gray-500 mt-0.5">{i.notes}</p>}
-                {!!(i as { participant_ids?: string[] }).participant_ids?.length && <p className="text-xs text-gray-400 mt-0.5">Participantes: {(i as { participant_ids?: string[] }).participant_ids!.map(profileName).join(', ')}</p>}
+
+                {/* Onde é — clicável: link abre a reunião, endereço abre o mapa */}
+                {i.link_or_address && (
+                  isMeetingLink(i.link_or_address) ? (
+                    <a href={i.link_or_address} target="_blank" rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-primary-600 text-white text-sm font-semibold hover:bg-primary-700 active:scale-95 transition-all">
+                      <Video size={14} /> Entrar na reunião
+                    </a>
+                  ) : (
+                    <a href={mapsUrl(i.link_or_address)} target="_blank" rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 text-sm text-primary-700 hover:underline">
+                      <MapPin size={14} className="flex-shrink-0" /> {i.link_or_address}
+                    </a>
+                  )
+                )}
+
+                {/* Vínculos numa linha só */}
+                {detalhes.length > 0 && (
+                  <p className="text-xs text-ink-400 flex flex-wrap gap-x-3 gap-y-0.5">
+                    {detalhes.map(dt => (
+                      <span key={dt.label}>
+                        {dt.label}:{' '}
+                        <span className={dt.path ? 'text-ink-600 cursor-pointer hover:text-primary-600 hover:underline' : 'text-ink-600'}
+                          onClick={() => dt.path && navigate(dt.path)}>{dt.value}</span>
+                      </span>
+                    ))}
+                  </p>
+                )}
+
+                {i.notes && <p className="text-xs text-ink-500 bg-ink-50 rounded-lg px-2 py-1.5">{i.notes}</p>}
+                {!!pids?.length && (
+                  <p className="text-xs text-ink-400">
+                    <span className="text-ink-300">Com:</span> {pids.map(profileName).join(', ')}
+                  </p>
+                )}
               </div>
               <div className="flex gap-1">
                 {i.status === 'Agendada' && (
@@ -259,7 +308,8 @@ export default function InterviewAgenda() {
               </div>
             </div>
           </div>
-        ))}
+          )
+        })}
       </div>
     </div>
   )

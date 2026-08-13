@@ -184,3 +184,13 @@ export function serviceTypeLabel(serviceType?: string | null): string {
   if (!serviceType) return '—'
   return serviceType === 'Volante' ? '⚡ Freela' : serviceType
 }
+
+/** O campo link_or_address guarda ora um link de reunião, ora um endereço. */
+export function isMeetingLink(value?: string | null): boolean {
+  return !!value && /^https?:\/\//i.test(value.trim())
+}
+
+/** Abre o endereço no Google Maps. */
+export function mapsUrl(address: string): string {
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address.trim())}`
+}

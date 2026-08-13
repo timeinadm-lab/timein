@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
+import { isMeetingLink } from '../../lib/utils'
 import toast from 'react-hot-toast'
 
 export default function InterviewForm() {
@@ -232,7 +233,18 @@ export default function InterviewForm() {
             </div>
             {participantIds.length === 0 && <p className="text-xs text-ink-400 mt-1">Ninguém marcado — o compromisso não aparece na agenda de ninguém.</p>}
           </div>
-          <div className="col-span-full"><label className="label">{form.category === 'Visita' ? 'Endereço da visita' : 'Link de reunião / Endereço'}</label><input className="input" placeholder={form.category === 'Visita' ? 'Endereço do cliente' : ''} value={form.link_or_address} onChange={e => set('link_or_address', e.target.value)} /></div>
+          <div className="col-span-full">
+            <label className="label">{form.category === 'Visita' ? 'Endereço da visita' : 'Link de reunião / Endereço'}</label>
+            <input className="input" placeholder={form.category === 'Visita' ? 'Rua, número, cidade' : 'Cole o link do Teams/Meet/Zoom, ou o endereço'}
+              value={form.link_or_address} onChange={e => set('link_or_address', e.target.value)} />
+            <p className="text-xs text-ink-400 mt-1">
+              {isMeetingLink(form.link_or_address)
+                ? '✅ Vai aparecer como botão "Entrar na reunião" na agenda e no painel.'
+                : form.link_or_address
+                  ? '📍 Vai aparecer como endereço, e abre no Google Maps ao clicar.'
+                  : 'Link vira botão de entrar; endereço vira atalho pro mapa.'}
+            </p>
+          </div>
           <div className="col-span-full"><label className="label">Notas</label><textarea className="input" rows={3} value={form.notes} onChange={e => set('notes', e.target.value)} /></div>
           {isEdit && (
             <div>

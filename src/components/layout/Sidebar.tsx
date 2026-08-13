@@ -71,9 +71,14 @@ export default function Sidebar({ collapsed, onCollapse, mobileOpen, onMobileClo
         )}
       </div>
 
-      {/* User */}
+      {/* User — clicar no próprio nome/foto abre Meu Perfil (era um bloco morto) */}
       {!collapsed && (
-        <div className="mx-3 mb-2 px-3 py-2.5 rounded-2xl bg-ink-50/80 border border-ink-100">
+        <button
+          type="button"
+          onClick={() => { navigate('/perfil'); onMobileClose?.() }}
+          title="Meu Perfil"
+          className="mx-3 mb-2 px-3 py-2.5 rounded-2xl bg-ink-50/80 border border-ink-100 text-left w-[calc(100%-1.5rem)] hover:bg-ink-100 hover:border-ink-200 active:scale-[0.98] transition-all"
+        >
           <div className="flex items-center gap-2.5">
             <div className="w-9 h-9 rounded-full overflow-hidden bg-primary-100 flex items-center justify-center text-primary-700 font-bold text-sm flex-shrink-0">
               {profile?.photo_url
@@ -87,7 +92,7 @@ export default function Sidebar({ collapsed, onCollapse, mobileOpen, onMobileClo
               </span>
             </div>
           </div>
-        </div>
+        </button>
       )}
 
       {/* Nav */}

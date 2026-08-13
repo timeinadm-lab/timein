@@ -263,7 +263,7 @@ export default function Dashboard() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('vacancy_interests')
-        .select('id,deadline,candidate:candidates(full_name),vacancy:vacancies(title)')
+        .select('id,deadline,vacancy_id,candidate:candidates(full_name),vacancy:vacancies(title)')
         .eq('status', 'Em contrato').not('deadline', 'is', null)
       if (error) throw error
       return data || []
@@ -814,15 +814,36 @@ export default function Dashboard() {
   overdue.forEach(p =>
     redAlerts.push({ text: `Pagamento atrasado: ${p.description} — ${formatCurrency(p.amount)}`, path: '/pagamentos' })
   )
+  // Candidato escolhido numa vaga, contrato enviado e ainda não assinado.
+  // Não é o contrato de trabalho vencendo — é o PRAZO DE ASSINATURA.
   pendingContractInterests?.forEach(pc => {
     const deadline = pc.deadline ? new Date(pc.deadline) : null
     const hoursLeft = deadline ? Math.round((deadline.getTime() - Date.now()) / 3600000) : null
     const candidateName = (pc as { candidate?: { full_name: string } }).candidate?.full_name || 'Candidato'
+    const vagaTitle = (pc as { vacancy?: { title: string } }).vacancy?.title
+    const vagaId = (pc as { vacancy_id?: string }).vacancy_id
+    // "venceu há 169h" não diz nada — acima de 2 dias a pessoa pensa em dias
+    const humanize = (h: number) => {
+      const a = Math.abs(h)
+      return a >= 48 ? `${Math.round(a / 24)} dias` : `${a}h`
+    }
+    // Leva direto pra vaga; sem isso caía na lista de 13 vagas sem dizer qual
+    const path = vagaId ? `/vagas/${vagaId}` : '/vagas'
+    const ondeVaga = vagaTitle ? ` na vaga "${vagaTitle}"` : ''
+    // key permite marcar como resolvido/dispensar. Sem isso o alerta ficava preso
+    // pra sempre quando a contratação acontecia por fora do fluxo da vaga.
+    const key = `contract-${pc.id}`
     const isOverdue = hoursLeft !== null && hoursLeft < 0
     if (isOverdue)
-      redAlerts.push({ text: `Contrato expirado: ${candidateName} — prazo venceu há ${Math.abs(hoursLeft!)}h`, path: '/vagas' })
+      redAlerts.push({
+        text: `${candidateName} não devolveu o contrato assinado${ondeVaga} — prazo venceu há ${humanize(hoursLeft!)}`,
+        path, key,
+      })
     else
-      amberAlerts.push({ text: `Contrato aguardando assinatura: ${candidateName} — ${hoursLeft}h restantes`, path: '/vagas' })
+      amberAlerts.push({
+        text: `Aguardando ${candidateName} assinar o contrato${ondeVaga} — faltam ${humanize(hoursLeft!)}`,
+        path, key,
+      })
   })
   vacanciesExpiring?.forEach(v => {
     const hired = (v as { hired_count?: number }).hired_count ?? 0

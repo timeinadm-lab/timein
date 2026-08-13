@@ -71,15 +71,32 @@ export default function EmployeeDetail() {
 
   const deleteEmployee = useMutation({
     mutationFn: async () => {
-      // Revert any contracted vacancy_interests so vacancy counts stay accurate
+      // Devolve as vagas em que ele foi contratado, pra contagem de posições não furar
       await supabase.from('vacancy_interests')
         .update({ status: 'Interessado', hired_at: null, employee_id: null })
         .eq('employee_id', id)
-      // Remove related records first to avoid FK violations
-      await supabase.from('employee_client_links').delete().eq('employee_id', id)
-      await supabase.from('employee_documents').delete().eq('employee_id', id)
-      await supabase.from('employee_history').delete().eq('employee_id', id)
-      await supabase.from('payments').delete().eq('employee_id', id)
+      // Compromissos da agenda continuam existindo, só perdem o vínculo com a pessoa
+      await supabase.from('interviews').update({ employee_id: null }).eq('employee_id', id)
+
+      // Filhos primeiro. employee_payment_dates/checks caem por CASCADE junto
+      // com employee_client_links, então não precisam entrar aqui.
+      const CHILD_TABLES = [
+        'nutritionist_visits', 'nutritionist_agenda', 'schedule_notices',
+        'employee_expenses', 'employee_questions', 'placements_history',
+        'employee_documents', 'employee_history', 'payments',
+        'employee_client_links',
+      ]
+      // Erro em qualquer filho tem que aparecer: sem isso, a exclusão falhava no
+      // fim com mensagem de chave estrangeira que não diz o que travou.
+      const failed: string[] = []
+      for (const table of CHILD_TABLES) {
+        const { error } = await supabase.from(table).delete().eq('employee_id', id)
+        if (error) { console.warn(`excluir colaborador — ${table}:`, error.message); failed.push(table) }
+      }
+      if (failed.length) {
+        throw new Error(`Não foi possível limpar: ${failed.join(', ')}. O colaborador NÃO foi excluído.`)
+      }
+
       const { error } = await supabase.from('employees').delete().eq('id', id)
       if (error) throw error
     },

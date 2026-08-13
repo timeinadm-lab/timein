@@ -31,11 +31,24 @@ export default function ClientDetail() {
       if (linksData?.length) throw new Error('Este cliente tem colaboradores vinculados. Desligue-os antes de excluir.')
       const { data: vagasData } = await supabase.from('vacancies').select('id').eq('client_id', id).limit(1)
       if (vagasData?.length) throw new Error('Este cliente tem vagas. Apague as vagas antes de excluir o cliente.')
-      // Remove dependentes diretos e o cliente
-      await supabase.from('client_units').delete().eq('client_id', id)
-      await supabase.from('client_locations').delete().eq('client_id', id)
-      await supabase.from('client_contracts').delete().eq('client_id', id)
-      await supabase.from('shared_documents').delete().eq('client_id', id)
+      // Compromissos da agenda continuam existindo, só perdem o vínculo com o cliente
+      await supabase.from('interviews').update({ client_id: null }).eq('client_id', id)
+
+      // Visitas e agenda de vínculos antigos sobrevivem ao desligamento e travavam
+      // a exclusão aqui com erro de chave estrangeira sem explicação.
+      const CHILD_TABLES = [
+        'nutritionist_visits', 'nutritionist_agenda', 'schedule_notices',
+        'client_units', 'client_locations', 'client_contracts', 'shared_documents',
+      ]
+      const failed: string[] = []
+      for (const table of CHILD_TABLES) {
+        const { error } = await supabase.from(table).delete().eq('client_id', id)
+        if (error) { console.warn(`excluir cliente — ${table}:`, error.message); failed.push(table) }
+      }
+      if (failed.length) {
+        throw new Error(`Não foi possível limpar: ${failed.join(', ')}. O cliente NÃO foi excluído.`)
+      }
+
       const { error } = await supabase.from('clients').delete().eq('id', id)
       if (error) throw error
     },

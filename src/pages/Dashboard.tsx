@@ -24,8 +24,11 @@ const BACKUP_TABLES = [
   'contracts', 'contract_templates', 'vacancies', 'vacancy_interests',
   'candidates', 'candidate_contacts', 'interviews',
   'payments', 'supervision_visits', 'inspections', 'inspection_links',
-  'nutritionist_visits', 'nutritionist_agenda', 'chat_messages',
+  'nutritionist_visits', 'nutritionist_agenda', 'schedule_notices', 'chat_messages',
   'shared_documents', 'link_history', 'placements_history', 'app_security',
+  // Financeiro e operação — ficaram de fora até 08/2026 e o backup saía "completo" sem eles
+  'financial_entries', 'financial_confirmations',
+  'activity_logs', 'activity_types', 'custom_priorities',
 ]
 
 const FILE_SOURCES: { table: string; col: string; bucket: string; label: string }[] = [
@@ -54,21 +57,31 @@ export default function Dashboard() {
     setBackingUp(true)
     try {
       const backup: Record<string, unknown[]> = {}
+      // Tabela que falha é pulada pra não abortar o backup inteiro — mas precisa
+      // ser reportada: backup que diz "pronto" escondendo buraco é pior que erro.
+      const skipped: { table: string; reason: string }[] = []
       for (const table of BACKUP_TABLES) {
         const rows: unknown[] = []
         let from = 0
         const pageSize = 1000
+        let failed: string | null = null
         while (true) {
           const { data, error } = await supabase.from(table).select('*').range(from, from + pageSize - 1)
-          if (error) { console.warn(`Backup skip ${table}:`, error.message); break }
+          if (error) { failed = error.message; console.warn(`Backup skip ${table}:`, error.message); break }
           if (!data?.length) break
           rows.push(...data)
           if (data.length < pageSize) break
           from += pageSize
         }
+        if (failed) { skipped.push({ table, reason: failed }); continue }
         backup[table] = rows
       }
-      backup._meta = [{ exported_at: new Date().toISOString(), tables: Object.keys(backup).length, total_rows: Object.values(backup).reduce((s, r) => s + (r as unknown[]).length, 0) }]
+      backup._meta = [{
+        exported_at: new Date().toISOString(),
+        tables: Object.keys(backup).length,
+        total_rows: Object.values(backup).reduce((s, r) => s + (r as unknown[]).length, 0),
+        skipped_tables: skipped,
+      }]
       const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
@@ -76,7 +89,15 @@ export default function Dashboard() {
       a.download = `timein-backup-dados-${new Date().toISOString().slice(0, 10)}.json`
       a.click()
       URL.revokeObjectURL(url)
-      toast.success('Backup de dados exportado!')
+      if (skipped.length) {
+        toast.error(
+          `Backup INCOMPLETO — ${skipped.length} tabela(s) fora: ${skipped.map(s => s.table).join(', ')}. ` +
+          `Confira o campo _meta.skipped_tables no arquivo.`,
+          { duration: 12000 }
+        )
+      } else {
+        toast.success('Backup de dados exportado!')
+      }
     } catch (e) {
       toast.error('Erro ao exportar: ' + String(e))
     } finally {

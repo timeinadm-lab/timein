@@ -54,24 +54,15 @@ export default function InterviewAgenda() {
   const { data: interviews } = useQuery({
     queryKey: ['interviews', filterStatus, filterMine, profile?.id],
     queryFn: async () => {
-      const base = () => {
-        let q = supabase.from('interviews')
-          .select('*,candidate:candidates(id,full_name),vacancy:vacancies(id,title),recruiter:user_profiles(full_name),employee:employees(id,full_name)')
-          .order('scheduled_at', { ascending: true })
-        if (filterStatus) q = q.eq('status', filterStatus)
-        return q
-      }
-      if (!filterMine || !profile?.id) {
-        const { data, error } = await base()
-        if (error) throw error
-        return data || []
-      }
-      // participant_ids depende de migração — se o banco ainda não tiver, cai no recruiter_id
-      const { data, error } = await base().or(`recruiter_id.eq.${profile.id},participant_ids.cs.{${profile.id}}`)
-      if (!error) return data || []
-      const { data: fb, error: fbErr } = await base().eq('recruiter_id', profile.id)
-      if (fbErr) throw fbErr
-      return fb || []
+      let q = supabase.from('interviews')
+        .select('*,candidate:candidates(id,full_name),vacancy:vacancies(id,title),recruiter:user_profiles(full_name),employee:employees(id,full_name)')
+        .order('scheduled_at', { ascending: true })
+      if (filterStatus) q = q.eq('status', filterStatus)
+      // Responsável antigo ou participante — os dois veem na própria agenda
+      if (filterMine && profile?.id) q = q.or(`recruiter_id.eq.${profile.id},participant_ids.cs.{${profile.id}}`)
+      const { data, error } = await q
+      if (error) throw error
+      return data || []
     },
   })
 

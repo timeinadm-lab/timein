@@ -801,9 +801,11 @@ export default function PaymentList() {
       {/* Summary cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <div className="card p-4 border-l-4 border-l-blue-400">
-          <p className="text-xs text-ink-500 font-semibold">Estimativa Salários</p>
+          <p className="text-xs text-ink-500 font-semibold">Estimativa da folha</p>
           <p className="text-2xl font-display font-extrabold text-ink-900 mt-1 tnum">{formatCurrency(totalEstimativa)}</p>
-          <p className="text-xs text-ink-400 mt-0.5">{folhaData?.length ?? 0} colaboradores</p>
+          <p className="text-xs text-ink-400 mt-0.5">
+            {folhaData?.length ?? 0} colaboradores · <span className="text-amber-600">consultoria só fecha com as visitas</span>
+          </p>
         </div>
         <div className="card p-4 border-l-4 border-l-orange-400">
           <p className="text-xs text-ink-500 font-semibold">Gastos / Reembolsos</p>
@@ -1014,8 +1016,14 @@ export default function PaymentList() {
 
                               <div className="flex items-center gap-3 flex-shrink-0">
                                 <div className="text-center px-3">
-                                  <p className="text-xs text-gray-400">{isFreela ? (row.freelaConsultoria ? 'Freela' : 'Diária') : 'Salário'}</p>
-                                  <p className="text-sm font-semibold text-gray-700">
+                                  {/* Consultoria não tem salário: o que ela recebe sai das visitas.
+                                      Chamar de "Salário" fazia a estimativa parecer valor combinado. */}
+                                  <p className={`text-xs ${isConsultoria ? 'text-amber-600' : 'text-gray-400'}`}>
+                                    {isFreela ? (row.freelaConsultoria ? 'Freela' : 'Diária') : isConsultoria ? 'Estimativa' : 'Salário'}
+                                  </p>
+                                  <p className={`text-sm font-semibold ${isConsultoria ? 'text-amber-700' : 'text-gray-700'}`}
+                                    title={isConsultoria ? 'Estimativa — o valor real vem das visitas registradas' : undefined}>
+                                    {isConsultoria ? '~' : ''}
                                     {isFreela && !row.freelaConsultoria ? formatCurrency(row.dailyRate || 0) : formatCurrency(row.monthly_amount)}
                                   </p>
                                   {row.isPartialCycle && !row.payFullSalary && (

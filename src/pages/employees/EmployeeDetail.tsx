@@ -25,6 +25,29 @@ const DOC_ICON = {
   'Não se aplica': <XCircle size={16} className="text-gray-400" />,
 }
 
+type CoverageUnit = { unit_id: string; unit_name: string; visit_rate: string }
+
+// Estado do formulário "+ Vincular". Fica fora do componente para ser a ÚNICA
+// definição — serve de valor inicial e de reset, sem risco de divergirem.
+// vinculo_tipo: 'permanente' = fica no cliente até desligar (service_type real)
+//               'temporario' = freela/cobertura com data de fim (service_type Volante)
+// monthly_amount: no Fixo o RH informa o MENSAL; a diária sai de mensal ÷ 30.
+const EMPTY_COVERAGE = {
+  client_id: '',
+  vinculo_tipo: '' as '' | 'permanente' | 'temporario',
+  coverage_type: 'Fixo' as 'Fixo' | 'Consultoria',
+  // Fixo
+  unit_id: '', work_schedule_type: '', daily_hours: '', days_off: [] as number[], schedule_anchor_date: '',
+  // Consultoria
+  coverage_units: [] as CoverageUnit[],
+  visit_frequency: 'Avulso' as 'Semanal' | 'Quinzenal' | 'Mensal' | 'Avulso',
+  weekly_hours_quota: '',
+  // Comum
+  start_date: '', end_date: '', monthly_amount: '', daily_rate: '',
+  pay_days: ['20'] as string[],
+  agenda_mode: '' as '' | 'colaborador' | 'gestor',
+}
+
 export default function EmployeeDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -56,16 +79,11 @@ export default function EmployeeDetail() {
   const [editVisitId, setEditVisitId] = useState<string | null>(null)
   const [editVisitForm, setEditVisitForm] = useState({ check_in: '', check_out: '', observations: '' })
   const [showCoverageForm, setShowCoverageForm] = useState(false)
-  type CoverageUnit = { unit_id: string; unit_name: string; visit_rate: string }
-  const [coverageForm, setCoverageForm] = useState({
-    client_id: '', coverage_type: 'Fixo' as 'Fixo' | 'Consultoria',
-    // Fixo
-    unit_id: '', work_schedule_type: '', daily_hours: '', days_off: [] as number[], schedule_anchor_date: '',
-    // Consultoria
-    coverage_units: [] as CoverageUnit[], visit_frequency: 'Semanal' as 'Semanal' | 'Quinzenal' | 'Mensal', weekly_hours_quota: '',
-    // Comum
-    start_date: '', end_date: '', daily_rate: '', pay_day: '20',
-  })
+  // Estado inicial vem do MESMO objeto usado no reset (EMPTY_COVERAGE, no topo do
+  // arquivo). Antes havia duas definições e a daqui estava desatualizada: faltavam
+  // pay_days/vinculo_tipo, então pay_days era undefined no primeiro render e o
+  // .includes() derrubava a tela ao abrir "+ Vincular".
+  const [coverageForm, setCoverageForm] = useState(EMPTY_COVERAGE)
   const [extendLinkId, setExtendLinkId] = useState<string | null>(null)
   const [newEndDate, setNewEndDate] = useState('')
 
@@ -296,11 +314,6 @@ export default function EmployeeDetail() {
     },
     enabled: !!coverageForm.client_id,
   })
-
-  // vinculo_tipo: 'permanente' = fica no cliente até desligar (service_type real)
-  //               'temporario' = freela/cobertura com data de fim (service_type Volante)
-  // monthly_amount: no Fixo o RH informa o MENSAL; a diária sai de mensal ÷ 30.
-  const EMPTY_COVERAGE = { client_id: '', vinculo_tipo: '' as '' | 'permanente' | 'temporario', coverage_type: 'Fixo' as 'Fixo' | 'Consultoria', unit_id: '', work_schedule_type: '', daily_hours: '', days_off: [] as number[], schedule_anchor_date: '', coverage_units: [] as CoverageUnit[], visit_frequency: 'Avulso' as 'Semanal' | 'Quinzenal' | 'Mensal' | 'Avulso', weekly_hours_quota: '', start_date: '', end_date: '', monthly_amount: '', daily_rate: '', pay_days: ['20'] as string[], agenda_mode: '' as '' | 'colaborador' | 'gestor' }
 
   // Diária derivada do mensal (mesma regra que o dia extra do portal já usa)
   const diariaFromMensal = (mensal: string) => {

@@ -300,7 +300,7 @@ export default function EmployeeDetail() {
   // vinculo_tipo: 'permanente' = fica no cliente até desligar (service_type real)
   //               'temporario' = freela/cobertura com data de fim (service_type Volante)
   // monthly_amount: no Fixo o RH informa o MENSAL; a diária sai de mensal ÷ 30.
-  const EMPTY_COVERAGE = { client_id: '', vinculo_tipo: '' as '' | 'permanente' | 'temporario', coverage_type: 'Fixo' as 'Fixo' | 'Consultoria', unit_id: '', work_schedule_type: '', daily_hours: '', days_off: [] as number[], schedule_anchor_date: '', coverage_units: [] as CoverageUnit[], visit_frequency: 'Semanal' as 'Semanal' | 'Quinzenal' | 'Mensal', weekly_hours_quota: '', start_date: '', end_date: '', monthly_amount: '', daily_rate: '', pay_day: '20', agenda_mode: '' as '' | 'colaborador' | 'gestor' }
+  const EMPTY_COVERAGE = { client_id: '', vinculo_tipo: '' as '' | 'permanente' | 'temporario', coverage_type: 'Fixo' as 'Fixo' | 'Consultoria', unit_id: '', work_schedule_type: '', daily_hours: '', days_off: [] as number[], schedule_anchor_date: '', coverage_units: [] as CoverageUnit[], visit_frequency: 'Avulso' as 'Semanal' | 'Quinzenal' | 'Mensal' | 'Avulso', weekly_hours_quota: '', start_date: '', end_date: '', monthly_amount: '', daily_rate: '', pay_days: ['20'] as string[], agenda_mode: '' as '' | 'colaborador' | 'gestor' }
 
   // Diária derivada do mensal (mesma regra que o dia extra do portal já usa)
   const diariaFromMensal = (mensal: string) => {
@@ -320,7 +320,10 @@ export default function EmployeeDetail() {
         const active = coverageForm.coverage_units.filter(u => u.visit_rate)
         linkUnits = active.length > 0 ? active.map(u => ({ unit_id: u.unit_id, unit_name: u.unit_name, visit_rate: Number(u.visit_rate) })) : null
         const wh = Number(coverageForm.weekly_hours_quota) || null
-        if (wh) monthlyHours = wh * (coverageForm.visit_frequency === 'Mensal' ? 1 : coverageForm.visit_frequency === 'Quinzenal' ? 2 : 4)
+        // Avulso não tem cadência: os dias vêm da agenda, então não existe cota mensal
+        if (wh && coverageForm.visit_frequency !== 'Avulso') {
+          monthlyHours = wh * (coverageForm.visit_frequency === 'Mensal' ? 1 : coverageForm.visit_frequency === 'Quinzenal' ? 2 : 4)
+        }
       }
       // Permanente entra como o tipo real (Fixo/Consultoria) e fica no portal pra
       // sempre. Temporário entra como Volante, que o portal esconde depois da data fim.
@@ -338,7 +341,7 @@ export default function EmployeeDetail() {
         coverage_type: coverageForm.coverage_type,
         agenda_mode: coverageForm.agenda_mode || 'colaborador',
         daily_rate: diaria,
-        start_date: coverageForm.start_date || null,
+        start_date: coverageForm.start_date || new Date().toISOString().slice(0, 10),
         contract_end_date: isTemporario ? (coverageForm.end_date || null) : (coverageForm.end_date || null),
         monthly_amount: isFixo ? mensal : null,
         link_units: linkUnits,
@@ -354,21 +357,25 @@ export default function EmployeeDetail() {
         }),
       }).select('id').single()
       if (error) throw error
-      // Dia de pagamento escolhido no lançamento (8, 15 ou 20) — a folha usa este dia
-      if (newLink?.id && coverageForm.pay_day) {
-        await supabase.from('employee_payment_dates').insert({
-          link_id: newLink.id,
-          day_of_month: Number(coverageForm.pay_day),
-        })
+      // Dias de pagamento. Dois dias = quinzena: o que a pessoa fizer do dia 20 ao
+      // dia 7 cai no pagamento do dia 8; do dia 8 ao 19 cai no do dia 20.
+      const dias = (coverageForm.pay_days.length ? coverageForm.pay_days : ['20'])
+        .map(Number).sort((a, b) => a - b)
+      if (newLink?.id) {
+        await supabase.from('employee_payment_dates').insert(
+          dias.map(d => ({ link_id: newLink.id, day_of_month: d }))
+        )
       }
       // Agenda o dia no calendário/portal (mesma lógica do "Escalar"):
       // sem isto o freela virava só um vínculo sem data e não aparecia em lugar nenhum.
-      if (coverageForm.start_date) {
+      // Vazio = começa hoje; vincular já é o início
+      const inicio = coverageForm.start_date || new Date().toISOString().slice(0, 10)
+      if (inicio) {
         const { error: agErr } = await supabase.from('nutritionist_agenda').insert({
           employee_id: id,
           client_id: coverageForm.client_id || null,
           unit_id: isFixo ? (coverageForm.unit_id || null) : null,
-          planned_date: coverageForm.start_date,
+          planned_date: inicio,
           hours_expected: isFixo
             ? (coverageForm.daily_hours ? Number(coverageForm.daily_hours) : null)
             : (Number(coverageForm.weekly_hours_quota) || null),
@@ -1188,14 +1195,22 @@ export default function EmployeeDetail() {
                   <div>
                     <label className="label">Frequência</label>
                     <select className="input" value={coverageForm.visit_frequency}
-                      onChange={e => setCoverageForm(p => ({ ...p, visit_frequency: e.target.value as 'Semanal' | 'Quinzenal' | 'Mensal' }))}>
+                      onChange={e => setCoverageForm(p => ({ ...p, visit_frequency: e.target.value as 'Semanal' | 'Quinzenal' | 'Mensal' | 'Avulso' }))}>
+                      <option value="Avulso">Em aberto — sem frequência fixa</option>
                       <option value="Semanal">Semanal</option>
                       <option value="Quinzenal">Quinzenal</option>
                       <option value="Mensal">Mensal</option>
                     </select>
+                    {coverageForm.visit_frequency === 'Avulso' && (
+                      <p className="text-xs text-ink-500 mt-1">
+                        Sem cota de horas no mês. Os dias vêm da agenda — pode ter mês sem nenhuma visita.
+                      </p>
+                    )}
                   </div>
                   <div>
-                    <label className="label">Horas por visita</label>
+                    <label className="label">
+                      Horas por visita {coverageForm.visit_frequency === 'Avulso' && <span className="text-gray-400 font-normal">(opcional)</span>}
+                    </label>
                     <input className="input" type="number" step="0.5" min="0.5" placeholder="Ex: 4"
                       value={coverageForm.weekly_hours_quota}
                       onChange={e => setCoverageForm(p => ({ ...p, weekly_hours_quota: e.target.value }))} />
@@ -1248,7 +1263,7 @@ export default function EmployeeDetail() {
               {/* Datas */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="label">Data início *</label>
+                  <label className="label">Data início <span className="text-gray-400 font-normal">(vazio = começa hoje)</span></label>
                   <input className="input" type="date" value={coverageForm.start_date} onChange={e => setCoverageForm(p => ({ ...p, start_date: e.target.value }))} />
                 </div>
                 <div>
@@ -1285,31 +1300,43 @@ export default function EmployeeDetail() {
                   </div>
                 )}
                 <div>
-                  <label className="label">Dia de pagamento *</label>
+                  <label className="label">Dia(s) de pagamento * <span className="text-gray-400 font-normal">— pode marcar dois</span></label>
                   <div className="flex gap-1.5">
-                    {(['8', '15', '20'] as const).map(d => (
-                      <button key={d} type="button"
-                        className={`flex-1 py-2 text-sm rounded-lg border font-medium transition-colors ${coverageForm.pay_day === d ? 'bg-orange-500 text-white border-orange-500' : 'bg-white text-gray-600 border-gray-300 hover:border-orange-300'}`}
-                        onClick={() => setCoverageForm(p => ({ ...p, pay_day: d }))}>
-                        {d}
-                      </button>
-                    ))}
+                    {(['8', '15', '20'] as const).map(d => {
+                      const on = coverageForm.pay_days.includes(d)
+                      return (
+                        <button key={d} type="button"
+                          className={`flex-1 py-2 text-sm rounded-lg border font-medium transition-colors ${on ? 'bg-orange-500 text-white border-orange-500' : 'bg-white text-gray-600 border-gray-300 hover:border-orange-300'}`}
+                          onClick={() => setCoverageForm(p => ({
+                            ...p,
+                            pay_days: on ? p.pay_days.filter(x => x !== d) : [...p.pay_days, d],
+                          }))}>
+                          {d}
+                        </button>
+                      )
+                    })}
                   </div>
+                  {coverageForm.pay_days.length >= 2 && (
+                    <p className="text-xs text-orange-700 bg-orange-100 rounded px-2 py-1 mt-1 leading-snug">
+                      Quinzenal: o que ela fizer entre os dias {[...coverageForm.pay_days].map(Number).sort((a, b) => a - b).join(' e ')} cai no pagamento seguinte.
+                    </p>
+                  )}
                 </div>
               </div>
               {(() => {
                 // Fixo cobra o mensal; consultoria se paga pelo valor por unidade.
                 const faltaValor = coverageForm.coverage_type === 'Fixo' && !coverageForm.monthly_amount
                 const faltaFim = coverageForm.vinculo_tipo === 'temporario' && !coverageForm.end_date
+                const faltaPag = coverageForm.pay_days.length === 0
                 const bloqueado = !coverageForm.vinculo_tipo || !coverageForm.agenda_mode
-                  || !coverageForm.client_id || !coverageForm.start_date || faltaValor || faltaFim
+                  || !coverageForm.client_id || faltaValor || faltaFim || faltaPag
                 const pendencias = [
                   !coverageForm.vinculo_tipo && 'o tipo do vínculo',
                   !coverageForm.client_id && 'o cliente',
                   !coverageForm.agenda_mode && 'quem monta os dias',
-                  !coverageForm.start_date && 'a data de início',
                   faltaFim && 'a data de fim (freela é temporário)',
                   faltaValor && 'o salário mensal',
+                  faltaPag && 'pelo menos um dia de pagamento',
                 ].filter(Boolean) as string[]
                 return (
                   <>

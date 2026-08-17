@@ -445,6 +445,7 @@ export default function PaymentList() {
           visits: empVisits,
           group,
           payDay,
+          payDaysAll: payDates.map(p => p.day_of_month),
           startDate,
           payFullSalary,
           cycleStart,
@@ -510,6 +511,7 @@ export default function PaymentList() {
     cost_assistance: number
     extrasAprovados: number
     payDay: number
+    payDaysAll?: number[]
     visits: { visit_date: string; visit_rate?: number | null }[]
   }
 
@@ -562,18 +564,43 @@ export default function PaymentList() {
           })
         }
       } else {
-        // Fixo/Plantão/12x36: um pagamento por mês no dia do contrato (8, 15 ou 20)
-        // Freela: um pagamento no dia escolhido no lançamento
+        // Fixo/Plantão/12x36 e Freela: um pagamento por mês no dia do contrato.
+        // Se o vínculo tiver DOIS dias marcados, o valor é dividido entre eles
+        // (quinzena) — o 2º dia cai no mês seguinte quando é menor que o 1º.
         const isFreela = row.service_type === 'Volante'
         const amount = Math.round((row.adjusted_amount + extras) * 100) / 100
         if (isFreela && amount <= 0) throw new Error('Freela sem valor previsto neste mês — nada a lançar.')
-        await insertPayment({
-          ...baseRecord(row),
-          type: 'Estimativa',
-          description: `${isFreela ? 'Freela' : 'Honorários'} – ${who} – ${monthLabel}`,
-          amount,
-          due_date: `${filterMonth}-${String(row.payDay || (isFreela ? 20 : 5)).padStart(2, '0')}`,
-        })
+
+        const dias = (row.payDaysAll || []).slice().sort((a, b) => a - b)
+        const label = isFreela ? 'Freela' : 'Honorários'
+
+        if (dias.length >= 2) {
+          const metade = Math.round((amount / 2) * 100) / 100
+          // Diferença de arredondamento vai na 1ª parcela
+          const primeira = Math.round((amount - metade) * 100) / 100
+          await insertPayment({
+            ...baseRecord(row),
+            type: 'Estimativa',
+            description: `${label} – ${who} – 1ª quinzena ${monthLabel}`,
+            amount: primeira,
+            due_date: `${filterMonth}-${String(dias[0]).padStart(2, '0')}`,
+          })
+          await insertPayment({
+            ...baseRecord(row),
+            type: 'Estimativa',
+            description: `${label} – ${who} – 2ª quinzena ${monthLabel}`,
+            amount: metade,
+            due_date: `${filterMonth}-${String(dias[1]).padStart(2, '0')}`,
+          })
+        } else {
+          await insertPayment({
+            ...baseRecord(row),
+            type: 'Estimativa',
+            description: `${label} – ${who} – ${monthLabel}`,
+            amount,
+            due_date: `${filterMonth}-${String(row.payDay || (isFreela ? 20 : 5)).padStart(2, '0')}`,
+          })
+        }
       }
     },
     onSuccess: () => {

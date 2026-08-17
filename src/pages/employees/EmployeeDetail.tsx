@@ -1383,8 +1383,9 @@ export default function EmployeeDetail() {
 
           {(links || []).filter(l => l.service_type === 'Volante').length === 0 && !showCoverageForm && (
             <p className="text-sm text-gray-400 text-center py-4">
-              Nenhum freela ativo. Use <strong>+ Vincular</strong> para colocar esta pessoa em um cliente —
-              fixo (fica) ou freela (temporário).
+              {(links || []).length > 0
+                ? <>Sem freela no momento. Os vínculos fixos aparecem em <strong>Clientes Vinculados</strong>, abaixo.</>
+                : <>Ainda não está em nenhum cliente. Use <strong>+ Vincular</strong> — fixo (fica) ou freela (temporário).</>}
             </p>
           )}
 
@@ -1809,15 +1810,24 @@ export default function EmployeeDetail() {
                           </div>
                         )
                       })()}
-                      {l.payment_dates?.length > 0 && (
-                        <div className="flex flex-wrap gap-1 mt-2">
-                          {l.payment_dates.map(d => (
-                            <span key={d.id} className="px-2 py-0.5 bg-primary-50 text-primary-700 rounded-full text-xs">
-                              Dia {d.day_of_month}{d.amount ? ` — ${formatCurrency(d.amount)}` : ''}
-                            </span>
-                          ))}
-                        </div>
-                      )}
+                      {l.payment_dates?.length > 0 && (() => {
+                        // Consultoria/Freela não têm valor fixo por data: o que cai é o
+                        // que as visitas somarem. Mostrar "Dia 8 — R$ 260,00" fazia um
+                        // rateio da estimativa parecer valor combinado.
+                        const valorFixo = l.service_type === 'Fixo'
+                        return (
+                          <div className="flex flex-wrap items-center gap-1 mt-2">
+                            {l.payment_dates.map(d => (
+                              <span key={d.id} className="px-2 py-0.5 bg-primary-50 text-primary-700 rounded-full text-xs">
+                                Dia {d.day_of_month}{valorFixo && d.amount ? ` — ${formatCurrency(d.amount)}` : ''}
+                              </span>
+                            ))}
+                            {!valorFixo && (
+                              <span className="text-xs text-ink-400">— valor conforme as visitas do período</span>
+                            )}
+                          </div>
+                        )
+                      })()}
                       <div className="flex items-center gap-2 mt-2 flex-wrap">
                         {editContractDate?.linkId === l.id ? (
                           <div className="flex items-center gap-2">

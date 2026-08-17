@@ -116,9 +116,10 @@ export default function CalendarPage() {
   const { data: vagaLinks } = useQuery({
     queryKey: ['cal-vaga-links'],
     queryFn: async () => {
+      // TODOS os vínculos, não só os que vieram de vaga — quem foi vinculado
+      // direto pela ficha do colaborador não tem vacancy_id e sumia daqui.
       const { data, error } = await supabase.from('employee_client_links')
-        .select('id, employee_id, vacancy_id, client_id, weekly_hours_quota, employee:employees(id, full_name)')
-        .not('vacancy_id', 'is', null)
+        .select('id, employee_id, vacancy_id, client_id, contract_end_date, weekly_hours_quota, employee:employees(id, full_name)')
       if (error) throw error
       return data || []
     },
@@ -186,7 +187,16 @@ export default function CalendarPage() {
       if (!addForm.employee_id) throw new Error('Escolha o nutricionista')
       const clientId = chosenVaga?.client_id
       if (!clientId) throw new Error('Esta vaga não tem cliente definido')
-      const link = (vagaLinks || []).find(l => l.vacancy_id === addForm.vacancy_id && l.employee_id === addForm.employee_id)
+      // Sem vínculo com o cliente a pessoa trabalha e NÃO recebe: a folha só
+      // paga o que tem vínculo. Agendar sem vínculo é criar trabalho invisível.
+      const vinculo = (vagaLinks || []).find(l => l.employee_id === addForm.employee_id && l.client_id === clientId)
+      if (!vinculo) {
+        throw new Error(
+          'Esta pessoa não tem vínculo com o cliente desta vaga. Sem vínculo ela trabalha e não recebe. ' +
+          'Vincule primeiro em Colaboradores → Vínculos → + Vincular.'
+        )
+      }
+      const link = (vagaLinks || []).find(l => l.vacancy_id === addForm.vacancy_id && l.employee_id === addForm.employee_id) || vinculo
       const hours = addForm.hours ? Number(addForm.hours)
         : (link?.weekly_hours_quota ? Number(link.weekly_hours_quota) : (chosenVaga?.weekly_hours ? Number(chosenVaga.weekly_hours) : null))
       const { error } = await supabase.from('nutritionist_agenda').insert({
@@ -242,6 +252,13 @@ export default function CalendarPage() {
       if (k === 'planejada') {
         if (!addForm.client_id) throw new Error('Escolha o cliente')
         if (!empId) throw new Error('Escolha o colaborador')
+        // Mesma regra da aba Vincular: sem vínculo, a visita não vira pagamento
+        if (!(vagaLinks || []).some(l => l.employee_id === empId && l.client_id === addForm.client_id)) {
+          throw new Error(
+            'Esta pessoa não tem vínculo com este cliente. Sem vínculo ela trabalha e não recebe. ' +
+            'Vincule primeiro em Colaboradores → Vínculos → + Vincular.'
+          )
+        }
         const { error } = await supabase.from('nutritionist_agenda').insert({
           employee_id: empId,
           client_id: addForm.client_id,
@@ -474,7 +491,9 @@ export default function CalendarPage() {
             ) : (
               <div className="rounded-xl border border-primary-200 bg-primary-50/40 p-3 space-y-3">
                 <div className="flex gap-1">
-                  {([['vincular', '🔗 Vincular vaga'], ['manual', '✏️ Digitar']] as const).map(([k, t]) => (
+                  {/* "Vincular vaga" enganava: esta aba NÃO cria vínculo, só agenda
+                      um dia de quem já é vinculado. Vincular é em Colaboradores. */}
+                  {([['vincular', '📅 Agendar pela vaga'], ['manual', '✏️ Digitar']] as const).map(([k, t]) => (
                     <button key={k} onClick={() => setAddTab(k)}
                       className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-colors ${addTab === k ? 'bg-primary-600 text-white' : 'bg-white text-ink-500 border border-ink-200'}`}>{t}</button>
                   ))}
@@ -491,15 +510,25 @@ export default function CalendarPage() {
                       </select>
                     </div>
                     {addForm.vacancy_id && (() => {
-                      const opts = (vagaLinks || []).filter(l => l.vacancy_id === addForm.vacancy_id)
+                      // Quem tem vínculo com o CLIENTE da vaga — inclui quem foi
+                      // vinculado direto pela ficha (sem vaga). Oferecer quem não
+                      // tem vínculo criaria trabalho que a folha não paga.
+                      const cliId = chosenVaga?.client_id
+                      const opts = (vagaLinks || []).filter(l => l.client_id === cliId)
+                      const vistos = new Set<string>()
+                      const unicos = opts.filter(l => !vistos.has(l.employee_id) && vistos.add(l.employee_id))
                       return (
                         <div>
                           <label className="label">Nutricionista *</label>
                           <select className="input" value={addForm.employee_id} onChange={e => setAddForm(p => ({ ...p, employee_id: e.target.value }))}>
-                            <option value="">{opts.length ? 'Selecionar...' : 'Nenhum vinculado — escolha abaixo'}</option>
-                            {opts.map(l => <option key={l.id} value={l.employee_id}>{(l as { employee?: { full_name: string } }).employee?.full_name}</option>)}
-                            {opts.length === 0 && allEmployees?.map(e => <option key={e.id} value={e.id}>{e.full_name}</option>)}
+                            <option value="">{unicos.length ? 'Selecionar...' : 'Ninguém vinculado a este cliente'}</option>
+                            {unicos.map(l => <option key={l.id} value={l.employee_id}>{(l as { employee?: { full_name: string } }).employee?.full_name}</option>)}
                           </select>
+                          {unicos.length === 0 && (
+                            <p className="text-[11px] text-amber-700 bg-amber-50 rounded px-2 py-1 mt-1">
+                              Ninguém está vinculado a este cliente. Vincule em <strong>Colaboradores → Vínculos → + Vincular</strong> antes de agendar.
+                            </p>
+                          )}
                           {chosenVaga?.weekly_hours && <p className="text-[11px] text-primary-600 mt-1">Horas da vaga: {chosenVaga.weekly_hours}h por visita</p>}
                         </div>
                       )

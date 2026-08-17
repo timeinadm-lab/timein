@@ -311,6 +311,23 @@ export default function EmployeeDetail() {
   const addCoverage = useMutation({
     mutationFn: async () => {
       const isFixo = coverageForm.coverage_type === 'Fixo'
+
+      // Vínculo duplicado no mesmo cliente gera PAGAMENTO EM DOBRO: a folha
+      // percorre todos os vínculos, mas o portal só enxerga o primeiro — então
+      // ela bate ponto num e o outro vira uma cobrança fantasma.
+      const jaTem = (links || []).find(l => {
+        if (l.client_id !== coverageForm.client_id) return false
+        const fim = (l as { contract_end_date?: string }).contract_end_date
+        // Vínculo temporário já encerrado não conflita
+        return !fim || fim >= new Date().toISOString().slice(0, 10)
+      })
+      if (jaTem) {
+        const nome = (jaTem.client as { name?: string } | undefined)?.name || 'este cliente'
+        throw new Error(
+          `${employee?.full_name?.split(' ')[0] || 'Esta pessoa'} já tem um vínculo ativo com ${nome}. ` +
+          `Edite o vínculo existente em vez de criar outro — dois vínculos no mesmo cliente geram pagamento em dobro.`
+        )
+      }
       let linkUnits: { unit_id: string; unit_name: string; visit_rate?: number }[] | null = null
       let monthlyHours: number | null = null
       if (isFixo) {
@@ -1326,16 +1343,20 @@ export default function EmployeeDetail() {
               {(() => {
                 // Fixo cobra o mensal; consultoria se paga pelo valor por unidade.
                 const faltaValor = coverageForm.coverage_type === 'Fixo' && !coverageForm.monthly_amount
+                // Consultoria sem unidade com valor = visita registrada vale R$ 0
+                const faltaUnidade = coverageForm.coverage_type === 'Consultoria'
+                  && !coverageForm.coverage_units.some(u => Number(u.visit_rate) > 0)
                 const faltaFim = coverageForm.vinculo_tipo === 'temporario' && !coverageForm.end_date
                 const faltaPag = coverageForm.pay_days.length === 0
                 const bloqueado = !coverageForm.vinculo_tipo || !coverageForm.agenda_mode
-                  || !coverageForm.client_id || faltaValor || faltaFim || faltaPag
+                  || !coverageForm.client_id || faltaValor || faltaUnidade || faltaFim || faltaPag
                 const pendencias = [
                   !coverageForm.vinculo_tipo && 'o tipo do vínculo',
                   !coverageForm.client_id && 'o cliente',
                   !coverageForm.agenda_mode && 'quem monta os dias',
                   faltaFim && 'a data de fim (freela é temporário)',
                   faltaValor && 'o salário mensal',
+                  faltaUnidade && 'ao menos uma unidade com valor da vistoria (sem isso a visita vale R$ 0)',
                   faltaPag && 'pelo menos um dia de pagamento',
                 ].filter(Boolean) as string[]
                 return (

@@ -297,7 +297,16 @@ export default function EmployeeDetail() {
     enabled: !!coverageForm.client_id,
   })
 
-  const EMPTY_COVERAGE = { client_id: '', coverage_type: 'Fixo' as 'Fixo' | 'Consultoria', unit_id: '', work_schedule_type: '', daily_hours: '', days_off: [] as number[], schedule_anchor_date: '', coverage_units: [] as CoverageUnit[], visit_frequency: 'Semanal' as 'Semanal' | 'Quinzenal' | 'Mensal', weekly_hours_quota: '', start_date: '', end_date: '', daily_rate: '', pay_day: '20', agenda_mode: '' as '' | 'colaborador' | 'gestor' }
+  // vinculo_tipo: 'permanente' = fica no cliente até desligar (service_type real)
+  //               'temporario' = freela/cobertura com data de fim (service_type Volante)
+  // monthly_amount: no Fixo o RH informa o MENSAL; a diária sai de mensal ÷ 30.
+  const EMPTY_COVERAGE = { client_id: '', vinculo_tipo: '' as '' | 'permanente' | 'temporario', coverage_type: 'Fixo' as 'Fixo' | 'Consultoria', unit_id: '', work_schedule_type: '', daily_hours: '', days_off: [] as number[], schedule_anchor_date: '', coverage_units: [] as CoverageUnit[], visit_frequency: 'Semanal' as 'Semanal' | 'Quinzenal' | 'Mensal', weekly_hours_quota: '', start_date: '', end_date: '', monthly_amount: '', daily_rate: '', pay_day: '20', agenda_mode: '' as '' | 'colaborador' | 'gestor' }
+
+  // Diária derivada do mensal (mesma regra que o dia extra do portal já usa)
+  const diariaFromMensal = (mensal: string) => {
+    const m = Number(mensal)
+    return m > 0 ? Math.round((m / 30) * 100) / 100 : null
+  }
 
   const addCoverage = useMutation({
     mutationFn: async () => {
@@ -313,16 +322,25 @@ export default function EmployeeDetail() {
         const wh = Number(coverageForm.weekly_hours_quota) || null
         if (wh) monthlyHours = wh * (coverageForm.visit_frequency === 'Mensal' ? 1 : coverageForm.visit_frequency === 'Quinzenal' ? 2 : 4)
       }
+      // Permanente entra como o tipo real (Fixo/Consultoria) e fica no portal pra
+      // sempre. Temporário entra como Volante, que o portal esconde depois da data fim.
+      const isTemporario = coverageForm.vinculo_tipo === 'temporario'
+      const mensal = Number(coverageForm.monthly_amount) || null
+      // No Fixo a diária vem do mensal ÷ 30; na Consultoria o valor é por unidade
+      const diaria = isFixo
+        ? (diariaFromMensal(coverageForm.monthly_amount) ?? (Number(coverageForm.daily_rate) || null))
+        : (Number(coverageForm.daily_rate) || null)
+
       const { data: newLink, error } = await supabase.from('employee_client_links').insert({
         employee_id: id,
         client_id: coverageForm.client_id || null,
-        service_type: 'Volante',
+        service_type: isTemporario ? 'Volante' : coverageForm.coverage_type,
         coverage_type: coverageForm.coverage_type,
         agenda_mode: coverageForm.agenda_mode || 'colaborador',
-        daily_rate: Number(coverageForm.daily_rate) || null,
+        daily_rate: diaria,
         start_date: coverageForm.start_date || null,
-        contract_end_date: coverageForm.end_date || null,
-        monthly_amount: null,
+        contract_end_date: isTemporario ? (coverageForm.end_date || null) : (coverageForm.end_date || null),
+        monthly_amount: isFixo ? mensal : null,
         link_units: linkUnits,
         ...(isFixo ? {
           work_schedule_type: coverageForm.work_schedule_type || null,
@@ -354,7 +372,7 @@ export default function EmployeeDetail() {
           hours_expected: isFixo
             ? (coverageForm.daily_hours ? Number(coverageForm.daily_hours) : null)
             : (Number(coverageForm.weekly_hours_quota) || null),
-          notes: 'Freela avulso',
+          notes: isTemporario ? 'Freela avulso' : 'Primeiro dia no cliente',
           // Se o RH monta a agenda, o dia fica travado pra ela. Se ela monta,
           // esse primeiro dia é dela e pode ser remarcado no portal.
           created_by_admin: coverageForm.agenda_mode === 'gestor',
@@ -364,7 +382,7 @@ export default function EmployeeDetail() {
       }
     },
     onSuccess: () => {
-      toast.success('Freela adicionado!')
+      toast.success(coverageForm.vinculo_tipo === 'temporario' ? 'Freela adicionado!' : 'Colaborador vinculado ao cliente!')
       qc.invalidateQueries({ queryKey: ['employee-links', id] })
       setShowCoverageForm(false)
       setCoverageForm(EMPTY_COVERAGE)
@@ -703,9 +721,25 @@ export default function EmployeeDetail() {
         await supabase.from('employee_documents').insert({ employee_id: id, name: docName, status: 'Entregue', file_url: path })
       }
 
+      // Fecha o ciclo da vaga. Sem isto o candidato ficava eternamente em
+      // "Em contrato" e o painel acusava "não devolveu o contrato assinado",
+      // mesmo com o contrato anexado aqui.
+      const vacancyId = (link as { vacancy_id?: string } | undefined)?.vacancy_id
+      if (vacancyId) {
+        await supabase.from('vacancy_interests')
+          .update({ status: 'Contratado', hired_at: new Date().toISOString(), employee_id: id })
+          .eq('vacancy_id', vacancyId).eq('status', 'Em contrato')
+      } else {
+        // Vínculo sem vaga: destrava qualquer interesse pendente desta pessoa
+        await supabase.from('vacancy_interests')
+          .update({ status: 'Contratado', hired_at: new Date().toISOString() })
+          .eq('employee_id', id).eq('status', 'Em contrato')
+      }
+
       toast.success('Contrato anexado! Também salvo em Documentos.')
       qc.invalidateQueries({ queryKey: ['employee-links', id] })
       qc.invalidateQueries({ queryKey: ['employee-docs', id] })
+      qc.invalidateQueries({ queryKey: ['dashboard-pending-contract-interests'] })
     } catch (e: unknown) {
       toast.error((e as Error).message)
     } finally {
@@ -1022,17 +1056,38 @@ export default function EmployeeDetail() {
         </div>
       )}
 
-      {/* VINCULOS — Freelas (trabalho avulso, qualquer colaborador) */}
+      {/* VINCULOS — vincular a um cliente direto, sem passar pelo funil da vaga */}
       {tab === 'vinculos' && (
         <div className="card p-5 space-y-4">
           <div className="flex items-center justify-between">
-            <h3 className="font-medium">⚡ Freelas</h3>
-            <button className="btn-primary text-sm" onClick={() => setShowCoverageForm(v => !v)}>+ Freela</button>
+            <div>
+              <h3 className="font-medium">Vincular a um cliente</h3>
+              <p className="text-xs text-ink-400">Sem passar por vaga — para quem já é da casa.</p>
+            </div>
+            <button className="btn-primary text-sm" onClick={() => setShowCoverageForm(v => !v)}>+ Vincular</button>
           </div>
 
           {showCoverageForm && (
             <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 space-y-3">
-              <p className="text-sm font-medium text-orange-800">Novo freela</p>
+              <p className="text-sm font-medium text-orange-800">Novo vínculo</p>
+
+              {/* Fica ou é temporário — decide se o portal esconde o vínculo
+                  depois da data fim (temporário) ou mantém pra sempre (fixo). */}
+              <div className="rounded-xl border-2 border-orange-300 bg-white p-3">
+                <label className="label !text-orange-800">Esse vínculo é o quê? *</label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {([
+                    { v: 'permanente', t: '📌 Fica no cliente', d: 'Ela atende esse cliente daqui pra frente. Aparece sempre no portal dela.' },
+                    { v: 'temporario', t: '⚡ Freela / cobertura', d: 'Trabalho avulso com data de fim. Some do portal quando o período acaba.' },
+                  ] as const).map(o => (
+                    <button key={o.v} type="button" onClick={() => setCoverageForm(p => ({ ...p, vinculo_tipo: o.v }))}
+                      className={`text-left p-2.5 rounded-lg border-2 transition-colors ${coverageForm.vinculo_tipo === o.v ? 'border-orange-500 bg-orange-50' : 'border-gray-200 hover:border-gray-300'}`}>
+                      <p className="text-sm font-semibold text-gray-800">{o.t}</p>
+                      <p className="text-xs text-gray-500 leading-snug mt-0.5">{o.d}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
 
               {/* Quem monta a agenda — escolha obrigatória, define se ela pode
                   marcar dias por conta própria (e receber por eles). */}
@@ -1190,22 +1245,45 @@ export default function EmployeeDetail() {
                 </>
               )}
 
-              {/* Datas e diária */}
-              <div className="grid grid-cols-2 gap-3">
+              {/* Datas */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="label">Data início *</label>
                   <input className="input" type="date" value={coverageForm.start_date} onChange={e => setCoverageForm(p => ({ ...p, start_date: e.target.value }))} />
                 </div>
                 <div>
-                  <label className="label">Data fim</label>
+                  <label className="label">
+                    Data fim {coverageForm.vinculo_tipo === 'temporario'
+                      ? '*'
+                      : <span className="text-gray-400 font-normal">(vazio = por tempo indeterminado)</span>}
+                  </label>
                   <input className="input" type="date" value={coverageForm.end_date} onChange={e => setCoverageForm(p => ({ ...p, end_date: e.target.value }))} />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="label">Diária (R$) *</label>
-                  <input className="input" type="number" step="0.01" placeholder="Ex: 150.00" value={coverageForm.daily_rate} onChange={e => setCoverageForm(p => ({ ...p, daily_rate: e.target.value }))} />
-                </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* Fixo: informa o MENSAL e o sistema mostra a diária (mensal ÷ 30),
+                    que é a mesma conta usada pra pagar dia extra. */}
+                {coverageForm.coverage_type === 'Fixo' ? (
+                  <div>
+                    <label className="label">Salário mensal (R$) *</label>
+                    <input className="input" type="number" step="0.01" placeholder="Ex: 3000.00"
+                      value={coverageForm.monthly_amount}
+                      onChange={e => setCoverageForm(p => ({ ...p, monthly_amount: e.target.value }))} />
+                    {diariaFromMensal(coverageForm.monthly_amount) != null && (
+                      <p className="text-xs text-orange-700 bg-orange-100 rounded px-2 py-1 mt-1">
+                        Diária: <strong>{formatCurrency(diariaFromMensal(coverageForm.monthly_amount)!)}</strong>
+                        <span className="text-orange-500 font-normal"> (mensal ÷ 30) — usada em dia extra</span>
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <div>
+                    <label className="label">Diária (R$) <span className="text-gray-400 font-normal">— opcional</span></label>
+                    <input className="input" type="number" step="0.01" placeholder="Ex: 150.00" value={coverageForm.daily_rate} onChange={e => setCoverageForm(p => ({ ...p, daily_rate: e.target.value }))} />
+                    <p className="text-xs text-ink-400 mt-1">Na consultoria o pagamento sai do valor por unidade acima.</p>
+                  </div>
+                )}
                 <div>
                   <label className="label">Dia de pagamento *</label>
                   <div className="flex gap-1.5">
@@ -1219,15 +1297,42 @@ export default function EmployeeDetail() {
                   </div>
                 </div>
               </div>
-              <div className="flex gap-2">
-                <button className="btn-primary text-sm" disabled={!coverageForm.agenda_mode || !coverageForm.client_id || !coverageForm.start_date || !coverageForm.daily_rate || addCoverage.isPending} onClick={() => addCoverage.mutate()}>Salvar freela</button>
-                <button className="btn-secondary text-sm" onClick={() => setShowCoverageForm(false)}>Cancelar</button>
-              </div>
+              {(() => {
+                // Fixo cobra o mensal; consultoria se paga pelo valor por unidade.
+                const faltaValor = coverageForm.coverage_type === 'Fixo' && !coverageForm.monthly_amount
+                const faltaFim = coverageForm.vinculo_tipo === 'temporario' && !coverageForm.end_date
+                const bloqueado = !coverageForm.vinculo_tipo || !coverageForm.agenda_mode
+                  || !coverageForm.client_id || !coverageForm.start_date || faltaValor || faltaFim
+                const pendencias = [
+                  !coverageForm.vinculo_tipo && 'o tipo do vínculo',
+                  !coverageForm.client_id && 'o cliente',
+                  !coverageForm.agenda_mode && 'quem monta os dias',
+                  !coverageForm.start_date && 'a data de início',
+                  faltaFim && 'a data de fim (freela é temporário)',
+                  faltaValor && 'o salário mensal',
+                ].filter(Boolean) as string[]
+                return (
+                  <>
+                    {pendencias.length > 0 && (
+                      <p className="text-xs text-orange-700">Falta escolher: {pendencias.join(', ')}.</p>
+                    )}
+                    <div className="flex gap-2">
+                      <button className="btn-primary text-sm" disabled={bloqueado || addCoverage.isPending} onClick={() => addCoverage.mutate()}>
+                        {addCoverage.isPending ? 'Salvando...' : 'Salvar vínculo'}
+                      </button>
+                      <button className="btn-secondary text-sm" onClick={() => setShowCoverageForm(false)}>Cancelar</button>
+                    </div>
+                  </>
+                )
+              })()}
             </div>
           )}
 
           {(links || []).filter(l => l.service_type === 'Volante').length === 0 && !showCoverageForm && (
-            <p className="text-sm text-gray-400 text-center py-4">Nenhum freela registrado. Clique em "+ Freela" para lançar um trabalho avulso (cliente, dias e diária).</p>
+            <p className="text-sm text-gray-400 text-center py-4">
+              Nenhum freela ativo. Use <strong>+ Vincular</strong> para colocar esta pessoa em um cliente —
+              fixo (fica) ou freela (temporário).
+            </p>
           )}
 
           <div className="space-y-3">
@@ -1292,7 +1397,8 @@ export default function EmployeeDetail() {
           </div>
 
           <p className="text-xs text-ink-500 bg-ink-50 rounded-xl px-3.5 py-2.5 leading-relaxed">
-            Os vínculos com clientes são criados <strong>automaticamente</strong> ao contratar o colaborador em uma <strong>vaga</strong>. Para vincular este colaborador a um novo cliente, abra a vaga correspondente em <strong>Vagas</strong> e faça a contratação por lá.
+            Para colocar esta pessoa em <strong>mais um cliente</strong>, use <strong>+ Vincular</strong> aqui em cima — é o caminho rápido para quem já é da casa.
+            O funil de <strong>Vagas</strong> continua existindo para <strong>contratar gente nova</strong> (candidato → contrato → admissão).
           </p>
 
           <input ref={linkFileRef} type="file" accept=".pdf,.doc,.docx" className="hidden"

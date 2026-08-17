@@ -598,6 +598,46 @@ export default function Dashboard() {
     enabled: role === 'chefe',
   })
 
+  // Agendou e não apareceu — a ÚNICA cobrança quando a frequência é "em aberto".
+  // Dia planejado que já passou (1 dia de tolerância) e não virou visita registrada.
+  const { data: agendaNaoCumprida } = useQuery({
+    queryKey: ['dashboard-agenda-nao-cumprida'],
+    queryFn: async () => {
+      const ontem = new Date(now); ontem.setDate(ontem.getDate() - 1)
+      const ate = ontem.toISOString().slice(0, 10)
+      const desde = new Date(now); desde.setDate(desde.getDate() - 30)
+      const de = desde.toISOString().slice(0, 10)
+
+      const { data: planejados, error } = await supabase
+        .from('nutritionist_agenda')
+        .select('id,planned_date,employee_id,client_id,employee:employees(id,full_name,status),client:clients(name)')
+        .gte('planned_date', de).lte('planned_date', ate)
+      if (error) throw error
+      if (!planejados?.length) return []
+
+      const { data: feitas } = await supabase
+        .from('nutritionist_visits')
+        .select('employee_id,client_id,visit_date')
+        .gte('visit_date', de).lte('visit_date', ate)
+
+      // Conta como cumprida a visita da mesma pessoa, no mesmo cliente, no mesmo dia
+      const feitasSet = new Set((feitas || []).map(v => `${v.employee_id}|${v.client_id}|${v.visit_date}`))
+      // Falta avisada (atestado/troca) não é cobrança
+      const { data: avisos } = await supabase
+        .from('schedule_notices')
+        .select('employee_id,client_id,notice_date')
+        .gte('notice_date', de).lte('notice_date', ate)
+      const avisadas = new Set((avisos || []).map(n => `${n.employee_id}|${n.client_id}|${n.notice_date}`))
+
+      return planejados
+        .filter(a => (a as { employee?: { status?: string } }).employee?.status === 'Ativo')
+        .filter(a => {
+          const chave = `${a.employee_id}|${a.client_id}|${a.planned_date}`
+          return !feitasSet.has(chave) && !avisadas.has(chave)
+        })
+    },
+  })
+
   // Documentos entregues (com arquivo) — para o gráfico de documentos
   const { data: deliveredDocsCount } = useQuery({
     queryKey: ['dashboard-delivered-docs'],
@@ -797,6 +837,20 @@ export default function Dashboard() {
     amberAlerts.push({
       text: `📌 Definir data d${isVisita ? 'a visita' : 'o compromisso'}: "${p.title || 'Compromisso'}"${cli ? ` — ${cli}` : ''}${mesTxt}`,
       path: '/agenda',
+    })
+  })
+
+  // Agendou e não apareceu. É a única cobrança de quem está com frequência
+  // "em aberto": mês sem visita é normal, mas dia marcado que não aconteceu não.
+  ;(agendaNaoCumprida || []).forEach(a => {
+    const nome = (a as { employee?: { full_name: string } }).employee?.full_name || 'Colaborador'
+    const empId = (a as { employee?: { id: string } }).employee?.id
+    const cli = (a as { client?: { name: string } }).client?.name
+    const dias = Math.max(1, Math.round((now.getTime() - new Date(a.planned_date + 'T12:00:00').getTime()) / 86400000))
+    amberAlerts.push({
+      text: `${nome} tinha visita marcada em ${formatDate(a.planned_date)}${cli ? ` — ${cli}` : ''} e não registrou (há ${dias}d)`,
+      path: empId ? `/colaboradores/${empId}` : '/visitas',
+      key: `agenda-nao-cumprida-${a.id}`,
     })
   })
 

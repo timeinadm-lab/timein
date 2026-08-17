@@ -312,20 +312,25 @@ export default function EmployeeDetail() {
     mutationFn: async () => {
       const isFixo = coverageForm.coverage_type === 'Fixo'
 
-      // Vínculo duplicado no mesmo cliente gera PAGAMENTO EM DOBRO: a folha
-      // percorre todos os vínculos, mas o portal só enxerga o primeiro — então
-      // ela bate ponto num e o outro vira uma cobrança fantasma.
-      const jaTem = (links || []).find(l => {
+      // Dois vínculos PERMANENTES no mesmo cliente é que é erro: a folha
+      // percorre todos, mas o portal só enxerga o primeiro — o segundo vira
+      // cobrança fantasma. Já permanente + freela por cima é caso real
+      // (ela atende o cliente e ainda cobriu dias extras), então é liberado.
+      const hoje = new Date().toISOString().slice(0, 10)
+      const novoEhPermanente = coverageForm.vinculo_tipo === 'permanente'
+      const conflito = (links || []).find(l => {
         if (l.client_id !== coverageForm.client_id) return false
         const fim = (l as { contract_end_date?: string }).contract_end_date
-        // Vínculo temporário já encerrado não conflita
-        return !fim || fim >= new Date().toISOString().slice(0, 10)
+        if (fim && fim < hoje) return false            // já encerrado, não conflita
+        const existenteEhPermanente = l.service_type !== 'Volante'
+        return novoEhPermanente && existenteEhPermanente
       })
-      if (jaTem) {
-        const nome = (jaTem.client as { name?: string } | undefined)?.name || 'este cliente'
+      if (conflito) {
+        const nome = (conflito.client as { name?: string } | undefined)?.name || 'este cliente'
         throw new Error(
-          `${employee?.full_name?.split(' ')[0] || 'Esta pessoa'} já tem um vínculo ativo com ${nome}. ` +
-          `Edite o vínculo existente em vez de criar outro — dois vínculos no mesmo cliente geram pagamento em dobro.`
+          `${employee?.full_name?.split(' ')[0] || 'Esta pessoa'} já tem vínculo fixo com ${nome} (${conflito.service_type}). ` +
+          `Edite o vínculo existente — dois vínculos fixos no mesmo cliente geram pagamento em dobro. ` +
+          `Para dias avulsos por cima, escolha "Freela / cobertura".`
         )
       }
       let linkUnits: { unit_id: string; unit_name: string; visit_rate?: number }[] | null = null

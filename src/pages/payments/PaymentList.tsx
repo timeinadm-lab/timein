@@ -279,7 +279,36 @@ export default function PaymentList() {
         const isFreela = l.service_type === 'Volante'
         const freelaConsultoria = isFreela && (l as { coverage_type?: string }).coverage_type === 'Consultoria'
         const dailyRate = Number((l as { daily_rate?: number }).daily_rate) || 0
-        const empVisits = visits?.filter(v => v.employee_id === emp?.id && v.client_id === client?.id) ?? []
+
+        // A visita não guarda o vínculo que a originou — casa por colaborador +
+        // cliente. Com DOIS vínculos no mesmo cliente (ex: consultoria fixa +
+        // freela de cobertura), os dois enxergavam as MESMAS visitas e cada um
+        // gerava pagamento: a pessoa recebia duas vezes pelo mesmo dia.
+        // Regra de desempate: o freela é dono das visitas dentro do período dele
+        // (start_date → contract_end_date); o vínculo fixo fica com o resto.
+        const irmaos = (links || []).filter(o =>
+          (o as { employee?: { id: string } }).employee?.id === emp?.id &&
+          (o as { client?: { id: string } }).client?.id === client?.id)
+        const janelasFreela = irmaos
+          .filter(o => o.service_type === 'Volante' && o.id !== l.id)
+          .map(o => ({
+            de: (o as { start_date?: string }).start_date || '',
+            ate: (o as { contract_end_date?: string }).contract_end_date || '9999-12-31',
+          }))
+        const dentroDaJanela = (d: string, j: { de: string; ate: string }) => (!j.de || d >= j.de) && d <= j.ate
+
+        const empVisits = (visits?.filter(v => v.employee_id === emp?.id && v.client_id === client?.id) ?? [])
+          .filter(v => {
+            if (irmaos.length <= 1) return true
+            if (isFreela) {
+              // Freela só fica com o que caiu dentro do próprio período
+              const de = (l as { start_date?: string }).start_date || ''
+              const ate = (l as { contract_end_date?: string }).contract_end_date || '9999-12-31'
+              return dentroDaJanela(v.visit_date, { de, ate })
+            }
+            // Vínculo fixo abre mão do que já pertence a algum freela
+            return !janelasFreela.some(j => dentroDaJanela(v.visit_date, j))
+          })
 
         const visitHours = (v: { check_in?: string | null; check_out?: string | null; break_start?: string | null; break_end?: string | null }) => {
           if (!v.check_in || !v.check_out) return 0

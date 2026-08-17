@@ -196,7 +196,7 @@ export default function PortalHome() {
     mutationFn: async () => {
       if (!pontoForm.client_id) throw new Error('Selecione o cliente')
       if (!pontoForm.visit_date) throw new Error('Informe a data')
-      const link = getLinkForClient(pontoForm.client_id)
+      const link = getLinkForClient(pontoForm.client_id, pontoForm.visit_date)
       const isConsultoria = effectiveType(link) === 'Consultoria'
 
       if ((isConsultoria || pontoForm.day_type === 'normal') && (!pontoForm.check_in || !pontoForm.check_out))
@@ -373,7 +373,20 @@ export default function PortalHome() {
 
   type FolhaLink = { id: string; service_type: string; coverage_type?: string; start_date?: string; contract_end_date?: string; monthly_amount?: number; work_schedule?: string; work_schedule_type?: string; daily_hours?: number; days_off?: number[]; schedule_anchor_date?: string; weekly_hours_quota?: number; monthly_hours_quota?: number; visits_per_week?: number; pay_extra_visits?: boolean; link_units?: { unit_id: string; unit_name: string; visit_rate?: number }[]; client?: { id: string; name: string } }
 
-  const getLinkForClient = (clientId: string) => (folhaLinks as FolhaLink[] | undefined)?.find(l => l.client?.id === clientId)
+  // Pode haver mais de um vínculo no mesmo cliente (ex: consultoria fixa +
+  // freela de cobertura). Nesse caso o dia manda: se a data cai dentro do
+  // período do freela, o registro é do freela; fora dele, é do vínculo fixo.
+  // Antes um .find() cru pegava sempre o primeiro e o outro ficava invisível.
+  const getLinkForClient = (clientId: string, dateStr?: string) => {
+    const doCliente = (folhaLinks as FolhaLink[] | undefined)?.filter(l => l.client?.id === clientId) || []
+    if (doCliente.length <= 1) return doCliente[0]
+    const dia = dateStr || new Date().toISOString().slice(0, 10)
+    const freelaDoDia = doCliente.find(l =>
+      l.service_type === 'Volante' &&
+      (!l.start_date || dia >= l.start_date) &&
+      (!l.contract_end_date || dia <= l.contract_end_date))
+    return freelaDoDia || doCliente.find(l => l.service_type !== 'Volante') || doCliente[0]
+  }
 
   // Volante: o comportamento do portal segue coverage_type (Fixo ou Consultoria), não service_type
   const effectiveType = (link: FolhaLink | undefined) =>
@@ -994,7 +1007,7 @@ export default function PortalHome() {
                         {(() => {
                           // Relatório pendente: consultoria sempre; Volante em qualquer cobertura
                           if ((v as { report_url?: string }).report_url || isHoliday || isUnavailable || !v.check_in) return null
-                          const vlink = getLinkForClient(v.client_id)
+                          const vlink = getLinkForClient(v.client_id, v.visit_date)
                           const precisa = vlink && (vlink.service_type === 'Volante' || effectiveType(vlink) === 'Consultoria')
                           return precisa ? <span className="badge bg-red-100 text-red-700">📄 Relatório pendente — toque no ✏️ para anexar</span> : null
                         })()}
@@ -1640,7 +1653,7 @@ export default function PortalHome() {
 
       {/* ── Modal: Registrar dia (Fixo: ponto/falta/feriado + dia extra · Consultoria: visita com valor) ── */}
       {showPontoModal && (() => {
-        const modalLink = getLinkForClient(pontoForm.client_id)
+        const modalLink = getLinkForClient(pontoForm.client_id, pontoForm.visit_date)
         const isConsultoria = effectiveType(modalLink) === 'Consultoria'
         const dayIsOff = !isConsultoria && pontoForm.day_type === 'normal' && isDayOff(modalLink, pontoForm.visit_date)
         const noFixedSchedule = !isConsultoria && modalLink && !hasKnownSchedule(modalLink)

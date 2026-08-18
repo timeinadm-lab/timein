@@ -41,6 +41,9 @@ const EMPTY_COVERAGE = {
   // Consultoria
   coverage_units: [] as CoverageUnit[],
   visit_frequency: 'Avulso' as 'Semanal' | 'Quinzenal' | 'Mensal' | 'Avulso',
+  // 'sim' = a visita tem tempo mínimo e o pagamento é proporcional às horas;
+  // 'nao' = paga o valor cheio da unidade independente da duração.
+  horas_obrigatorias: '' as '' | 'sim' | 'nao',
   weekly_hours_quota: '',
   // Comum
   // Sem daily_rate: no Fixo ela é derivada do mensal; na Consultoria não existe
@@ -1225,9 +1228,9 @@ export default function EmployeeDetail() {
                 </div>
               )}
 
-              {/* Campos Consultoria: frequência e horas */}
+              {/* Consultoria: com que frequência ela vai ao cliente */}
               {coverageForm.coverage_type === 'Consultoria' && (
-                <div className="grid grid-cols-2 gap-3">
+                <div>
                   <div>
                     <label className="label">Frequência</label>
                     <select className="input" value={coverageForm.visit_frequency}
@@ -1243,14 +1246,43 @@ export default function EmployeeDetail() {
                       </p>
                     )}
                   </div>
-                  <div>
-                    <label className="label">
-                      Horas por visita {coverageForm.visit_frequency === 'Avulso' && <span className="text-gray-400 font-normal">(opcional)</span>}
-                    </label>
-                    <input className="input" type="number" step="0.5" min="0.5" placeholder="Ex: 4"
-                      value={coverageForm.weekly_hours_quota}
-                      onChange={e => setCoverageForm(p => ({ ...p, weekly_hours_quota: e.target.value }))} />
+                </div>
+              )}
+
+              {/* As horas mandam no pagamento: com horas definidas, a visita paga
+                  proporcional (horas feitas ÷ horas combinadas). Sem horas, paga o
+                  valor cheio da unidade. Antes isso ficava escondido atrás de um
+                  "(opcional)" — quem deixava em branco não sabia o que estava abrindo mão. */}
+              {coverageForm.coverage_type === 'Consultoria' && (
+                <div className="rounded-xl border-2 border-orange-300 bg-white p-3">
+                  <label className="label !text-orange-800">A visita tem tempo mínimo? *</label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {([
+                      { v: 'sim', t: '⏱ Sim, tem tempo certo', d: 'Se ela ficar menos que o combinado, recebe proporcional às horas feitas.' },
+                      { v: 'nao', t: '✓ Não, o que vale é a visita', d: 'Recebe o valor cheio da unidade, independente de quanto tempo ficar.' },
+                    ] as const).map(o => (
+                      <button key={o.v} type="button"
+                        onClick={() => setCoverageForm(p => ({ ...p, horas_obrigatorias: o.v, weekly_hours_quota: o.v === 'nao' ? '' : p.weekly_hours_quota }))}
+                        className={`text-left p-2.5 rounded-lg border-2 transition-colors ${coverageForm.horas_obrigatorias === o.v ? 'border-orange-500 bg-orange-50' : 'border-gray-200 hover:border-gray-300'}`}>
+                        <p className="text-sm font-semibold text-gray-800">{o.t}</p>
+                        <p className="text-xs text-gray-500 leading-snug mt-0.5">{o.d}</p>
+                      </button>
+                    ))}
                   </div>
+                  {coverageForm.horas_obrigatorias === 'sim' && (
+                    <div className="mt-2">
+                      <label className="label">Horas por visita *</label>
+                      <input className="input" type="number" step="0.5" min="0.5" placeholder="Ex: 4"
+                        value={coverageForm.weekly_hours_quota}
+                        onChange={e => setCoverageForm(p => ({ ...p, weekly_hours_quota: e.target.value }))} />
+                      {Number(coverageForm.weekly_hours_quota) > 0 && (
+                        <p className="text-xs text-orange-700 bg-orange-100 rounded px-2 py-1 mt-1 leading-snug">
+                          Ela só recebe 100% da visita se cumprir as {coverageForm.weekly_hours_quota}h.
+                          Ficando menos, o sistema paga na proporção e pede confirmação dela antes de lançar.
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -1363,8 +1395,15 @@ export default function EmployeeDetail() {
                   && !coverageForm.coverage_units.some(u => Number(u.visit_rate) > 0)
                 const faltaFim = coverageForm.vinculo_tipo === 'temporario' && !coverageForm.end_date
                 const faltaPag = coverageForm.pay_days.length === 0
+                const isConsult = coverageForm.coverage_type === 'Consultoria'
+                const faltaRegraHoras = isConsult && !coverageForm.horas_obrigatorias
+                // Escolheu "tem tempo certo" mas não disse quanto: o pagamento
+                // proporcional ficaria sem base de cálculo.
+                const faltaHoras = isConsult && coverageForm.horas_obrigatorias === 'sim'
+                  && !(Number(coverageForm.weekly_hours_quota) > 0)
                 const bloqueado = !coverageForm.vinculo_tipo || !coverageForm.agenda_mode
                   || !coverageForm.client_id || faltaValor || faltaUnidade || faltaFim || faltaPag
+                  || faltaRegraHoras || faltaHoras
                 const pendencias = [
                   !coverageForm.vinculo_tipo && 'o tipo do vínculo',
                   !coverageForm.client_id && 'o cliente',
@@ -1372,6 +1411,8 @@ export default function EmployeeDetail() {
                   faltaFim && 'a data de fim (freela é temporário)',
                   faltaValor && 'o salário mensal',
                   faltaUnidade && 'ao menos uma unidade com valor da vistoria (sem isso a visita vale R$ 0)',
+                  faltaRegraHoras && 'se a visita tem tempo mínimo',
+                  faltaHoras && 'quantas horas tem a visita',
                   faltaPag && 'pelo menos um dia de pagamento',
                 ].filter(Boolean) as string[]
                 return (

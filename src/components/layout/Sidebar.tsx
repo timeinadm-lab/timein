@@ -18,6 +18,9 @@ const CHEFE_MENU = [
   { icon: Briefcase, label: 'Vagas', path: '/vagas' },
   { icon: UserPlus, label: 'Candidatos', path: '/candidatos' },
   { icon: CreditCard, label: 'Pagamentos', path: '/pagamentos' },
+  // Templates existia só no menu do recrutador: o chefe tinha a rota mas
+  // nenhum caminho até ela pela interface.
+  { icon: FileText, label: 'Templates', path: '/templates' },
   { icon: CalendarDays, label: 'Calendário', path: '/calendario' },
   { icon: Calendar, label: 'Agenda', path: '/agenda' },
   { icon: ListChecks, label: 'Atividades', path: '/atividades' },

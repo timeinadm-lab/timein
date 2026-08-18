@@ -57,7 +57,11 @@ function freelaExpectedDays(
   return count
 }
 
-// Expected days by work schedule
+// Dias de trabalho esperados no mês, pela escala do vínculo.
+// ATENÇÃO: recebe work_schedule_TYPE (5x2/6x1/12x36/Plantão), que é o campo
+// que o cadastro preenche. Antes recebia work_schedule (texto livre), que só
+// existe em contratos e nunca é gravado no vínculo — vinha sempre nulo e todo
+// mundo caía no fallback de 22 dias, inflando o valor-dia de quem faz 6x1.
 function expectedDays(schedule: string | null, month: string): number {
   const [yr, mo] = month.split('-').map(Number)
   const totalDays = getDaysInMonth(new Date(yr, mo - 1))
@@ -359,7 +363,10 @@ export default function PaymentList() {
               (l as { days_off?: number[] }).days_off || null,
               (l as { schedule_anchor_date?: string }).schedule_anchor_date || null,
             ))
-          : !isConsultoria ? (l.expected_days_month || expectedDays(l.work_schedule, filterMonth)) : 0
+          : !isConsultoria
+            ? (l.expected_days_month
+              || expectedDays((l as { work_schedule_type?: string }).work_schedule_type || l.work_schedule, filterMonth))
+            : 0
         const fallback = emp?.id ? vacancyFallback[emp.id] : undefined
         // Freela: estimativa = dias previstos × diária (fixo) ou soma das visitas (consultoria).
         // Nunca usa salário mensal nem fallback de vaga.
@@ -373,7 +380,7 @@ export default function PaymentList() {
           return rpLink ? rpLink === l.id : rp.employee_id === emp?.id
         }) ?? false
         const costAssistance = Number((l as { cost_assistance?: number }).cost_assistance) || 0
-        const group = workerGroup(l.service_type, l.work_schedule)
+        const group = workerGroup(l.service_type, (l as { work_schedule_type?: string }).work_schedule_type || l.work_schedule)
         const payDates = ((l as { payment_dates?: { day_of_month: number }[] }).payment_dates ?? [])
           .slice().sort((a, b) => a.day_of_month - b.day_of_month)
         // Fixo: um pagamento por mês (dia 8, 15 ou 20). Consultoria: sempre 8 e 20.

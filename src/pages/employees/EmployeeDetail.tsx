@@ -43,7 +43,8 @@ const EMPTY_COVERAGE = {
   visit_frequency: 'Avulso' as 'Semanal' | 'Quinzenal' | 'Mensal' | 'Avulso',
   weekly_hours_quota: '',
   // Comum
-  start_date: '', end_date: '', monthly_amount: '', daily_rate: '',
+  // Sem daily_rate: no Fixo ela é derivada do mensal; na Consultoria não existe
+  start_date: '', end_date: '', monthly_amount: '',
   pay_days: ['20'] as string[],
   agenda_mode: '' as '' | 'colaborador' | 'gestor',
 }
@@ -365,9 +366,9 @@ export default function EmployeeDetail() {
       const isTemporario = coverageForm.vinculo_tipo === 'temporario'
       const mensal = Number(coverageForm.monthly_amount) || null
       // No Fixo a diária vem do mensal ÷ 30; na Consultoria o valor é por unidade
-      const diaria = isFixo
-        ? (diariaFromMensal(coverageForm.monthly_amount) ?? (Number(coverageForm.daily_rate) || null))
-        : (Number(coverageForm.daily_rate) || null)
+      // Fixo: diária = mensal ÷ 30. Consultoria não tem diária — o valor está
+      // na unidade (link_units.visit_rate), então fica nulo mesmo.
+      const diaria = isFixo ? diariaFromMensal(coverageForm.monthly_amount) : null
 
       const { data: newLink, error } = await supabase.from('employee_client_links').insert({
         employee_id: id,
@@ -1311,10 +1312,12 @@ export default function EmployeeDetail() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {/* Fixo: informa o MENSAL e o sistema mostra a diária (mensal ÷ 30),
-                    que é a mesma conta usada pra pagar dia extra. */}
-                {coverageForm.coverage_type === 'Fixo' ? (
+              {/* Só o Fixo pede valor aqui: informa o MENSAL e o sistema mostra a
+                  diária (mensal ÷ 30), a mesma conta usada em dia extra.
+                  Na Consultoria o valor já foi definido por unidade lá em cima —
+                  pedir uma diária também só confundia. */}
+              <div className={`grid grid-cols-1 gap-3 ${coverageForm.coverage_type === 'Fixo' ? 'sm:grid-cols-2' : ''}`}>
+                {coverageForm.coverage_type === 'Fixo' && (
                   <div>
                     <label className="label">Salário mensal (R$) *</label>
                     <input className="input" type="number" step="0.01" placeholder="Ex: 3000.00"
@@ -1326,12 +1329,6 @@ export default function EmployeeDetail() {
                         <span className="text-orange-500 font-normal"> (mensal ÷ 30) — usada em dia extra</span>
                       </p>
                     )}
-                  </div>
-                ) : (
-                  <div>
-                    <label className="label">Diária (R$) <span className="text-gray-400 font-normal">— opcional</span></label>
-                    <input className="input" type="number" step="0.01" placeholder="Ex: 150.00" value={coverageForm.daily_rate} onChange={e => setCoverageForm(p => ({ ...p, daily_rate: e.target.value }))} />
-                    <p className="text-xs text-ink-400 mt-1">Na consultoria o pagamento sai do valor por unidade acima.</p>
                   </div>
                 )}
                 <div>

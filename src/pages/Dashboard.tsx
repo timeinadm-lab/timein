@@ -669,6 +669,24 @@ export default function Dashboard() {
     },
   })
 
+  // Contratado mas sem vínculo nenhum. A contratação pela vaga agora cria só a
+  // pessoa e manda definir o vínculo na ficha — se pararem no meio, ela fica
+  // fora da folha e do portal sem ninguém perceber.
+  const { data: semVinculo } = useQuery({
+    queryKey: ['dashboard-contratado-sem-vinculo'],
+    queryFn: async () => {
+      const { data: emps, error } = await supabase
+        .from('employees').select('id,full_name,created_at').eq('status', 'Ativo')
+      if (error) throw error
+      if (!emps?.length) return []
+      const { data: links } = await supabase.from('employee_client_links').select('employee_id')
+      const comVinculo = new Set((links || []).map(l => l.employee_id))
+      // 1 dia de tolerância: dá tempo de concluir o cadastro sem alarme falso
+      const ontem = new Date(now); ontem.setDate(ontem.getDate() - 1)
+      return emps.filter(e => !comVinculo.has(e.id) && new Date(e.created_at) < ontem)
+    },
+  })
+
   // Documentos entregues (com arquivo) — para o gráfico de documentos
   const { data: deliveredDocsCount } = useQuery({
     queryKey: ['dashboard-delivered-docs'],
@@ -868,6 +886,15 @@ export default function Dashboard() {
     amberAlerts.push({
       text: `📌 Definir data d${isVisita ? 'a visita' : 'o compromisso'}: "${p.title || 'Compromisso'}"${cli ? ` — ${cli}` : ''}${mesTxt}`,
       path: '/agenda',
+    })
+  })
+
+  // Contratado e sem vínculo: fica fora da folha e do portal
+  ;(semVinculo || []).forEach(e => {
+    amberAlerts.push({
+      text: `${e.full_name} está cadastrada mas não está em nenhum cliente — não entra na folha nem no portal`,
+      path: `/colaboradores/${e.id}?tab=vinculos`,
+      key: `sem-vinculo-${e.id}`,
     })
   })
 

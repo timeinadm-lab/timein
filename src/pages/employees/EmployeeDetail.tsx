@@ -61,7 +61,12 @@ export default function EmployeeDetail() {
   const [searchParams] = useSearchParams()
   const qc = useQueryClient()
   const { role } = useAuth()
-  const initialTab = (searchParams.get('tab') as Tab) || 'visao'
+  // ?vincular=<clientId>&vaga=<vacancyId> — a contratação pela vaga termina aqui:
+  // ela cria só a PESSOA e manda pra cá definir o vínculo, que é o único lugar
+  // onde valores, escala e dias de pagamento são combinados.
+  const vincularClientId = searchParams.get('vincular') || ''
+  const vincularVagaId = searchParams.get('vaga') || ''
+  const initialTab = (searchParams.get('tab') as Tab) || (vincularClientId ? 'vinculos' : 'visao')
   const [tab, setTab] = useState<Tab>(initialTab)
   const [payMonth, setPayMonth] = useState(format(new Date(), 'yyyy-MM'))
   const [agendaMonth, setAgendaMonth] = useState(format(new Date(), 'yyyy-MM'))
@@ -87,12 +92,17 @@ export default function EmployeeDetail() {
   const [statusMenuOpen, setStatusMenuOpen] = useState(false)
   const [editVisitId, setEditVisitId] = useState<string | null>(null)
   const [editVisitForm, setEditVisitForm] = useState({ check_in: '', check_out: '', observations: '' })
-  const [showCoverageForm, setShowCoverageForm] = useState(false)
+  const [showCoverageForm, setShowCoverageForm] = useState(!!vincularClientId)
   // Estado inicial vem do MESMO objeto usado no reset (EMPTY_COVERAGE, no topo do
   // arquivo). Antes havia duas definições e a daqui estava desatualizada: faltavam
   // pay_days/vinculo_tipo, então pay_days era undefined no primeiro render e o
   // .includes() derrubava a tela ao abrir "+ Vincular".
-  const [coverageForm, setCoverageForm] = useState(EMPTY_COVERAGE)
+  const [coverageForm, setCoverageForm] = useState(
+    // Veio da contratação: já entra com o cliente da vaga e como vínculo que fica
+    vincularClientId
+      ? { ...EMPTY_COVERAGE, client_id: vincularClientId, vinculo_tipo: 'permanente' as const }
+      : EMPTY_COVERAGE
+  )
   const [extendLinkId, setExtendLinkId] = useState<string | null>(null)
   const [newEndDate, setNewEndDate] = useState('')
 
@@ -384,6 +394,8 @@ export default function EmployeeDetail() {
         service_type: isTemporario ? 'Volante' : coverageForm.coverage_type,
         coverage_type: coverageForm.coverage_type,
         agenda_mode: coverageForm.agenda_mode || 'colaborador',
+        // Veio da contratação por vaga: guarda a origem pra vaga contar as posições
+        vacancy_id: vincularVagaId || null,
         contract_required: coverageForm.contrato === 'sim',
         contract_deadline: coverageForm.contrato === 'sim'
           ? new Date(Date.now() + (Number(coverageForm.contrato_horas) || 48) * 3600000).toISOString()
@@ -1132,6 +1144,13 @@ export default function EmployeeDetail() {
           {showCoverageForm && (
             <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 space-y-3">
               <p className="text-sm font-medium text-orange-800">Novo vínculo</p>
+              {vincularVagaId && (
+                <p className="text-xs text-orange-700 bg-orange-100 rounded-lg px-3 py-2 leading-snug">
+                  Contratação concluída — falta o combinado de trabalho. O cliente da vaga já está
+                  selecionado; defina aqui os valores, a escala e os dias de pagamento.
+                  <strong> Enquanto não salvar, a pessoa não aparece na folha.</strong>
+                </p>
+              )}
 
               {/* Fica ou é temporário — decide se o portal esconde o vínculo
                   depois da data fim (temporário) ou mantém pra sempre (fixo). */}

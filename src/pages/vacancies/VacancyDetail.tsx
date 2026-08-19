@@ -18,11 +18,6 @@ type HireDetails = {
   serviceType: 'Fixo' | 'Consultoria'
   workShift: string
   workSchedule: string
-  monthlyAmount: string
-  costAssistance: string
-  visitsPerMonth: string
-  visitAmount: string
-  visitFrequency: 'Semanal' | 'Quinzenal' | 'Mensal'
   startDate: string
   contractEndDate: string
   selectedUnits: UnitEntry[]
@@ -30,8 +25,7 @@ type HireDetails = {
 
 const EMPTY_HIRE: HireDetails = {
   serviceType: 'Fixo', workShift: '', workSchedule: '',
-  monthlyAmount: '', costAssistance: '', visitsPerMonth: '', visitAmount: '',
-  visitFrequency: 'Semanal', startDate: '', contractEndDate: '',
+  startDate: '', contractEndDate: '',
   selectedUnits: [],
 }
 
@@ -354,7 +348,6 @@ export default function VacancyDetail() {
         .limit(1)
         .maybeSingle()
 
-      const details = pendingContract?.observations ? JSON.parse(pendingContract.observations) : {}
       const client = (vacancy as { client?: { id: string; name: string } })?.client
 
       // Senha forte do portal: 8 caracteres (letras+números, sem ambíguos). Guardada só como hash.
@@ -414,78 +407,24 @@ export default function VacancyDetail() {
         }).eq('id', pendingContract.id)
       }
 
-      // Link to client
+      // O VÍNCULO NÃO NASCE MAIS AQUI. Antes este bloco montava salário, escala,
+      // unidades, frequência e dias de pagamento a partir da vaga + do modal —
+      // os mesmos campos que o "+ Vincular" da ficha já pede. Eram três telas
+      // configurando a mesma coisa, livres para discordar sobre quanto alguém ganha.
+      // Agora a contratação só cria a PESSOA; o combinado de trabalho é definido
+      // no vínculo, na ficha dela, com o cliente da vaga já preenchido.
       if (vacancy?.client_id) {
-        const vac = vacancy as {
-          unit_id?: string; work_schedule_type?: string; daily_hours?: number;
-          days_off?: number[]; vacancy_type?: string
-          salary_amount?: number; cost_assistance?: number
-          monthly_hours?: number; weekly_hours?: number
-          visits_per_week?: number
-          schedule_anchor_date?: string
-          payment_day_1?: number; payment_day_2?: number
-          vacancy_units?: { unit_id: string; unit_name: string; visit_rate?: string | number }[]
-        }
-        // Tipo: 1º o que foi escolhido no processo, 2º o tipo da vaga (fonte da verdade)
-        const svcType = details.serviceType || vac.vacancy_type || 'Fixo'
-        const isConsult = svcType === 'Consultoria'
-
-        // Bloquear se vaga cheia (Volante não conta e não é bloqueado)
-        if (svcType !== 'Volante') {
-          const { count: currentNonVolante } = await supabase
-            .from('employee_client_links')
-            .select('id', { count: 'exact', head: true })
-            .eq('vacancy_id', id)
-            .neq('service_type', 'Volante')
-          if ((currentNonVolante || 0) >= (vacancy?.positions_count || 1)) {
-            throw new Error(
-              `Vaga cheia — ${currentNonVolante}/${vacancy?.positions_count} posições preenchidas. Para adicionar mais colaboradores, edite a vaga e aumente o número de posições.`
-            )
-          }
-        }
-
-        // Fixo: salário vem da vaga. Consultoria: unidades com valor da vistoria + horas/semana;
-        // estimativa mensal = média dos valores das unidades × frequência (o real vem da folha de ponto)
-        let monthlyAmt: number | null = null
-        let linkUnits: { unit_id: string; unit_name: string; visit_rate: number }[] | null = null
-        if (isConsult && vac.vacancy_units?.length) {
-          linkUnits = vac.vacancy_units.map(u => ({ unit_id: u.unit_id, unit_name: u.unit_name, visit_rate: Number(u.visit_rate) || 0 }))
-          const avgRate = linkUnits.reduce((s, u) => s + u.visit_rate, 0) / linkUnits.length
-          const freq = details.visitFrequency || (vac as { visit_frequency?: string }).visit_frequency || 'Semanal'
-          const freqMultiplier = freq === 'Mensal' ? 1 : freq === 'Quinzenal' ? 2 : 4
-          monthlyAmt = Math.round(avgRate * freqMultiplier * 100) / 100 || null
-        } else if (!isConsult && vac.salary_amount) {
-          monthlyAmt = Number(vac.salary_amount)
-        }
-
-        const { data: newLink, error: linkErr } = await supabase.from('employee_client_links').insert({
-          employee_id: emp.id,
-          client_id: vacancy.client_id,
-          unit_id: vac.unit_id || null,
-          service_type: svcType,
-          monthly_amount: monthlyAmt,
-          cost_assistance: Number(vac.cost_assistance) || 0,
-          link_units: linkUnits,
-          visit_frequency: isConsult ? (details.visitFrequency || (vac as { visit_frequency?: string }).visit_frequency || 'Semanal') : null,
-          monthly_hours_quota: isConsult ? (vac.monthly_hours || null) : null,
-          weekly_hours_quota: isConsult ? (vac.weekly_hours || null) : null,
-          visits_per_week: isConsult ? (vac.visits_per_week || null) : null,
-          contract_end_date: details.contractEndDate && details.contractEndDate !== '__indeterminate__' ? details.contractEndDate : null,
-          work_schedule: details.workSchedule || null,
-          work_schedule_type: vac.work_schedule_type || null,
-          daily_hours: vac.daily_hours || null,
-          days_off: vac.days_off?.length ? vac.days_off : null,
-          schedule_anchor_date: !isConsult ? (vac.schedule_anchor_date || null) : null,
-          start_date: details.startDate || null,
-          vacancy_id: id,
-        }).select('id').single()
-        if (linkErr) throw new Error('Erro ao criar vínculo com cliente: ' + linkErr.message)
-
-        const payDays = isConsult ? [8, 20] : [vac.payment_day_1, vac.payment_day_2].filter(Boolean) as number[]
-        if (newLink && payDays.length) {
-          const perDate = monthlyAmt ? Math.round((monthlyAmt / payDays.length) * 100) / 100 : null
-          await supabase.from('employee_payment_dates').insert(
-            payDays.map(d => ({ link_id: newLink.id, day_of_month: d, amount: perDate }))
+        // Trava de vaga cheia continua, mas contando por interesse contratado —
+        // o vínculo pode ainda não existir neste instante.
+        const { count: jaContratados } = await supabase
+          .from("vacancy_interests")
+          .select("id", { count: "exact", head: true })
+          .eq("vacancy_id", id)
+          .eq("status", "Contratado")
+        if ((jaContratados || 0) >= (vacancy?.positions_count || 1)) {
+          throw new Error(
+            `Vaga cheia — ${jaContratados}/${vacancy?.positions_count} posições preenchidas. `
+            + 'Para contratar mais, edite a vaga e aumente o número de posições.'
           )
         }
       }
@@ -493,32 +432,35 @@ export default function VacancyDetail() {
       // Update interest + candidate — save employee_id so dismissal from any screen can trace back
       await supabase.from('vacancy_interests').update({ status: 'Contratado', hired_at: new Date().toISOString(), employee_id: emp.id }).eq('id', interestId)
       await supabase.from('candidates').update({ pipeline_stage: 'Contratado' }).eq('id', candidateId)
-      // Reconta vínculos não-Volante (já inclui o recém-criado) para definir status
-      const { count: nonVolante } = await supabase
-        .from('employee_client_links')
+      // Conta por interesse contratado, não por vínculo: o vínculo é criado no
+      // passo seguinte, na ficha da pessoa, e pode ainda não existir aqui.
+      const { count: contratados } = await supabase
+        .from('vacancy_interests')
         .select('id', { count: 'exact', head: true })
         .eq('vacancy_id', id)
-        .neq('service_type', 'Volante')
-      const effectiveHired = nonVolante || 0
+        .eq('status', 'Contratado')
+      const effectiveHired = contratados || 0
       await supabase.from('vacancies').update({
         hired_count: effectiveHired,
         status: effectiveHired >= (vacancy?.positions_count || 1) ? 'Preenchida' : 'Aberta',
       }).eq('id', id)
 
-      return { empId: emp.id, autoPin: autoPinToShow }
+      return { empId: emp.id, autoPin: autoPinToShow, clientId: vacancy?.client_id || '' }
     },
-    onSuccess: ({ empId, autoPin }) => {
+    onSuccess: ({ empId, autoPin, clientId }) => {
       toast.success(
         autoPin
           ? `Colaborador criado! Acesso ao portal — CPF + Senha: ${autoPin}`
-          : 'Colaborador adicionado à vaga! (novo vínculo no mesmo cadastro)',
+          : 'Colaborador criado!',
         { duration: 8000 }
       )
+      toast('Agora defina o vínculo: valores, escala e dias de pagamento.', { icon: '👉', duration: 7000 })
       qc.invalidateQueries({ queryKey: ['vacancy-interests', id] })
       qc.invalidateQueries({ queryKey: ['vacancy', id] })
       setCreateEmpModal(null)
       setEmpForm(EMPTY_EMP)
-      navigate(`/colaboradores/${empId}`)
+      // Abre a ficha já no formulário de vínculo, com o cliente da vaga preenchido
+      navigate(`/colaboradores/${empId}?vincular=${clientId}&vaga=${id}`)
     },
     onError: (e: Error) => toast.error(e.message),
   })
@@ -1439,9 +1381,6 @@ export default function VacancyDetail() {
                             serviceType: (vac.vacancy_type as 'Fixo' | 'Consultoria') || 'Fixo',
                             workShift: (vac.shift as string) || '',
                             workSchedule: (vac.work_schedule_type as string) || '',
-                            visitFrequency: (vac.visit_frequency as 'Semanal' | 'Quinzenal' | 'Mensal') || 'Semanal',
-                            monthlyAmount: vac.salary_amount ? String(vac.salary_amount) : '',
-                            costAssistance: vac.cost_assistance ? String(vac.cost_assistance) : '',
                           })
                         }}>
                           Contratar
@@ -1631,19 +1570,14 @@ export default function VacancyDetail() {
               </div>
             )}
 
-            {hireDetails.serviceType === 'Consultoria' && (
-              <div className="space-y-2 bg-orange-50 rounded-lg p-3">
-                <div>
-                  <label className="label text-xs">Frequência de visita <span className="text-primary-500 font-normal">• da vaga</span></label>
-                  <select className="input text-sm" value={hireDetails.visitFrequency} onChange={e => setHireDetails(p => ({ ...p, visitFrequency: e.target.value as 'Semanal' | 'Quinzenal' | 'Mensal' }))}>
-                    <option value="Semanal">Semanal (4×/mês)</option>
-                    <option value="Quinzenal">Quinzenal (2×/mês)</option>
-                    <option value="Mensal">Mensal (1×/mês)</option>
-                  </select>
-                </div>
-                <p className="text-xs text-orange-600">Unidades e valores serão configurados no perfil do colaborador → Vínculos → Editar após a contratação.</p>
-              </div>
-            )}
+            {/* Frequência saiu daqui: era coletada e não ia a lugar nenhum — quem
+                define isso é o vínculo, na tela seguinte. */}
+            <div className="bg-orange-50 rounded-lg p-3">
+              <p className="text-xs text-orange-700 leading-snug">
+                Ao concluir, você vai direto para o <strong>vínculo</strong> desta pessoa com o cliente,
+                onde define valores, escala, frequência e dias de pagamento.
+              </p>
+            </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div>

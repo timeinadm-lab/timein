@@ -206,6 +206,36 @@ export default function PortalHome() {
 
       const isNormal = isConsultoria || pontoForm.day_type === 'normal'
 
+      // Registrou num dia que NÃO estava combinado, tendo dia em aberto no mesmo
+      // cliente? Pergunta o que aconteceu. Sem isso o combinado ficava pendente
+      // pra sempre e o painel acusava "não apareceu" sem saber que ela foi noutro dia.
+      if (isNormal && !editingPontoId) {
+        const doDia = (agenda || []).some(a =>
+          a.planned_date === pontoForm.visit_date && (a as { client_id?: string }).client_id === pontoForm.client_id)
+        if (!doDia) {
+          const abertos = (agenda || [])
+            .filter(a => (a as { client_id?: string }).client_id === pontoForm.client_id)
+            .filter(a => !(folhaVisits || []).some(v =>
+              v.visit_date === a.planned_date && v.client_id === pontoForm.client_id && v.check_out))
+            .sort((a, b) => Math.abs(+new Date(a.planned_date) - +new Date(pontoForm.visit_date))
+                          - Math.abs(+new Date(b.planned_date) - +new Date(pontoForm.visit_date)))
+          const maisProximo = abertos[0]
+          if (maisProximo) {
+            const trocar = window.confirm(
+              `Você tinha visita combinada em ${formatDate(maisProximo.planned_date)} neste cliente.\n\n` +
+              `OK = TROQUEI o dia: passou de ${formatDate(maisProximo.planned_date)} para ${formatDate(pontoForm.visit_date)}.\n` +
+              `Cancelar = é uma visita A MAIS, e a de ${formatDate(maisProximo.planned_date)} continua combinada.\n\n` +
+              `O RH é avisado das duas formas.`
+            )
+            if (trocar) {
+              await rpc('portal_trocar_dia_agenda', {
+                p_token: token, p_id: maisProximo.id, p_nova_data: pontoForm.visit_date,
+              })
+            }
+          }
+        }
+      }
+
       // Relatório: consultoria sempre; Volante em qualquer cobertura (consultoria ou fixo).
       // NÃO bloqueia o check-in — sem anexo o registro fica com pendência visível
       // no portal, na ficha do colaborador e na tela de pagamento.

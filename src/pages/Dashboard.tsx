@@ -687,6 +687,50 @@ export default function Dashboard() {
     },
   })
 
+  // Ela não seguiu o combinado da agenda: trocou o dia, ou fez uma visita a mais.
+  // Nos dois casos o RH precisa saber — foi ela que decidiu, não o RH.
+  const { data: fugasDoCombinado } = useQuery({
+    queryKey: ['dashboard-fora-do-combinado'],
+    queryFn: async () => {
+      const desde = new Date(now); desde.setDate(desde.getDate() - 30)
+      const de = desde.toISOString().slice(0, 10)
+      const ate = now.toISOString().slice(0, 10)
+
+      // Trocas: a agenda guarda o dia original quando ela declara a troca
+      const { data: trocadas } = await supabase
+        .from('nutritionist_agenda')
+        .select('id,planned_date,original_date,rescheduled_at,employee_id,employee:employees(id,full_name,status),client:clients(name)')
+        .not('rescheduled_at', 'is', null)
+        .gte('planned_date', de)
+
+      // Visitas registradas em dia que não estava na agenda daquele cliente
+      const { data: feitas } = await supabase
+        .from('nutritionist_visits')
+        .select('id,visit_date,employee_id,client_id,employee:employees(id,full_name,status),client:clients(name)')
+        .gte('visit_date', de).lte('visit_date', ate)
+        .not('check_out', 'is', null)
+      const { data: planejadas } = await supabase
+        .from('nutritionist_agenda')
+        .select('employee_id,client_id,planned_date,created_by_admin')
+        .gte('planned_date', de)
+      const combinadas = new Set((planejadas || []).map(a => `${a.employee_id}|${a.client_id}|${a.planned_date}`))
+      // Só existe "fora do combinado" onde o RH monta a agenda. Quem monta a
+      // própria não tem combinado a quebrar — senão cada visita dela viraria alerta.
+      const temCombinado = new Set(
+        (planejadas || []).filter(a => a.created_by_admin).map(a => `${a.employee_id}|${a.client_id}`))
+
+      return {
+        trocas: (trocadas || []).filter(a =>
+          (a as { employee?: { status?: string } }).employee?.status === 'Ativo'
+          && a.original_date && a.original_date !== a.planned_date),
+        aMais: (feitas || []).filter(v =>
+          (v as { employee?: { status?: string } }).employee?.status === 'Ativo'
+          && temCombinado.has(`${v.employee_id}|${v.client_id}`)
+          && !combinadas.has(`${v.employee_id}|${v.client_id}|${v.visit_date}`)),
+      }
+    },
+  })
+
   // Documentos entregues (com arquivo) — para o gráfico de documentos
   const { data: deliveredDocsCount } = useQuery({
     queryKey: ['dashboard-delivered-docs'],
@@ -886,6 +930,30 @@ export default function Dashboard() {
     amberAlerts.push({
       text: `📌 Definir data d${isVisita ? 'a visita' : 'o compromisso'}: "${p.title || 'Compromisso'}"${cli ? ` — ${cli}` : ''}${mesTxt}`,
       path: '/agenda',
+    })
+  })
+
+  // Trocou o dia combinado
+  ;(fugasDoCombinado?.trocas || []).forEach(a => {
+    const nome = (a as { employee?: { full_name: string } }).employee?.full_name || 'Colaborador'
+    const empId = (a as { employee?: { id: string } }).employee?.id
+    const cli = (a as { client?: { name: string } }).client?.name
+    amberAlerts.push({
+      text: `${nome} trocou a visita de ${formatDate(a.original_date)} para ${formatDate(a.planned_date)}${cli ? ` — ${cli}` : ''}`,
+      path: empId ? `/colaboradores/${empId}?tab=agenda` : '/visitas',
+      key: `troca-${a.id}-${a.planned_date}`,
+    })
+  })
+
+  // Fez visita em dia que não estava combinado
+  ;(fugasDoCombinado?.aMais || []).forEach(v => {
+    const nome = (v as { employee?: { full_name: string } }).employee?.full_name || 'Colaborador'
+    const empId = (v as { employee?: { id: string } }).employee?.id
+    const cli = (v as { client?: { name: string } }).client?.name
+    amberAlerts.push({
+      text: `${nome} registrou visita fora do combinado em ${formatDate(v.visit_date)}${cli ? ` — ${cli}` : ''}`,
+      path: empId ? `/colaboradores/${empId}?tab=visitas` : '/visitas',
+      key: `fora-combinado-${v.id}`,
     })
   })
 

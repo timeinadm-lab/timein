@@ -21,6 +21,10 @@ type Ev = {
   note?: string | null
   reportUrl?: string | null
   employeeId?: string
+  // Compromisso/visita de alguém da equipe de RH (interviews com responsável
+  // ou participantes). Serve pro filtro "Só do RH": sem ele o calendário
+  // afoga em ponto de 12x36 lançado todo dia.
+  isRh?: boolean
 }
 
 const KIND_META: Record<EventKind, { label: string; dot: string; chip: string }> = {
@@ -43,6 +47,10 @@ export default function CalendarPage() {
   const [dayOpen, setDayOpen] = useState<string | null>(null)
   const [fEmployee, setFEmployee] = useState('')
   const [fClient, setFClient] = useState('')
+  // "Só do RH": esconde ponto e agenda dos colaboradores de campo, deixando
+  // só reuniões e visitas da equipe. Com 12x36 lançando todo dia, o calendário
+  // cheio não dá pra ler.
+  const [fSoRh, setFSoRh] = useState(false)
   const [addOpen, setAddOpen] = useState(false)
   const [addTab, setAddTab] = useState<'vincular' | 'manual'>('vincular')
   const [addForm, setAddForm] = useState(EMPTY_ADD)
@@ -92,7 +100,7 @@ export default function CalendarPage() {
     queryKey: ['cal-appointments', monthKey],
     queryFn: async () => {
       const { data, error } = await supabase.from('interviews')
-        .select('id, title, scheduled_at, modality, status, category, employee:employees(full_name), candidate:candidates(full_name), vacancy:vacancies(title), recruiter:user_profiles(full_name), client:clients(name)')
+        .select('id, title, scheduled_at, modality, status, category, recruiter_id, participant_ids, employee:employees(full_name), candidate:candidates(full_name), vacancy:vacancies(title), recruiter:user_profiles(full_name), client:clients(name)')
         .gte('scheduled_at', mStart).lte('scheduled_at', mEnd + 'T23:59:59')
       if (error) { console.warn('interviews:', error.message); return [] }
       return data || []
@@ -369,12 +377,16 @@ export default function CalendarPage() {
         client: (ap as { client?: { name: string } }).client?.name,
         time: formatLocalTime(ap.scheduled_at),
         note: [(ap as { category?: string }).category, ap.title || (ap as { vacancy?: { title: string } }).vacancy?.title].filter(Boolean).join(' · '),
+        // Tem responsável ou participantes do RH = é da equipe, não do campo
+        isRh: !!(ap as { recruiter_id?: string }).recruiter_id
+          || ((ap as { participant_ids?: string[] }).participant_ids?.length || 0) > 0,
       })
     }
     return out
   }, [visits, agenda, notices, appointments])
 
   const filtered = events.filter(e =>
+    (!fSoRh || e.isRh) &&
     (!fEmployee || e.employee === fEmployee) && (!fClient || e.client === fClient))
 
   const byDay = useMemo(() => {
@@ -415,11 +427,34 @@ export default function CalendarPage() {
 
       {/* Resumo + filtros */}
       <div className="card p-3 flex gap-2 flex-wrap items-center">
-        <span className="badge bg-primary-50 text-primary-700">{totalMes} realizadas</span>
-        <span className="badge bg-amber-50 text-amber-700">{planejadasMes} planejadas</span>
-        {ausenciasMes > 0 && <span className="badge bg-red-50 text-red-600">{ausenciasMes} ausências</span>}
-        <div className="flex gap-2 ml-auto flex-wrap">
-          <select className="input w-auto text-xs py-1.5" value={fEmployee} onChange={e => setFEmployee(e.target.value)}>
+        {/* No modo "só do RH" não existe ponto nem agenda de campo, então os
+            contadores de sempre marcariam 0 e pareceriam erro. */}
+        {fSoRh ? (
+          <span className="badge bg-blue-50 text-blue-700">
+            {filtered.length} compromisso{filtered.length !== 1 ? 's' : ''} da equipe
+          </span>
+        ) : (
+          <>
+            <span className="badge bg-primary-50 text-primary-700">{totalMes} realizadas</span>
+            <span className="badge bg-amber-50 text-amber-700">{planejadasMes} planejadas</span>
+            {ausenciasMes > 0 && <span className="badge bg-red-50 text-red-600">{ausenciasMes} ausências</span>}
+          </>
+        )}
+        <div className="flex gap-2 ml-auto flex-wrap items-center">
+          {/* Alterna entre "tudo" e "só a equipe". Ativo, some o ponto e a agenda
+              dos colaboradores de campo e ficam só reuniões e visitas do RH. */}
+          <button
+            type="button"
+            onClick={() => setFSoRh(v => { if (!v) setFEmployee(''); return !v })}
+            className={`px-3 py-1.5 rounded-xl text-xs font-semibold border-2 transition-colors ${
+              fSoRh ? 'border-primary-600 bg-primary-600 text-white' : 'border-ink-200 bg-white text-ink-500 hover:border-ink-300'
+            }`}
+            title={fSoRh ? 'Mostrando só compromissos e visitas da equipe de RH' : 'Mostrando tudo, inclusive ponto dos colaboradores'}
+          >
+            👥 {fSoRh ? 'Só do RH ✓' : 'Só do RH'}
+          </button>
+          <select className="input w-auto text-xs py-1.5 disabled:opacity-40" disabled={fSoRh}
+            value={fEmployee} onChange={e => setFEmployee(e.target.value)}>
             <option value="">Todos os colaboradores</option>
             {employees.map(n => <option key={n} value={n}>{n}</option>)}
           </select>

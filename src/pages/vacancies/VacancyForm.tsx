@@ -168,7 +168,12 @@ export default function VacancyForm() {
               const mapped = units.map(u => ({ unit_id: u.unit_id, unit_name: u.unit_name, visit_rate: Number(u.visit_rate) || 0 }))
               const avg = mapped.length ? mapped.reduce((s, u) => s + u.visit_rate, 0) / mapped.length : 0
               linkUpdate.link_units = mapped.length ? mapped : null
-              linkUpdate.monthly_amount = avg > 0 ? Math.round(avg * 4 * 100) / 100 : null
+              // Estimativa pela frequência real. Estava fixo em × 4 (semanal),
+              // então editar uma vaga Mensal devolvia o valor 4x inflado e
+              // desfazia a correção já feita na ficha do colaborador.
+              const freq = payload.visit_frequency as string | undefined
+              const mult = freq === 'Avulso' ? 0 : freq === 'Mensal' ? 1 : freq === 'Quinzenal' ? 2 : 4
+              linkUpdate.monthly_amount = avg > 0 && mult > 0 ? Math.round(avg * mult * 100) / 100 : null
               linkUpdate.visit_frequency = payload.visit_frequency ?? 'Semanal'
               linkUpdate.agenda_mode = payload.agenda_mode ?? 'colaborador'
               linkUpdate.weekly_hours_quota = payload.weekly_hours ?? null
@@ -179,10 +184,14 @@ export default function VacancyForm() {
               linkUpdate.monthly_amount = payload.salary_amount
               linkUpdate.cost_assistance = payload.cost_assistance ?? 0
             }
+            // Só os vínculos QUE NASCERAM DESTA VAGA. Antes casava por
+            // employee_id + client_id, então editar a vaga sobrescrevia também
+            // vínculo criado direto pela ficha — que pode ter valor e escala
+            // totalmente diferentes e nada a ver com esta vaga.
             await supabase.from('employee_client_links')
               .update(linkUpdate)
+              .eq('vacancy_id', id)
               .in('employee_id', empIds)
-              .eq('client_id', payload.client_id)
           }
         }
       } else {
@@ -191,7 +200,9 @@ export default function VacancyForm() {
       }
     },
     onSuccess: () => {
-      toast.success(isEdit ? 'Vaga atualizada! Escala e valores propagados para os colaboradores contratados por ela.' : 'Vaga criada!')
+      toast.success(isEdit
+        ? 'Vaga atualizada! Escala e valores foram aplicados só a quem foi contratado por esta vaga — vínculos criados pela ficha do colaborador não são alterados.'
+        : 'Vaga criada!')
       qc.invalidateQueries({ queryKey: ['vacancies'] })
       navigate('/vagas')
     },

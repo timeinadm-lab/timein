@@ -1123,7 +1123,7 @@ export default function EmployeeDetail() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {([
                     { v: 'permanente', t: '📌 Fica no cliente', d: 'Ela atende esse cliente daqui pra frente. Aparece sempre no portal dela.' },
-                    { v: 'temporario', t: '⚡ Freela / cobertura', d: 'Trabalho avulso com data de fim. Some do portal quando o período acaba.' },
+                    { v: 'temporario', t: '⚡ Freela / cobertura', d: 'Trabalho avulso, pago por diária. Com data de fim, some do portal quando o período acaba.' },
                   ] as const).map(o => (
                     <button key={o.v} type="button" onClick={() => setCoverageForm(p => ({ ...p, vinculo_tipo: o.v }))}
                       className={`text-left p-2.5 rounded-lg border-2 transition-colors ${coverageForm.vinculo_tipo === o.v ? 'border-orange-500 bg-orange-50' : 'border-gray-200 hover:border-gray-300'}`}>
@@ -1335,9 +1335,7 @@ export default function EmployeeDetail() {
                 </div>
                 <div>
                   <label className="label">
-                    Data fim {coverageForm.vinculo_tipo === 'temporario'
-                      ? '*'
-                      : <span className="text-gray-400 font-normal">(vazio = por tempo indeterminado)</span>}
+                    Data fim <span className="text-gray-400 font-normal">(vazio = por tempo indeterminado)</span>
                   </label>
                   <input className="input" type="date" value={coverageForm.end_date} onChange={e => setCoverageForm(p => ({ ...p, end_date: e.target.value }))} />
                 </div>
@@ -1392,7 +1390,7 @@ export default function EmployeeDetail() {
                 // Consultoria sem unidade com valor = visita registrada vale R$ 0
                 const faltaUnidade = coverageForm.coverage_type === 'Consultoria'
                   && !coverageForm.coverage_units.some(u => Number(u.visit_rate) > 0)
-                const faltaFim = coverageForm.vinculo_tipo === 'temporario' && !coverageForm.end_date
+                // Freela sem data fim = por tempo indeterminado. Não bloqueia.
                 const faltaPag = coverageForm.pay_days.length === 0
                 const isConsult = coverageForm.coverage_type === 'Consultoria'
                 const faltaRegraHoras = isConsult && !coverageForm.horas_obrigatorias
@@ -1401,13 +1399,12 @@ export default function EmployeeDetail() {
                 const faltaHoras = isConsult && coverageForm.horas_obrigatorias === 'sim'
                   && !(Number(coverageForm.weekly_hours_quota) > 0)
                 const bloqueado = !coverageForm.vinculo_tipo || !coverageForm.agenda_mode
-                  || !coverageForm.client_id || faltaValor || faltaUnidade || faltaFim || faltaPag
+                  || !coverageForm.client_id || faltaValor || faltaUnidade || faltaPag
                   || faltaRegraHoras || faltaHoras
                 const pendencias = [
                   !coverageForm.vinculo_tipo && 'o tipo do vínculo',
                   !coverageForm.client_id && 'o cliente',
                   !coverageForm.agenda_mode && 'quem monta os dias',
-                  faltaFim && 'a data de fim (freela é temporário)',
                   faltaValor && 'o salário mensal',
                   faltaUnidade && 'ao menos uma unidade com valor da vistoria (sem isso a visita vale R$ 0)',
                   faltaRegraHoras && 'se a visita tem tempo mínimo',

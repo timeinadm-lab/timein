@@ -342,6 +342,10 @@ export default function PaymentList() {
               .filter(v => (v as { is_extra?: boolean }).is_extra && (v as { extra_approval?: string }).extra_approval === 'aprovada')
               .reduce((s, v) => s + (Number((v as { extra_amount?: number }).extra_amount) || 0), 0)
           : 0
+        // Extra/visita aguardando a decisão do chefe. Não entra no valor, mas
+        // precisa aparecer: antes sumia da folha e o pagamento saía sem ele.
+        const extrasPendentes = empVisits.filter(v =>
+          (v as { extra_approval?: string }).extra_approval === 'pendente')
 
         // Relatório exigido: Consultoria sempre; Volante em qualquer cobertura. Fixo puro não.
         const reportRequired = l.service_type === 'Consultoria' || l.service_type === 'Volante'
@@ -406,9 +410,12 @@ export default function PaymentList() {
           if (startDate && startDate > cycleStart && startDate <= cycleEnd) {
             isPartialCycle = true
             if (!payFullSalary) {
-              const totalCycleDays = Math.round((cEnd.getTime() - cStart.getTime()) / 86400000) + 1
-              const workedCycleDays = Math.round((cEnd.getTime() - new Date(startDate).getTime()) / 86400000) + 1
-              proportionalFactor = totalCycleDays > 0 ? workedCycleDays / totalCycleDays : 1
+              // A diária é sempre salário ÷ 30, mesmo em ciclo de 28 ou 31 dias.
+              // Entrou no meio: paga os dias corridos de presença × diária, teto no
+              // salário cheio. (Antes dividia pelo tamanho do ciclo, então o mesmo
+              // dia de entrada valia diferente conforme o mês tivesse 28 ou 31 dias.)
+              const diasPresente = Math.round((cEnd.getTime() - new Date(startDate).getTime()) / 86400000) + 1
+              proportionalFactor = Math.min(1, diasPresente / 30)
             }
           } else if (startDate && startDate > cycleEnd) {
             // Começou depois do ciclo fechar: nada a pagar neste mês (1º pagamento no próximo ciclo)
@@ -450,11 +457,18 @@ export default function PaymentList() {
         // Fixo por dias: valor-dia = salário INTEIRO ÷ dias esperados; quem começou no meio
         // do mês já registra menos dias, então o proporcional sai naturalmente da contagem
         // Freela: realizado = dias com check-out × diária (fixo) ou soma das visitas (consultoria)
+        // Fixo: o salário é fixo no mês — cumpriu a escala, recebe inteiro, tenha o
+        // mês 28 ou 31 dias. Cada falta desconta UMA diária (salário ÷ 30).
+        // Antes era (dias feitos ÷ dias esperados) × salário, o que fazia a diária
+        // variar com a escala: num 12x36 (10 dias previstos) cada dia valia
+        // salário ÷ 10 — o triplo do correto.
+        const valorDia = monthlyAmt > 0 ? monthlyAmt / 30 : 0
+        const faltas = !isConsultoria && !isFreela ? Math.max(0, expDays - actualDays) : 0
         const realAmt = isFreela
           ? (freelaConsultoria ? (actualAmount || 0) : Math.round(actualDays * dailyRate * 100) / 100)
           : isConsultoria
             ? (actualAmount || 0)
-            : expDays > 0 ? Math.round((actualDays / expDays) * monthlyAmt * 100) / 100 : 0
+            : Math.max(0, Math.round((adjustedAmount - faltas * valorDia) * 100) / 100)
 
         return {
           linkId: l.id,
@@ -473,6 +487,8 @@ export default function PaymentList() {
           actualDays,
           actualVisits,
           expDays,
+          valorDia,
+          faltas,
           actualAmount,
           realAmt,
           hasRealPayment,
@@ -488,6 +504,7 @@ export default function PaymentList() {
           startsAfterCycle,
           proportionalFactor,
           extrasAprovados,
+          extrasPendentes,
           expDaysToDate,
           reportRequired,
           semRelatorio,
@@ -1040,10 +1057,22 @@ export default function PaymentList() {
                                   </div>
                                 ) : (
                                   <div className="text-center px-3 border-l border-gray-100">
-                                    <p className="text-xs text-gray-400">{row.actualDays}/{row.expDays} dias</p>
-                                    <p className={`text-sm font-bold ${isShort ? 'text-red-600' : 'text-green-600'}`}>
-                                      {isShort ? `${Math.abs(diff)} faltam` : 'OK'}
+                                    {/* "X/Y dias" ao lado de "N faltam" confundia: um contava o
+                                        mês todo, o outro só até hoje. Agora a linha de cima é o
+                                        desconto (que é o que mexe no valor) e embaixo o andamento. */}
+                                    <p className={`text-sm font-bold ${row.faltas > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                                      {row.faltas > 0
+                                        ? `−${formatCurrency(row.faltas * row.valorDia)}`
+                                        : 'Escala OK'}
                                     </p>
+                                    <p className="text-xs text-gray-400">
+                                      {row.faltas > 0
+                                        ? `${row.faltas} falta${row.faltas > 1 ? 's' : ''} · ${row.actualDays}/${row.expDays} dias`
+                                        : `${row.actualDays}/${row.expDays} dias`}
+                                    </p>
+                                    {isShort && row.faltas === 0 && (
+                                      <p className="text-[11px] text-amber-600">{Math.abs(diff)} sem registro</p>
+                                    )}
                                   </div>
                                 )}
                                 <div className="text-center px-3 border-l border-gray-100 bg-purple-50 rounded-lg py-1">
@@ -1078,7 +1107,9 @@ export default function PaymentList() {
                                     disabled={generateRealPayment.isPending}
                                     title={isFreela
                                       ? `Gerar pagamento pelos dias registrados: ${row.actualDays} dia(s) × ${formatCurrency(row.dailyRate || 0)} = ${formatCurrency(row.realAmt)}`
-                                      : `Gerar pagamento pelos dias registrados: ${row.actualDays} dia(s) × (salário ÷ ${row.expDays}) = ${formatCurrency(row.realAmt)}`}
+                                      : row.faltas > 0
+                                        ? `Salário ${formatCurrency(row.adjusted_amount)} − ${row.faltas} falta(s) × ${formatCurrency(row.valorDia)} (salário ÷ 30) = ${formatCurrency(row.realAmt)}`
+                                        : `Escala cumprida: salário integral ${formatCurrency(row.realAmt)}`}
                                   >
                                     <RefreshCw size={12} />Real
                                   </button>
@@ -1088,6 +1119,25 @@ export default function PaymentList() {
                                 )}
                               </div>
                             </div>
+
+                            {/* Extra aguardando decisão. Ficava invisível aqui: só extra
+                                APROVADO entra no valor, então quem lançou um extra via o
+                                pagamento sair sem ele e sem nenhum aviso. */}
+                            {(row.extrasPendentes?.length || 0) > 0 && (
+                              <div className="mt-2 flex items-center justify-between gap-3 flex-wrap rounded-lg bg-amber-100 border border-amber-300 px-3 py-2">
+                                <span className="text-xs font-semibold text-amber-900 flex items-center gap-1.5">
+                                  <AlertTriangle size={13} />
+                                  {row.extrasPendentes.length} extra{row.extrasPendentes.length > 1 ? 's' : ''} aguardando sua decisão
+                                  <span className="font-normal text-amber-700">
+                                    — {row.extrasPendentes.map(v => formatDate(v.visit_date)).join(', ')}. Não entra neste pagamento enquanto não aprovar.
+                                  </span>
+                                </span>
+                                <button onClick={() => navigate('/visitas')}
+                                  className="text-xs font-semibold text-amber-900 underline whitespace-nowrap">
+                                  Decidir agora →
+                                </button>
+                              </div>
+                            )}
 
                             {/* Info extras: ciclo, proporcional, pay full, alertas */}
                             <div className="mt-2 flex items-center gap-3 flex-wrap text-xs">

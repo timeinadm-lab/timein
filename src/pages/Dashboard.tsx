@@ -638,6 +638,37 @@ export default function Dashboard() {
     },
   })
 
+  // Vínculo que exige contrato assinado e está sem o arquivo. Enquanto isso o
+  // portal da pessoa não abre, então é pendência que trava o trabalho dela.
+  const { data: contratosVinculoPendentes } = useQuery({
+    queryKey: ['dashboard-contrato-vinculo-pendente'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('employee_client_links')
+        .select('id,contract_deadline,employee:employees(id,full_name,status),client:clients(name)')
+        .eq('contract_required', true)
+        .is('contract_file_url', null)
+      if (error) throw error
+      return (data || []).filter(l => (l as { employee?: { status?: string } }).employee?.status === 'Ativo')
+    },
+  })
+
+  // Documento com validade chegando. 10 dias porque há contrato de 30 dias —
+  // avisar com 30/40 dispararia antes do documento sequer começar a valer.
+  const { data: docsVencendo } = useQuery({
+    queryKey: ['dashboard-docs-vencendo'],
+    queryFn: async () => {
+      const em10 = new Date(now); em10.setDate(em10.getDate() + 10)
+      const { data, error } = await supabase
+        .from('employee_documents')
+        .select('id,name,expires_at,employee:employees(id,full_name,status)')
+        .not('expires_at', 'is', null)
+        .lte('expires_at', em10.toISOString().slice(0, 10))
+      if (error) throw error
+      return (data || []).filter(d => (d as { employee?: { status?: string } }).employee?.status === 'Ativo')
+    },
+  })
+
   // Documentos entregues (com arquivo) — para o gráfico de documentos
   const { data: deliveredDocsCount } = useQuery({
     queryKey: ['dashboard-delivered-docs'],
@@ -838,6 +869,37 @@ export default function Dashboard() {
       text: `📌 Definir data d${isVisita ? 'a visita' : 'o compromisso'}: "${p.title || 'Compromisso'}"${cli ? ` — ${cli}` : ''}${mesTxt}`,
       path: '/agenda',
     })
+  })
+
+  // Contrato exigido e não anexado — o portal da pessoa fica bloqueado até lá
+  ;(contratosVinculoPendentes || []).forEach(l => {
+    const nome = (l as { employee?: { full_name: string } }).employee?.full_name || 'Colaborador'
+    const empId = (l as { employee?: { id: string } }).employee?.id
+    const cli = (l as { client?: { name: string } }).client?.name
+    const prazo = l.contract_deadline ? new Date(l.contract_deadline) : null
+    const venceu = prazo ? prazo.getTime() < now.getTime() : false
+    const texto = `Contrato de ${nome}${cli ? ` — ${cli}` : ''} ainda não foi anexado`
+      + (venceu ? ' — prazo VENCIDO' : prazo ? ` — prazo até ${formatDate(prazo.toISOString().slice(0, 10))}` : '')
+      + '. O portal dela está bloqueado.'
+    const item = { text: texto, path: empId ? `/colaboradores/${empId}` : '/colaboradores', key: `contrato-vinculo-${l.id}` }
+    if (venceu) redAlerts.push(item)
+    else amberAlerts.push(item)
+  })
+
+  // Documento vencendo (10 dias) ou já vencido
+  ;(docsVencendo || []).forEach(d => {
+    const nome = (d as { employee?: { full_name: string } }).employee?.full_name || 'Colaborador'
+    const empId = (d as { employee?: { id: string } }).employee?.id
+    const dias = Math.ceil((new Date(d.expires_at + 'T12:00:00').getTime() - now.getTime()) / 86400000)
+    const item = {
+      text: dias < 0
+        ? `${d.name} de ${nome} venceu há ${Math.abs(dias)} dia(s)`
+        : `${d.name} de ${nome} vence ${dias === 0 ? 'hoje' : `em ${dias} dia(s)`} (${formatDate(d.expires_at)})`,
+      path: empId ? `/colaboradores/${empId}?tab=arquivos` : '/colaboradores',
+      key: `doc-vence-${d.id}`,
+    }
+    if (dias < 0) redAlerts.push(item)
+    else amberAlerts.push(item)
   })
 
   // Agendou e não apareceu. É a única cobrança de quem está com frequência

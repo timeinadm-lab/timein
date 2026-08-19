@@ -110,6 +110,25 @@ export default function ClientDetail() {
     },
   })
 
+  // ── Contratos dos colaboradores vinculados a este cliente ────────────────
+  // O contrato anexado na ficha do colaborador vive em employee_documents e
+  // nunca apareceu aqui: as duas abas liam tabelas diferentes, sem ligação.
+  // Lemos direto do vínculo (leitura, sem cópia) — duplicar o registro foi o
+  // que criou as unidades fantasma, não repetir o padrão.
+  const { data: contratosVinculos } = useQuery({
+    queryKey: ['client-link-contracts', id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('employee_client_links')
+        .select('id, contract_file_url, service_type, contract_end_date, employee:employees(id, full_name)')
+        .eq('client_id', id)
+        .not('contract_file_url', 'is', null)
+      if (error) throw error
+      return data || []
+    },
+    enabled: tab === 'documentos',
+  })
+
   // ── Documentos compartilhados (anexados aqui ou nas vagas deste cliente) ──
   const { data: sharedDocs } = useQuery({
     queryKey: ['client-shared-docs', id],
@@ -380,6 +399,43 @@ export default function ClientDetail() {
       {/* DOCUMENTOS — banco compartilhado: anexados aqui ou vindos das vagas */}
       {tab === 'documentos' && (
         <div className="space-y-4">
+          {/* Contratos que estão na ficha dos colaboradores — mesmos arquivos,
+              vistos daqui. Não são cópias: apagou lá, some daqui. */}
+          {(contratosVinculos?.length ?? 0) > 0 && (
+            <div className="card p-4 space-y-2">
+              <div>
+                <h3 className="font-semibold text-sm">Contratos dos colaboradores</h3>
+                <p className="text-xs text-gray-400">
+                  Anexados na ficha de cada um. Para trocar, abra o colaborador → Vínculos.
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                {contratosVinculos!.map(l => {
+                  const emp = (l as { employee?: { id: string; full_name: string } }).employee
+                  const encerrado = l.contract_end_date && l.contract_end_date < new Date().toISOString().slice(0, 10)
+                  return (
+                    <div key={l.id} className="flex items-center justify-between gap-3 px-3 py-2 bg-ink-50 rounded-lg">
+                      <div className="min-w-0">
+                        <button onClick={() => emp?.id && navigate(`/colaboradores/${emp.id}`)}
+                          className="text-sm font-medium text-ink-800 hover:text-primary-600 hover:underline truncate">
+                          {emp?.full_name || '—'}
+                        </button>
+                        <p className="text-xs text-ink-400">
+                          {serviceTypeLabel(l.service_type)}
+                          {encerrado ? ' · vínculo encerrado' : ''}
+                        </p>
+                      </div>
+                      <SignedLink value={l.contract_file_url!} bucket="arquivos"
+                        className="text-xs text-primary-600 hover:underline whitespace-nowrap flex items-center gap-1">
+                        <FileText size={13} /> Ver contrato
+                      </SignedLink>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
           <div className="card p-4 space-y-3">
             <div>
               <h3 className="font-semibold text-sm">Anexar documento</h3>

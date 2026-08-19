@@ -18,6 +18,12 @@ export default function PortalLogin() {
       const { data, error } = await supabase.rpc('portal_login', { p_cpf: cpf.trim(), p_pin: pin })
       if (error) { toast.error('Erro ao acessar o portal'); return }
       if (!data) { toast.error('CPF ou senha incorretos, ou colaborador inativo'); return }
+      // Acesso existe, mas falta o contrato assinado. Mostra o motivo — antes
+      // caía no "senha incorreta" e a pessoa ligava pro RH achando que errou.
+      if ((data as { blocked?: boolean }).blocked) {
+        toast.error((data as { reason?: string }).reason || 'Acesso ainda não liberado.', { duration: 9000 })
+        return
+      }
 
       localStorage.setItem('portal_token', data.token)
       localStorage.setItem('portal_employee_id', data.employee_id)

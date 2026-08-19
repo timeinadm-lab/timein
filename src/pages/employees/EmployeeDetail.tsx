@@ -50,6 +50,9 @@ const EMPTY_COVERAGE = {
   start_date: '', end_date: '', monthly_amount: '',
   pay_days: ['20'] as string[],
   agenda_mode: '' as '' | 'colaborador' | 'gestor',
+  // Exige contrato assinado em mãos? Sem ele, o portal da pessoa não abre.
+  contrato: '' as '' | 'sim' | 'nao',
+  contrato_horas: '48',
 }
 
 export default function EmployeeDetail() {
@@ -74,6 +77,8 @@ export default function EmployeeDetail() {
   const [editLinkValues, setEditLinkValues] = useState<EditLinkState | null>(null)
   const [linkDates, setLinkDates] = useState<{ day_of_month: string; amount: string }[]>([{ day_of_month: '', amount: '' }])
   const [newDocName, setNewDocName] = useState('')
+  // Validade do documento — vazio significa "não vence"
+  const [newDocExpires, setNewDocExpires] = useState('')
   const linkFileRef = useRef<HTMLInputElement>(null)
   const [uploadingLinkId, setUploadingLinkId] = useState<string | null>(null)
   const [editContractDate, setEditContractDate] = useState<{ linkId: string; date: string } | null>(null)
@@ -379,6 +384,10 @@ export default function EmployeeDetail() {
         service_type: isTemporario ? 'Volante' : coverageForm.coverage_type,
         coverage_type: coverageForm.coverage_type,
         agenda_mode: coverageForm.agenda_mode || 'colaborador',
+        contract_required: coverageForm.contrato === 'sim',
+        contract_deadline: coverageForm.contrato === 'sim'
+          ? new Date(Date.now() + (Number(coverageForm.contrato_horas) || 48) * 3600000).toISOString()
+          : null,
         daily_rate: diaria,
         start_date: coverageForm.start_date || new Date().toISOString().slice(0, 10),
         contract_end_date: isTemporario ? (coverageForm.end_date || null) : (coverageForm.end_date || null),
@@ -474,10 +483,13 @@ export default function EmployeeDetail() {
 
   const addDoc = useMutation({
     mutationFn: async () => {
-      const { error } = await supabase.from('employee_documents').insert({ employee_id: id, name: newDocName, status: 'Pendente' })
+      const { error } = await supabase.from('employee_documents').insert({
+        employee_id: id, name: newDocName, status: 'Pendente',
+        expires_at: newDocExpires || null,   // vazio = não vence
+      })
       if (error) throw error
     },
-    onSuccess: () => { toast.success('Documento adicionado!'); qc.invalidateQueries({ queryKey: ['employee-docs', id] }); setNewDocName('') },
+    onSuccess: () => { toast.success('Documento adicionado!'); qc.invalidateQueries({ queryKey: ['employee-docs', id] }); setNewDocName(''); setNewDocExpires('') },
     onError: (e: Error) => toast.error(e.message),
   })
 
@@ -1095,7 +1107,12 @@ export default function EmployeeDetail() {
             </div>
             <div className="flex gap-2 mt-3">
               <input className="input flex-1 text-sm" placeholder="Nome do documento..." value={newDocName} onChange={e => setNewDocName(e.target.value)} />
-              <button className="btn-secondary text-sm" onClick={() => addDoc.mutate()} disabled={!newDocName}>Adicionar</button>
+              <div>
+                <input className="input text-sm w-40" type="date" title="Validade — deixe vazio se não vence"
+                  value={newDocExpires} onChange={e => setNewDocExpires(e.target.value)} />
+                <p className="text-[10px] text-ink-400 mt-0.5">Validade (vazio = não vence)</p>
+              </div>
+              <button className="btn-secondary text-sm self-start" onClick={() => addDoc.mutate()} disabled={!newDocName}>Adicionar</button>
             </div>
           </div>
         </div>
@@ -1384,6 +1401,42 @@ export default function EmployeeDetail() {
                   )}
                 </div>
               </div>
+
+              {/* Contrato assinado. Vale igual para freela e permanente. Enquanto
+                  não for anexado, o portal da pessoa não abre. */}
+              <div className="rounded-xl border-2 border-orange-300 bg-white p-3">
+                <label className="label !text-orange-800">Exige contrato assinado? *</label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {([
+                    { v: 'sim', t: '📄 Sim, exige', d: 'O portal dela só abre depois que o contrato assinado for anexado.' },
+                    { v: 'nao', t: '○ Não precisa', d: 'Ela já pode usar o portal e registrar ponto.' },
+                  ] as const).map(o => (
+                    <button key={o.v} type="button" onClick={() => setCoverageForm(p => ({ ...p, contrato: o.v }))}
+                      className={`text-left p-2.5 rounded-lg border-2 transition-colors ${coverageForm.contrato === o.v ? 'border-orange-500 bg-orange-50' : 'border-gray-200 hover:border-gray-300'}`}>
+                      <p className="text-sm font-semibold text-gray-800">{o.t}</p>
+                      <p className="text-xs text-gray-500 leading-snug mt-0.5">{o.d}</p>
+                    </button>
+                  ))}
+                </div>
+                {coverageForm.contrato === 'sim' && (
+                  <div className="mt-2">
+                    <label className="label">Em quantas horas precisa estar em mãos? *</label>
+                    <div className="flex gap-1.5 flex-wrap">
+                      {(['24', '48', '72', '168'] as const).map(h => (
+                        <button key={h} type="button"
+                          onClick={() => setCoverageForm(p => ({ ...p, contrato_horas: h }))}
+                          className={`px-3 py-2 text-sm rounded-lg border font-medium transition-colors ${coverageForm.contrato_horas === h ? 'bg-orange-500 text-white border-orange-500' : 'bg-white text-gray-600 border-gray-300 hover:border-orange-300'}`}>
+                          {h === '168' ? '1 semana' : `${h}h`}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-xs text-orange-700 bg-orange-100 rounded px-2 py-1 mt-1.5 leading-snug">
+                      Passado o prazo sem o contrato anexado, aparece como pendência crítica no painel.
+                    </p>
+                  </div>
+                )}
+              </div>
+
               {(() => {
                 // Fixo cobra o mensal; consultoria se paga pelo valor por unidade.
                 const faltaValor = coverageForm.coverage_type === 'Fixo' && !coverageForm.monthly_amount
@@ -1399,7 +1452,7 @@ export default function EmployeeDetail() {
                 const faltaHoras = isConsult && coverageForm.horas_obrigatorias === 'sim'
                   && !(Number(coverageForm.weekly_hours_quota) > 0)
                 const bloqueado = !coverageForm.vinculo_tipo || !coverageForm.agenda_mode
-                  || !coverageForm.client_id || faltaValor || faltaUnidade || faltaPag
+                  || !coverageForm.client_id || faltaValor || faltaUnidade || faltaPag || !coverageForm.contrato
                   || faltaRegraHoras || faltaHoras
                 const pendencias = [
                   !coverageForm.vinculo_tipo && 'o tipo do vínculo',
@@ -1410,6 +1463,7 @@ export default function EmployeeDetail() {
                   faltaRegraHoras && 'se a visita tem tempo mínimo',
                   faltaHoras && 'quantas horas tem a visita',
                   faltaPag && 'pelo menos um dia de pagamento',
+                  !coverageForm.contrato && 'se exige contrato assinado',
                 ].filter(Boolean) as string[]
                 return (
                   <>

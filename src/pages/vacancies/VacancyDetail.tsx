@@ -501,10 +501,19 @@ export default function VacancyDetail() {
           .maybeSingle()
         isVolanteLink = linkData?.service_type === 'Volante'
 
-        // Remove o vínculo com este cliente; desliga só se não tiver outros vínculos ativos
-        await supabase.from('employee_client_links').delete().eq('employee_id', empId).eq('client_id', vacancy?.client_id)
-        const { data: otherLinks } = await supabase.from('employee_client_links').select('id').eq('employee_id', empId).limit(1)
-        if (!otherLinks?.length) {
+        // ENCERRA o vínculo, não apaga. Apagar levava junto os dias de pagamento
+        // (cascade) e deixava os lançamentos já feitos apontando pra um link_id
+        // inexistente — ou seja, sumia com o histórico de quanto essa pessoa
+        // recebeu naquele cliente, sem jeito de recuperar.
+        const hojeStr = new Date().toISOString().slice(0, 10)
+        await supabase.from('employee_client_links')
+          .update({ contract_end_date: hojeStr })
+          .eq('employee_id', empId).eq('client_id', vacancy?.client_id)
+        // Sobrou algum vínculo ainda em vigor? Se não, a pessoa fica inativa.
+        const { data: otherLinks } = await supabase.from('employee_client_links')
+          .select('id,contract_end_date').eq('employee_id', empId)
+        const aindaAtivos = (otherLinks || []).filter(l => !l.contract_end_date || l.contract_end_date >= hojeStr)
+        if (!aindaAtivos.length) {
           await supabase.from('employees').update({ status: 'Inativo', dismissal_date: new Date().toISOString().slice(0, 10) }).eq('id', empId)
         }
       }
@@ -513,14 +522,16 @@ export default function VacancyDetail() {
       await supabase.from('vacancy_interests').update({ status: 'Interessado', hired_at: null, employee_id: null }).eq('id', interestId)
       await supabase.from('candidates').update({ pipeline_stage: 'Em Avaliação' }).eq('id', candidateId)
 
-      // Volante não conta para capacidade — só recalcula se era não-Volante
+      // Volante não conta para capacidade — só recalcula se era não-Volante.
+      // Conta por interesse contratado: o vínculo agora é encerrado, não apagado,
+      // então contá-los devolveria a vaga como cheia pra sempre.
       if (!isVolanteLink) {
-        const { count: nonVolante } = await supabase
-          .from('employee_client_links')
+        const { count: contratados } = await supabase
+          .from('vacancy_interests')
           .select('id', { count: 'exact', head: true })
           .eq('vacancy_id', id)
-          .neq('service_type', 'Volante')
-        const newCount = nonVolante || 0
+          .eq('status', 'Contratado')
+        const newCount = contratados || 0
         const reopened = newCount < (vacancy?.positions_count || 1)
         await supabase.from('vacancies').update({
           hired_count: newCount,

@@ -1253,8 +1253,34 @@ export default function Dashboard() {
   amberAlerts.forEach((a, i) => { if (!a.key) a.key = `amber-${i}-${a.text.slice(0, 30)}` })
 
   const isHidden = (a: { key?: string }) => a.key && (dismissedAlerts.has(a.key) || resolvedAlerts.has(a.key))
-  const filteredRed = redAlerts.filter(a => !isHidden(a))
-  const filteredAmber = amberAlerts.filter(a => !isHidden(a))
+  // Agrupa alerta repetitivo. Cada fonte gera UMA linha por registro; com a base
+  // crescendo, "visita fora do combinado" e afins viram dezenas de linhas iguais
+  // e afogam o que é único e urgente. A partir de 4 do mesmo tipo, vira resumo.
+  const LIMITE_POR_TIPO = 3
+  const agrupar = (lista: AlertItem[]): AlertItem[] => {
+    const porTipo: Record<string, AlertItem[]> = {}
+    const soltos: AlertItem[] = []
+    for (const a of lista) {
+      // O prefixo da key identifica a família (ex: "fora-combinado-<id>")
+      const familia = a.key?.replace(/-[0-9a-f-]{8,}.*$/i, '') || ''
+      if (!familia) { soltos.push(a); continue }
+      ;(porTipo[familia] ||= []).push(a)
+    }
+    const saida = [...soltos]
+    for (const [familia, itens] of Object.entries(porTipo)) {
+      if (itens.length <= LIMITE_POR_TIPO) { saida.push(...itens); continue }
+      saida.push(...itens.slice(0, LIMITE_POR_TIPO))
+      saida.push({
+        text: `+ ${itens.length - LIMITE_POR_TIPO} situação(ões) do mesmo tipo — abrir para ver todas`,
+        path: itens[0].path,
+        key: `resumo-${familia}`,
+      })
+    }
+    return saida
+  }
+
+  const filteredRed = agrupar(redAlerts.filter(a => !isHidden(a)))
+  const filteredAmber = agrupar(amberAlerts.filter(a => !isHidden(a)))
   const allAlerts = [...filteredRed, ...filteredAmber]
   const resolvedCount = [...redAlerts, ...amberAlerts].filter(a => a.key && resolvedAlerts.has(a.key)).length
 

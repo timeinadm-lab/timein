@@ -164,7 +164,14 @@ export default function PaymentList() {
           payment_dates:employee_payment_dates(day_of_month, amount)
         `)
       if (error) throw error
-      const activeLinks = (rawLinks || []).filter(l => (l as { employee?: { status?: string } }).employee?.status === 'Ativo')
+      // Vínculo encerrado ANTES do mês que está sendo pago não entra na folha.
+      // Encerrado no meio do mês continua (tem dias a pagar). O histórico do
+      // vínculo é preservado — desligar encerra, não apaga.
+      const activeLinks = (rawLinks || []).filter(l => {
+        if ((l as { employee?: { status?: string } }).employee?.status !== 'Ativo') return false
+        const fim = (l as { contract_end_date?: string }).contract_end_date
+        return !fim || fim >= monthStart
+      })
 
       // 2) Visitas do mês de colaboradores desligados (sem vínculo ativo)
       const activeEmpIds = new Set(activeLinks.map(l => (l as { employee?: { id: string } }).employee?.id).filter(Boolean))

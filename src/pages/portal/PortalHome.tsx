@@ -392,13 +392,17 @@ export default function PortalHome() {
   const [pendingExpenseUpload, setPendingExpenseUpload] = useState<string | null>(null)
 
   // Mesmos vínculos do base (portal_base devolve todas as colunas do vínculo)
-  // Volante: só mostra coberturas dentro do período ativo (start_date ≤ hoje ≤ contract_end_date)
+  // Vínculo encerrado sai do portal — vale pra QUALQUER tipo, não só Volante.
+  // Desligar passou a encerrar o vínculo (antes apagava, o que destruía o
+  // histórico de pagamento); sem este filtro a pessoa continuaria vendo e
+  // batendo ponto num cliente de onde já saiu.
   const _today = new Date().toISOString().slice(0, 10)
   const folhaLinks = links?.filter((l: Record<string, unknown>) => {
+    const end = (l.contract_end_date as string) || ''
+    if (end && end < _today) return false
     if (l.service_type !== 'Volante') return true
     const start = (l.start_date as string) || ''
-    const end = (l.contract_end_date as string) || ''
-    return (!start || start <= _today) && (!end || end >= _today)
+    return !start || start <= _today
   })
 
   type FolhaLink = { id: string; service_type: string; coverage_type?: string; start_date?: string; contract_end_date?: string; monthly_amount?: number; work_schedule?: string; work_schedule_type?: string; daily_hours?: number; days_off?: number[]; schedule_anchor_date?: string; weekly_hours_quota?: number; monthly_hours_quota?: number; visits_per_week?: number; link_units?: { unit_id: string; unit_name: string; visit_rate?: number }[]; client?: { id: string; name: string } }

@@ -259,6 +259,43 @@ export default function VacancyDetail() {
     enabled: tab === 'match',
   })
 
+  // ── Match de COLABORADORES: quem eu já tenho que poderia cobrir esta vaga ──
+  // É sugestão, não ação: o botão leva pro "+ Vincular" da ficha da pessoa,
+  // que segue sendo o único lugar que cria vínculo. Criar vínculo daqui
+  // recriaria o segundo caminho que a gente acabou de eliminar.
+  const { data: colabMatch } = useQuery({
+    queryKey: ['vacancy-colab-match', id, vacancy?.client_id, matchSearch],
+    queryFn: async () => {
+      let q = supabase.from('employees')
+        .select('id, full_name, role, crn_number, status')
+        .eq('status', 'Ativo').order('full_name')
+      if (matchSearch) q = q.ilike('full_name', `%${matchSearch}%`)
+      const { data: emps, error } = await q
+      if (error) throw error
+      if (!emps?.length) return []
+
+      // Carga atual + quem já está neste cliente (esse não é sugestão)
+      const hoje = new Date().toISOString().slice(0, 10)
+      const { data: todosLinks } = await supabase
+        .from('employee_client_links')
+        .select('employee_id, client_id, contract_end_date')
+      const ativos = (todosLinks || []).filter(l => !l.contract_end_date || l.contract_end_date >= hoje)
+      const carga: Record<string, number> = {}
+      const jaNesteCliente = new Set<string>()
+      for (const l of ativos) {
+        carga[l.employee_id] = (carga[l.employee_id] || 0) + 1
+        if (l.client_id === vacancy?.client_id) jaNesteCliente.add(l.employee_id)
+      }
+
+      return emps
+        .filter(e => !jaNesteCliente.has(e.id))
+        .map(e => ({ ...e, clientes: carga[e.id] || 0 }))
+        // Quem tem menos cliente aparece primeiro: é quem tem espaço na agenda
+        .sort((a, b) => a.clientes - b.clientes || a.full_name.localeCompare(b.full_name))
+    },
+    enabled: tab === 'match',
+  })
+
   // Mark as "Em contrato" with deadline — does NOT create employee yet
   const startContractProcess = useMutation({
     mutationFn: async ({ interestId, candidateId }: { interestId: string; candidateId: string }) => {
@@ -1040,7 +1077,7 @@ export default function VacancyDetail() {
 
       {/* Tabs */}
       <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-        {([['info', 'Informações'], ['interessados', `Interessados (${interests?.length ?? 0})`], ['match', 'Match de Candidatos'], ['colaboradores', `Colaboradores (${contractedCount})`], ['documentos', 'Documentos']] as const).map(([k, label]) => (
+        {([['info', 'Informações'], ['interessados', `Interessados (${interests?.length ?? 0})`], ['match', 'Quem pode cobrir'], ['colaboradores', `Colaboradores (${contractedCount})`], ['documentos', 'Documentos']] as const).map(([k, label]) => (
           <button key={k} onClick={() => setTab(k as typeof tab)}
             className={`px-3.5 py-2 text-sm font-semibold whitespace-nowrap rounded-xl transition-all active:scale-95 ${tab === k ? 'bg-primary-600 text-white shadow-soft' : 'bg-white border border-ink-100 text-ink-500 hover:text-ink-800 hover:border-ink-200'}`}>
             {label}
@@ -1448,7 +1485,61 @@ export default function VacancyDetail() {
       {/* MATCH */}
       {tab === 'match' && (
         <div className="space-y-4">
+          {/* Quem já é da casa vem primeiro: na maioria das vezes a vaga se
+              resolve com alguém que você já tem, sem processo de contratação. */}
           <div className="card p-4 space-y-3">
+            <div>
+              <h3 className="font-semibold text-gray-900 text-sm">Quem eu já tenho</h3>
+              <p className="text-xs text-gray-400">
+                Colaboradores ativos que ainda não atendem este cliente, do menos ocupado para o mais ocupado.
+                O vínculo é criado na ficha da pessoa.
+              </p>
+            </div>
+            {(colabMatch?.length ?? 0) === 0 ? (
+              <p className="text-sm text-gray-400 py-2 text-center">
+                {matchSearch ? 'Ninguém com esse nome disponível.' : 'Todos os colaboradores ativos já atendem este cliente.'}
+              </p>
+            ) : (
+              <div className="space-y-1.5 max-h-72 overflow-y-auto">
+                {colabMatch!.slice(0, 20).map(e => (
+                  <div key={e.id} className="flex items-center gap-3 px-3 py-2 rounded-lg bg-ink-50">
+                    <div className="flex-1 min-w-0">
+                      <button onClick={() => navigate(`/colaboradores/${e.id}`)}
+                        className="font-medium text-sm text-ink-900 hover:text-primary-700 hover:underline truncate">
+                        {e.full_name}
+                      </button>
+                      <p className="text-xs text-ink-400 truncate">
+                        {e.role || 'Sem cargo definido'}
+                        {e.crn_number ? ` · CRN ${e.crn_number}` : ''}
+                      </p>
+                    </div>
+                    <span className={`badge text-[10px] flex-shrink-0 ${
+                      e.clientes === 0 ? 'bg-green-100 text-green-700'
+                        : e.clientes <= 2 ? 'bg-amber-100 text-amber-700'
+                        : 'bg-red-100 text-red-700'
+                    }`}>
+                      {e.clientes === 0 ? 'sem cliente' : `${e.clientes} cliente${e.clientes > 1 ? 's' : ''}`}
+                    </span>
+                    <button onClick={() => navigate(`/colaboradores/${e.id}`)}
+                      className="btn-secondary text-xs whitespace-nowrap flex-shrink-0">
+                      Vincular →
+                    </button>
+                  </div>
+                ))}
+                {(colabMatch?.length ?? 0) > 20 && (
+                  <p className="text-xs text-ink-400 text-center pt-1">
+                    +{colabMatch!.length - 20} — use a busca para filtrar
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="card p-4 space-y-3">
+            <div>
+              <h3 className="font-semibold text-gray-900 text-sm">Candidatos para contratar</h3>
+              <p className="text-xs text-gray-400">Gente de fora — passa pelo processo de contratação.</p>
+            </div>
             <div className="flex items-center gap-2">
               <input className="input flex-1" placeholder="Buscar por nome..." value={matchSearch} onChange={e => setMatchSearch(e.target.value)} />
               <button onClick={() => setShowMatchFilters(!showMatchFilters)} className="flex items-center gap-1 text-sm text-primary-600 whitespace-nowrap">

@@ -250,24 +250,28 @@ export default function PaymentList() {
         .map(l => (l as { employee?: { id: string } }).employee?.id)
         .filter(Boolean) as string[]
 
+      // A chave inclui o CLIENTE. Antes era só por pessoa: quem tinha vaga no
+      // cliente A e um vínculo sem salário no cliente B recebia, no B, o salário
+      // da vaga do A. Era improvável enquanto vincular exigia vaga; virou
+      // provável quando vincular direto ficou fácil.
       let vacancyFallback: Record<string, { salary_amount: number | null; vacancy_units: { visit_rate: string | number; visits_per_month: string | number }[] | null }> = {}
       if (nullAmtEmpIds.length) {
         const { data: interests } = await supabase
           .from('vacancy_interests')
-          .select('employee_id, vacancy:vacancies(salary_amount, vacancy_units, vacancy_type)')
+          .select('employee_id, vacancy:vacancies(client_id, salary_amount, vacancy_units, vacancy_type)')
           .in('employee_id', nullAmtEmpIds)
           .eq('status', 'Contratado')
         if (interests) {
           for (const i of interests) {
-            const v = (i as { vacancy?: { salary_amount?: number; vacancy_units?: { visit_rate: string | number; visits_per_month: string | number }[]; vacancy_type?: string } }).vacancy
-            if (v && i.employee_id) {
+            const v = (i as { vacancy?: { client_id?: string; salary_amount?: number; vacancy_units?: { visit_rate: string | number; visits_per_month: string | number }[]; vacancy_type?: string } }).vacancy
+            if (v && i.employee_id && v.client_id) {
               let amt: number | null = null
               if (v.salary_amount) {
                 amt = v.salary_amount
               } else if (v.vacancy_units?.length) {
                 amt = v.vacancy_units.reduce((s, u) => s + (Number(u.visit_rate) || 0) * (Number(u.visits_per_month) || 0), 0)
               }
-              vacancyFallback[i.employee_id] = { salary_amount: amt, vacancy_units: v.vacancy_units ?? null }
+              vacancyFallback[`${i.employee_id}|${v.client_id}`] = { salary_amount: amt, vacancy_units: v.vacancy_units ?? null }
             }
           }
         }
@@ -369,7 +373,8 @@ export default function PaymentList() {
             ? (l.expected_days_month
               || expectedDays((l as { work_schedule_type?: string }).work_schedule_type || l.work_schedule, filterMonth))
             : 0
-        const fallback = emp?.id ? vacancyFallback[emp.id] : undefined
+        // Só cai no salário da vaga se a vaga for DO MESMO cliente deste vínculo
+        const fallback = emp?.id && client?.id ? vacancyFallback[`${emp.id}|${client.id}`] : undefined
         // Freela: estimativa = dias previstos × diária (fixo) ou soma das visitas (consultoria).
         // Nunca usa salário mensal nem fallback de vaga.
         const monthlyAmt = isFreela

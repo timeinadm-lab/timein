@@ -16,7 +16,7 @@ export default function ClientForm() {
     contact_name: '', contact_phone: '', contact_email: '',
     contract_start: '', contract_end: '',
     supervisor_id: '', requires_supervision: false,
-    supervision_visits_per_month: '', observations: '',
+    supervision_visits_per_month: '', target_employees: '1', observations: '',
   })
 
   // Units: just names — visit rates are defined per vacancy, not per unit
@@ -50,6 +50,7 @@ export default function ClientForm() {
         supervisor_id: data.supervisor_id || '',
         requires_supervision: !!data.requires_supervision,
         supervision_visits_per_month: data.supervision_visits_per_month != null ? String(data.supervision_visits_per_month) : '',
+        target_employees: data.target_employees != null ? String(data.target_employees) : '1',
         observations: data.observations || '',
       })
 
@@ -86,6 +87,7 @@ export default function ClientForm() {
         supervisor_id: form.supervisor_id || null,
         requires_supervision: form.requires_supervision,
         supervision_visits_per_month: form.supervision_visits_per_month ? Number(form.supervision_visits_per_month) : null,
+        target_employees: Math.max(1, Number(form.target_employees) || 1),
         observations: form.observations || null,
       }
 
@@ -255,6 +257,16 @@ export default function ClientForm() {
             <input type="checkbox" checked={form.requires_supervision} onChange={e => set('requires_supervision', e.target.checked)} className="rounded" />
             <span className="text-sm">Este cliente requer supervisão periódica</span>
           </label>
+          {/* Meta de cobertura — alimenta o sinal verde/amarelo/vermelho na lista */}
+          <div>
+            <label className="label">Quantos colaboradores este cliente precisa?</label>
+            <input className="input sm:w-40" type="number" min={1} placeholder="1"
+              value={form.target_employees} onChange={e => set('target_employees', e.target.value)} />
+            <p className="text-xs text-ink-400 mt-1">
+              Na lista de Clientes: 🔴 nenhum vinculado · 🟡 abaixo da meta · 🟢 meta atingida.
+            </p>
+          </div>
+
           {form.requires_supervision && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>

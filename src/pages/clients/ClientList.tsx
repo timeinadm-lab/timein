@@ -30,6 +30,28 @@ export default function ClientList() {
     },
   })
 
+  // Cobertura: quantos colaboradores ATIVOS cada cliente tem vinculados hoje.
+  // Vínculo encerrado não conta — senão um cliente abandonado ficaria verde
+  // pra sempre por causa de um freela que acabou mês passado.
+  const { data: coberturaPorCliente } = useQuery({
+    queryKey: ['clients-cobertura'],
+    queryFn: async () => {
+      const hoje = new Date().toISOString().slice(0, 10)
+      const { data, error } = await supabase
+        .from('employee_client_links')
+        .select('client_id, contract_end_date, employee:employees(status)')
+      if (error) throw error
+      const mapa: Record<string, number> = {}
+      for (const l of data || []) {
+        if ((l as { employee?: { status?: string } }).employee?.status !== 'Ativo') continue
+        if (l.contract_end_date && l.contract_end_date < hoje) continue
+        if (!l.client_id) continue
+        mapa[l.client_id] = (mapa[l.client_id] || 0) + 1
+      }
+      return mapa
+    },
+  })
+
   const deleteClient = useMutation({
     mutationFn: async (clientId: string) => {
       // Trava: não apaga cliente com vínculo ou vaga
@@ -117,7 +139,21 @@ export default function ClientList() {
                       <Building2 size={20} className="text-primary-600" />
                     </div>
                     <div className="flex-1 min-w-0 pr-6">
-                      <h3 className="font-display font-bold text-ink-900 truncate">{c.name}</h3>
+                      <div className="flex items-center gap-1.5">
+                        {/* Cobertura: nenhum = vermelho, abaixo da meta = amarelo,
+                            meta batida = verde. Mede quem está atendendo hoje —
+                            coisa que a vaga não mede (vaga é recrutamento). */}
+                        {(() => {
+                          const meta = (c as { target_employees?: number }).target_employees ?? 1
+                          const tem = coberturaPorCliente?.[c.id] ?? 0
+                          const cor = tem === 0 ? 'bg-red-500' : tem < meta ? 'bg-amber-400' : 'bg-green-500'
+                          const txt = tem === 0
+                            ? 'Sem colaborador vinculado'
+                            : tem < meta ? `${tem} de ${meta} colaboradores` : `${tem} colaborador(es) — coberto`
+                          return <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${cor}`} title={txt} />
+                        })()}
+                        <h3 className="font-display font-bold text-ink-900 truncate">{c.name}</h3>
+                      </div>
                       {c.contact_name && <p className="text-sm text-ink-500 truncate">{c.contact_name}</p>}
                       {c.contact_phone && <p className="text-sm text-ink-400">{c.contact_phone}</p>}
                     </div>
@@ -131,9 +167,17 @@ export default function ClientList() {
                     )}
                     {!c.contract_end && <span className="badge bg-gray-100 text-gray-500">Indeterminado</span>}
                   </div>
-                  {c.positions_count && (
-                    <p className="text-xs text-ink-400 mt-1.5">{c.positions_count} posições</p>
-                  )}
+                  {(() => {
+                    const meta = (c as { target_employees?: number }).target_employees ?? 1
+                    const tem = coberturaPorCliente?.[c.id] ?? 0
+                    return (
+                      <p className={`text-xs mt-1.5 font-medium ${tem === 0 ? 'text-red-600' : tem < meta ? 'text-amber-600' : 'text-green-600'}`}>
+                        {tem === 0
+                          ? '⚠ Nenhum colaborador vinculado'
+                          : `${tem}/${meta} colaborador${meta > 1 ? 'es' : ''} vinculado${tem > 1 ? 's' : ''}`}
+                      </p>
+                    )
+                  })()}
                 </div>
               )
             })}

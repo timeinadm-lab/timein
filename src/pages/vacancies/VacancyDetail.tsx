@@ -384,7 +384,7 @@ export default function VacancyDetail() {
           days_off?: number[]; vacancy_type?: string
           salary_amount?: number; cost_assistance?: number
           monthly_hours?: number; weekly_hours?: number
-          visits_per_week?: number; pay_extra_visits?: boolean
+          visits_per_week?: number
           schedule_anchor_date?: string
           payment_day_1?: number; payment_day_2?: number
           vacancy_units?: { unit_id: string; unit_name: string; visit_rate?: string | number }[]
@@ -433,7 +433,6 @@ export default function VacancyDetail() {
           monthly_hours_quota: isConsult ? (vac.monthly_hours || null) : null,
           weekly_hours_quota: isConsult ? (vac.weekly_hours || null) : null,
           visits_per_week: isConsult ? (vac.visits_per_week || null) : null,
-          pay_extra_visits: isConsult ? (vac.pay_extra_visits !== false) : true,
           contract_end_date: details.contractEndDate && details.contractEndDate !== '__indeterminate__' ? details.contractEndDate : null,
           work_schedule: details.workSchedule || null,
           work_schedule_type: vac.work_schedule_type || null,
@@ -1235,7 +1234,7 @@ export default function VacancyDetail() {
 
           {/* Financeiro */}
           {(() => {
-            const vac = vacancy as { vacancy_type?: string; salary_amount?: number; cost_assistance?: number; payment_day_1?: number; payment_day_2?: number; monthly_hours?: number; weekly_hours?: number; visits_per_week?: number; pay_extra_visits?: boolean; vacancy_units?: { unit_id: string; unit_name: string; visit_rate?: string | number }[] }
+            const vac = vacancy as { vacancy_type?: string; salary_amount?: number; cost_assistance?: number; payment_day_1?: number; payment_day_2?: number; monthly_hours?: number; weekly_hours?: number; visits_per_week?: number; vacancy_units?: { unit_id: string; unit_name: string; visit_rate?: string | number }[] }
             const isConsultoria = vac.vacancy_type === 'Consultoria'
             const isFixo = vac.vacancy_type === 'Fixo'
             const hasFinancial = vac.salary_amount || vac.payment_day_1 || vac.monthly_hours || (vac.vacancy_units && vac.vacancy_units.length > 0)

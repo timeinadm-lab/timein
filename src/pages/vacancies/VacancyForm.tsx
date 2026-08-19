@@ -37,7 +37,6 @@ export default function VacancyForm() {
     agenda_mode: 'colaborador' as 'colaborador' | 'gestor', // quem monta a agenda deste vínculo
     weekly_hours: '',      // Consultoria: horas por visita
     visits_per_week: '',   // Consultoria: combinado de visitas (opcional — referência)
-    pay_extra_visits: true, // Consultoria: visita além do combinado é paga?
     day_off_type: '' as '' | 'fixo' | 'rotativo',
     fixed_day_off: '' as '' | '0' | '1' | '2' | '3' | '4' | '5' | '6',
     days_off: [] as number[], // days of week that are rest days (0=Sun..6=Sat)
@@ -117,7 +116,6 @@ export default function VacancyForm() {
       agenda_mode: (data.agenda_mode as 'colaborador' | 'gestor') || 'colaborador',
       weekly_hours: data.weekly_hours ? String(data.weekly_hours) : '',
       visits_per_week: data.visits_per_week ? String(data.visits_per_week) : '',
-      pay_extra_visits: data.pay_extra_visits !== false,
       day_off_type: data.day_off_type || '',
       fixed_day_off: data.fixed_day_off != null ? String(data.fixed_day_off) : '',
       days_off: data.days_off || [],
@@ -268,7 +266,6 @@ export default function VacancyForm() {
       monthly_hours: isConsultoria && !isAvulso && form.weekly_hours ? Number(form.weekly_hours) * freqMultiplier : null,
       weekly_hours: isConsultoria && form.weekly_hours ? Number(form.weekly_hours) : null,
       visits_per_week: isConsultoria && form.visits_per_week ? Number(form.visits_per_week) : null,
-      pay_extra_visits: isConsultoria ? form.pay_extra_visits : true,
       days_off: !isConsultoria ? form.days_off : [],
       day_off_type: form.work_schedule_type === '6x1' ? (form.day_off_type || null) : null,
       fixed_day_off: form.work_schedule_type === '6x1' && form.day_off_type === 'fixo' && form.fixed_day_off !== '' ? Number(form.fixed_day_off) : null,

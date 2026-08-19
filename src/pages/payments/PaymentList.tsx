@@ -14,12 +14,11 @@ import {
 } from 'recharts'
 
 type Tab = 'folha' | 'pagos'
-type WorkerGroup = 'consultoria' | 'fixo_plantao' | 'temporario' | 'freela'
+type WorkerGroup = 'consultoria' | 'fixo_plantao' | 'freela'
 
-function workerGroup(serviceType: string | null, schedule: string | null): WorkerGroup {
+function workerGroup(serviceType: string | null): WorkerGroup {
   if (serviceType === 'Volante') return 'freela'
   if (serviceType === 'Consultoria') return 'consultoria'
-  if (schedule?.toLowerCase().includes('tempor')) return 'temporario'
   return 'fixo_plantao'
 }
 
@@ -69,7 +68,6 @@ function expectedDays(schedule: string | null, month: string): number {
   if (schedule.includes('6x1')) return Math.floor(totalDays * 6 / 7)
   if (schedule.includes('5x2')) return Math.floor(totalDays * 5 / 7)
   if (schedule.includes('12x36')) return Math.floor(totalDays * 1 / 3)
-  if (schedule.toLowerCase().includes('tempor')) return totalDays
   if (schedule.toLowerCase().includes('plant')) return Math.floor(totalDays * 1 / 3)
   return 22
 }
@@ -380,7 +378,7 @@ export default function PaymentList() {
           return rpLink ? rpLink === l.id : rp.employee_id === emp?.id
         }) ?? false
         const costAssistance = Number((l as { cost_assistance?: number }).cost_assistance) || 0
-        const group = workerGroup(l.service_type, (l as { work_schedule_type?: string }).work_schedule_type || l.work_schedule)
+        const group = workerGroup(l.service_type)
         const payDates = ((l as { payment_dates?: { day_of_month: number }[] }).payment_dates ?? [])
           .slice().sort((a, b) => a.day_of_month - b.day_of_month)
         // Fixo: um pagamento por mês (dia 8, 15 ou 20). Consultoria: sempre 8 e 20.
@@ -899,7 +897,6 @@ export default function PaymentList() {
                 const groupTotals = [
                   { name: 'Consultoria', value: (folhaData ?? []).filter(r => r.group === 'consultoria').reduce((s, r) => s + r.monthly_amount, 0), color: '#f97316' },
                   { name: 'Fixo / Plantão', value: (folhaData ?? []).filter(r => r.group === 'fixo_plantao').reduce((s, r) => s + r.monthly_amount, 0), color: '#3b82f6' },
-                  { name: 'Temporário', value: (folhaData ?? []).filter(r => r.group === 'temporario').reduce((s, r) => s + r.monthly_amount, 0), color: '#f59e0b' },
                   { name: 'Freelas', value: (folhaData ?? []).filter(r => r.group === 'freela').reduce((s, r) => s + r.monthly_amount, 0), color: '#a855f7' },
                 ].filter(g => g.value > 0)
                 const byEmployee = (folhaData ?? []).map(r => ({
@@ -963,7 +960,6 @@ export default function PaymentList() {
               {([
                 { key: 'consultoria' as WorkerGroup, label: 'Consultoria', icon: '🏥', colors: { bg: 'bg-orange-50', text: 'text-orange-800', badge: 'bg-orange-100 text-orange-700', exp: 'text-orange-700 bg-orange-50' } },
                 { key: 'fixo_plantao' as WorkerGroup, label: 'Fixos / Plantão', icon: '📅', colors: { bg: 'bg-blue-50', text: 'text-blue-800', badge: 'bg-blue-100 text-blue-700', exp: 'text-blue-700 bg-blue-50' } },
-                { key: 'temporario' as WorkerGroup, label: 'Temporários', icon: '⏱', colors: { bg: 'bg-amber-50', text: 'text-amber-800', badge: 'bg-amber-100 text-amber-700', exp: 'text-amber-700 bg-amber-50' } },
                 { key: 'freela' as WorkerGroup, label: 'Freelas', icon: '⚡', colors: { bg: 'bg-purple-50', text: 'text-purple-800', badge: 'bg-purple-100 text-purple-700', exp: 'text-purple-700 bg-purple-50' } },
               ]).map(({ key, label, icon, colors }) => {
                 const group = folhaData?.filter(r => r.group === key) ?? []

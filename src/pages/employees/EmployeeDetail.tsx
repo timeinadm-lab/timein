@@ -70,7 +70,7 @@ export default function EmployeeDetail() {
   const [showLinkForm, setShowLinkForm] = useState(false)
   const [linkForm, setLinkForm] = useState({ client_id: '', service_type: 'Fixo' as 'Fixo' | 'Consultoria', monthly_amount: '', cost_assistance: '', weekly_hours_quota: '', visit_frequency: 'Semanal' as 'Semanal' | 'Quinzenal' | 'Mensal', contract_end_date: '', work_schedule_type: '', daily_hours: '', days_off: [] as number[], schedule_anchor_date: '' })
   type EditLinkUnit = { unit_id: string; unit_name: string; visit_rate: string }
-  type EditLinkState = { linkId: string; serviceType: string; clientId: string; monthly_amount: string; cost_assistance: string; weekly_hours: string; visit_frequency: string; visits_per_week: string; pay_extra_visits: boolean; units: EditLinkUnit[]; work_schedule_type: string; daily_hours: string; days_off: number[]; schedule_anchor_date: string; start_date: string; payDays: string[]; pay_full_salary: boolean; expected_days_month: string }
+  type EditLinkState = { linkId: string; serviceType: string; clientId: string; monthly_amount: string; cost_assistance: string; weekly_hours: string; visit_frequency: string; visits_per_week: string; units: EditLinkUnit[]; work_schedule_type: string; daily_hours: string; days_off: number[]; schedule_anchor_date: string; start_date: string; payDays: string[]; pay_full_salary: boolean; expected_days_month: string }
   const [editLinkValues, setEditLinkValues] = useState<EditLinkState | null>(null)
   const [linkDates, setLinkDates] = useState<{ day_of_month: string; amount: string }[]>([{ day_of_month: '', amount: '' }])
   const [newDocName, setNewDocName] = useState('')
@@ -715,7 +715,6 @@ export default function EmployeeDetail() {
         monthly_hours_quota: isConsult ? (vals.weekly_hours ? Number(vals.weekly_hours) * (vals.visit_frequency === 'Mensal' ? 1 : vals.visit_frequency === 'Quinzenal' ? 2 : 4) : null) : undefined,
         // Regras do combinado: quantas visitas por semana e se paga além disso
         visits_per_week: isConsult ? (vals.visits_per_week ? Number(vals.visits_per_week) : null) : undefined,
-        pay_extra_visits: isConsult ? vals.pay_extra_visits : undefined,
         // Escala (Fixo) — portal usa para cobrar dias e calcular hora extra
         work_schedule_type: !isConsult ? (vals.work_schedule_type || null) : undefined,
         daily_hours: !isConsult ? (vals.daily_hours ? Number(vals.daily_hours) : null) : undefined,
@@ -1588,7 +1587,6 @@ export default function EmployeeDetail() {
                               weekly_hours: String(l.weekly_hours_quota || ''),
                               visit_frequency: (l as { visit_frequency?: string }).visit_frequency || 'Semanal',
                               visits_per_week: String((l as { visits_per_week?: number }).visits_per_week || ''),
-                              pay_extra_visits: (l as { pay_extra_visits?: boolean }).pay_extra_visits !== false,
                               units: existing.map(u => ({ unit_id: u.unit_id, unit_name: u.unit_name, visit_rate: u.visit_rate != null ? String(u.visit_rate) : '' })),
                               work_schedule_type: (l as { work_schedule_type?: string }).work_schedule_type || '',
                               daily_hours: String((l as { daily_hours?: number }).daily_hours || ''),

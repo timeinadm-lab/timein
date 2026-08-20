@@ -1219,10 +1219,27 @@ export default function EmployeeDetail() {
                 </select>
               </div>
 
+              {/* Cliente sem unidade cadastrada: o bloco abaixo não tem o que mostrar,
+                  mas a validação exige unidade com valor. Sem este aviso a pessoa via
+                  "falta escolher uma unidade" sem nenhum lugar para escolher — beco sem saída. */}
+              {coverageForm.client_id && coverageClientUnits && coverageClientUnits.length === 0 && (
+                <div className="rounded-xl border-2 border-amber-300 bg-amber-50 p-3">
+                  <p className="text-sm font-semibold text-amber-900">Este cliente não tem unidades cadastradas</p>
+                  <p className="text-xs text-amber-700 mt-0.5 leading-snug">
+                    {coverageForm.coverage_type === 'Consultoria'
+                      ? 'Na consultoria o pagamento sai do valor da vistoria de cada unidade — sem unidade não há como calcular.'
+                      : 'A unidade é onde a pessoa vai trabalhar — é obrigatória.'}
+                    {' '}Cadastre em <strong>Clientes → abrir o cliente → Unidades</strong> e volte aqui.
+                  </p>
+                  <button type="button" onClick={() => navigate('/clientes')}
+                    className="btn-secondary text-xs mt-2">Ir para Clientes →</button>
+                </div>
+              )}
+
               {/* Unidade — Fixo: select único; Consultoria: lista com valor por unidade */}
               {coverageForm.client_id && coverageClientUnits && coverageClientUnits.length > 0 && (
                 <div>
-                  <label className="label">{coverageForm.coverage_type === 'Fixo' ? 'Unidade' : 'Unidades e valores'}</label>
+                  <label className="label">{coverageForm.coverage_type === 'Fixo' ? 'Unidade *' : 'Unidades e valores *'}</label>
                   {coverageForm.coverage_type === 'Fixo' ? (
                     <select className="input" value={coverageForm.unit_id}
                       onChange={e => setCoverageForm(p => ({ ...p, unit_id: e.target.value }))}>
@@ -1459,9 +1476,11 @@ export default function EmployeeDetail() {
               {(() => {
                 // Fixo cobra o mensal; consultoria se paga pelo valor por unidade.
                 const faltaValor = coverageForm.coverage_type === 'Fixo' && !coverageForm.monthly_amount
-                // Consultoria sem unidade com valor = visita registrada vale R$ 0
+                // Unidade é obrigatória nos dois: no Fixo é o local de trabalho;
+                // na Consultoria é de onde sai o valor da visita (sem ela vale R$ 0).
                 const faltaUnidade = coverageForm.coverage_type === 'Consultoria'
-                  && !coverageForm.coverage_units.some(u => Number(u.visit_rate) > 0)
+                  ? !coverageForm.coverage_units.some(u => Number(u.visit_rate) > 0)
+                  : !coverageForm.unit_id
                 // Freela sem data fim = por tempo indeterminado. Não bloqueia.
                 const faltaPag = coverageForm.pay_days.length === 0
                 const isConsult = coverageForm.coverage_type === 'Consultoria'
@@ -1478,7 +1497,11 @@ export default function EmployeeDetail() {
                   !coverageForm.client_id && 'o cliente',
                   !coverageForm.agenda_mode && 'quem monta os dias',
                   faltaValor && 'o salário mensal',
-                  faltaUnidade && 'ao menos uma unidade com valor da vistoria (sem isso a visita vale R$ 0)',
+                  faltaUnidade && ((coverageClientUnits?.length ?? 0) === 0
+                    ? 'cadastrar as unidades deste cliente primeiro (não há nenhuma)'
+                    : coverageForm.coverage_type === 'Consultoria'
+                      ? 'ao menos uma unidade com valor da vistoria (sem isso a visita vale R$ 0)'
+                      : 'a unidade onde ela vai trabalhar'),
                   faltaRegraHoras && 'se a visita tem tempo mínimo',
                   faltaHoras && 'quantas horas tem a visita',
                   faltaPag && 'pelo menos um dia de pagamento',

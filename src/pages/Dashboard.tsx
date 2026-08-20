@@ -8,7 +8,7 @@ import {
   MessageSquare, FileWarning, Flag, Video, MapPin,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { supabase } from '../lib/supabase'
+import { supabase, fetchAll } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { formatDate, formatCurrency, formatLocalTime, parseLocal, isMeetingLink, mapsUrl } from '../lib/utils'
 import { addDays, startOfMonth, endOfMonth, isBefore, parseISO, isAfter, differenceInDays, subMonths } from 'date-fns'
@@ -615,13 +615,15 @@ export default function Dashboard() {
       if (error) throw error
       if (!planejados?.length) return []
 
-      const { data: feitas } = await supabase
-        .from('nutritionist_visits')
-        .select('employee_id,client_id,visit_date')
-        .gte('visit_date', de).lte('visit_date', ate)
+      // Paginado: 30 dias de visitas passa de 1000 linhas conforme a equipe cresce,
+      // e o Supabase corta em silencio — o alerta passaria a acusar quem foi.
+      const feitas = await fetchAll<{ employee_id: string; client_id: string; visit_date: string }>(
+        () => supabase.from('nutritionist_visits')
+          .select('employee_id,client_id,visit_date')
+          .gte('visit_date', de).lte('visit_date', ate))
 
       // Conta como cumprida a visita da mesma pessoa, no mesmo cliente, no mesmo dia
-      const feitasSet = new Set((feitas || []).map(v => `${v.employee_id}|${v.client_id}|${v.visit_date}`))
+      const feitasSet = new Set(feitas.map(v => `${v.employee_id}|${v.client_id}|${v.visit_date}`))
       // Falta avisada (atestado/troca) não é cobrança
       const { data: avisos } = await supabase
         .from('schedule_notices')
@@ -704,11 +706,11 @@ export default function Dashboard() {
         .gte('planned_date', de)
 
       // Visitas registradas em dia que não estava na agenda daquele cliente
-      const { data: feitas } = await supabase
-        .from('nutritionist_visits')
-        .select('id,visit_date,employee_id,client_id,employee:employees(id,full_name,status),client:clients(name)')
-        .gte('visit_date', de).lte('visit_date', ate)
-        .not('check_out', 'is', null)
+      const feitas = await fetchAll<{ id: string; visit_date: string; employee_id: string; client_id: string; employee?: { id: string; full_name: string; status?: string }; client?: { name: string } }>(
+        () => supabase.from('nutritionist_visits')
+          .select('id,visit_date,employee_id,client_id,employee:employees(id,full_name,status),client:clients(name)')
+          .gte('visit_date', de).lte('visit_date', ate)
+          .not('check_out', 'is', null))
       const { data: planejadas } = await supabase
         .from('nutritionist_agenda')
         .select('employee_id,client_id,planned_date,created_by_admin')
@@ -723,7 +725,7 @@ export default function Dashboard() {
         trocas: (trocadas || []).filter(a =>
           (a as { employee?: { status?: string } }).employee?.status === 'Ativo'
           && a.original_date && a.original_date !== a.planned_date),
-        aMais: (feitas || []).filter(v =>
+        aMais: feitas.filter(v =>
           (v as { employee?: { status?: string } }).employee?.status === 'Ativo'
           && temCombinado.has(`${v.employee_id}|${v.client_id}`)
           && !combinadas.has(`${v.employee_id}|${v.client_id}|${v.visit_date}`)),

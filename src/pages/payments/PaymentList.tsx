@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { Plus, Download, Check, RefreshCw, AlertTriangle, ChevronDown, ChevronUp, BarChart3, Trash2 } from 'lucide-react'
-import { supabase } from '../../lib/supabase'
+import { supabase, fetchAll } from '../../lib/supabase'
 import { formatDate, formatCurrency } from '../../lib/utils'
 import { exportToCSV } from '../../lib/exportUtils'
 import { SkeletonRows } from '../../components/ui/Skeleton'
@@ -175,11 +175,20 @@ export default function PaymentList() {
 
       // 2) Visitas do mês de colaboradores desligados (sem vínculo ativo)
       const activeEmpIds = new Set(activeLinks.map(l => (l as { employee?: { id: string } }).employee?.id).filter(Boolean))
-      const { data: monthVisits } = await supabase
+      // Paginado: o Supabase corta em 1000 linhas SEM avisar. Um mês de visitas
+      // passa disso conforme a operação cresce, e a folha calcularia pagamento
+      // com parte das visitas faltando, sem erro nenhum na tela.
+      const monthVisits = await fetchAll<{
+        employee_id: string; client_id: string; visit_date: string
+        check_in?: string; check_out?: string; break_start?: string; break_end?: string
+        visit_rate?: number; is_unavailable?: boolean; is_extra?: boolean
+        extra_approval?: string; extra_amount?: number; observations?: string
+        report_url?: string; is_holiday?: boolean
+      }>(() => supabase
         .from('nutritionist_visits')
         .select('employee_id, client_id, visit_date, check_in, check_out, break_start, break_end, visit_rate, is_unavailable, is_extra, extra_approval, extra_amount, observations, report_url, is_holiday')
         .gte('visit_date', monthStart)
-        .lte('visit_date', monthEnd)
+        .lte('visit_date', monthEnd))
 
       // Desligados com visitas neste mês que ainda não foram pagos
       const dismissedVisits = (monthVisits || []).filter(v => !activeEmpIds.has(v.employee_id))

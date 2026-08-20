@@ -1532,12 +1532,18 @@ export default function EmployeeDetail() {
             </p>
           )}
 
+          {/* O botão de anexar contrato só existia na lista de Clientes Vinculados,
+              que exclui freela. Como o freela também pode exigir contrato — e sem
+              ele o portal fica bloqueado — a pessoa ficava travada sem nenhum lugar
+              para resolver. O input de arquivo é o mesmo, declarado logo abaixo. */}
           <div className="space-y-3">
             {(links || []).filter(l => l.service_type === 'Volante').map(l => {
               const startDate = (l as { start_date?: string }).start_date
               const endDate = (l as { contract_end_date?: string }).contract_end_date
               const dailyRate = (l as { daily_rate?: number }).daily_rate
               const coverageType = (l as { coverage_type?: string }).coverage_type
+              const contratoExigido = (l as { contract_required?: boolean }).contract_required
+              const contratoArquivo = (l as { contract_file_url?: string }).contract_file_url
               const linkUnits = (l as { link_units?: { unit_id: string; unit_name: string }[] }).link_units || []
               const isExtending = extendLinkId === l.id
               const daysLeft = endDate ? differenceInDays(new Date(endDate + 'T12:00:00'), new Date()) : null
@@ -1579,6 +1585,36 @@ export default function EmployeeDetail() {
                       <input type="date" className="input py-1 text-sm flex-1" value={newEndDate} onChange={e => setNewEndDate(e.target.value)} />
                       <button className="btn-primary text-xs py-1 px-3" disabled={!newEndDate || extendCoverage.isPending} onClick={() => extendCoverage.mutate({ linkId: l.id, endDate: newEndDate })}>Salvar</button>
                     </div>
+                  )}
+
+                  {/* Contrato do freela — sem isto o portal dela fica bloqueado */}
+                  {contratoExigido && (
+                    contratoArquivo ? (
+                      <div className="flex items-center justify-between gap-2 pt-2 border-t border-orange-200">
+                        <span className="text-xs text-green-700 font-medium flex items-center gap-1">
+                          <CheckCircle size={13} /> Contrato assinado anexado
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <SignedLink value={contratoArquivo} bucket="arquivos" className="text-xs text-primary-600 hover:underline">
+                            Ver contrato
+                          </SignedLink>
+                          <button onClick={() => { setUploadingLinkId(l.id); setTimeout(() => linkFileRef.current?.click(), 50) }}
+                            className="btn-secondary text-xs" disabled={uploadingLinkId === l.id}>
+                            <Upload size={12} /> {uploadingLinkId === l.id ? 'Enviando...' : 'Trocar'}
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-between gap-2 pt-2 border-t border-amber-300 bg-amber-50 -mx-4 -mb-4 px-4 py-2.5 rounded-b-xl mt-2">
+                        <span className="text-xs text-amber-800 leading-snug">
+                          <strong>Falta o contrato assinado.</strong> O portal dela está bloqueado até você anexar.
+                        </span>
+                        <button onClick={() => { setUploadingLinkId(l.id); setTimeout(() => linkFileRef.current?.click(), 50) }}
+                          className="btn-primary text-xs shrink-0 bg-amber-600 hover:bg-amber-700" disabled={uploadingLinkId === l.id}>
+                          <Upload size={12} /> {uploadingLinkId === l.id ? 'Enviando...' : 'Anexar contrato'}
+                        </button>
+                      </div>
+                    )
                   )}
                 </div>
               )

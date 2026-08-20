@@ -160,7 +160,7 @@ export default function InterviewForm() {
           <div className="col-span-full">
             <label className="label">Tipo</label>
             <div className="flex flex-wrap gap-1.5">
-              {['Reunião', 'Visita', 'Treinamento', 'Ligação', 'Entrevista', 'Outro'].map(c => (
+              {['Reunião', 'Compromisso', 'Visita', 'Treinamento', 'Ligação', 'Entrevista', 'Outro'].map(c => (
                 <button key={c} type="button"
                   onClick={() => setForm(p => ({ ...p, category: c, modality: c === 'Visita' ? 'Presencial' : c === 'Ligação' ? 'Telefone' : p.modality }))}
                   className={`px-3 py-1.5 rounded-xl text-sm font-medium border-2 transition-colors ${form.category === c ? 'border-primary-600 bg-primary-50 text-primary-700' : 'border-ink-200 text-ink-500 hover:border-ink-300'}`}>

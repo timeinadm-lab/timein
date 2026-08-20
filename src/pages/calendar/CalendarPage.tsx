@@ -9,7 +9,7 @@ import toast from 'react-hot-toast'
 import { format, startOfMonth, endOfMonth, getDaysInMonth, getDay, addMonths, subMonths } from 'date-fns'
 import { SignedLink } from '../../components/ui/SignedFile'
 
-type EventKind = 'realizada' | 'planejada' | 'ausencia' | 'compromisso'
+type EventKind = 'realizada' | 'planejada' | 'ausencia' | 'reuniao' | 'compromisso'
 type Ev = {
   kind: EventKind
   date: string
@@ -31,13 +31,17 @@ const KIND_META: Record<EventKind, { label: string; dot: string; chip: string }>
   realizada:    { label: 'Visita realizada', dot: 'bg-primary-600',  chip: 'bg-primary-50 text-primary-700 border-primary-200' },
   planejada:    { label: 'Visita planejada', dot: 'bg-amber-400',    chip: 'bg-amber-50 text-amber-800 border-amber-200' },
   ausencia:     { label: 'Ausência avisada', dot: 'bg-red-400',      chip: 'bg-red-50 text-red-700 border-red-200' },
-  compromisso:  { label: 'Reunião',          dot: 'bg-blue-400',     chip: 'bg-blue-50 text-blue-700 border-blue-200' },
+  reuniao:      { label: 'Reunião',          dot: 'bg-blue-400',     chip: 'bg-blue-50 text-blue-700 border-blue-200' },
+  // Compromisso NAO e reuniao: e qualquer coisa que a equipe precisa saber que
+  // vai acontecer (viagem, consulta medica, visita a um cliente sem ser vistoria).
+  // Nao exige cliente. Cor propria pra nao confundir com reuniao.
+  compromisso:  { label: 'Compromisso',      dot: 'bg-purple-400',   chip: 'bg-purple-50 text-purple-700 border-purple-200' },
 }
 
 const EMPTY_ADD = {
   employee_id: '', client_id: '', unit_id: '',
   time: '', hours: '', notes: '', title: '', reason: '', assignee: '',
-  manualKind: 'planejada' as 'planejada' | 'ausencia' | 'compromisso',
+  manualKind: 'planejada' as 'planejada' | 'ausencia' | 'reuniao' | 'compromisso',
   // Reunião: mesmos campos da tela de Reuniões — várias pessoas, link e duração.
   // Antes o calendário só marcava UMA pessoa e não guardava link nenhum.
   participants: [] as string[],
@@ -226,14 +230,17 @@ export default function CalendarPage() {
       if (!dayOpen) throw new Error('Dia inválido')
       const k = addForm.manualKind
 
-      // ── Reunião: mesma coisa que a tela de Reuniões cria, para não existirem
-      // dois formatos do mesmo evento. Vários participantes, link e duração. ──
-      if (k === 'compromisso') {
-        if (!addForm.title.trim()) throw new Error('Escreva o título da reunião')
-        if (!addForm.participants.length) throw new Error('Escolha ao menos um participante')
+      // ── Reunião e Compromisso: mesma estrutura da tela de Reuniões, pra não
+      // existirem dois formatos do mesmo evento. A diferença é a categoria:
+      // Reunião é encontro com pauta; Compromisso é "fulano vai estar em tal
+      // lugar" (viagem, consulta, visita) — e não precisa de cliente. ──
+      if (k === 'reuniao' || k === 'compromisso') {
+        const ehReuniao = k === 'reuniao'
+        if (!addForm.title.trim()) throw new Error(ehReuniao ? 'Escreva o título da reunião' : 'Escreva o que é o compromisso')
+        if (!addForm.participants.length) throw new Error('Escolha ao menos uma pessoa')
         const { error } = await supabase.from('interviews').insert({
           title: addForm.title.trim(),
-          category: 'Reunião',
+          category: ehReuniao ? 'Reunião' : 'Compromisso',
           recruiter_id: addForm.participants[0],       // compatibilidade
           participant_ids: addForm.participants,
           client_id: addForm.client_id || null,
@@ -389,7 +396,9 @@ export default function CalendarPage() {
     }
     for (const ap of appointments || []) {
       out.push({
-        kind: 'compromisso',
+        // Compromisso tem cor própria; o resto (Reunião, Visita, Treinamento…)
+        // entra como reunião, que é a cara desses eventos no calendário.
+        kind: (ap as { category?: string }).category === 'Compromisso' ? 'compromisso' : 'reuniao',
         date: (ap.scheduled_at || '').slice(0, 10),
         employee: (ap as { employee?: { full_name: string } }).employee?.full_name
           || (ap as { candidate?: { full_name: string } }).candidate?.full_name
@@ -590,23 +599,23 @@ export default function CalendarPage() {
                   <>
                     <div>
                       <label className="label">O que é? *</label>
-                      <div className="grid grid-cols-3 gap-1.5">
-                        {([['planejada', '🟡 Visita'], ['ausencia', '🔴 Ausência'], ['compromisso', '🔵 Reunião']] as const).map(([k, t]) => (
+                      <div className="grid grid-cols-2 gap-1.5">
+                        {([['planejada', '🟡 Visita'], ['ausencia', '🔴 Ausência'], ['reuniao', '🔵 Reunião'], ['compromisso', '🟣 Compromisso']] as const).map(([k, t]) => (
                           <button key={k} onClick={() => setAddForm(p => ({ ...p, manualKind: k }))}
                             className={`py-2 px-1 text-xs font-medium rounded-lg border-2 transition-colors ${addForm.manualKind === k ? 'border-primary-600 bg-white' : 'border-ink-200 bg-white/60 text-ink-500'}`}>{t}</button>
                         ))}
                       </div>
                     </div>
-                    {addForm.manualKind === 'compromisso' ? (
+                    {(addForm.manualKind === 'reuniao' || addForm.manualKind === 'compromisso') ? (
                       <>
                         <div>
-                          <label className="label">Título *</label>
-                          <input className="input" placeholder="Ex: Reunião de alinhamento" value={addForm.title} onChange={e => setAddForm(p => ({ ...p, title: e.target.value }))} />
+                          <label className="label">{addForm.manualKind === 'reuniao' ? 'Título *' : 'O que é? *'}</label>
+                          <input className="input" placeholder={addForm.manualKind === 'reuniao' ? 'Ex: Reunião de alinhamento' : 'Ex: Gabriel no Paraná com cliente · Consulta médica'} value={addForm.title} onChange={e => setAddForm(p => ({ ...p, title: e.target.value }))} />
                         </div>
                         {/* Vários participantes, como na tela de Reuniões. Antes o
                             calendário só marcava uma pessoa e perdia o link. */}
                         <div>
-                          <label className="label">Participantes * <span className="text-gray-400 font-normal">— cada um vê nas Reuniões dele</span></label>
+                          <label className="label">{addForm.manualKind === 'reuniao' ? 'Participantes *' : 'Quem? *'} <span className="text-gray-400 font-normal">— cada um vê nas Reuniões dele</span></label>
                           <div className="flex flex-wrap gap-1.5">
                             {rhUsers?.map(u => {
                               const on = addForm.participants.includes(u.id)
@@ -658,7 +667,7 @@ export default function CalendarPage() {
                     )}
                     {/* Na reunião quem participa vem dos Participantes acima —
                         este seletor de uma pessoa só sobraria e confundiria. */}
-                    {addForm.manualKind !== 'compromisso' && (
+                    {addForm.manualKind !== 'reuniao' && addForm.manualKind !== 'compromisso' && (
                       <div>
                         <label className="label">Para quem? *</label>
                         <select className="input" value={addForm.assignee} onChange={e => setAddForm(p => ({ ...p, assignee: e.target.value }))}>
@@ -690,7 +699,7 @@ export default function CalendarPage() {
                       <label className="label">Hora <span className="text-gray-400 font-normal">(opcional)</span></label>
                       <input className="input" type="time" value={addForm.time} onChange={e => setAddForm(p => ({ ...p, time: e.target.value }))} />
                     </div>
-                    {addForm.manualKind !== 'compromisso' && (
+                    {addForm.manualKind !== 'reuniao' && addForm.manualKind !== 'compromisso' && (
                       <div>
                         <label className="label">Horas <span className="text-gray-400 font-normal">(opcional)</span></label>
                         <input className="input" type="number" step="0.5" placeholder="Ex: 4" value={addForm.hours} onChange={e => setAddForm(p => ({ ...p, hours: e.target.value }))} />
@@ -698,7 +707,7 @@ export default function CalendarPage() {
                     )}
                   </div>
                 )}
-                {(unitOpts?.length ?? 0) > 0 && addForm.manualKind !== 'compromisso' && addForm.manualKind !== 'ausencia' && (
+                {(unitOpts?.length ?? 0) > 0 && addForm.manualKind !== 'reuniao' && addForm.manualKind !== 'compromisso' && addForm.manualKind !== 'ausencia' && (
                   <div>
                     <label className="label">Unidade <span className="text-gray-400 font-normal">(opcional)</span></label>
                     <select className="input" value={addForm.unit_id} onChange={e => setAddForm(p => ({ ...p, unit_id: e.target.value }))}>

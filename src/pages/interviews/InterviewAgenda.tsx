@@ -22,6 +22,7 @@ const STATUS_COLORS: Record<string, string> = {
 }
 const CATEGORY_COLORS: Record<string, string> = {
   Reunião: 'bg-blue-100 text-blue-700',
+  Compromisso: 'bg-purple-100 text-purple-700',
   Visita: 'bg-primary-100 text-primary-700',
   Treinamento: 'bg-purple-100 text-purple-700',
   Ligação: 'bg-cyan-100 text-cyan-700',
@@ -33,9 +34,11 @@ export default function InterviewAgenda() {
   const { role, profile } = useAuth()
   const navigate = useNavigate()
   const qc = useQueryClient()
-  // 'reunioes' = só o tipo Reunião (o uso do dia a dia)
-  // 'todos'    = qualquer compromisso: visita, treinamento, ligação, entrevista
-  const [aba, setAba] = useState<'reunioes' | 'todos'>('reunioes')
+  // 'reunioes'     = encontro com pauta (participantes, link, duração)
+  // 'compromissos' = 'fulano vai estar em tal lugar' — viagem, consulta, visita
+  //                  a um cliente. Não exige cliente; serve pra equipe saber.
+  // 'todos'        = tudo, inclusive treinamento, ligação e entrevista
+  const [aba, setAba] = useState<'reunioes' | 'compromissos' | 'todos'>('reunioes')
   const [view, setView] = useState<'list' | 'calendar'>('list')
   const [filterStatus, setFilterStatus] = useState('')
   const [filterMine, setFilterMine] = useState(role === 'recrutador')
@@ -63,6 +66,7 @@ export default function InterviewAgenda() {
       // Registro antigo pode estar sem categoria: nesse caso entra em Reuniões,
       // que era o único tipo antes de existirem categorias.
       if (aba === 'reunioes') q = q.or('category.eq.Reunião,category.is.null')
+      if (aba === 'compromissos') q = q.eq('category', 'Compromisso')
       if (filterStatus) q = q.eq('status', filterStatus)
       // Responsável antigo ou participante — os dois veem na própria agenda
       if (filterMine && profile?.id) q = q.or(`recruiter_id.eq.${profile.id},participant_ids.cs.{${profile.id}}`)
@@ -125,16 +129,16 @@ export default function InterviewAgenda() {
         <div>
           <p className="eyebrow mb-1">Gestão</p>
           <h1 className="text-2xl md:text-3xl font-display font-extrabold text-ink-900">
-            {aba === 'reunioes' ? 'Reuniões' : 'Compromissos'}
+            {aba === 'reunioes' ? 'Reuniões' : aba === 'compromissos' ? 'Compromissos' : 'Todos os compromissos'}
           </h1>
         </div>
         <button onClick={() => navigate('/agenda/nova')} className="btn-primary text-sm"><Plus size={16} />Novo Compromisso</button>
       </div>
 
-      {/* Reuniões é o uso do dia a dia; Compromissos mostra tudo — visita,
-          treinamento, ligação, entrevista — pra nada ficar escondido. */}
+      {/* Reunião e Compromisso são coisas diferentes: uma é encontro com pauta,
+          a outra é "onde a pessoa vai estar". "Tudo" pega o resto. */}
       <div className="flex gap-1.5">
-        {([['reunioes', 'Reuniões'], ['todos', 'Compromissos']] as const).map(([k, t]) => (
+        {([['reunioes', 'Reuniões'], ['compromissos', 'Compromissos'], ['todos', 'Tudo']] as const).map(([k, t]) => (
           <button key={k} onClick={() => setAba(k)}
             className={`px-4 py-2 rounded-xl text-sm font-semibold border-2 transition-colors ${
               aba === k ? 'border-primary-600 bg-primary-50 text-primary-700' : 'border-ink-200 bg-white text-ink-500 hover:border-ink-300'

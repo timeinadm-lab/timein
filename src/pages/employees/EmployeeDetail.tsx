@@ -3430,7 +3430,10 @@ function PortalTab({ employeeId, employee }: { employeeId: string; employee: Rec
             ⚠ Anote/copie agora — por segurança a senha é guardada criptografada e <strong>não pode ser revelada depois</strong>. Se perder, gere uma nova.
           </div>
         ) : hasPin ? (
-          <p className="text-xs text-gray-400">A senha fica criptografada (não dá pra revelar). Se o colaborador esquecer, defina uma nova abaixo.</p>
+          <p className="text-xs text-gray-400">
+            A senha fica criptografada (não dá pra revelar). Se o colaborador esquecer, defina uma nova abaixo.
+            {' '}Definir uma senha nova também <strong>destrava</strong> quem errou 5 vezes e ficou bloqueado.
+          </p>
         ) : null}
 
         {(lastPin || hasPin) && (

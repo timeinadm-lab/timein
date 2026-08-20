@@ -16,7 +16,19 @@ export default function PortalLogin() {
       // A senha é validada no servidor (função portal_login). O navegador nunca
       // lê a tabela de colaboradores nem recebe o PIN de ninguém.
       const { data, error } = await supabase.rpc('portal_login', { p_cpf: cpf.trim(), p_pin: pin })
-      if (error) { toast.error('Erro ao acessar o portal'); return }
+      if (error) {
+        // Bloqueio por tentativas vem como exceção do banco. Mostrar "Erro ao
+        // acessar o portal" fazia a pessoa tentar de novo e prender ainda mais —
+        // ela precisa saber que é só esperar, e o RH precisa saber que é isso.
+        const travado = /tentativas/i.test(error.message || '')
+        toast.error(
+          travado
+            ? 'Muitas tentativas erradas. Aguarde 15 minutos, ou peça ao RH para redefinir sua senha.'
+            : 'Erro ao acessar o portal',
+          { duration: travado ? 10000 : 4000 }
+        )
+        return
+      }
       if (!data) { toast.error('CPF ou senha incorretos, ou colaborador inativo'); return }
       // Acesso existe, mas falta o contrato assinado. Mostra o motivo — antes
       // caía no "senha incorreta" e a pessoa ligava pro RH achando que errou.

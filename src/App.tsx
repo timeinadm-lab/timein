@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from 'react-hot-toast'
@@ -6,50 +7,50 @@ import { RequireAuth, RequireChefe, RequireContabilidade } from './components/la
 import Layout from './components/layout/Layout'
 
 import Login from './pages/Login'
-import Dashboard from './pages/Dashboard'
+const Dashboard = lazy(() => import('./pages/Dashboard'))
 
-import ClientList from './pages/clients/ClientList'
-import ClientForm from './pages/clients/ClientForm'
-import ClientDetail from './pages/clients/ClientDetail'
+const ClientList = lazy(() => import('./pages/clients/ClientList'))
+const ClientForm = lazy(() => import('./pages/clients/ClientForm'))
+const ClientDetail = lazy(() => import('./pages/clients/ClientDetail'))
 
-import ContractList from './pages/contracts/ContractList'
-import ContractForm from './pages/contracts/ContractForm'
-import ContractDetail from './pages/contracts/ContractDetail'
+const ContractList = lazy(() => import('./pages/contracts/ContractList'))
+const ContractForm = lazy(() => import('./pages/contracts/ContractForm'))
+const ContractDetail = lazy(() => import('./pages/contracts/ContractDetail'))
 
-import EmployeeList from './pages/employees/EmployeeList'
-import EmployeeForm from './pages/employees/EmployeeForm'
-import EmployeeDetail from './pages/employees/EmployeeDetail'
+const EmployeeList = lazy(() => import('./pages/employees/EmployeeList'))
+const EmployeeForm = lazy(() => import('./pages/employees/EmployeeForm'))
+const EmployeeDetail = lazy(() => import('./pages/employees/EmployeeDetail'))
 
-import VacancyList from './pages/vacancies/VacancyList'
-import VacancyForm from './pages/vacancies/VacancyForm'
-import VacancyDetail from './pages/vacancies/VacancyDetail'
+const VacancyList = lazy(() => import('./pages/vacancies/VacancyList'))
+const VacancyForm = lazy(() => import('./pages/vacancies/VacancyForm'))
+const VacancyDetail = lazy(() => import('./pages/vacancies/VacancyDetail'))
 
-import CandidateList from './pages/candidates/CandidateList'
-import CandidateForm from './pages/candidates/CandidateForm'
-import CandidateDetail from './pages/candidates/CandidateDetail'
-import CandidateKanban from './pages/candidates/CandidateKanban'
+const CandidateList = lazy(() => import('./pages/candidates/CandidateList'))
+const CandidateForm = lazy(() => import('./pages/candidates/CandidateForm'))
+const CandidateDetail = lazy(() => import('./pages/candidates/CandidateDetail'))
+const CandidateKanban = lazy(() => import('./pages/candidates/CandidateKanban'))
 
-import InterviewAgenda from './pages/interviews/InterviewAgenda'
-import InterviewForm from './pages/interviews/InterviewForm'
+const InterviewAgenda = lazy(() => import('./pages/interviews/InterviewAgenda'))
+const InterviewForm = lazy(() => import('./pages/interviews/InterviewForm'))
 
-import PaymentList from './pages/payments/PaymentList'
-import PaymentForm from './pages/payments/PaymentForm'
+const PaymentList = lazy(() => import('./pages/payments/PaymentList'))
+const PaymentForm = lazy(() => import('./pages/payments/PaymentForm'))
 
-import SupervisionDashboard from './pages/supervision/SupervisionDashboard'
+const SupervisionDashboard = lazy(() => import('./pages/supervision/SupervisionDashboard'))
 
-import TemplateList from './pages/templates/TemplateList'
-import TemplateEditor from './pages/templates/TemplateEditor'
+const TemplateList = lazy(() => import('./pages/templates/TemplateList'))
+const TemplateEditor = lazy(() => import('./pages/templates/TemplateEditor'))
 
-import Chat from './pages/chat/Chat'
-import ActivitiesPage from './pages/activities/ActivitiesPage'
-import FinanceiroPage from './pages/financeiro/FinanceiroPage'
-import CalendarPage from './pages/calendar/CalendarPage'
-import UserManagement from './pages/admin/UserManagement'
-import ProfilePage from './pages/admin/ProfilePage'
-import InspectionPublic from './pages/inspections/InspectionPublic'
+const Chat = lazy(() => import('./pages/chat/Chat'))
+const ActivitiesPage = lazy(() => import('./pages/activities/ActivitiesPage'))
+const FinanceiroPage = lazy(() => import('./pages/financeiro/FinanceiroPage'))
+const CalendarPage = lazy(() => import('./pages/calendar/CalendarPage'))
+const UserManagement = lazy(() => import('./pages/admin/UserManagement'))
+const ProfilePage = lazy(() => import('./pages/admin/ProfilePage'))
+const InspectionPublic = lazy(() => import('./pages/inspections/InspectionPublic'))
 import PortalLogin from './pages/portal/PortalLogin'
-import PortalHome from './pages/portal/PortalHome'
-import VisitsDashboard from './pages/visits/VisitsDashboard'
+const PortalHome = lazy(() => import('./pages/portal/PortalHome'))
+const VisitsDashboard = lazy(() => import('./pages/visits/VisitsDashboard'))
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 0, staleTime: 30_000 } },
@@ -60,6 +61,14 @@ export default function App() {
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <BrowserRouter>
+          {/* Cada rota vira um pedaço separado, baixado só quando aberta. Antes
+              tudo vinha num pacote único de ~2 MB: a tela de login do portal
+              baixava o sistema administrativo inteiro só pra mostrar dois campos. */}
+          <Suspense fallback={
+            <div className="min-h-screen flex items-center justify-center">
+              <div className="w-8 h-8 rounded-full border-2 border-primary-200 border-t-primary-600 animate-spin" />
+            </div>
+          }>
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/portal" element={<PortalLogin />} />
@@ -146,6 +155,7 @@ export default function App() {
               <Route path="*" element={<Navigate to="/" replace />} />
             </Route>
           </Routes>
+          </Suspense>
         </BrowserRouter>
         <Toaster position="top-right" />
       </AuthProvider>

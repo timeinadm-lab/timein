@@ -1481,7 +1481,7 @@ export default function Dashboard() {
         </div>
       </button>
 
-      {/* ── Prioridades + Agenda do RH — o que importa primeiro ── */}
+      {/* ── Prioridades + Reuniões — o que importa primeiro ── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6 items-start">
         {/* Prioridades (urgências) */}
         <div className="lg:col-span-2 space-y-2.5">
@@ -1633,12 +1633,12 @@ export default function Dashboard() {
           )}
         </div>
 
-        {/* Agenda do RH */}
+        {/* Reuniões — compromissos da equipe */}
         <div className="space-y-2.5">
           <div className="flex items-center justify-between px-0.5">
             <h2 className="section-title text-base">
               <Calendar size={16} className="text-primary-600" />
-              Agenda do RH
+              Reuniões
             </h2>
             <button onClick={() => navigate('/agenda')} className="text-xs text-primary-600 hover:underline font-medium">Ver tudo →</button>
           </div>

@@ -31,13 +31,19 @@ const KIND_META: Record<EventKind, { label: string; dot: string; chip: string }>
   realizada:    { label: 'Visita realizada', dot: 'bg-primary-600',  chip: 'bg-primary-50 text-primary-700 border-primary-200' },
   planejada:    { label: 'Visita planejada', dot: 'bg-amber-400',    chip: 'bg-amber-50 text-amber-800 border-amber-200' },
   ausencia:     { label: 'Ausência avisada', dot: 'bg-red-400',      chip: 'bg-red-50 text-red-700 border-red-200' },
-  compromisso:  { label: 'Compromisso',      dot: 'bg-blue-400',     chip: 'bg-blue-50 text-blue-700 border-blue-200' },
+  compromisso:  { label: 'Reunião',          dot: 'bg-blue-400',     chip: 'bg-blue-50 text-blue-700 border-blue-200' },
 }
 
 const EMPTY_ADD = {
-  vacancy_id: '', employee_id: '', client_id: '', unit_id: '',
+  employee_id: '', client_id: '', unit_id: '',
   time: '', hours: '', notes: '', title: '', reason: '', assignee: '',
   manualKind: 'planejada' as 'planejada' | 'ausencia' | 'compromisso',
+  // Reunião: mesmos campos da tela de Reuniões — várias pessoas, link e duração.
+  // Antes o calendário só marcava UMA pessoa e não guardava link nenhum.
+  participants: [] as string[],
+  link: '',
+  duration: '60',
+  modality: 'Online' as 'Online' | 'Presencial' | 'Telefone',
 }
 
 export default function CalendarPage() {
@@ -52,7 +58,6 @@ export default function CalendarPage() {
   // cheio não dá pra ler.
   const [fSoRh, setFSoRh] = useState(false)
   const [addOpen, setAddOpen] = useState(false)
-  const [addTab, setAddTab] = useState<'vincular' | 'manual'>('vincular')
   const [addForm, setAddForm] = useState(EMPTY_ADD)
 
   const monthKey = format(cursor, 'yyyy-MM')
@@ -166,8 +171,7 @@ export default function CalendarPage() {
   })
 
   // Unidades do cliente escolhido
-  const chosenVaga = (vagas || []).find(v => v.id === addForm.vacancy_id)
-  const targetClientId = addTab === 'vincular' ? (chosenVaga?.client_id || '') : addForm.client_id
+  const targetClientId = addForm.client_id
   const { data: unitOpts } = useQuery({
     queryKey: ['cal-units', targetClientId],
     queryFn: async () => {
@@ -187,47 +191,34 @@ export default function CalendarPage() {
 
   const closeAdd = () => { setAddOpen(false); setAddForm(EMPTY_ADD) }
 
-  // Vincular: agenda uma visita a partir da vaga (cliente e horas já vêm dela)
-  const addFromVaga = useMutation({
-    mutationFn: async () => {
-      if (!dayOpen) throw new Error('Dia inválido')
-      if (!addForm.vacancy_id) throw new Error('Escolha a vaga')
-      if (!addForm.employee_id) throw new Error('Escolha o nutricionista')
-      const clientId = chosenVaga?.client_id
-      if (!clientId) throw new Error('Esta vaga não tem cliente definido')
-      // Sem vínculo com o cliente a pessoa trabalha e NÃO recebe: a folha só
-      // paga o que tem vínculo. Agendar sem vínculo é criar trabalho invisível.
-      const vinculo = (vagaLinks || []).find(l => l.employee_id === addForm.employee_id && l.client_id === clientId)
-      if (!vinculo) {
-        throw new Error(
-          'Esta pessoa não tem vínculo com o cliente desta vaga. Sem vínculo ela trabalha e não recebe. ' +
-          'Vincule primeiro em Colaboradores → Vínculos → + Vincular.'
-        )
-      }
-      const link = (vagaLinks || []).find(l => l.vacancy_id === addForm.vacancy_id && l.employee_id === addForm.employee_id) || vinculo
-      const hours = addForm.hours ? Number(addForm.hours)
-        : (link?.weekly_hours_quota ? Number(link.weekly_hours_quota) : (chosenVaga?.weekly_hours ? Number(chosenVaga.weekly_hours) : null))
-      const { error } = await supabase.from('nutritionist_agenda').insert({
-        employee_id: addForm.employee_id,
-        client_id: clientId,
-        unit_id: addForm.unit_id || null,
-        planned_date: dayOpen,
-        planned_time: addForm.time || null,
-        hours_expected: hours,
-        notes: addForm.notes || null,
-        created_by_admin: true,
-      })
-      if (error) throw error
-    },
-    onSuccess: () => { toast.success('Visita agendada!'); invalidateAll(); closeAdd() },
-    onError: (e: Error) => toast.error(e.message),
-  })
-
   // Manual: visita planejada, ausência avisada ou compromisso
   const addManual = useMutation({
     mutationFn: async () => {
       if (!dayOpen) throw new Error('Dia inválido')
       const k = addForm.manualKind
+
+      // ── Reunião: mesma coisa que a tela de Reuniões cria, para não existirem
+      // dois formatos do mesmo evento. Vários participantes, link e duração. ──
+      if (k === 'compromisso') {
+        if (!addForm.title.trim()) throw new Error('Escreva o título da reunião')
+        if (!addForm.participants.length) throw new Error('Escolha ao menos um participante')
+        const { error } = await supabase.from('interviews').insert({
+          title: addForm.title.trim(),
+          category: 'Reunião',
+          recruiter_id: addForm.participants[0],       // compatibilidade
+          participant_ids: addForm.participants,
+          client_id: addForm.client_id || null,
+          scheduled_at: `${dayOpen}T${addForm.time || '09:00'}:00`,
+          duration_min: Number(addForm.duration) || 60,
+          modality: addForm.modality,
+          link_or_address: addForm.link.trim() || null,
+          status: 'Agendada',
+          notes: addForm.notes || null,
+        })
+        if (error) throw error
+        return
+      }
+
       // "Para quem?" vem como 'emp:<id>' (colaborador) ou 'rh:<id>' (equipe RH).
       const [who, whoId] = (addForm.assignee || '').split(':')
 
@@ -240,7 +231,7 @@ export default function CalendarPage() {
         if (!title) {
           if (k === 'planejada') title = clientName ? `Visita — ${clientName}` : 'Visita'
           else if (k === 'ausencia') title = addForm.reason.trim() ? `Ausência — ${addForm.reason.trim()}` : 'Ausência'
-          else title = 'Compromisso'
+          else title = 'Reunião'
         }
         const { error } = await supabase.from('interviews').insert({
           title,
@@ -525,66 +516,69 @@ export default function CalendarPage() {
               <button onClick={() => setAddOpen(true)} className="btn-primary w-full text-sm"><Plus size={15} /> Adicionar neste dia</button>
             ) : (
               <div className="rounded-xl border border-primary-200 bg-primary-50/40 p-3 space-y-3">
-                <div className="flex gap-1">
-                  {/* "Vincular vaga" enganava: esta aba NÃO cria vínculo, só agenda
-                      um dia de quem já é vinculado. Vincular é em Colaboradores. */}
-                  {([['vincular', '📅 Agendar pela vaga'], ['manual', '✏️ Digitar']] as const).map(([k, t]) => (
-                    <button key={k} onClick={() => setAddTab(k)}
-                      className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-colors ${addTab === k ? 'bg-primary-600 text-white' : 'bg-white text-ink-500 border border-ink-200'}`}>{t}</button>
-                  ))}
-                </div>
-
-                {addTab === 'vincular' ? (
-                  <>
-                    <div>
-                      <label className="label">Vaga *</label>
-                      <select className="input" value={addForm.vacancy_id}
-                        onChange={e => setAddForm(p => ({ ...p, vacancy_id: e.target.value, employee_id: '', unit_id: '' }))}>
-                        <option value="">Selecionar vaga...</option>
-                        {vagas?.map(v => <option key={v.id} value={v.id}>{v.title}{(v as { client?: { name: string } }).client?.name ? ` — ${(v as { client?: { name: string } }).client!.name}` : ''}</option>)}
-                      </select>
-                    </div>
-                    {addForm.vacancy_id && (() => {
-                      // Quem tem vínculo com o CLIENTE da vaga — inclui quem foi
-                      // vinculado direto pela ficha (sem vaga). Oferecer quem não
-                      // tem vínculo criaria trabalho que a folha não paga.
-                      const cliId = chosenVaga?.client_id
-                      const opts = (vagaLinks || []).filter(l => l.client_id === cliId)
-                      const vistos = new Set<string>()
-                      const unicos = opts.filter(l => !vistos.has(l.employee_id) && vistos.add(l.employee_id))
-                      return (
-                        <div>
-                          <label className="label">Nutricionista *</label>
-                          <select className="input" value={addForm.employee_id} onChange={e => setAddForm(p => ({ ...p, employee_id: e.target.value }))}>
-                            <option value="">{unicos.length ? 'Selecionar...' : 'Ninguém vinculado a este cliente'}</option>
-                            {unicos.map(l => <option key={l.id} value={l.employee_id}>{(l as { employee?: { full_name: string } }).employee?.full_name}</option>)}
-                          </select>
-                          {unicos.length === 0 && (
-                            <p className="text-[11px] text-amber-700 bg-amber-50 rounded px-2 py-1 mt-1">
-                              Ninguém está vinculado a este cliente. Vincule em <strong>Colaboradores → Vínculos → + Vincular</strong> antes de agendar.
-                            </p>
-                          )}
-                          {chosenVaga?.weekly_hours && <p className="text-[11px] text-primary-600 mt-1">Horas da vaga: {chosenVaga.weekly_hours}h por visita</p>}
-                        </div>
-                      )
-                    })()}
-                  </>
-                ) : (
+              {/* A aba "Agendar pela vaga" saiu: ela nunca criou vínculo — só
+                  agendava o dia de quem já era vinculado, e o nome induzia ao erro.
+                  Agora tudo se cria aqui, escolhendo o tipo abaixo. */}
                   <>
                     <div>
                       <label className="label">O que é? *</label>
                       <div className="grid grid-cols-3 gap-1.5">
-                        {([['planejada', '🟡 Visita'], ['ausencia', '🔴 Ausência'], ['compromisso', '🔵 Compromisso']] as const).map(([k, t]) => (
+                        {([['planejada', '🟡 Visita'], ['ausencia', '🔴 Ausência'], ['compromisso', '🔵 Reunião']] as const).map(([k, t]) => (
                           <button key={k} onClick={() => setAddForm(p => ({ ...p, manualKind: k }))}
                             className={`py-2 px-1 text-xs font-medium rounded-lg border-2 transition-colors ${addForm.manualKind === k ? 'border-primary-600 bg-white' : 'border-ink-200 bg-white/60 text-ink-500'}`}>{t}</button>
                         ))}
                       </div>
                     </div>
                     {addForm.manualKind === 'compromisso' ? (
-                      <div>
-                        <label className="label">Título *</label>
-                        <input className="input" placeholder="Ex: Reunião de alinhamento" value={addForm.title} onChange={e => setAddForm(p => ({ ...p, title: e.target.value }))} />
-                      </div>
+                      <>
+                        <div>
+                          <label className="label">Título *</label>
+                          <input className="input" placeholder="Ex: Reunião de alinhamento" value={addForm.title} onChange={e => setAddForm(p => ({ ...p, title: e.target.value }))} />
+                        </div>
+                        {/* Vários participantes, como na tela de Reuniões. Antes o
+                            calendário só marcava uma pessoa e perdia o link. */}
+                        <div>
+                          <label className="label">Participantes * <span className="text-gray-400 font-normal">— cada um vê nas Reuniões dele</span></label>
+                          <div className="flex flex-wrap gap-1.5">
+                            {rhUsers?.map(u => {
+                              const on = addForm.participants.includes(u.id)
+                              return (
+                                <button key={u.id} type="button"
+                                  onClick={() => setAddForm(p => ({
+                                    ...p,
+                                    participants: on ? p.participants.filter(x => x !== u.id) : [...p.participants, u.id],
+                                  }))}
+                                  className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border-2 transition-colors ${on ? 'border-primary-600 bg-primary-50 text-primary-700' : 'border-ink-200 bg-white text-ink-500'}`}>
+                                  {u.full_name}
+                                </button>
+                              )
+                            })}
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="label">Modalidade</label>
+                            <select className="input" value={addForm.modality}
+                              onChange={e => setAddForm(p => ({ ...p, modality: e.target.value as 'Online' | 'Presencial' | 'Telefone' }))}>
+                              <option>Online</option><option>Presencial</option><option>Telefone</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="label">Duração</label>
+                            <select className="input" value={addForm.duration}
+                              onChange={e => setAddForm(p => ({ ...p, duration: e.target.value }))}>
+                              <option value="30">30 min</option><option value="45">45 min</option>
+                              <option value="60">60 min</option><option value="90">90 min</option>
+                            </select>
+                          </div>
+                        </div>
+                        <div>
+                          <label className="label">Link da reunião / Endereço</label>
+                          <input className="input" placeholder="Cole o link do Teams/Meet/Zoom, ou o endereço"
+                            value={addForm.link} onChange={e => setAddForm(p => ({ ...p, link: e.target.value }))} />
+                          <p className="text-[11px] text-ink-400 mt-0.5">Link vira botão de entrar; endereço vira atalho pro mapa.</p>
+                        </div>
+                      </>
                     ) : (
                       <div>
                         <label className="label">Cliente {addForm.manualKind === 'planejada' && !addForm.assignee.startsWith('rh:') ? '*' : <span className="text-gray-400 font-normal">(opcional)</span>}</label>
@@ -594,21 +588,25 @@ export default function CalendarPage() {
                         </select>
                       </div>
                     )}
-                    <div>
-                      <label className="label">Para quem? {addForm.manualKind === 'compromisso' ? <span className="text-gray-400 font-normal">(opcional)</span> : '*'}</label>
-                      <select className="input" value={addForm.assignee} onChange={e => setAddForm(p => ({ ...p, assignee: e.target.value }))}>
-                        <option value="">Selecionar...</option>
-                        <optgroup label="Colaboradores">
-                          {allEmployees?.map(e => <option key={e.id} value={`emp:${e.id}`}>{e.full_name}</option>)}
-                        </optgroup>
-                        <optgroup label="Equipe RH">
-                          {rhUsers?.map(u => <option key={u.id} value={`rh:${u.id}`}>{u.full_name}</option>)}
-                        </optgroup>
-                      </select>
-                      {addForm.assignee.startsWith('rh:') && (
-                        <p className="text-[11px] text-primary-600 mt-1">RH: entra só no calendário e na Agenda dessa pessoa — <strong>sem pagamento</strong>.</p>
-                      )}
-                    </div>
+                    {/* Na reunião quem participa vem dos Participantes acima —
+                        este seletor de uma pessoa só sobraria e confundiria. */}
+                    {addForm.manualKind !== 'compromisso' && (
+                      <div>
+                        <label className="label">Para quem? *</label>
+                        <select className="input" value={addForm.assignee} onChange={e => setAddForm(p => ({ ...p, assignee: e.target.value }))}>
+                          <option value="">Selecionar...</option>
+                          <optgroup label="Colaboradores">
+                            {allEmployees?.map(e => <option key={e.id} value={`emp:${e.id}`}>{e.full_name}</option>)}
+                          </optgroup>
+                          <optgroup label="Equipe RH">
+                            {rhUsers?.map(u => <option key={u.id} value={`rh:${u.id}`}>{u.full_name}</option>)}
+                          </optgroup>
+                        </select>
+                        {addForm.assignee.startsWith('rh:') && (
+                          <p className="text-[11px] text-primary-600 mt-1">RH: entra só no calendário e nas Reuniões dessa pessoa — <strong>sem pagamento</strong>.</p>
+                        )}
+                      </div>
+                    )}
                     {addForm.manualKind === 'ausencia' && (
                       <div>
                         <label className="label">Motivo *</label>
@@ -616,10 +614,9 @@ export default function CalendarPage() {
                       </div>
                     )}
                   </>
-                )}
 
                 {/* Campos comuns */}
-                {(addTab === 'vincular' || addForm.manualKind !== 'ausencia') && (
+                {addForm.manualKind !== 'ausencia' && (
                   <div className="grid grid-cols-2 gap-2">
                     <div>
                       <label className="label">Hora <span className="text-gray-400 font-normal">(opcional)</span></label>
@@ -651,9 +648,9 @@ export default function CalendarPage() {
 
                 <div className="flex gap-2">
                   <button className="btn-primary flex-1 text-sm"
-                    disabled={addFromVaga.isPending || addManual.isPending}
-                    onClick={() => addTab === 'vincular' ? addFromVaga.mutate() : addManual.mutate()}>
-                    {(addFromVaga.isPending || addManual.isPending) ? 'Salvando...' : 'Salvar'}
+                    disabled={addManual.isPending}
+                    onClick={() => addManual.mutate()}>
+                    {addManual.isPending ? 'Salvando...' : 'Salvar'}
                   </button>
                   <button className="btn-secondary text-sm" onClick={closeAdd}>Cancelar</button>
                 </div>

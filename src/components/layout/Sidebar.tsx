@@ -22,7 +22,7 @@ const CHEFE_MENU = [
   // nenhum caminho até ela pela interface.
   { icon: FileText, label: 'Templates', path: '/templates' },
   { icon: CalendarDays, label: 'Calendário', path: '/calendario' },
-  { icon: Calendar, label: 'Agenda', path: '/agenda' },
+  { icon: Calendar, label: 'Reuniões', path: '/agenda' },
   { icon: ListChecks, label: 'Atividades', path: '/atividades' },
   { icon: MessageSquare, label: 'Chat', path: '/chat' },
   { icon: Settings, label: 'Usuários', path: '/usuarios' },
@@ -38,7 +38,7 @@ const RECRUTADOR_MENU = [
   { icon: ClipboardList, label: 'Visitas', path: '/visitas' },
   { icon: FileText, label: 'Templates', path: '/templates' },
   { icon: CalendarDays, label: 'Calendário', path: '/calendario' },
-  { icon: Calendar, label: 'Agenda', path: '/agenda' },
+  { icon: Calendar, label: 'Reuniões', path: '/agenda' },
   { icon: ListChecks, label: 'Atividades', path: '/atividades' },
   { icon: MessageSquare, label: 'Chat', path: '/chat' },
 ]

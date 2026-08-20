@@ -3391,6 +3391,19 @@ function PortalTab({ employeeId, employee }: { employeeId: string; employee: Rec
   const [copied, setCopied] = useState(false)
   const [lastPin, setLastPin] = useState('') // senha recém-definida, mostrada uma vez para copiar
 
+  // Vínculos que exigem contrato — é o que mais trava o portal sem explicação
+  const { data: portalLinks } = useQuery({
+    queryKey: ['portal-links-check', employeeId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('employee_client_links')
+        .select('id,contract_required,contract_file_url,contract_end_date,client:clients(name)')
+        .eq('employee_id', employeeId)
+      if (error) throw error
+      return data || []
+    },
+  })
+
   const { data: visits } = useQuery({
     queryKey: ['portal-visits-admin', employeeId],
     queryFn: async () => {
@@ -3432,6 +3445,21 @@ function PortalTab({ employeeId, employee }: { employeeId: string; employee: Rec
     setTimeout(() => setCopied(false), 2000)
   }
 
+  // Tudo que impede o login, numa lista só. Sem isto, "não consigo entrar no
+  // portal" virava investigação no banco — a tela não contava o motivo.
+  const inativo = (employee as { status?: string })?.status !== 'Ativo'
+  const semCpf = !(employee as { cpf?: string })?.cpf
+  const contratosPendentes = (portalLinks || []).filter(l =>
+    l.contract_required && !l.contract_file_url
+    && (!l.contract_end_date || l.contract_end_date >= new Date().toISOString().slice(0, 10)))
+  const impedimentos: string[] = [
+    inativo && 'O colaborador está inativo — o login só funciona com status Ativo.',
+    semCpf && 'Sem CPF cadastrado — o CPF é o usuário do login.',
+    !hasPin && 'Sem senha definida — crie uma abaixo.',
+    ...contratosPendentes.map(l =>
+      `Falta anexar o contrato assinado de ${(l.client as { name?: string })?.name || 'um cliente'} — o acesso fica bloqueado até lá (aba Vínculos).`),
+  ].filter(Boolean) as string[]
+
   return (
     <div className="space-y-4">
       {/* Access card */}
@@ -3441,10 +3469,26 @@ function PortalTab({ employeeId, employee }: { employeeId: string; employee: Rec
             <h3 className="font-semibold">Acesso ao Portal</h3>
             <p className="text-sm text-gray-500 mt-0.5">O nutricionista acessa em <strong>/portal</strong> com CPF + senha</p>
           </div>
-          <span className={`badge ${hasPin ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
-            {hasPin ? '✓ Ativo' : 'Sem acesso'}
+          <span className={`badge ${impedimentos.length === 0 && hasPin ? 'bg-green-100 text-green-700' : impedimentos.length ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-500'}`}>
+            {impedimentos.length === 0 && hasPin ? '✓ Consegue entrar' : impedimentos.length ? '✕ Não consegue entrar' : 'Sem acesso'}
           </span>
         </div>
+
+        {impedimentos.length > 0 && (
+          <div className="rounded-xl border-2 border-red-200 bg-red-50 p-3">
+            <p className="text-sm font-semibold text-red-800 mb-1">Por que não consegue entrar:</p>
+            <ul className="text-xs text-red-700 space-y-1 list-disc list-inside leading-snug">
+              {impedimentos.map((m, i) => <li key={i}>{m}</li>)}
+            </ul>
+          </div>
+        )}
+
+        {impedimentos.length === 0 && hasPin && (
+          <p className="text-xs text-green-700 bg-green-50 rounded-lg px-3 py-2">
+            Nada bloqueando. Se ela ainda não entrar, é a senha —
+            defina uma nova abaixo (isso também destrava quem errou 5 vezes).
+          </p>
+        )}
 
         <div className="bg-gray-50 rounded-lg p-3 space-y-1.5 text-sm">
           <div className="flex justify-between">

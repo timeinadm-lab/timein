@@ -33,6 +33,9 @@ export default function InterviewAgenda() {
   const { role, profile } = useAuth()
   const navigate = useNavigate()
   const qc = useQueryClient()
+  // 'reunioes' = só o tipo Reunião (o uso do dia a dia)
+  // 'todos'    = qualquer compromisso: visita, treinamento, ligação, entrevista
+  const [aba, setAba] = useState<'reunioes' | 'todos'>('reunioes')
   const [view, setView] = useState<'list' | 'calendar'>('list')
   const [filterStatus, setFilterStatus] = useState('')
   const [filterMine, setFilterMine] = useState(role === 'recrutador')
@@ -52,11 +55,14 @@ export default function InterviewAgenda() {
   const profileName = (pid: string) => allProfiles?.find(p => p.id === pid)?.full_name || '?'
 
   const { data: interviews } = useQuery({
-    queryKey: ['interviews', filterStatus, filterMine, profile?.id],
+    queryKey: ['interviews', filterStatus, filterMine, profile?.id, aba],
     queryFn: async () => {
       let q = supabase.from('interviews')
         .select('*,candidate:candidates(id,full_name),vacancy:vacancies(id,title),recruiter:user_profiles(full_name),employee:employees(id,full_name)')
         .order('scheduled_at', { ascending: true })
+      // Registro antigo pode estar sem categoria: nesse caso entra em Reuniões,
+      // que era o único tipo antes de existirem categorias.
+      if (aba === 'reunioes') q = q.or('category.eq.Reunião,category.is.null')
       if (filterStatus) q = q.eq('status', filterStatus)
       // Responsável antigo ou participante — os dois veem na própria agenda
       if (filterMine && profile?.id) q = q.or(`recruiter_id.eq.${profile.id},participant_ids.cs.{${profile.id}}`)
@@ -118,9 +124,24 @@ export default function InterviewAgenda() {
       <div className="flex items-end justify-between flex-wrap gap-3">
         <div>
           <p className="eyebrow mb-1">Gestão</p>
-          <h1 className="text-2xl md:text-3xl font-display font-extrabold text-ink-900">Agenda</h1>
+          <h1 className="text-2xl md:text-3xl font-display font-extrabold text-ink-900">
+            {aba === 'reunioes' ? 'Reuniões' : 'Compromissos'}
+          </h1>
         </div>
         <button onClick={() => navigate('/agenda/nova')} className="btn-primary text-sm"><Plus size={16} />Novo Compromisso</button>
+      </div>
+
+      {/* Reuniões é o uso do dia a dia; Compromissos mostra tudo — visita,
+          treinamento, ligação, entrevista — pra nada ficar escondido. */}
+      <div className="flex gap-1.5">
+        {([['reunioes', 'Reuniões'], ['todos', 'Compromissos']] as const).map(([k, t]) => (
+          <button key={k} onClick={() => setAba(k)}
+            className={`px-4 py-2 rounded-xl text-sm font-semibold border-2 transition-colors ${
+              aba === k ? 'border-primary-600 bg-primary-50 text-primary-700' : 'border-ink-200 bg-white text-ink-500 hover:border-ink-300'
+            }`}>
+            {t}
+          </button>
+        ))}
       </div>
 
       <div className="card p-4 flex gap-3 flex-wrap items-center">

@@ -112,6 +112,35 @@ export default function CalendarPage() {
     },
   })
 
+  // Compromissos sem data. Não pertencem a nenhum dia da grade, então ficam
+  // numa faixa própria abaixo dela — senão sumiriam do calendário por completo.
+  const { data: semData } = useQuery({
+    queryKey: ['cal-sem-data'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('interviews')
+        .select('id, title, category, target_month, client:clients(name)')
+        .is('scheduled_at', null).eq('status', 'Agendada')
+        .order('target_month', { ascending: true })
+      if (error) { console.warn('sem data:', error.message); return [] }
+      return data || []
+    },
+  })
+
+  const [definindo, setDefinindo] = useState<Record<string, string>>({})
+  const definirData = useMutation({
+    mutationFn: async ({ id, quando }: { id: string; quando: string }) => {
+      const { error } = await supabase.from('interviews').update({ scheduled_at: quando }).eq('id', id)
+      if (error) throw error
+    },
+    onSuccess: () => {
+      toast.success('Data definida! Já aparece no calendário.')
+      qc.invalidateQueries({ queryKey: ['cal-sem-data'] })
+      invalidateAll()
+      setDefinindo({})
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
   // ── Dados de apoio pra adicionar no dia ──
   const { data: vagas } = useQuery({
     queryKey: ['cal-vagas'],
@@ -495,6 +524,45 @@ export default function CalendarPage() {
           ))}
         </div>
       </div>
+
+      {/* A DEFINIR — o que ainda não tem dia não cabe na grade, mas some se não
+          ficar visível. Fica logo abaixo; ao definir a data, entra no calendário. */}
+      {(semData?.length ?? 0) > 0 && (
+        <div className="card p-4 border-amber-200 bg-amber-50/40 space-y-2">
+          <div className="flex items-center gap-2">
+            <Clock size={15} className="text-amber-600" />
+            <h3 className="font-semibold text-amber-800 text-sm">
+              A definir <span className="font-normal text-amber-600">— {semData!.length} sem data</span>
+            </h3>
+          </div>
+          {semData!.map(i => (
+            <div key={i.id} className="rounded-xl bg-white border border-amber-100 p-3 flex items-center justify-between gap-3 flex-wrap">
+              <div className="min-w-0">
+                <p className="font-medium text-sm text-ink-900">
+                  {(i as { category?: string }).category && (
+                    <span className="badge bg-blue-100 text-blue-700 mr-1.5">{(i as { category?: string }).category}</span>
+                  )}
+                  {i.title || 'Compromisso'}
+                </p>
+                <p className="text-xs text-ink-400">
+                  {(i as { client?: { name: string } }).client?.name || 'Sem cliente'}
+                  {i.target_month ? ` · previsto para ${String(i.target_month).slice(5, 7)}/${String(i.target_month).slice(0, 4)}` : ''}
+                </p>
+              </div>
+              <div className="flex items-center gap-1.5 flex-shrink-0">
+                <input type="datetime-local" className="input w-auto text-xs py-1.5"
+                  value={definindo[i.id] || ''}
+                  onChange={e => setDefinindo(p => ({ ...p, [i.id]: e.target.value }))} />
+                <button className="btn-primary text-xs px-3 py-1.5"
+                  disabled={!definindo[i.id] || definirData.isPending}
+                  onClick={() => definirData.mutate({ id: i.id, quando: definindo[i.id] })}>
+                  Definir
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Detalhe do dia */}
       {dayOpen && (

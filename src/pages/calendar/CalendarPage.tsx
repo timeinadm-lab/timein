@@ -237,17 +237,32 @@ export default function CalendarPage() {
       if (k === 'reuniao' || k === 'compromisso') {
         const ehReuniao = k === 'reuniao'
         if (!addForm.title.trim()) throw new Error(ehReuniao ? 'Escreva o título da reunião' : 'Escreva o que é o compromisso')
-        if (!addForm.participants.length) throw new Error('Escolha ao menos uma pessoa')
+
+        // Reunião: várias pessoas do RH. Compromisso: uma pessoa, que pode ser
+        // do RH (vai pras Reuniões dela) ou colaborador (fica na ficha dele).
+        let quem: Record<string, unknown> = {}
+        if (ehReuniao) {
+          if (!addForm.participants.length) throw new Error('Escolha ao menos um participante')
+          quem = { recruiter_id: addForm.participants[0], participant_ids: addForm.participants }
+        } else {
+          const [tipo, pid] = (addForm.assignee || '').split(':')
+          if (!pid) throw new Error('Escolha de quem é o compromisso')
+          quem = tipo === 'rh'
+            ? { recruiter_id: pid, participant_ids: [pid] }
+            : { employee_id: pid }
+        }
+
         const { error } = await supabase.from('interviews').insert({
           title: addForm.title.trim(),
           category: ehReuniao ? 'Reunião' : 'Compromisso',
-          recruiter_id: addForm.participants[0],       // compatibilidade
-          participant_ids: addForm.participants,
+          ...quem,
           client_id: addForm.client_id || null,
           scheduled_at: `${dayOpen}T${addForm.time || '09:00'}:00`,
-          duration_min: Number(addForm.duration) || 60,
-          modality: addForm.modality,
-          link_or_address: addForm.link.trim() || null,
+          // Compromisso não tem modalidade nem duração: é só "onde a pessoa vai
+          // estar". Os valores abaixo são só o que a tabela exige.
+          duration_min: ehReuniao ? (Number(addForm.duration) || 60) : 60,
+          modality: ehReuniao ? addForm.modality : 'Presencial',
+          link_or_address: ehReuniao ? (addForm.link.trim() || null) : null,
           status: 'Agendada',
           notes: addForm.notes || null,
         })
@@ -406,8 +421,11 @@ export default function CalendarPage() {
         client: (ap as { client?: { name: string } }).client?.name,
         time: formatLocalTime(ap.scheduled_at),
         note: [(ap as { category?: string }).category, ap.title || (ap as { vacancy?: { title: string } }).vacancy?.title].filter(Boolean).join(' · '),
-        // Tem responsável ou participantes do RH = é da equipe, não do campo
-        isRh: !!(ap as { recruiter_id?: string }).recruiter_id
+        // Tem responsável ou participantes do RH = é da equipe, não do campo.
+        // Compromisso é sempre da equipe: existe só pro RH saber onde a pessoa
+        // vai estar, mesmo quando é o compromisso de um colaborador.
+        isRh: (ap as { category?: string }).category === 'Compromisso'
+          || !!(ap as { recruiter_id?: string }).recruiter_id
           || ((ap as { participant_ids?: string[] }).participant_ids?.length || 0) > 0,
       })
     }
@@ -612,49 +630,84 @@ export default function CalendarPage() {
                           <label className="label">{addForm.manualKind === 'reuniao' ? 'Título *' : 'O que é? *'}</label>
                           <input className="input" placeholder={addForm.manualKind === 'reuniao' ? 'Ex: Reunião de alinhamento' : 'Ex: Gabriel no Paraná com cliente · Consulta médica'} value={addForm.title} onChange={e => setAddForm(p => ({ ...p, title: e.target.value }))} />
                         </div>
-                        {/* Vários participantes, como na tela de Reuniões. Antes o
-                            calendário só marcava uma pessoa e perdia o link. */}
-                        <div>
-                          <label className="label">{addForm.manualKind === 'reuniao' ? 'Participantes *' : 'Quem? *'} <span className="text-gray-400 font-normal">— cada um vê nas Reuniões dele</span></label>
-                          <div className="flex flex-wrap gap-1.5">
-                            {rhUsers?.map(u => {
-                              const on = addForm.participants.includes(u.id)
-                              return (
-                                <button key={u.id} type="button"
-                                  onClick={() => setAddForm(p => ({
-                                    ...p,
-                                    participants: on ? p.participants.filter(x => x !== u.id) : [...p.participants, u.id],
-                                  }))}
-                                  className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border-2 transition-colors ${on ? 'border-primary-600 bg-primary-50 text-primary-700' : 'border-ink-200 bg-white text-ink-500'}`}>
-                                  {u.full_name}
-                                </button>
-                              )
-                            })}
-                          </div>
-                        </div>
-                        <div className="grid grid-cols-2 gap-2">
+                        {/* Reunião: várias pessoas do RH, porque reunião é encontro.
+                            Compromisso: uma pessoa só — e pode ser colaborador. */}
+                        {addForm.manualKind === 'reuniao' ? (
                           <div>
-                            <label className="label">Modalidade</label>
-                            <select className="input" value={addForm.modality}
-                              onChange={e => setAddForm(p => ({ ...p, modality: e.target.value as 'Online' | 'Presencial' | 'Telefone' }))}>
-                              <option>Online</option><option>Presencial</option><option>Telefone</option>
+                            <label className="label">Participantes * <span className="text-gray-400 font-normal">— cada um vê nas Reuniões dele</span></label>
+                            <div className="flex flex-wrap gap-1.5">
+                              {rhUsers?.map(u => {
+                                const on = addForm.participants.includes(u.id)
+                                return (
+                                  <button key={u.id} type="button"
+                                    onClick={() => setAddForm(p => ({
+                                      ...p,
+                                      participants: on ? p.participants.filter(x => x !== u.id) : [...p.participants, u.id],
+                                    }))}
+                                    className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border-2 transition-colors ${on ? 'border-primary-600 bg-primary-50 text-primary-700' : 'border-ink-200 bg-white text-ink-500'}`}>
+                                    {u.full_name}
+                                  </button>
+                                )
+                              })}
+                            </div>
+                          </div>
+                        ) : (
+                          <div>
+                            <label className="label">Quem? *</label>
+                            <select className="input" value={addForm.assignee}
+                              onChange={e => setAddForm(p => ({ ...p, assignee: e.target.value }))}>
+                              <option value="">Selecionar...</option>
+                              <optgroup label="Equipe RH">
+                                {rhUsers?.map(u => <option key={u.id} value={`rh:${u.id}`}>{u.full_name}</option>)}
+                              </optgroup>
+                              <optgroup label="Colaboradores">
+                                {allEmployees?.map(e => <option key={e.id} value={`emp:${e.id}`}>{e.full_name}</option>)}
+                              </optgroup>
                             </select>
                           </div>
+                        )}
+
+                        {/* Modalidade, duração e link só na reunião: compromisso é
+                            só "o que é" e "quem" — o resto vira campo pra ignorar. */}
+                        {addForm.manualKind === 'reuniao' && (
+                          <>
+                            <div className="grid grid-cols-2 gap-2">
+                              <div>
+                                <label className="label">Modalidade</label>
+                                <select className="input" value={addForm.modality}
+                                  onChange={e => setAddForm(p => ({ ...p, modality: e.target.value as 'Online' | 'Presencial' | 'Telefone' }))}>
+                                  <option>Online</option><option>Presencial</option><option>Telefone</option>
+                                </select>
+                              </div>
+                              <div>
+                                <label className="label">Duração</label>
+                                <select className="input" value={addForm.duration}
+                                  onChange={e => setAddForm(p => ({ ...p, duration: e.target.value }))}>
+                                  <option value="30">30 min</option><option value="45">45 min</option>
+                                  <option value="60">60 min</option><option value="90">90 min</option>
+                                </select>
+                              </div>
+                            </div>
+                            <div>
+                              <label className="label">Link da reunião / Endereço</label>
+                              <input className="input" placeholder="Cole o link do Teams/Meet/Zoom, ou o endereço"
+                                value={addForm.link} onChange={e => setAddForm(p => ({ ...p, link: e.target.value }))} />
+                              <p className="text-[11px] text-ink-400 mt-0.5">Link vira botão de entrar; endereço vira atalho pro mapa.</p>
+                            </div>
+                          </>
+                        )}
+
+                        {/* Cliente é opcional no compromisso — serve só de contexto */}
+                        {addForm.manualKind === 'compromisso' && (
                           <div>
-                            <label className="label">Duração</label>
-                            <select className="input" value={addForm.duration}
-                              onChange={e => setAddForm(p => ({ ...p, duration: e.target.value }))}>
-                              <option value="30">30 min</option><option value="45">45 min</option>
-                              <option value="60">60 min</option><option value="90">90 min</option>
+                            <label className="label">Cliente <span className="text-gray-400 font-normal">(opcional)</span></label>
+                            <select className="input" value={addForm.client_id}
+                              onChange={e => setAddForm(p => ({ ...p, client_id: e.target.value }))}>
+                              <option value="">Nenhum</option>
+                              {allClients?.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                             </select>
                           </div>
-                        </div>
-                        <div>
-                          <label className="label">Link da reunião / Endereço</label>
-                          <input className="input" placeholder="Cole o link do Teams/Meet/Zoom, ou o endereço"
-                            value={addForm.link} onChange={e => setAddForm(p => ({ ...p, link: e.target.value }))} />
-                          <p className="text-[11px] text-ink-400 mt-0.5">Link vira botão de entrar; endereço vira atalho pro mapa.</p>
-                        </div>
+                        )}
                       </>
                     ) : (
                       <div>

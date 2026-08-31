@@ -1222,16 +1222,37 @@ export default function VacancyDetail() {
             <div><span className="text-xs text-gray-400">Tipo</span><p>{(vacancy as { vacancy_type?: string }).vacancy_type || '-'}</p></div>
           </div>
 
-          {/* Financeiro */}
+          {/* Unidades de atuação — onde a pessoa vai trabalhar. Sem valores:
+              o combinado de pagamento é do vínculo, não da vaga. */}
+          {(() => {
+            const units = ((vacancy as { vacancy_units?: { unit_id: string; unit_name: string }[] }).vacancy_units) || []
+            if (!units.length) return null
+            return (
+              <div className="border-t pt-3 space-y-2">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Unidades de atuação</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {units.map((u, i) => (
+                    <span key={i} className="badge bg-gray-100 text-gray-700">{u.unit_name}</span>
+                  ))}
+                </div>
+                <p className="text-xs text-gray-400">Valor da vistoria e horas ficam no vínculo de cada pessoa.</p>
+              </div>
+            )
+          })()}
+
+          {/* Financeiro — só existe em vaga ANTIGA, de quando a vaga ainda
+              guardava salário e valores. Fica como histórico, marcado como tal,
+              porque quem vale hoje é o vínculo. */}
           {(() => {
             const vac = vacancy as { vacancy_type?: string; salary_amount?: number; cost_assistance?: number; payment_day_1?: number; payment_day_2?: number; monthly_hours?: number; weekly_hours?: number; visits_per_week?: number; vacancy_units?: { unit_id: string; unit_name: string; visit_rate?: string | number }[] }
             const isConsultoria = vac.vacancy_type === 'Consultoria'
             const isFixo = vac.vacancy_type === 'Fixo'
-            const hasFinancial = vac.salary_amount || vac.payment_day_1 || vac.monthly_hours || (vac.vacancy_units && vac.vacancy_units.length > 0)
+            const temValorUnidade = (vac.vacancy_units || []).some(u => Number(u.visit_rate) > 0)
+            const hasFinancial = vac.salary_amount || vac.payment_day_1 || vac.monthly_hours || temValorUnidade
             if (!hasFinancial) return null
             return (
               <div className="border-t pt-3 space-y-3">
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Financeiro</p>
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Financeiro <span className="normal-case font-normal text-gray-400">— registro antigo desta vaga. O que vale é o vínculo.</span></p>
                 {isFixo && (
                   <div className="grid grid-cols-2 gap-3 text-sm">
                     {vac.salary_amount != null && (
@@ -1255,7 +1276,10 @@ export default function VacancyDetail() {
                 )}
                 {isConsultoria && (() => {
                   const units = vac.vacancy_units || []
-                  const avgRate = units.length ? units.reduce((s, u) => s + (Number(u.visit_rate) || 0), 0) / units.length : 0
+                  // Média só entre as unidades que têm valor: incluir as zeradas
+                  // puxava a média pra baixo e inventava uma estimativa errada.
+                  const comValor = units.filter(u => Number(u.visit_rate) > 0)
+                  const avgRate = comValor.length ? comValor.reduce((s, u) => s + Number(u.visit_rate), 0) / comValor.length : 0
                   const freq = (vac as { visit_frequency?: string }).visit_frequency || 'Semanal'
                   const freqMultiplier = freq === 'Mensal' ? 1 : freq === 'Quinzenal' ? 2 : 4
                   return (
@@ -1278,9 +1302,9 @@ export default function VacancyDetail() {
                           <p className="font-medium text-sm">{vac.monthly_hours != null ? `${vac.monthly_hours}h no mês` : '—'} — passar de 1h disso vai pra aprovação do gestor{vac.visits_per_week != null ? ` · meta de ${vac.visits_per_week} visita(s)/semana` : ''}</p>
                         </div>
                       </div>
-                      {units.length > 0 && (
+                      {units.some(u => Number(u.visit_rate) > 0) && (
                         <div className="space-y-1.5">
-                          {units.map((u, i) => (
+                          {units.filter(u => Number(u.visit_rate) > 0).map((u, i) => (
                             <div key={i} className="bg-gray-50 rounded-lg px-3 py-2 text-sm flex items-center justify-between">
                               <span className="font-medium">{u.unit_name}</span>
                               <span className="text-green-700 font-semibold">R$ {(Number(u.visit_rate) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })} / vistoria</span>
@@ -1357,11 +1381,24 @@ export default function VacancyDetail() {
                         <CheckCircle size={12} /> Contratado em {formatDate(interest.hired_at)}
                       </p>
                     )}
-                    {interest.status === 'Contratado' && !vacancy.salary_amount && !(vacancy.vacancy_units as unknown[])?.length && (
-                      <p className="text-xs text-amber-600 mt-1">
-                        ⚠ Valores não definidos na vaga — abra o colaborador → Vínculos → Editar e defina para aparecer em Pagamentos.
-                      </p>
-                    )}
+                    {/* O aviso agora olha o VÍNCULO, não a vaga. Antes checava
+                        salário na vaga — que a vaga não guarda mais — e por isso
+                        nunca aparecia pra quem realmente estava sem combinado. */}
+                    {interest.status === 'Contratado' && (() => {
+                      const h = (hiredEmps || []).find(x => (x.interest as { id: string }).id === interest.id)
+                      if (!h) return null
+                      if (!h.link) return (
+                        <p className="text-xs text-amber-600 mt-1">
+                          ⚠ Ainda sem vínculo neste cliente — abra o colaborador → Vínculos → <strong>+ Vincular</strong> para definir valor, escala e contrato.
+                        </p>
+                      )
+                      if (h.link.service_type !== 'Consultoria' && !h.link.monthly_amount) return (
+                        <p className="text-xs text-amber-600 mt-1">
+                          ⚠ Vínculo sem valor definido — abra o colaborador → Vínculos → Editar para aparecer em Pagamentos.
+                        </p>
+                      )
+                      return null
+                    })()}
                   </div>
 
                   <div className="flex gap-2 items-center flex-wrap">

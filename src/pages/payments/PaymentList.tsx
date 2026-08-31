@@ -270,7 +270,7 @@ export default function PaymentList() {
       // cliente A e um vínculo sem salário no cliente B recebia, no B, o salário
       // da vaga do A. Era improvável enquanto vincular exigia vaga; virou
       // provável quando vincular direto ficou fácil.
-      let vacancyFallback: Record<string, { salary_amount: number | null; vacancy_units: { visit_rate: string | number; visits_per_month: string | number }[] | null }> = {}
+      let vacancyFallback: Record<string, { salary_amount: number | null; vacancy_units: { visit_rate: string | number }[] | null }> = {}
       if (nullAmtEmpIds.length) {
         const { data: interests } = await supabase
           .from('vacancy_interests')
@@ -279,14 +279,13 @@ export default function PaymentList() {
           .eq('status', 'Contratado')
         if (interests) {
           for (const i of interests) {
-            const v = (i as { vacancy?: { client_id?: string; salary_amount?: number; vacancy_units?: { visit_rate: string | number; visits_per_month: string | number }[]; vacancy_type?: string } }).vacancy
+            const v = (i as { vacancy?: { client_id?: string; salary_amount?: number; vacancy_units?: { visit_rate: string | number }[]; vacancy_type?: string } }).vacancy
             if (v && i.employee_id && v.client_id) {
-              let amt: number | null = null
-              if (v.salary_amount) {
-                amt = v.salary_amount
-              } else if (v.vacancy_units?.length) {
-                amt = v.vacancy_units.reduce((s, u) => s + (Number(u.visit_rate) || 0) * (Number(u.visits_per_month) || 0), 0)
-              }
+              // Só salário fixo de vaga antiga. O ramo de consultoria multiplicava
+              // por `visits_per_month`, um campo que nunca foi gravado: dava
+              // sempre 0 e fingia ser um cálculo. Consultoria se paga pelas
+              // visitas registradas, não por estimativa de vaga.
+              const amt: number | null = v.salary_amount || null
               vacancyFallback[`${i.employee_id}|${v.client_id}`] = { salary_amount: amt, vacancy_units: v.vacancy_units ?? null }
             }
           }

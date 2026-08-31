@@ -123,10 +123,15 @@ export default function InterviewForm() {
 
   const set = (k: string, v: unknown) => setForm(p => ({ ...p, [k]: v }))
 
+  // Compromisso é o tipo simples: o que é + quem. Sem duração, modalidade ou link.
+  const ehCompromisso = form.category === 'Compromisso'
+
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault()
     if (!noDate && !form.scheduled_at) { toast.error('Escolha a data, ou marque "sem data (a agendar)"'); return }
     if (form.category === 'Visita' && !form.client_id) { toast.error('Escolha o cliente da visita'); return }
+    if (ehCompromisso && !form.title.trim()) { toast.error('Escreva o que é o compromisso'); return }
+    if (ehCompromisso && !form.employee_id && !participantIds.length) { toast.error('Escolha de quem é o compromisso'); return }
     mutation.mutate({
       title: form.title || null,
       category: form.category || null,
@@ -139,9 +144,9 @@ export default function InterviewForm() {
       scheduled_at: noDate ? null : form.scheduled_at,
       target_month: noDate ? `${targetMonth}-01` : null,
       end_date: form.end_date || null,
-      duration_min: Number(form.duration_min),
-      modality: form.modality,
-      link_or_address: form.link_or_address || null,
+      duration_min: ehCompromisso ? 60 : Number(form.duration_min),
+      modality: ehCompromisso ? 'Presencial' : form.modality,
+      link_or_address: ehCompromisso ? null : (form.link_or_address || null),
       notes: form.notes || null,
       status: form.status,
     })
@@ -202,7 +207,9 @@ export default function InterviewForm() {
               <input className="input" type="date" value={form.end_date} onChange={e => set('end_date', e.target.value)} />
             </div>
           )}
-          {form.category !== 'Visita' && (
+          {/* Compromisso não tem duração nem modalidade: é só "o que é" e "quem".
+              Reunião tem pauta e horário; compromisso é onde a pessoa vai estar. */}
+          {form.category !== 'Visita' && !ehCompromisso && (
             <>
               <div>
                 <label className="label">Duração</label>
@@ -218,21 +225,45 @@ export default function InterviewForm() {
               </div>
             </>
           )}
-          <div className="col-span-full">
-            <label className="label">Participantes <span className="text-gray-400 font-normal">(quem vai — pode marcar mais de uma pessoa, todas veem na própria agenda)</span></label>
-            <div className="flex flex-wrap gap-1.5">
-              {recruiters?.map(r => {
-                const active = participantIds.includes(r.id)
-                return (
-                  <button key={r.id} type="button" onClick={() => toggleParticipant(r.id)}
-                    className={`px-3 py-1.5 rounded-xl text-sm font-medium border-2 transition-colors ${active ? 'border-primary-600 bg-primary-50 text-primary-700' : 'border-ink-200 text-ink-500 hover:border-ink-300'}`}>
-                    {r.full_name}
-                  </button>
-                )
-              })}
+          {ehCompromisso ? (
+            <div className="col-span-full">
+              <label className="label">Quem? *</label>
+              <select className="input"
+                value={form.employee_id ? `emp:${form.employee_id}` : participantIds[0] ? `rh:${participantIds[0]}` : ''}
+                onChange={e => {
+                  const [tipo, pid] = e.target.value.split(':')
+                  if (tipo === 'emp') { set('employee_id', pid); setParticipantIds([]) }
+                  else if (tipo === 'rh') { set('employee_id', ''); setParticipantIds([pid]) }
+                  else { set('employee_id', ''); setParticipantIds([]) }
+                }}>
+                <option value="">Selecionar...</option>
+                <optgroup label="Equipe RH">
+                  {recruiters?.map(r => <option key={r.id} value={`rh:${r.id}`}>{r.full_name}</option>)}
+                </optgroup>
+                <optgroup label="Colaboradores">
+                  {employees?.map(emp => <option key={emp.id} value={`emp:${emp.id}`}>{emp.full_name}</option>)}
+                </optgroup>
+              </select>
+              <p className="text-xs text-ink-400 mt-1">Serve só pra equipe saber onde a pessoa vai estar. Não entra em pagamento.</p>
             </div>
-            {participantIds.length === 0 && <p className="text-xs text-ink-400 mt-1">Ninguém marcado — o compromisso não aparece na agenda de ninguém.</p>}
-          </div>
+          ) : (
+            <div className="col-span-full">
+              <label className="label">Participantes <span className="text-gray-400 font-normal">(quem vai — pode marcar mais de uma pessoa, todas veem na própria agenda)</span></label>
+              <div className="flex flex-wrap gap-1.5">
+                {recruiters?.map(r => {
+                  const active = participantIds.includes(r.id)
+                  return (
+                    <button key={r.id} type="button" onClick={() => toggleParticipant(r.id)}
+                      className={`px-3 py-1.5 rounded-xl text-sm font-medium border-2 transition-colors ${active ? 'border-primary-600 bg-primary-50 text-primary-700' : 'border-ink-200 text-ink-500 hover:border-ink-300'}`}>
+                      {r.full_name}
+                    </button>
+                  )
+                })}
+              </div>
+              {participantIds.length === 0 && <p className="text-xs text-ink-400 mt-1">Ninguém marcado — o compromisso não aparece na agenda de ninguém.</p>}
+            </div>
+          )}
+          {!ehCompromisso && (
           <div className="col-span-full">
             <label className="label">{form.category === 'Visita' ? 'Endereço da visita' : 'Link de reunião / Endereço'}</label>
             <input className="input" placeholder={form.category === 'Visita' ? 'Rua, número, cidade' : 'Cole o link do Teams/Meet/Zoom, ou o endereço'}
@@ -245,6 +276,7 @@ export default function InterviewForm() {
                   : 'Link vira botão de entrar; endereço vira atalho pro mapa.'}
             </p>
           </div>
+          )}
           <div className="col-span-full"><label className="label">Notas</label><textarea className="input" rows={3} value={form.notes} onChange={e => set('notes', e.target.value)} /></div>
           {isEdit && (
             <div>
@@ -262,13 +294,16 @@ export default function InterviewForm() {
             Vincular a colaborador, candidato ou vaga (opcional)
           </summary>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-3">
-            <div>
-              <label className="label">Colaborador <span className="text-gray-400 font-normal">(férias, licença)</span></label>
-              <select className="input" value={form.employee_id} onChange={e => set('employee_id', e.target.value)}>
-                <option value="">Nenhum</option>
-                {employees?.map(emp => <option key={emp.id} value={emp.id}>{emp.full_name}</option>)}
-              </select>
-            </div>
+            {/* No compromisso o colaborador já é escolhido em "Quem?" acima */}
+            {!ehCompromisso && (
+              <div>
+                <label className="label">Colaborador <span className="text-gray-400 font-normal">(férias, licença)</span></label>
+                <select className="input" value={form.employee_id} onChange={e => set('employee_id', e.target.value)}>
+                  <option value="">Nenhum</option>
+                  {employees?.map(emp => <option key={emp.id} value={emp.id}>{emp.full_name}</option>)}
+                </select>
+              </div>
+            )}
             <div>
               <label className="label">Candidato</label>
               <select className="input" value={form.candidate_id} onChange={e => set('candidate_id', e.target.value)}>

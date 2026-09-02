@@ -76,6 +76,8 @@ export default function EmployeeDetail() {
   const [showHistoryForm, setShowHistoryForm] = useState(false)
   const [histForm, setHistForm] = useState({ type: 'Anotação', description: '', responsible: '' })
   const [showLinkForm, setShowLinkForm] = useState(false)
+  // Data de hoje em ISO — usada para saber se um vínculo já foi encerrado
+  const hojeISO = new Date().toISOString().slice(0, 10)
   const [linkForm, setLinkForm] = useState({ client_id: '', service_type: 'Fixo' as 'Fixo' | 'Consultoria', monthly_amount: '', cost_assistance: '', weekly_hours_quota: '', visit_frequency: 'Semanal' as 'Semanal' | 'Quinzenal' | 'Mensal', contract_end_date: '', work_schedule_type: '', daily_hours: '', days_off: [] as number[], schedule_anchor_date: '' })
   type EditLinkUnit = { unit_id: string; unit_name: string; visit_rate: string }
   type EditLinkState = { linkId: string; serviceType: string; clientId: string; monthly_amount: string; cost_assistance: string; weekly_hours: string; visit_frequency: string; visits_per_week: string; units: EditLinkUnit[]; work_schedule_type: string; daily_hours: string; days_off: number[]; schedule_anchor_date: string; start_date: string; payDays: string[]; pay_full_salary: boolean; expected_days_month: string }
@@ -1679,7 +1681,16 @@ export default function EmployeeDetail() {
           />
 
           <div className="space-y-3">
-            {links?.filter(l => l.service_type !== 'Volante').map(l => {
+            {links?.filter(l => l.service_type !== 'Volante')
+              // Encerrado vai pro fim da lista: quem está ativo é o que importa
+              .slice()
+              .sort((a, b) => {
+                const fim = (x: typeof a) => (x as { contract_end_date?: string }).contract_end_date || ''
+                const encA = fim(a) && fim(a) <= hojeISO ? 1 : 0
+                const encB = fim(b) && fim(b) <= hojeISO ? 1 : 0
+                return encA - encB
+              })
+              .map(l => {
               const contractEnd = (l as { contract_end_date?: string }).contract_end_date
               const contractFile = (l as { contract_file_url?: string }).contract_file_url
               const linkCreated = (l as { created_at?: string }).created_at
@@ -1689,12 +1700,39 @@ export default function EmployeeDetail() {
               const contractYellow = contractPendingHours !== null && contractPendingHours >= 24 && contractPendingHours < 48
               const contractRed = contractPendingHours !== null && contractPendingHours >= 48
               const daysLeft = contractEnd ? differenceInDays(new Date(contractEnd + 'T12:00:00'), new Date()) : null
-              const expiringSoon = daysLeft !== null && daysLeft >= 0 && daysLeft <= 40
-              const expired = daysLeft !== null && daysLeft < 0
+              // Encerrado = a data de fim já chegou. É diferente de "contrato
+              // vencendo": aqui o vínculo acabou, e o card precisa dizer isso em
+              // vez de piscar um alerta de prazo que não cabe mais.
+              const encerrado = !!contractEnd && contractEnd <= hojeISO
+              const expiringSoon = !encerrado && daysLeft !== null && daysLeft >= 0 && daysLeft <= 40
+              const expired = !encerrado && daysLeft !== null && daysLeft < 0
+              // Sai da folha no mês seguinte ao encerramento — no mês em que
+              // acabou ele ainda entra, porque houve dias trabalhados.
+              const saiDaFolhaEm = contractEnd
+                ? (() => {
+                    const [y, m] = contractEnd.split('-').map(Number)
+                    const d = new Date(y, m, 1)
+                    return d.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
+                  })()
+                : null
               return (
-                <div key={l.id} className={`border rounded-lg p-4 ${contractRed ? 'border-red-300 bg-red-50 ring-1 ring-red-200' : contractYellow ? 'border-amber-300 bg-amber-50 ring-1 ring-amber-200' : expired ? 'border-red-200 bg-red-50' : expiringSoon ? 'border-amber-200 bg-amber-50' : 'border-gray-100'}`}>
+                <div key={l.id} className={`border rounded-lg p-4 ${encerrado ? 'border-ink-200 bg-ink-50/60' : contractRed ? 'border-red-300 bg-red-50 ring-1 ring-red-200' : contractYellow ? 'border-amber-300 bg-amber-50 ring-1 ring-amber-200' : expired ? 'border-red-200 bg-red-50' : expiringSoon ? 'border-amber-200 bg-amber-50' : 'border-gray-100'}`}>
+                  {/* Encerrar não apaga: o vínculo fica como histórico, e sem
+                      esta faixa parecia que o botão não tinha funcionado. */}
+                  {encerrado && (
+                    <div className="mb-3 rounded-lg bg-white border border-ink-200 px-3 py-2">
+                      <p className="text-xs text-ink-700">
+                        <strong>Vínculo encerrado.</strong> Fica aqui como histórico — as visitas e os
+                        pagamentos deste cliente continuam guardados.
+                      </p>
+                      <p className="text-xs text-ink-500 mt-0.5">
+                        Não gera mais cobrança: sai da folha a partir de <strong>{saiDaFolhaEm}</strong>.
+                        No mês em que encerrou ele ainda aparece, pelos dias trabalhados.
+                      </p>
+                    </div>
+                  )}
                   <div className="flex items-start justify-between">
-                    <div className="flex-1 min-w-0">
+                    <div className={`flex-1 min-w-0 ${encerrado ? 'opacity-70' : ''}`}>
                       <p className="font-medium">{(l as { client?: { name: string } }).client?.name}</p>
                       <div className="flex gap-2 mt-1 flex-wrap items-center">
                         <span className={`badge ${l.service_type === 'Consultoria' ? 'bg-orange-100 text-orange-700' : l.service_type === 'Volante' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'}`}>{serviceTypeLabel(l.service_type)}</span>
@@ -1730,9 +1768,13 @@ export default function EmployeeDetail() {
                             {(l as { visits_per_week?: number }).visits_per_week} visita(s)/sem
                           </span>
                         ) : null}
-                        {daysLeft !== null ? (
+                        {encerrado ? (
+                          <span className="badge text-xs bg-ink-200 text-ink-700">
+                            Encerrado em {formatDate(contractEnd!)}
+                          </span>
+                        ) : daysLeft !== null ? (
                           <span className={`badge text-xs ${expired ? 'bg-red-100 text-red-700' : expiringSoon ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700'}`}>
-                            {expired ? `Contrato vencido há ${Math.abs(daysLeft)}d` : daysLeft === 0 ? 'Vence hoje!' : `Contrato: ${daysLeft}d restantes`}
+                            {expired ? `Contrato vencido há ${Math.abs(daysLeft)}d` : `Contrato: ${daysLeft}d restantes`}
                           </span>
                         ) : !contractEnd && (l.service_type === 'Fixo' || l.service_type === 'Consultoria') ? (
                           <span className="badge text-xs bg-gray-100 text-gray-500">Contrato indeterminado</span>

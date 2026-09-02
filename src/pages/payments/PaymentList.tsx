@@ -1,11 +1,12 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Download, Check, RefreshCw, AlertTriangle, ChevronDown, ChevronUp, BarChart3, Trash2 } from 'lucide-react'
+import { Plus, Download, Check, RefreshCw, AlertTriangle, ChevronDown, ChevronUp, BarChart3, Trash2, FileSpreadsheet, X, Paperclip } from 'lucide-react'
 import { supabase, fetchAll } from '../../lib/supabase'
 import { formatDate, formatCurrency } from '../../lib/utils'
 import { exportToCSV } from '../../lib/exportUtils'
 import { SkeletonRows } from '../../components/ui/Skeleton'
+import { SignedLink } from '../../components/ui/SignedFile'
 import { format, startOfMonth, endOfMonth, getDaysInMonth } from 'date-fns'
 import toast from 'react-hot-toast'
 import {
@@ -137,6 +138,9 @@ export default function PaymentList() {
         category: expForm.category,
         notes: expForm.notes || null,
         reference_month: filterMonth,
+        // Lançado aqui pelo RH já nasce aprovado: quem está lançando é quem aprova
+        status: 'aprovado',
+        reviewed_at: new Date().toISOString(),
       })
       if (error) throw error
     },
@@ -145,6 +149,22 @@ export default function PaymentList() {
       qc.invalidateQueries({ queryKey: ['expenses', filterMonth] })
       setNewExpenseEmpId(null)
       setExpForm({ description: '', amount: '', category: 'Reembolso', notes: '' })
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  // Analisar reembolso pedido pelo portal. Sem isso, o que a colaboradora
+  // digitava entrava sozinho no pagamento — o portal prometia uma aprovação
+  // que não existia em lugar nenhum.
+  const reviewExpense = useMutation({
+    mutationFn: async ({ id, status }: { id: string; status: 'aprovado' | 'negado' }) => {
+      const { error } = await supabase.from('employee_expenses')
+        .update({ status, reviewed_at: new Date().toISOString() }).eq('id', id)
+      if (error) throw error
+    },
+    onSuccess: (_d, v) => {
+      toast.success(v.status === 'aprovado' ? 'Reembolso aprovado — entra no pagamento.' : 'Reembolso negado.')
+      qc.invalidateQueries({ queryKey: ['expenses', filterMonth] })
     },
     onError: (e: Error) => toast.error(e.message),
   })
@@ -184,9 +204,10 @@ export default function PaymentList() {
         visit_rate?: number; is_unavailable?: boolean; is_extra?: boolean
         extra_approval?: string; extra_amount?: number; observations?: string
         report_url?: string; is_holiday?: boolean
+        atestado_url?: string; unavailability_reason?: string; unit_name?: string
       }>(() => supabase
         .from('nutritionist_visits')
-        .select('employee_id, client_id, visit_date, check_in, check_out, break_start, break_end, visit_rate, is_unavailable, is_extra, extra_approval, extra_amount, observations, report_url, is_holiday')
+        .select('employee_id, client_id, visit_date, check_in, check_out, break_start, break_end, visit_rate, is_unavailable, is_extra, extra_approval, extra_amount, observations, report_url, is_holiday, atestado_url, unavailability_reason, unit_name')
         .gte('visit_date', monthStart)
         .lte('visit_date', monthEnd))
 
@@ -484,6 +505,13 @@ export default function PaymentList() {
         // salário ÷ 10 — o triplo do correto.
         const valorDia = monthlyAmt > 0 ? monthlyAmt / 30 : 0
         const faltas = !isConsultoria && !isFreela ? Math.max(0, expDays - actualDays) : 0
+
+        // Ausências declaradas — separadas entre as que têm atestado anexado e as
+        // que não têm. Estavam no banco mas nunca chegavam nesta tela: o RH não
+        // conseguia ver, na folha, quem faltou justificando e quem simplesmente faltou.
+        const ausencias = empVisits.filter(v => (v as { is_unavailable?: boolean }).is_unavailable)
+        const ausenciasComAtestado = ausencias.filter(v => (v as { atestado_url?: string }).atestado_url)
+        const presencaCompleta = !isConsultoria && !isFreela && expDays > 0 && actualDays >= expDays
         const realAmt = isFreela
           ? (freelaConsultoria ? (actualAmount || 0) : Math.round(actualDays * dailyRate * 100) / 100)
           : isConsultoria
@@ -528,6 +556,10 @@ export default function PaymentList() {
           expDaysToDate,
           reportRequired,
           semRelatorio,
+          ausencias,
+          ausenciasComAtestado,
+          presencaCompleta,
+          visitHours,
         }
       })
     },
@@ -586,9 +618,15 @@ export default function PaymentList() {
     visits: { visit_date: string; visit_rate?: number | null }[]
   }
 
+  // Só reembolso APROVADO entra no pagamento. Antes somava tudo, inclusive
+  // pedido do portal sem nota e sem ninguém ter olhado.
   const empExpensesTotal = (empId?: string) =>
-    (expenses ?? []).filter(e => (e as { employee_id?: string }).employee_id === empId)
+    (expenses ?? [])
+      .filter(e => (e as { employee_id?: string }).employee_id === empId)
+      .filter(e => ((e as { status?: string }).status ?? 'aprovado') === 'aprovado')
       .reduce((s, e) => s + (Number(e.amount) || 0), 0)
+
+  const expensesPendentes = (expenses ?? []).filter(e => (e as { status?: string }).status === 'pendente')
 
   const baseRecord = (row: GenRow) => ({
     status: 'Pendente',
@@ -719,6 +757,33 @@ export default function PaymentList() {
     onError: (e: Error) => toast.error(e.message),
   })
 
+  // Baixar a folha em Excel. O mês na tela vai detalhado (resumo, dia a dia e
+  // reembolsos); a aba de pagamentos traz TODOS os meses, que é o histórico
+  // colaborador por colaborador.
+  const [baixando, setBaixando] = useState(false)
+  const baixarExcel = async () => {
+    setBaixando(true)
+    try {
+      const { data: todosPagamentos, error } = await supabase
+        .from('payments')
+        .select('description, amount, due_date, status, type, reference_month, paid_at, employee:employees(full_name), client:clients(name)')
+        .order('due_date', { ascending: false })
+      if (error) throw error
+      const { exportFolhaExcel } = await import('../../lib/folhaExcel')
+      await exportFolhaExcel(
+        (folhaData ?? []) as unknown as Parameters<typeof exportFolhaExcel>[0],
+        (expenses ?? []) as unknown as Parameters<typeof exportFolhaExcel>[1],
+        (todosPagamentos ?? []) as unknown as Parameters<typeof exportFolhaExcel>[2],
+        filterMonth,
+      )
+      toast.success('Planilha baixada!')
+    } catch (e) {
+      toast.error('Não foi possível gerar a planilha: ' + (e as Error).message)
+    } finally {
+      setBaixando(false)
+    }
+  }
+
   // Totals driven by active vinculos (folhaData), not by payments records
   const totalEstimativa = (folhaData ?? []).reduce((s, r) => s + (r.adjusted_amount ?? r.monthly_amount) + r.cost_assistance + (r.extrasAprovados || 0), 0)
   const totalExpenses = expenses?.reduce((s, e) => s + (Number(e.amount) || 0), 0) ?? 0
@@ -835,7 +900,11 @@ export default function PaymentList() {
           <h1 className="text-2xl md:text-3xl font-display font-extrabold text-ink-900">Pagamentos</h1>
         </div>
         <div className="flex gap-2">
-          <button onClick={() => exportToCSV(payments ?? [], 'pagamentos.csv')} className="btn-secondary text-sm"><Download size={16} />CSV</button>
+          <button onClick={baixarExcel} disabled={baixando} className="btn-secondary text-sm"
+            title="Planilha com resumo, dia a dia, reembolsos e o histórico de pagamentos de todos os meses">
+            <FileSpreadsheet size={16} />{baixando ? 'Gerando...' : 'Baixar Excel'}
+          </button>
+          <button onClick={() => exportToCSV(payments ?? [], 'pagamentos.csv')} className="btn-ghost text-sm"><Download size={16} />CSV</button>
           <button onClick={() => navigate('/pagamentos/novo')} className="btn-primary text-sm"><Plus size={16} />Novo</button>
         </div>
       </div>
@@ -852,7 +921,11 @@ export default function PaymentList() {
         <div className="card p-4 border-l-4 border-l-orange-400">
           <p className="text-xs text-ink-500 font-semibold">Gastos / Reembolsos</p>
           <p className="text-2xl font-display font-extrabold text-ink-900 mt-1 tnum">{formatCurrency(totalExpenses)}</p>
-          <p className="text-xs text-ink-400 mt-0.5">{expenses?.length || 0} lançamentos</p>
+          <p className="text-xs text-ink-400 mt-0.5">
+            {expensesPendentes.length > 0
+              ? <span className="text-amber-600 font-semibold">{expensesPendentes.length} aguardando análise</span>
+              : `${expenses?.length || 0} lançamentos`}
+          </p>
         </div>
         <div className="card p-4 border-l-4 border-l-primary-400">
           <p className="text-xs text-ink-500 font-semibold">Total Pago</p>
@@ -863,6 +936,64 @@ export default function PaymentList() {
           <p className="text-2xl font-display font-extrabold text-red-600 mt-1 tnum">{formatCurrency(totalAtrasado)}</p>
         </div>
       </div>
+
+      {/* Reembolsos pedidos pelo portal, esperando decisão. O portal promete à
+          colaboradora que o gestor vai aprovar — este é o lugar onde isso
+          acontece. Sem aprovar, não entra no pagamento. */}
+      {expensesPendentes.length > 0 && (
+        <div className="card p-0 overflow-hidden border-l-4 border-l-amber-400">
+          <div className="px-4 py-3 bg-amber-50 border-b border-amber-200 flex items-center gap-2">
+            <AlertTriangle size={16} className="text-amber-600 flex-shrink-0" />
+            <p className="text-sm font-semibold text-amber-900">
+              {expensesPendentes.length} reembolso{expensesPendentes.length > 1 ? 's' : ''} para analisar
+            </p>
+            <span className="text-xs text-amber-700">— só entra no pagamento depois que você aprovar</span>
+          </div>
+          <div className="divide-y divide-ink-100">
+            {expensesPendentes.map(e => {
+              const exp = e as {
+                id: string; description: string; amount: number; category?: string
+                receipt_url?: string; notes?: string; created_at?: string
+                employee?: { full_name: string }
+              }
+              return (
+                <div key={exp.id} className="px-4 py-3 flex items-center gap-3 flex-wrap">
+                  <div className="flex-1 min-w-[200px]">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-semibold text-sm text-ink-900">{exp.employee?.full_name}</span>
+                      <span className="text-sm text-ink-600">{exp.description}</span>
+                      {exp.category && <span className="badge bg-ink-100 text-ink-600 text-xs">{exp.category}</span>}
+                    </div>
+                    <p className="text-xs text-ink-400 mt-0.5">
+                      Pedido em {exp.created_at ? formatDate(exp.created_at.slice(0, 10)) : '—'}
+                      {exp.notes ? ` · ${exp.notes}` : ''}
+                    </p>
+                  </div>
+                  <span className="font-bold text-ink-900 tnum">{formatCurrency(Number(exp.amount))}</span>
+                  {exp.receipt_url ? (
+                    <SignedLink value={exp.receipt_url} bucket="arquivos"
+                      className="btn-secondary text-xs inline-flex items-center gap-1 py-1">
+                      <Paperclip size={12} /> Ver nota
+                    </SignedLink>
+                  ) : (
+                    <span className="text-xs text-red-600 font-medium bg-red-50 border border-red-200 px-2 py-1 rounded-lg">
+                      Sem nota anexada
+                    </span>
+                  )}
+                  <div className="flex gap-1.5">
+                    <button onClick={() => reviewExpense.mutate({ id: exp.id, status: 'aprovado' })}
+                      disabled={reviewExpense.isPending}
+                      className="btn-primary text-xs py-1 flex items-center gap-1"><Check size={12} />Aprovar</button>
+                    <button onClick={() => reviewExpense.mutate({ id: exp.id, status: 'negado' })}
+                      disabled={reviewExpense.isPending}
+                      className="btn-ghost text-xs py-1 text-red-500 flex items-center gap-1"><X size={12} />Negar</button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Filters + Tabs */}
       <div className="space-y-3">
@@ -1083,13 +1214,27 @@ export default function PaymentList() {
                                     <p className={`text-sm font-bold ${row.faltas > 0 ? 'text-red-600' : 'text-green-600'}`}>
                                       {row.faltas > 0
                                         ? `−${formatCurrency(row.faltas * row.valorDia)}`
-                                        : 'Escala OK'}
+                                        : row.presencaCompleta ? 'Foi todos os dias' : 'Escala OK'}
                                     </p>
                                     <p className="text-xs text-gray-400">
                                       {row.faltas > 0
                                         ? `${row.faltas} falta${row.faltas > 1 ? 's' : ''} · ${row.actualDays}/${row.expDays} dias`
                                         : `${row.actualDays}/${row.expDays} dias`}
                                     </p>
+                                    {/* Ausência avisada com atestado não é o mesmo que sumir
+                                        sem dizer nada — o atestado estava no banco mas nunca
+                                        aparecia aqui, então o RH decidia sem essa informação. */}
+                                    {row.ausencias.length > 0 && (
+                                      <p className="text-[11px] text-ink-500">
+                                        {row.ausenciasComAtestado.length > 0 && (
+                                          <span className="text-blue-600">{row.ausenciasComAtestado.length} c/ atestado</span>
+                                        )}
+                                        {row.ausenciasComAtestado.length > 0 && row.ausencias.length > row.ausenciasComAtestado.length && ' · '}
+                                        {row.ausencias.length > row.ausenciasComAtestado.length && (
+                                          <span className="text-red-500">{row.ausencias.length - row.ausenciasComAtestado.length} s/ atestado</span>
+                                        )}
+                                      </p>
+                                    )}
                                     {isShort && row.faltas === 0 && (
                                       <p className="text-[11px] text-amber-600">{Math.abs(diff)} sem registro</p>
                                     )}

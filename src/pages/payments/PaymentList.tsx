@@ -764,11 +764,24 @@ export default function PaymentList() {
   const baixarExcel = async () => {
     setBaixando(true)
     try {
-      const { data: todosPagamentos, error } = await supabase
-        .from('payments')
-        .select('description, amount, due_date, status, type, reference_month, paid_at, employee:employees(full_name), client:clients(name)')
-        .order('due_date', { ascending: false })
+      // Sem embed: payments.client_id e employee_id foram criados como uuid
+      // solto, sem chave estrangeira, então o PostgREST não sabe ligar as
+      // tabelas ("Could not find a relationship"). Buscamos os nomes à parte.
+      const [{ data: pagRaw, error }, { data: emps }, { data: clis }] = await Promise.all([
+        supabase.from('payments')
+          .select('description, amount, due_date, status, type, reference_month, paid_at, employee_id, client_id')
+          .order('due_date', { ascending: false }),
+        supabase.from('employees').select('id, full_name'),
+        supabase.from('clients').select('id, name'),
+      ])
       if (error) throw error
+      const nomeEmp = new Map((emps ?? []).map(e => [e.id, e.full_name]))
+      const nomeCli = new Map((clis ?? []).map(c => [c.id, c.name]))
+      const todosPagamentos = (pagRaw ?? []).map(p => ({
+        ...p,
+        employee: { full_name: nomeEmp.get((p as { employee_id?: string }).employee_id ?? '') ?? '' },
+        client: { name: nomeCli.get((p as { client_id?: string }).client_id ?? '') ?? '' },
+      }))
       const { exportFolhaExcel } = await import('../../lib/folhaExcel')
       await exportFolhaExcel(
         (folhaData ?? []) as unknown as Parameters<typeof exportFolhaExcel>[0],

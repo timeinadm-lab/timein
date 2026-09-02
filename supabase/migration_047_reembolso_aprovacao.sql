@@ -38,6 +38,36 @@ END$$;
 CREATE INDEX IF NOT EXISTS idx_employee_expenses_status
   ON employee_expenses(reference_month, status);
 
+-- ── Chave estrangeira que faltava em payments.client_id ──────────────────
+-- A migração 024 criou client_id e link_id como uuid solto, sem REFERENCES.
+-- Sem a chave, o Supabase não sabe ligar payments a clients e recusa qualquer
+-- consulta que junte as duas ("Could not find a relationship between
+-- 'payments' and 'clients'"). Primeiro limpa quem aponta pra cliente que não
+-- existe mais, senão a criação da chave falha.
+UPDATE payments p
+   SET client_id = NULL
+ WHERE client_id IS NOT NULL
+   AND NOT EXISTS (SELECT 1 FROM clients c WHERE c.id = p.client_id);
+
+UPDATE payments p
+   SET link_id = NULL
+ WHERE link_id IS NOT NULL
+   AND NOT EXISTS (SELECT 1 FROM employee_client_links l WHERE l.id = p.link_id);
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'payments_client_id_fkey') THEN
+    ALTER TABLE payments
+      ADD CONSTRAINT payments_client_id_fkey
+      FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE SET NULL;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'payments_link_id_fkey') THEN
+    ALTER TABLE payments
+      ADD CONSTRAINT payments_link_id_fkey
+      FOREIGN KEY (link_id) REFERENCES employee_client_links(id) ON DELETE SET NULL;
+  END IF;
+END$$;
+
 NOTIFY pgrst, 'reload schema';
 
 -- Conferência: como ficaram os gastos por mês

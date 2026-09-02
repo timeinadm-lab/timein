@@ -699,13 +699,47 @@ export default function EmployeeDetail() {
     onError: (e: Error) => toast.error(e.message),
   })
 
+  // Vínculo com histórico é ENCERRADO, não apagado. Apagar dispara o cascade em
+  // employee_payment_dates e deixa os pagamentos já lançados apontando pra um
+  // link_id que não existe mais — some com o registro de quanto a pessoa recebeu
+  // naquele cliente, sem jeito de recuperar. Só quando não há nada preso (vínculo
+  // criado por engano) é que apagar é seguro.
   const removeLink = useMutation({
     mutationFn: async (linkId: string) => {
+      const link = (links || []).find(l => l.id === linkId) as { client_id?: string } | undefined
+      const hoje = new Date().toISOString().slice(0, 10)
+
+      // Sem client_id não dá pra saber se há histórico. Na dúvida, encerra:
+      // encerrar por engano se desfaz, apagar histórico não.
+      let temVisitas = 1
+      if (link?.client_id) {
+        const { count, error: vErr } = await supabase.from('nutritionist_visits')
+          .select('id', { count: 'exact', head: true })
+          .eq('employee_id', id).eq('client_id', link.client_id)
+        if (vErr) throw vErr
+        temVisitas = count || 0
+      }
+      const { count: pagCount, error: pErr } = await supabase.from('payments')
+        .select('id', { count: 'exact', head: true })
+        .eq('link_id', linkId)
+      if (pErr) throw pErr
+      const temPagamentos = pagCount || 0
+
+      if (temVisitas > 0 || temPagamentos > 0) {
+        const { error } = await supabase.from('employee_client_links')
+          .update({ contract_end_date: hoje }).eq('id', linkId)
+        if (error) throw error
+        return 'encerrado' as const
+      }
+
       const { error } = await supabase.from('employee_client_links').delete().eq('id', linkId)
       if (error) throw error
+      return 'apagado' as const
     },
-    onSuccess: () => {
-      toast.success('Vínculo removido!')
+    onSuccess: (resultado) => {
+      toast.success(resultado === 'encerrado'
+        ? 'Vínculo encerrado hoje. O histórico de visitas e pagamentos foi preservado.'
+        : 'Vínculo removido — não tinha visita nem pagamento registrado.')
       qc.invalidateQueries({ queryKey: ['employee-links', id] })
       qc.invalidateQueries({ queryKey: ['employees'] })
       setConfirmRemoveLinkId(null)
@@ -1574,8 +1608,9 @@ export default function EmployeeDetail() {
                         {isExtending ? 'Cancelar' : 'Estender'}
                       </button>
                       <button className="text-xs text-red-400 hover:text-red-600 px-2 py-1"
+                        title="Encerra o vínculo hoje — o histórico de visitas e pagamentos é preservado"
                         onClick={() => { if (confirmRemoveLinkId === l.id) { removeLink.mutate(l.id); setConfirmRemoveLinkId(null) } else setConfirmRemoveLinkId(l.id) }}>
-                        {confirmRemoveLinkId === l.id ? '⚠ Confirmar' : 'Remover'}
+                        {confirmRemoveLinkId === l.id ? '⚠ Confirmar' : 'Encerrar'}
                       </button>
                     </div>
                   </div>
@@ -2062,7 +2097,7 @@ export default function EmployeeDetail() {
                             onClick={() => { removeLink.mutate(l.id); setConfirmRemoveLinkId(null) }}
                             className="text-xs bg-red-600 text-white px-2 py-1 rounded font-medium hover:bg-red-700"
                           >
-                            Confirmar remoção
+                            Confirmar
                           </button>
                           <button onClick={() => setConfirmRemoveLinkId(null)} className="text-xs text-gray-400 hover:text-gray-600">
                             Cancelar
@@ -2072,7 +2107,7 @@ export default function EmployeeDetail() {
                         <button
                           onClick={() => setConfirmRemoveLinkId(l.id)}
                           className="text-red-400 hover:text-red-600 p-1"
-                          title="Remover vínculo"
+                          title="Encerrar vínculo — o histórico de visitas e pagamentos é preservado"
                         >
                           <Trash2 size={14} />
                         </button>

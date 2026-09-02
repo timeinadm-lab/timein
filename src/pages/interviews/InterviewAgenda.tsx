@@ -276,12 +276,20 @@ export default function InterviewAgenda() {
                     {cat && <span className={`badge ${CATEGORY_COLORS[cat] || 'bg-gray-100 text-gray-600'}`}>{cat}</span>}
                     <span className={`badge ${STATUS_COLORS[i.status] || 'bg-gray-100'}`}>{i.status}</span>
                   </div>
+                  {/* Compromisso não tem duração nem modalidade — mostrar os
+                      valores de preenchimento do banco inventava informação. */}
                   <p className="text-sm text-ink-500 mt-0.5">
                     {isHoje && <span className="font-semibold text-primary-700">Hoje · </span>}
                     {formatLocalDateTime(i.scheduled_at)}
-                    {i.end_date ? ` → ${formatDate(i.end_date)}` : ` · ${i.duration_min}min`}
-                    <span className="text-ink-300"> · </span>
-                    <span className={`${MODAL_COLORS[i.modality]?.includes('blue') ? 'text-blue-600' : 'text-ink-500'}`}>{i.modality}</span>
+                    {i.end_date
+                      ? ` → ${formatDate(i.end_date)}`
+                      : cat !== 'Compromisso' && ` · ${i.duration_min}min`}
+                    {cat !== 'Compromisso' && (
+                      <>
+                        <span className="text-ink-300"> · </span>
+                        <span className={`${MODAL_COLORS[i.modality]?.includes('blue') ? 'text-blue-600' : 'text-ink-500'}`}>{i.modality}</span>
+                      </>
+                    )}
                   </p>
                 </div>
 

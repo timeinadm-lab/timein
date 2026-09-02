@@ -1419,7 +1419,7 @@ export default function PortalHome() {
                     <p className="text-xs text-ink-400">Organize suas próximas visitas.</p>
                   </div>
                 {(() => {
-                  const selfLinks = (links || []).filter(l => effectiveType(l as FolhaLink) === 'Consultoria' && (l as { agenda_mode?: string }).agenda_mode !== 'gestor')
+                  const selfLinks = ((folhaLinks as FolhaLink[] | undefined) || []).filter(l => effectiveType(l) === 'Consultoria' && (l as { agenda_mode?: string }).agenda_mode !== 'gestor')
                   if (selfLinks.length === 0) return null
                   return (
                     <button
@@ -1434,7 +1434,7 @@ export default function PortalHome() {
                   )
                 })()}
                 </div>
-                {(links || []).some(l => effectiveType(l as FolhaLink) === 'Consultoria' && (l as { agenda_mode?: string }).agenda_mode === 'gestor') && (
+                {((folhaLinks as FolhaLink[] | undefined) || []).some(l => effectiveType(l) === 'Consultoria' && (l as { agenda_mode?: string }).agenda_mode === 'gestor') && (
                   <p className="text-xs text-ink-500 bg-orange-50 rounded-lg px-3 py-2">Alguns clientes têm a agenda montada pelo RH — esses dias aparecem aqui e não podem ser alterados por você.</p>
                 )}
                 <p className="text-xs text-ink-500 bg-ink-50 rounded-lg px-3 py-2">No dia da visita, toque em <strong className="text-primary-700">Registrar</strong> para confirmar e lançar a hora de entrada e saída.</p>
@@ -1538,7 +1538,12 @@ export default function PortalHome() {
               <h3 className="font-semibold text-gray-900">Planejar visita</h3>
               <p className="text-xs text-gray-400 mt-0.5">Escolha só o dia que pretende ir. O horário você lança no dia, ao registrar.</p>
               <div className="flex gap-2 mt-2 flex-wrap">
-                {links?.filter(l => (l as { agenda_mode?: string }).agenda_mode !== 'gestor').map(l => {
+                {/* Só cliente de consultoria e ainda em vigor: `links` cru trazia
+                    cliente de onde ela já saiu e cliente de escala fixa, onde
+                    planejar visita não existe. */}
+                {(folhaLinks as FolhaLink[] | undefined)?.filter(l =>
+                  effectiveType(l) === 'Consultoria' && (l as { agenda_mode?: string }).agenda_mode !== 'gestor'
+                ).map(l => {
                   const c = (l as { client?: { id: string; name: string } }).client
                   if (!c) return null
                   return (

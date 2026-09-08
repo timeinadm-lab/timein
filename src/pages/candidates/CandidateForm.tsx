@@ -1,4 +1,4 @@
-import { useState, FormEvent } from 'react'
+import { useState, useEffect, useRef, FormEvent } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft } from 'lucide-react'
@@ -27,20 +27,31 @@ export default function CandidateForm() {
   const [form, setForm] = useState(EMPTY)
   const [dataLoaded, setDataLoaded] = useState(!isEdit)
 
-  const { isLoading: loadingCandidate } = useQuery({
+  const { data: candidateData, isLoading: loadingCandidate } = useQuery({
     queryKey: ['candidate', id],
     queryFn: async () => {
       const { data, error } = await supabase.from('candidates').select('*').eq('id', id).single()
       if (error) throw error
-      setForm({
-        ...EMPTY,
-        ...Object.fromEntries(Object.entries(data).map(([k, v]) => [k, v == null ? (Array.isArray(EMPTY[k as keyof typeof EMPTY]) ? [] : typeof EMPTY[k as keyof typeof EMPTY] === 'boolean' ? false : '') : v]))
-      } as typeof EMPTY)
-      setDataLoaded(true)
       return data
     },
     enabled: isEdit,
   })
+
+  // O preenchimento NÃO pode morar dentro do queryFn. A ficha do candidato usa
+  // esta mesma queryKey, e com staleTime de 30s o queryFn não roda no cache-hit:
+  // quem via a ficha e clicava em Editar em seguida abria o formulário VAZIO —
+  // e salvar gravava vazio por cima, apagando nome, WhatsApp, CRN e todo o resto
+  // do candidato, mantendo só o registro e os processos seletivos.
+  const populated = useRef(false)
+  useEffect(() => {
+    if (!candidateData || populated.current) return
+    populated.current = true
+    setForm({
+      ...EMPTY,
+      ...Object.fromEntries(Object.entries(candidateData).map(([k, v]) => [k, v == null ? (Array.isArray(EMPTY[k as keyof typeof EMPTY]) ? [] : typeof EMPTY[k as keyof typeof EMPTY] === 'boolean' ? false : '') : v]))
+    } as typeof EMPTY)
+    setDataLoaded(true)
+  }, [candidateData])
 
   const mutation = useMutation({
     mutationFn: async (payload: Record<string, unknown>) => {
@@ -66,6 +77,16 @@ export default function CandidateForm() {
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault()
+    // Cinto de segurança: editar sem os dados na tela só pode significar que o
+    // formulário não carregou. Salvar aqui gravaria vazio por cima do cadastro.
+    if (isEdit && !dataLoaded) {
+      toast.error('Os dados ainda não carregaram. Recarregue a página antes de salvar.')
+      return
+    }
+    if (!form.full_name.trim()) {
+      toast.error('O nome do candidato é obrigatório.')
+      return
+    }
     mutation.mutate({
       full_name: form.full_name, state: form.state || null, city: form.city || null,
       sp_region: form.sp_region || null, whatsapp: form.whatsapp || null, email: form.email || null,

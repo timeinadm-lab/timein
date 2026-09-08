@@ -1,4 +1,4 @@
-import { useState, FormEvent } from 'react'
+import { useState, useEffect, useRef, FormEvent } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Plus, X } from 'lucide-react'
@@ -11,6 +11,7 @@ export default function ClientForm() {
   const qc = useQueryClient()
   const isEdit = !!id
 
+  const [dataLoaded, setDataLoaded] = useState(!isEdit)
   const [form, setForm] = useState({
     name: '', cnpj: '', address: '',
     contact_name: '', contact_phone: '', contact_email: '',
@@ -32,13 +33,28 @@ export default function ClientForm() {
     },
   })
 
-  // Load existing data when editing
-  useQuery({
+  // Load existing data when editing.
+  // O preenchimento é um efeito, não parte do queryFn: com staleTime de 30s o
+  // queryFn não roda quando o dado já está no cache (sair do formulário e
+  // voltar em seguida), a tela abriria em branco e salvar gravaria vazio.
+  const { data: clientData } = useQuery({
     queryKey: ['client-edit', id],
     queryFn: async () => {
       const { data, error } = await supabase.from('clients').select('*').eq('id', id).single()
       if (error) throw error
-      setForm({
+      const { data: existingUnits } = await supabase.from('client_units').select('name').eq('client_id', id).order('name')
+      return { ...data, __units: (existingUnits || []).map(u => u.name) }
+    },
+    enabled: isEdit,
+  })
+
+  const populated = useRef(false)
+  useEffect(() => {
+    if (!clientData || populated.current) return
+    populated.current = true
+    const data = clientData
+    if (data.__units?.length) setUnits(data.__units)
+    setForm({
         name: data.name || '',
         cnpj: data.cnpj || '',
         address: data.address || '',
@@ -51,19 +67,10 @@ export default function ClientForm() {
         requires_supervision: !!data.requires_supervision,
         supervision_visits_per_month: data.supervision_visits_per_month != null ? String(data.supervision_visits_per_month) : '',
         target_employees: data.target_employees != null ? String(data.target_employees) : '1',
-        observations: data.observations || '',
-      })
-
-      // Load existing units
-      const { data: existingUnits } = await supabase.from('client_units').select('name').eq('client_id', id).order('name')
-      if (existingUnits?.length) {
-        setUnits(existingUnits.map(u => u.name))
-      }
-
-      return data
-    },
-    enabled: isEdit,
-  })
+      observations: data.observations || '',
+    })
+    setDataLoaded(true)
+  }, [clientData])
 
   const addUnit = () => {
     if (!unitInput.trim()) return
@@ -123,6 +130,10 @@ export default function ClientForm() {
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault()
+    if (isEdit && !dataLoaded) {
+      toast.error('Os dados ainda não carregaram. Recarregue a página antes de salvar.')
+      return
+    }
     mutation.mutate()
   }
 

@@ -1,4 +1,4 @@
-import { useState, FormEvent } from 'react'
+import { useState, useEffect, useRef, FormEvent } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft } from 'lucide-react'
@@ -21,6 +21,7 @@ export default function ContractForm() {
     employee_responsible: '', requires_supervision: false,
     supervision_visits_per_month: '', supervisor_id: '', template_id: '', observations: '',
   })
+  const [dataLoaded, setDataLoaded] = useState(!isEdit)
 
   const { data: clients } = useQuery({
     queryKey: ['clients-list'],
@@ -58,12 +59,26 @@ export default function ContractForm() {
     },
   })
 
-  useQuery({
+  // A ficha do contrato usa esta MESMA queryKey. Com staleTime de 30s, o
+  // queryFn não roda no cache-hit — preencher o formulário lá dentro fazia
+  // "ver contrato → Editar" abrir tudo em branco, e salvar gravava vazio por
+  // cima. Por isso o preenchimento é um efeito, que também roda no cache.
+  const { data: contractData } = useQuery({
     queryKey: ['contract', id],
     queryFn: async () => {
       const { data, error } = await supabase.from('contracts').select('*').eq('id', id).single()
       if (error) throw error
-      setForm({
+      return data
+    },
+    enabled: isEdit,
+  })
+
+  const populated = useRef(false)
+  useEffect(() => {
+    if (!contractData || populated.current) return
+    populated.current = true
+    const data = contractData
+    setForm({
         client_name: data.client_name || '',
         client_id: data.client_id || '',
         employee_id: data.employee_id || '',
@@ -84,11 +99,9 @@ export default function ContractForm() {
         supervisor_id: data.supervisor_id || '',
         template_id: data.template_id || '',
         observations: data.observations || '',
-      })
-      return data
-    },
-    enabled: isEdit,
-  })
+    })
+    setDataLoaded(true)
+  }, [contractData])
 
   const mutation = useMutation({
     mutationFn: async (payload: Record<string, unknown>) => {
@@ -112,6 +125,12 @@ export default function ContractForm() {
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault()
+    // Editar sem os dados carregados só pode ser tela em branco — salvar aqui
+    // gravaria vazio por cima do contrato.
+    if (isEdit && !dataLoaded) {
+      toast.error('Os dados ainda não carregaram. Recarregue a página antes de salvar.')
+      return
+    }
     mutation.mutate({
       client_name: form.client_name,
       client_id: form.client_id || null,

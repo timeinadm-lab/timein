@@ -1,4 +1,4 @@
-import { useState, FormEvent } from 'react'
+import { useState, useEffect, useRef, FormEvent } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft } from 'lucide-react'
@@ -15,17 +15,29 @@ export default function PaymentForm() {
     description: '', amount: '', due_date: '', status: 'Pendente',
     recurrence: 'Único', category: 'Outro',
   })
+  const [dataLoaded, setDataLoaded] = useState(!isEdit)
 
-  useQuery({
+  // Preencher dentro do queryFn não funciona no cache-hit: com staleTime de
+  // 30s, sair do formulário e voltar em seguida não roda o queryFn de novo, e
+  // a tela abre em branco — salvar então grava vazio por cima do lançamento.
+  const { data: paymentData } = useQuery({
     queryKey: ['payment', id],
     queryFn: async () => {
       const { data, error } = await supabase.from('payments').select('*').eq('id', id).single()
       if (error) throw error
-      setForm({ description: data.description, amount: String(data.amount), due_date: data.due_date, status: data.status, recurrence: data.recurrence, category: data.category })
       return data
     },
     enabled: isEdit,
   })
+
+  const populated = useRef(false)
+  useEffect(() => {
+    if (!paymentData || populated.current) return
+    populated.current = true
+    const data = paymentData
+    setForm({ description: data.description, amount: String(data.amount), due_date: data.due_date, status: data.status, recurrence: data.recurrence, category: data.category })
+    setDataLoaded(true)
+  }, [paymentData])
 
   const mutation = useMutation({
     mutationFn: async (payload: Record<string, unknown>) => {
@@ -49,6 +61,10 @@ export default function PaymentForm() {
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault()
+    if (isEdit && !dataLoaded) {
+      toast.error('Os dados ainda não carregaram. Recarregue a página antes de salvar.')
+      return
+    }
     mutation.mutate({
       description: form.description, amount: Number(form.amount),
       due_date: form.due_date, status: form.status,

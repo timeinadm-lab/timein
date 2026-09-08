@@ -1,4 +1,4 @@
-import { useState, FormEvent } from 'react'
+import { useState, useEffect, useRef, FormEvent } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft } from 'lucide-react'
@@ -20,6 +20,7 @@ export default function InterviewForm() {
     link_or_address: '', notes: '', status: 'Agendada',
   })
   const [noDate, setNoDate] = useState(false)
+  const [dataLoaded, setDataLoaded] = useState(!id)
   const [targetMonth, setTargetMonth] = useState(new Date().toISOString().slice(0, 7)) // YYYY-MM
   const [participantIds, setParticipantIds] = useState<string[]>(profile?.id ? [profile.id] : [])
   const toggleParticipant = (pid: string) =>
@@ -70,12 +71,24 @@ export default function InterviewForm() {
     },
   })
 
-  useQuery({
+  // Preenchimento fora do queryFn: no cache-hit (staleTime de 30s) o queryFn
+  // não roda, o formulário abriria em branco e salvar apagaria o compromisso.
+  const { data: interviewData } = useQuery({
     queryKey: ['interview', id],
     queryFn: async () => {
       const { data, error } = await supabase.from('interviews').select('*').eq('id', id).single()
       if (error) throw error
-      setForm({
+      return data
+    },
+    enabled: isEdit,
+  })
+
+  const populated = useRef(false)
+  useEffect(() => {
+    if (!interviewData || populated.current) return
+    populated.current = true
+    const data = interviewData
+    setForm({
         title: data.title || '',
         category: data.category || 'Reunião',
         client_id: data.client_id || '',
@@ -88,16 +101,14 @@ export default function InterviewForm() {
         modality: data.modality || 'Online',
         link_or_address: data.link_or_address || '',
         notes: data.notes || '',
-        status: data.status || 'Agendada',
-      })
-      const existingParticipants = (data as { participant_ids?: string[] }).participant_ids
-      setParticipantIds(existingParticipants?.length ? existingParticipants : (data.recruiter_id ? [data.recruiter_id] : []))
-      setNoDate(!data.scheduled_at)
-      if (data.target_month) setTargetMonth(String(data.target_month).slice(0, 7))
-      return data
-    },
-    enabled: isEdit,
-  })
+      status: data.status || 'Agendada',
+    })
+    const existingParticipants = (data as { participant_ids?: string[] }).participant_ids
+    setParticipantIds(existingParticipants?.length ? existingParticipants : (data.recruiter_id ? [data.recruiter_id] : []))
+    setNoDate(!data.scheduled_at)
+    if (data.target_month) setTargetMonth(String(data.target_month).slice(0, 7))
+    setDataLoaded(true)
+  }, [interviewData])
 
   const mutation = useMutation({
     mutationFn: async (payload: Record<string, unknown>) => {
@@ -128,6 +139,10 @@ export default function InterviewForm() {
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault()
+    if (isEdit && !dataLoaded) {
+      toast.error('Os dados ainda não carregaram. Recarregue a página antes de salvar.')
+      return
+    }
     if (!noDate && !form.scheduled_at) { toast.error('Escolha a data, ou marque "sem data (a agendar)"'); return }
     if (form.category === 'Visita' && !form.client_id) { toast.error('Escolha o cliente da visita'); return }
     if (ehCompromisso && !form.title.trim()) { toast.error('Escreva o que é o compromisso'); return }

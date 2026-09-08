@@ -1030,7 +1030,10 @@ export default function VacancyDetail() {
 
       {/* Tabs */}
       <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-        {([['info', 'Informações'], ['interessados', `Interessados (${interests?.length ?? 0})`], ['match', 'Quem pode cobrir'], ['colaboradores', `Colaboradores (${contractedCount})`], ['documentos', 'Documentos']] as const).map(([k, label]) => (
+        {/* "Quem pode cobrir" escondia metade da aba: além dos colaboradores da
+            casa, é aqui que mora o match do banco de candidatos. O nome tem que
+            dizer as duas coisas, senão ninguém encontra os candidatos. */}
+        {([['info', 'Informações'], ['interessados', `Interessados (${interests?.length ?? 0})`], ['match', 'Encontrar pessoa'], ['colaboradores', `Colaboradores (${contractedCount})`], ['documentos', 'Documentos']] as const).map(([k, label]) => (
           <button key={k} onClick={() => setTab(k as typeof tab)}
             className={`px-3.5 py-2 text-sm font-semibold whitespace-nowrap rounded-xl transition-all active:scale-95 ${tab === k ? 'bg-primary-600 text-white shadow-soft' : 'bg-white border border-ink-100 text-ink-500 hover:text-ink-800 hover:border-ink-200'}`}>
             {label}
@@ -1472,6 +1475,10 @@ export default function VacancyDetail() {
       {/* MATCH */}
       {tab === 'match' && (
         <div className="space-y-4">
+          <p className="text-xs text-ink-500 bg-ink-50 rounded-xl px-3.5 py-2.5">
+            Duas fontes para preencher esta vaga: <strong>quem você já tem</strong> (vínculo direto, sem processo)
+            e o <strong>banco de candidatos</strong>, logo abaixo, com filtros e compatibilidade.
+          </p>
           {/* Quem já é da casa vem primeiro: na maioria das vezes a vaga se
               resolve com alguém que você já tem, sem processo de contratação. */}
           <div className="card p-4 space-y-3">

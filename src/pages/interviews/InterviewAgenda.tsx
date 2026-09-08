@@ -38,7 +38,8 @@ export default function InterviewAgenda() {
   // 'compromissos' = 'fulano vai estar em tal lugar' — viagem, consulta, visita
   //                  a um cliente. Não exige cliente; serve pra equipe saber.
   // 'todos'        = tudo, inclusive treinamento, ligação e entrevista
-  const [aba, setAba] = useState<'reunioes' | 'compromissos' | 'todos'>('reunioes')
+  // 'entrevistas'  = com candidato, agendada direto na vaga
+  const [aba, setAba] = useState<'reunioes' | 'compromissos' | 'entrevistas' | 'todos'>('reunioes')
   const [view, setView] = useState<'list' | 'calendar'>('list')
   const [filterStatus, setFilterStatus] = useState('')
   const [filterMine, setFilterMine] = useState(role === 'recrutador')
@@ -67,6 +68,9 @@ export default function InterviewAgenda() {
       // que era o único tipo antes de existirem categorias.
       if (aba === 'reunioes') q = q.or('category.eq.Reunião,category.is.null')
       if (aba === 'compromissos') q = q.eq('category', 'Compromisso')
+      // Entrevista antiga (do Kanban) nasceu sem categoria mas com candidato,
+      // então casa pelos dois jeitos pra não sumir do histórico.
+      if (aba === 'entrevistas') q = q.or('category.eq.Entrevista,candidate_id.not.is.null')
       if (filterStatus) q = q.eq('status', filterStatus)
       // Responsável antigo ou participante — os dois veem na própria agenda
       if (filterMine && profile?.id) q = q.or(`recruiter_id.eq.${profile.id},participant_ids.cs.{${profile.id}}`)
@@ -129,7 +133,7 @@ export default function InterviewAgenda() {
         <div>
           <p className="eyebrow mb-1">Gestão</p>
           <h1 className="text-2xl md:text-3xl font-display font-extrabold text-ink-900">
-            {aba === 'reunioes' ? 'Reuniões' : aba === 'compromissos' ? 'Compromissos' : 'Todos os compromissos'}
+            {aba === 'reunioes' ? 'Reuniões' : aba === 'compromissos' ? 'Compromissos' : aba === 'entrevistas' ? 'Entrevistas' : 'Todos os compromissos'}
           </h1>
         </div>
         <button onClick={() => navigate('/agenda/nova')} className="btn-primary text-sm"><Plus size={16} />Novo Compromisso</button>
@@ -138,7 +142,7 @@ export default function InterviewAgenda() {
       {/* Reunião e Compromisso são coisas diferentes: uma é encontro com pauta,
           a outra é "onde a pessoa vai estar". "Tudo" pega o resto. */}
       <div className="flex gap-1.5">
-        {([['reunioes', 'Reuniões'], ['compromissos', 'Compromissos'], ['todos', 'Tudo']] as const).map(([k, t]) => (
+        {([['reunioes', 'Reuniões'], ['compromissos', 'Compromissos'], ['entrevistas', 'Entrevistas'], ['todos', 'Tudo']] as const).map(([k, t]) => (
           <button key={k} onClick={() => setAba(k)}
             className={`px-4 py-2 rounded-xl text-sm font-semibold border-2 transition-colors ${
               aba === k ? 'border-primary-600 bg-primary-50 text-primary-700' : 'border-ink-200 bg-white text-ink-500 hover:border-ink-300'

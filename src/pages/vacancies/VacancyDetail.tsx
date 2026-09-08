@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Edit, MessageCircle, ChevronDown, ChevronUp, FileText, CheckCircle, Clock, Zap, Trash2 } from 'lucide-react'
+import { ArrowLeft, Edit, MessageCircle, ChevronDown, ChevronUp, FileText, CheckCircle, Clock, Zap, Trash2, CalendarPlus } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { formatDate, formatWhatsApp, formatCurrency, BRAZIL_STATES, DEFAULT_DOCUMENTS, serviceTypeLabel } from '../../lib/utils'
@@ -58,7 +58,47 @@ export default function VacancyDetail() {
   const [escalarForm, setEscalarForm] = useState({ employee_id: '', value: '', date: '', time: '', notes: '', pay_day: '20' })
 
   // Financeiro da vaga (só contabilidade): o que a EMPRESA recebe por essa vaga
-  const { isContabilidade } = useAuth()
+  const { isContabilidade, profile } = useAuth()
+
+  // Agendar entrevista sem sair da vaga: a lista de interessados está aqui, e
+  // até então era preciso ir procurar a pessoa no Kanban de candidatos.
+  const [entrevistaModal, setEntrevistaModal] = useState<{ candidateId: string; nome: string } | null>(null)
+  const EMPTY_ENTREVISTA = { scheduled_at: '', duration_min: '30', modality: 'Online', link_or_address: '', notes: '' }
+  const [entrevistaForm, setEntrevistaForm] = useState(EMPTY_ENTREVISTA)
+
+  const agendarEntrevista = useMutation({
+    mutationFn: async () => {
+      if (!entrevistaModal) throw new Error('Sem candidato')
+      if (!entrevistaForm.scheduled_at) throw new Error('Escolha o dia e a hora da entrevista')
+      const { error } = await supabase.from('interviews').insert({
+        candidate_id: entrevistaModal.candidateId,
+        vacancy_id: id,
+        category: 'Entrevista',
+        title: `Entrevista — ${entrevistaModal.nome}`,
+        scheduled_at: entrevistaForm.scheduled_at,
+        duration_min: Number(entrevistaForm.duration_min) || 30,
+        modality: entrevistaForm.modality,
+        link_or_address: entrevistaForm.link_or_address.trim() || null,
+        notes: entrevistaForm.notes.trim() || null,
+        status: 'Agendada',
+        // Sem responsável, a entrevista não apareceria na agenda de ninguém
+        recruiter_id: profile?.id || null,
+        participant_ids: profile?.id ? [profile.id] : [],
+      })
+      if (error) throw error
+      await supabase.from('candidates')
+        .update({ pipeline_stage: 'Entrevista Agendada', interview_scheduled_at: entrevistaForm.scheduled_at })
+        .eq('id', entrevistaModal.candidateId)
+    },
+    onSuccess: () => {
+      toast.success('Entrevista agendada! Já aparece em Reuniões e no Calendário.')
+      qc.invalidateQueries({ queryKey: ['vacancy-interests', id] })
+      qc.invalidateQueries({ queryKey: ['interviews'] })
+      setEntrevistaModal(null)
+      setEntrevistaForm(EMPTY_ENTREVISTA)
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
   const [finOpen, setFinOpen] = useState(false)
   const [finForm, setFinForm] = useState({ description: '', amount: '', category: '', date: '', recurrence: 'mensal' as 'unica' | 'mensal' | 'ate_data', recurrence_until: '' })
 
@@ -925,6 +965,71 @@ export default function VacancyDetail() {
       </div>
 
       {/* Modal: Escalar (auditoria/serviço avulso) */}
+      {/* Agendar entrevista com um interessado, sem sair da vaga */}
+      {entrevistaModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md p-5 space-y-4 max-h-[90vh] overflow-y-auto">
+            <div>
+              <h3 className="font-semibold text-ink-900">Agendar entrevista</h3>
+              <p className="text-sm text-ink-500 mt-0.5">
+                Com <strong>{entrevistaModal.nome}</strong> — vaga {vacancy?.title}
+              </p>
+            </div>
+
+            <div>
+              <label className="label">Dia e hora *</label>
+              <input className="input" type="datetime-local" value={entrevistaForm.scheduled_at}
+                onChange={e => setEntrevistaForm(p => ({ ...p, scheduled_at: e.target.value }))} />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="label">Duração</label>
+                <select className="input" value={entrevistaForm.duration_min}
+                  onChange={e => setEntrevistaForm(p => ({ ...p, duration_min: e.target.value }))}>
+                  <option value="30">30 min</option><option value="45">45 min</option>
+                  <option value="60">60 min</option><option value="90">90 min</option>
+                </select>
+              </div>
+              <div>
+                <label className="label">Modalidade</label>
+                <select className="input" value={entrevistaForm.modality}
+                  onChange={e => setEntrevistaForm(p => ({ ...p, modality: e.target.value }))}>
+                  <option>Online</option><option>Presencial</option><option>Telefone</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label className="label">Link ou endereço <span className="text-gray-400 font-normal">(opcional)</span></label>
+              <input className="input" placeholder="Cole o link do Meet/Teams, ou o endereço"
+                value={entrevistaForm.link_or_address}
+                onChange={e => setEntrevistaForm(p => ({ ...p, link_or_address: e.target.value }))} />
+            </div>
+
+            <div>
+              <label className="label">Observação <span className="text-gray-400 font-normal">(opcional)</span></label>
+              <input className="input" placeholder="O que precisa saber antes"
+                value={entrevistaForm.notes}
+                onChange={e => setEntrevistaForm(p => ({ ...p, notes: e.target.value }))} />
+            </div>
+
+            <p className="text-xs text-ink-500 bg-ink-50 rounded-lg px-3 py-2">
+              A entrevista entra na sua agenda em <strong>Reuniões</strong> e no <strong>Calendário</strong>,
+              e o candidato passa para <strong>Entrevista Agendada</strong>.
+            </p>
+
+            <div className="flex gap-2">
+              <button className="btn-primary flex-1 text-sm" disabled={agendarEntrevista.isPending}
+                onClick={() => agendarEntrevista.mutate()}>
+                {agendarEntrevista.isPending ? 'Agendando...' : 'Agendar'}
+              </button>
+              <button className="btn-secondary text-sm" onClick={() => setEntrevistaModal(null)}>Cancelar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {escalarOpen && (
         <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-xl p-5 max-w-md w-full space-y-4 max-h-[90vh] overflow-y-auto">
@@ -1413,6 +1518,16 @@ export default function VacancyDetail() {
                       <a href={formatWhatsApp(c.whatsapp)} target="_blank" rel="noreferrer" className="btn-ghost p-1.5">
                         <MessageCircle size={16} className="text-green-600" />
                       </a>
+                    )}
+
+                    {interest.status === 'Interessado' && (
+                      <button
+                        className="btn-secondary text-xs flex items-center gap-1"
+                        title="Agendar entrevista com esta pessoa — vai para Reuniões e para o Calendário"
+                        onClick={() => { setEntrevistaModal({ candidateId: c!.id, nome: c!.full_name }); setEntrevistaForm(EMPTY_ENTREVISTA) }}
+                      >
+                        <CalendarPlus size={13} /> Entrevista
+                      </button>
                     )}
 
                     {interest.status === 'Interessado' && (

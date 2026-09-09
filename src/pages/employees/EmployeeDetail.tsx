@@ -824,15 +824,19 @@ export default function EmployeeDetail() {
         || (vals.serviceType === 'Volante' && vals.units.some(u => Number(u.visit_rate) > 0))
       let monthly: number | null = null
       let linkUnits: unknown = null
+      // Declarado FORA do bloco: a cota de horas mais abaixo também usa.
+      // "Em aberto" (Avulso) não tem cadência, então multiplicador 0 — sem
+      // previsão mensal e sem cota, o valor sai só do que for registrado.
+      const freqMultiplier = vals.visit_frequency === 'Avulso' ? 0
+        : vals.visit_frequency === 'Mensal' ? 1
+        : vals.visit_frequency === 'Quinzenal' ? 2 : 4
       if (isConsult) {
         // Descarta unidades "fantasma" — que ficaram no vínculo mas não existem mais na lista atual do cliente
         const validUnitIds = new Set((editClientUnits || []).map(u => u.id))
         const activeUnits = vals.units.filter(u => u.visit_rate && (validUnitIds.size === 0 || validUnitIds.has(u.unit_id)))
         linkUnits = activeUnits.map(u => ({ unit_id: u.unit_id, unit_name: u.unit_name, visit_rate: Number(u.visit_rate) }))
-        // Estimativa mensal = média dos valores das unidades × frequência (o real vem da folha de ponto)
         const avgRate = activeUnits.length ? activeUnits.reduce((s, u) => s + Number(u.visit_rate), 0) / activeUnits.length : 0
-        const freqMultiplier = vals.visit_frequency === 'Mensal' ? 1 : vals.visit_frequency === 'Quinzenal' ? 2 : 4
-        monthly = avgRate > 0 ? Math.round(avgRate * freqMultiplier * 100) / 100 : null
+        monthly = avgRate > 0 && freqMultiplier > 0 ? Math.round(avgRate * freqMultiplier * 100) / 100 : null
       } else {
         monthly = vals.monthly_amount ? Number(vals.monthly_amount) : null
       }
@@ -849,7 +853,11 @@ export default function EmployeeDetail() {
         link_units: linkUnits,
         visit_frequency: isConsult ? (vals.visit_frequency || 'Semanal') : undefined,
         weekly_hours_quota: isConsult ? (vals.weekly_hours ? Number(vals.weekly_hours) : null) : undefined,
-        monthly_hours_quota: isConsult ? (vals.weekly_hours ? Number(vals.weekly_hours) * (vals.visit_frequency === 'Mensal' ? 1 : vals.visit_frequency === 'Quinzenal' ? 2 : 4) : null) : undefined,
+        // Cota de horas no mês só existe com frequência definida. "Em aberto"
+        // não tem quantas visitas terá, então não há cota a cobrar.
+        monthly_hours_quota: isConsult
+          ? (vals.weekly_hours && freqMultiplier > 0 ? Number(vals.weekly_hours) * freqMultiplier : null)
+          : undefined,
         // Regras do combinado: quantas visitas por semana e se paga além disso
         visits_per_week: isConsult ? (vals.visits_per_week ? Number(vals.visits_per_week) : null) : undefined,
         // Escala (Fixo) — portal usa para cobrar dias e calcular hora extra
@@ -1934,16 +1942,22 @@ export default function EmployeeDetail() {
 
                       {/* Inline edit */}
                       {editLinkValues?.linkId === l.id && (() => {
-                        // Freela de auditoria também é pago por visita, então
-                        // precisa dos mesmos campos de unidade/valor da consultoria.
+                        // Freela é auditoria: pago por visita, igual consultoria.
+                        // Mesma tela para os dois, como o Gabriel pediu — antes o
+                        // freela caía no formulário de salário, que não é o caso dele.
                         const isConsult = editLinkValues.serviceType === 'Consultoria'
-                          || (editLinkValues.serviceType === 'Volante'
-                              && (l as { coverage_type?: string }).coverage_type === 'Consultoria')
+                          || editLinkValues.serviceType === 'Volante'
                         // Descarta unidades "fantasma" que não existem mais na lista atual do cliente
                         const validUnitIds = new Set((editClientUnits || []).map(u => u.id))
                         const ratedUnits = isConsult ? editLinkValues.units.filter(u => u.visit_rate && (validUnitIds.size === 0 || validUnitIds.has(u.unit_id))) : []
                         const avgRate = ratedUnits.length ? ratedUnits.reduce((s, u) => s + Number(u.visit_rate), 0) / ratedUnits.length : 0
-                        const freqMultiplier = editLinkValues.visit_frequency === 'Mensal' ? 1 : editLinkValues.visit_frequency === 'Quinzenal' ? 2 : 4
+                        // "Em aberto" (Avulso) = sem frequência fixa: o trabalho
+                        // acontece quando o cliente libera. Aí não existe previsão
+                        // mensal nem cota de horas — só o que for realizado.
+                        const emAberto = editLinkValues.visit_frequency === 'Avulso'
+                        const freqMultiplier = emAberto ? 0
+                          : editLinkValues.visit_frequency === 'Mensal' ? 1
+                          : editLinkValues.visit_frequency === 'Quinzenal' ? 2 : 4
                         const consultTotal = avgRate * freqMultiplier
                         const fixoTotal = !isConsult ? (Number(editLinkValues.monthly_amount) || 0) + (Number(editLinkValues.cost_assistance) || 0) : 0
 
@@ -1992,24 +2006,39 @@ export default function EmployeeDetail() {
                                     <label className="label text-xs">Frequência</label>
                                     <select className="input text-sm" value={editLinkValues.visit_frequency}
                                       onChange={e => setEditLinkValues(p => p ? { ...p, visit_frequency: e.target.value } : p)}>
+                                      {/* Faltava aqui e existia só na criação: auditoria
+                                          e visita pontual não têm cadência. */}
+                                      <option value="Avulso">Em aberto — sem frequência fixa</option>
                                       <option value="Semanal">Semanal (4×/mês)</option>
                                       <option value="Quinzenal">Quinzenal (2×/mês)</option>
                                       <option value="Mensal">Mensal (1×/mês)</option>
                                     </select>
                                   </div>
                                   <div>
-                                    <label className="label text-xs">Horas por visita</label>
+                                    <label className="label text-xs">
+                                      Horas por visita <span className="text-gray-400 font-normal">(opcional)</span>
+                                    </label>
                                     <input className="input text-sm" type="number" placeholder="Ex: 4"
                                       value={editLinkValues.weekly_hours}
                                       onChange={e => setEditLinkValues(p => p ? { ...p, weekly_hours: e.target.value } : p)} />
                                   </div>
-                                  <div>
-                                    <label className="label text-xs">Horas/mês — automático</label>
-                                    <div className="input text-sm bg-white/60 text-gray-600 flex items-center">
-                                      {editLinkValues.weekly_hours ? `${Number(editLinkValues.weekly_hours) * (editLinkValues.visit_frequency === 'Mensal' ? 1 : editLinkValues.visit_frequency === 'Quinzenal' ? 2 : 4)}h` : '—'}
+                                  {/* Horas/mês só faz sentido com cadência definida.
+                                      Em aberto, não há quantas visitas terá no mês. */}
+                                  {!emAberto && (
+                                    <div>
+                                      <label className="label text-xs">Horas/mês — automático</label>
+                                      <div className="input text-sm bg-white/60 text-gray-600 flex items-center">
+                                        {editLinkValues.weekly_hours ? `${Number(editLinkValues.weekly_hours) * freqMultiplier}h` : '—'}
+                                      </div>
                                     </div>
-                                  </div>
+                                  )}
                                 </div>
+                                {emAberto && (
+                                  <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
+                                    Sem frequência fixa: não há cota de horas nem previsão no mês.
+                                    Cada visita registrada é paga pelo valor da unidade.
+                                  </p>
+                                )}
 
                                 {/* Unidades — cada uma com o valor da vistoria dela */}
                                 <div className="space-y-2">

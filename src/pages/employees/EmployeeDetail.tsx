@@ -72,6 +72,10 @@ export default function EmployeeDetail() {
   const [agendaMonth, setAgendaMonth] = useState(format(new Date(), 'yyyy-MM'))
   const [visMonth, setVisMonth] = useState(format(new Date(), 'yyyy-MM'))
   const [showAgendaForm, setShowAgendaForm] = useState(false)
+  // Editar/apagar dia da agenda: antes só existia uma lixeira cinza-clara que
+  // apagava na hora, sem confirmar, e não havia como corrigir um dia errado.
+  const [editAgendaId, setEditAgendaId] = useState<string | null>(null)
+  const [confirmDelAgenda, setConfirmDelAgenda] = useState<string | null>(null)
   const [agendaForm, setAgendaForm] = useState({ client_id: '', unit_id: '', planned_date: '', planned_time: '', notes: '', hours_expected: '' })
   const [showHistoryForm, setShowHistoryForm] = useState(false)
   const [histForm, setHistForm] = useState({ type: 'Anotação', description: '', responsible: '' })
@@ -284,8 +288,13 @@ export default function EmployeeDetail() {
   const { data: agendaItems } = useQuery({
     queryKey: ['employee-agenda', id, agendaMonth],
     queryFn: async () => {
-      const start = agendaMonth + '-01'
-      const end = format(endOfMonth(new Date(agendaMonth + '-01')), 'yyyy-MM-dd')
+      // new Date('2026-09-01') é lido como UTC: no Brasil vira 31/AGOSTO 21h, e
+      // endOfMonth devolvia o fim de AGOSTO. O intervalo ficava "de 01/09 até
+      // 31/08" — impossível — e a agenda vinha SEMPRE vazia, por mais que as
+      // datas estivessem salvas. Montando pelos números não há fuso no meio.
+      const [aYr, aMo] = agendaMonth.split('-').map(Number)
+      const start = `${agendaMonth}-01`
+      const end = `${agendaMonth}-${String(new Date(aYr, aMo, 0).getDate()).padStart(2, '0')}`
       const { data, error } = await supabase
         .from('nutritionist_agenda')
         .select('*,client:clients(name),unit:client_units(name)')
@@ -302,8 +311,10 @@ export default function EmployeeDetail() {
   const { data: visitHistory } = useQuery({
     queryKey: ['employee-visit-history', id, visMonth],
     queryFn: async () => {
+      // Mesmo cuidado da agenda: '-01' com fuso volta pro mês anterior e o
+      // histórico de visitas vinha vazio. O dia 15 não sofre esse deslocamento.
       const start = visMonth + '-01'
-      const end = format(endOfMonth(new Date(visMonth + '-01')), 'yyyy-MM-dd')
+      const end = format(endOfMonth(new Date(visMonth + '-15')), 'yyyy-MM-dd')
       const { data, error } = await supabase
         .from('nutritionist_visits')
         .select('*,client:clients(name)')
@@ -530,7 +541,7 @@ export default function EmployeeDetail() {
 
   const addAgendaItem = useMutation({
     mutationFn: async () => {
-      const { error } = await supabase.from('nutritionist_agenda').insert({
+      const dados = {
         employee_id: id,
         client_id: agendaForm.client_id,
         unit_id: agendaForm.unit_id || null,
@@ -539,13 +550,18 @@ export default function EmployeeDetail() {
         notes: agendaForm.notes || null,
         hours_expected: agendaForm.hours_expected ? Number(agendaForm.hours_expected) : null,
         created_by_admin: true,
-      })
+      }
+      const { error } = editAgendaId
+        ? await supabase.from('nutritionist_agenda').update(dados).eq('id', editAgendaId)
+        : await supabase.from('nutritionist_agenda').insert(dados)
       if (error) throw error
+      return !!editAgendaId
     },
-    onSuccess: () => {
-      toast.success('Data agendada!')
+    onSuccess: (foiEdicao) => {
+      toast.success(foiEdicao ? 'Data alterada!' : 'Data agendada!')
       qc.invalidateQueries({ queryKey: ['employee-agenda', id, agendaMonth] })
       setShowAgendaForm(false)
+      setEditAgendaId(null)
       setAgendaForm({ client_id: '', unit_id: '', planned_date: '', planned_time: '', notes: '', hours_expected: '' })
     },
     onError: (e: Error) => toast.error(e.message),
@@ -2450,7 +2466,42 @@ export default function EmployeeDetail() {
                   {a.rescheduled_at && <span className="text-xs text-amber-600">Remarcado</span>}
                   {a.created_by_admin && <span className="text-xs text-blue-500">🔒 fixo</span>}
                 </div>
-                <button onClick={() => deleteAgendaItem.mutate(a.id)} className="p-1 text-gray-300 hover:text-red-500 rounded shrink-0"><Trash2 size={14} /></button>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {confirmDelAgenda === a.id ? (
+                    <>
+                      <button onClick={() => { deleteAgendaItem.mutate(a.id); setConfirmDelAgenda(null) }}
+                        className="text-xs bg-red-600 text-white px-2 py-1 rounded-lg font-medium hover:bg-red-700">
+                        Confirmar
+                      </button>
+                      <button onClick={() => setConfirmDelAgenda(null)}
+                        className="text-xs text-gray-400 hover:text-gray-600 px-1">Cancelar</button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        onClick={() => {
+                          setEditAgendaId(a.id)
+                          setAgendaForm({
+                            client_id: (a as { client_id?: string }).client_id || '',
+                            unit_id: (a as { unit_id?: string }).unit_id || '',
+                            planned_date: a.planned_date,
+                            planned_time: a.planned_time ? a.planned_time.slice(0, 5) : '',
+                            notes: a.notes || '',
+                            hours_expected: a.hours_expected != null ? String(a.hours_expected) : '',
+                          })
+                          setShowAgendaForm(true)
+                        }}
+                        className="text-xs text-primary-600 hover:underline px-2 py-1 font-medium">
+                        Editar
+                      </button>
+                      <button onClick={() => setConfirmDelAgenda(a.id)}
+                        title="Apagar este dia da agenda"
+                        className="p-1 text-red-400 hover:text-red-600 hover:bg-red-50 rounded">
+                        <Trash2 size={14} />
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
             ))}
           </div>

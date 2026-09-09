@@ -9,8 +9,10 @@ export default function SupervisionDashboard() {
   const qc = useQueryClient()
   const [month, setMonth] = useState(format(new Date(), 'yyyy-MM'))
   const [visitForm, setVisitForm] = useState<{ contractId: string; date: string; supervisorId: string; obs: string } | null>(null)
-  const monthStart = startOfMonth(new Date(month + '-01')).toISOString()
-  const monthEnd = endOfMonth(new Date(month + '-01')).toISOString()
+  // Dia 15, não dia 1: new Date('2026-09-01') é lido como UTC e no Brasil cai
+  // em 31/agosto, fazendo o mês inteiro ser calculado errado e a tela vir vazia.
+  const monthStart = startOfMonth(new Date(month + '-15')).toISOString()
+  const monthEnd = endOfMonth(new Date(month + '-15')).toISOString()
 
   const { data: contracts } = useQuery({
     queryKey: ['supervision-contracts'],

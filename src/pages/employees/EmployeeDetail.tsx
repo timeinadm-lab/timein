@@ -1541,9 +1541,20 @@ export default function EmployeeDetail() {
                 // proporcional ficaria sem base de cálculo.
                 const faltaHoras = isConsult && coverageForm.horas_obrigatorias === 'sim'
                   && !(Number(coverageForm.weekly_hours_quota) > 0)
+                // A ESCALA É O QUE DIZ QUAIS DIAS SÃO DELA. Sem isso o portal não
+                // mostra dia nenhum pra bater ponto e a folha estima 22 dias no
+                // chute — foi assim que gente correta apareceu com falta na folha.
+                const isFixoEscala = coverageForm.coverage_type === 'Fixo'
+                const faltaEscala = isFixoEscala && !coverageForm.work_schedule_type
+                const faltaFolgas = isFixoEscala
+                  && ['5x2', '6x1'].includes(coverageForm.work_schedule_type)
+                  && coverageForm.days_off.length === 0
+                const faltaAncora = isFixoEscala
+                  && coverageForm.work_schedule_type === '12x36'
+                  && !coverageForm.schedule_anchor_date
                 const bloqueado = !coverageForm.vinculo_tipo || !coverageForm.agenda_mode
                   || !coverageForm.client_id || faltaValor || faltaUnidade || faltaPag || !coverageForm.contrato
-                  || faltaRegraHoras || faltaHoras
+                  || faltaRegraHoras || faltaHoras || faltaEscala || faltaFolgas || faltaAncora
                 const pendencias = [
                   !coverageForm.vinculo_tipo && 'o tipo do vínculo',
                   !coverageForm.client_id && 'o cliente',
@@ -1556,6 +1567,9 @@ export default function EmployeeDetail() {
                       : 'a unidade onde ela vai trabalhar'),
                   faltaRegraHoras && 'se a visita tem tempo mínimo',
                   faltaHoras && 'quantas horas tem a visita',
+                  faltaEscala && 'a escala de trabalho',
+                  faltaFolgas && 'quais dias da semana são folga (sem isso ela não vê os dias no portal)',
+                  faltaAncora && 'a data do primeiro plantão (é dela que sai o dia sim, dia não)',
                   faltaPag && 'pelo menos um dia de pagamento',
                   !coverageForm.contrato && 'se exige contrato assinado',
                 ].filter(Boolean) as string[]
@@ -1731,8 +1745,36 @@ export default function EmployeeDetail() {
                     return d.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
                   })()
                 : null
+              // Vínculo criado sem os campos que fazem o sistema funcionar. Sem
+              // este aviso, só aparecia lá na frente: portal sem dias pra bater
+              // ponto, ou pagamento saindo R$ 0. Melhor avisar aqui, na ficha.
+              const escalaL = (l as { work_schedule_type?: string }).work_schedule_type
+              const ehConsult = l.service_type === 'Consultoria'
+                || (l.service_type === 'Volante' && (l as { coverage_type?: string }).coverage_type === 'Consultoria')
+              const pendCadastro = encerrado ? [] : ([
+                ehConsult
+                  && !(((l as { link_units?: { visit_rate?: number }[] }).link_units) || []).some(u => Number(u.visit_rate) > 0)
+                  && 'sem valor de vistoria — o pagamento sai R$ 0,00',
+                !ehConsult && l.service_type !== 'Volante' && !escalaL
+                  && 'sem escala definida — a folha estima 22 dias no chute',
+                !ehConsult && ['5x2', '6x1'].includes(escalaL || '')
+                  && !((l as { days_off?: number[] }).days_off || []).length
+                  && 'sem dias de folga — ela não vê os dias no portal',
+                !ehConsult && escalaL === '12x36'
+                  && !(l as { schedule_anchor_date?: string }).schedule_anchor_date
+                  && 'sem a data do primeiro plantão — ela não vê os dias no portal',
+              ].filter(Boolean) as string[])
               return (
                 <div key={l.id} className={`border rounded-lg p-4 ${encerrado ? 'border-ink-200 bg-ink-50/60' : contractRed ? 'border-red-300 bg-red-50 ring-1 ring-red-200' : contractYellow ? 'border-amber-300 bg-amber-50 ring-1 ring-amber-200' : expired ? 'border-red-200 bg-red-50' : expiringSoon ? 'border-amber-200 bg-amber-50' : 'border-gray-100'}`}>
+                  {pendCadastro.length > 0 && (
+                    <div className="mb-3 rounded-lg bg-amber-50 border border-amber-300 px-3 py-2">
+                      <p className="text-xs font-semibold text-amber-900">⚠ Falta completar este vínculo</p>
+                      <ul className="text-xs text-amber-800 mt-0.5 list-disc list-inside">
+                        {pendCadastro.map((m, i) => <li key={i}>{m}</li>)}
+                      </ul>
+                      <p className="text-[11px] text-amber-700 mt-1">Clique em <strong>Editar</strong> aqui embaixo para completar.</p>
+                    </div>
+                  )}
                   {/* Encerrar não apaga: o vínculo fica como histórico, e sem
                       esta faixa parecia que o botão não tinha funcionado. */}
                   {encerrado && (

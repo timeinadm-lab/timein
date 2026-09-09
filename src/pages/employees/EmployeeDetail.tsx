@@ -2404,9 +2404,12 @@ export default function EmployeeDetail() {
                       Deduplica por cliente: dois vínculos no mesmo cliente (fixo +
                       cobertura) repetiam o nome duas vezes na lista. */}
                   {(() => {
+                    // Todo cliente onde a pessoa tem vínculo. Restringir a
+                    // Consultoria/Freela deixava de fora o Fixo em 12x36 e
+                    // plantão, que é justamente quem precisa ter os dias
+                    // marcados um a um — foi o caso do Guilherme.
                     const clientesAgenda = Array.from(new Map(
                       (links || [])
-                        .filter(l => l.service_type === 'Consultoria' || l.service_type === 'Volante')
                         .map(l => l.client as { id: string; name: string })
                         .filter(c => c?.id)
                         .map(c => [c.id, c] as const)
@@ -2414,9 +2417,8 @@ export default function EmployeeDetail() {
                     if (clientesAgenda.length === 0) {
                       return (
                         <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
-                          Esta pessoa não tem vínculo de <strong>Consultoria</strong> nem de <strong>Freela</strong>.
-                          A agenda de visitas é só para esses dois — quem é <strong>Fixo</strong> segue a escala do vínculo,
-                          sem dias avulsos.
+                          Esta pessoa ainda não está vinculada a nenhum cliente. Crie o vínculo em
+                          <strong> Vínculos → + Vincular</strong> e os dias poderão ser marcados aqui.
                         </div>
                       )
                     }

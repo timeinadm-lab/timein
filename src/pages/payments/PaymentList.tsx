@@ -504,7 +504,16 @@ export default function PaymentList() {
         // variar com a escala: num 12x36 (10 dias previstos) cada dia valia
         // salário ÷ 10 — o triplo do correto.
         const valorDia = monthlyAmt > 0 ? monthlyAmt / 30 : 0
-        const faltas = !isConsultoria && !isFreela ? Math.max(0, expDays - actualDays) : 0
+        // FALTA SÓ CONTA DIA QUE JÁ PASSOU. Antes comparava com os dias do MÊS
+        // INTEIRO: no dia 8 de setembro, quem tem escala de 10 dias aparecia com
+        // "10 faltas" e desconto cheio, mesmo trabalhando normal — e o botão
+        // Real geraria o pagamento com esse desconto. Agora o teto é o que já
+        // venceu (expDaysToDate já respeita mês futuro e a tolerância de 4 dias).
+        // "Pagar inteiro" marcado significa exatamente isso: não desconta.
+        const diasCobraveis = Math.min(expDays, expDaysToDate)
+        const faltas = !isConsultoria && !isFreela && !payFullSalary
+          ? Math.max(0, diasCobraveis - actualDays)
+          : 0
 
         // Ausências declaradas — separadas entre as que têm atestado anexado e as
         // que não têm. Estavam no banco mas nunca chegavam nesta tela: o RH não
@@ -554,6 +563,7 @@ export default function PaymentList() {
           extrasAprovados,
           extrasPendentes,
           expDaysToDate,
+          diasCobraveis,
           reportRequired,
           semRelatorio,
           ausencias,
@@ -1224,15 +1234,16 @@ export default function PaymentList() {
                                     {/* "X/Y dias" ao lado de "N faltam" confundia: um contava o
                                         mês todo, o outro só até hoje. Agora a linha de cima é o
                                         desconto (que é o que mexe no valor) e embaixo o andamento. */}
-                                    <p className={`text-sm font-bold ${row.faltas > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                                    <p className={`text-sm font-bold ${row.faltas > 0 ? 'text-red-600' : row.payFullSalary ? 'text-gray-500' : 'text-green-600'}`}>
                                       {row.faltas > 0
                                         ? `−${formatCurrency(row.faltas * row.valorDia)}`
+                                        : row.payFullSalary ? 'Sem desconto'
                                         : row.presencaCompleta ? 'Foi todos os dias' : 'Escala OK'}
                                     </p>
                                     <p className="text-xs text-gray-400">
                                       {row.faltas > 0
-                                        ? `${row.faltas} falta${row.faltas > 1 ? 's' : ''} · ${row.actualDays}/${row.expDays} dias`
-                                        : `${row.actualDays}/${row.expDays} dias`}
+                                        ? `${row.faltas} falta${row.faltas > 1 ? 's' : ''} · ${row.actualDays}/${row.diasCobraveis} dias até hoje`
+                                        : `${row.actualDays}/${row.expDays} dias no mês`}
                                     </p>
                                     {/* Ausência avisada com atestado não é o mesmo que sumir
                                         sem dizer nada — o atestado estava no banco mas nunca

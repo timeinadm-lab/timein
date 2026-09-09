@@ -992,7 +992,7 @@ export default function EmployeeDetail() {
                   </>
                 )}
               </div>
-              {employee.crn_number && <span className="badge bg-blue-50 text-blue-700">CRN {employee.crn_number}/{employee.crn_region}</span>}
+              {employee.crn_number && <span className="badge bg-blue-50 text-blue-700">CRN {[employee.crn_number, employee.crn_region].filter(Boolean).join('/')}</span>}
               {[...new Set((links || []).map(l => l.service_type))].map(st => (
                 <span key={st} className={`badge ${st === 'Volante' ? 'bg-orange-100 text-orange-700' : st === 'Consultoria' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'}`}>{st === 'Volante' ? '⚡ Freela' : st}</span>
               ))}

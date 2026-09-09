@@ -99,7 +99,8 @@ export default function CandidateDetail() {
           <div className="grid grid-cols-2 gap-2">
             <div><span className="text-xs text-gray-400">WhatsApp</span><p>{candidate.whatsapp || '-'}</p></div>
             <div><span className="text-xs text-gray-400">E-mail</span><p className="truncate">{candidate.email || '-'}</p></div>
-            <div><span className="text-xs text-gray-400">CRN</span><p>{candidate.crn_number ? `${candidate.crn_number}/${candidate.crn_region}` : '-'}</p></div>
+            {/* Sem região preenchida saía "84826/null" na cara do usuário */}
+            <div><span className="text-xs text-gray-400">CRN</span><p>{candidate.crn_number ? [candidate.crn_number, candidate.crn_region].filter(Boolean).join('/') : '-'}</p></div>
             <div><span className="text-xs text-gray-400">Veículo</span><p>{candidate.has_vehicle ? 'Sim' : 'Não'}</p></div>
             <div><span className="text-xs text-gray-400">Viagens</span><p>{candidate.requires_travel ? 'Aceita' : 'Não'}</p></div>
             <div><span className="text-xs text-gray-400">Mudança</span><p>{candidate.requires_relocation ? 'Aceita' : 'Não'}</p></div>

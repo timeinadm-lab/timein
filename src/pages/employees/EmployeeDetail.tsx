@@ -27,6 +27,56 @@ const DOC_ICON = {
 
 type CoverageUnit = { unit_id: string; unit_name: string; visit_rate: string }
 
+// ============================================================
+// Dias de trabalho de um vínculo num mês.
+// Fixo com escala: o sistema CALCULA (5x2/6x1 pelas folgas, 12x36 pela âncora).
+// Consultoria e freela: os dias são LANÇADOS na agenda, um a um.
+// Aqui os dois viram a mesma coisa, que é como o RH pensa: "quais dias ela
+// trabalha neste mês". Sem isso, quem é Fixo abria a agenda e via tela vazia.
+// ============================================================
+type LinkEscala = {
+  service_type?: string
+  coverage_type?: string
+  work_schedule_type?: string
+  days_off?: number[] | null
+  schedule_anchor_date?: string | null
+  start_date?: string | null
+  contract_end_date?: string | null
+}
+
+function diasDaEscala(link: LinkEscala, mes: string): string[] {
+  const ehVisita = link.service_type === 'Consultoria'
+    || (link.service_type === 'Volante' && link.coverage_type === 'Consultoria')
+  if (ehVisita) return []                     // visita não tem escala: vem da agenda
+
+  const tipo = link.work_schedule_type
+  const folgas = link.days_off || []
+  const ancora = link.schedule_anchor_date
+  if (!tipo) return []
+  if (tipo === '12x36' && !ancora) return []
+  if (tipo !== '12x36' && folgas.length === 0) return []
+
+  const [yr, mo] = mes.split('-').map(Number)
+  const ultimoDia = new Date(yr, mo, 0).getDate()
+  const dias: string[] = []
+  for (let d = 1; d <= ultimoDia; d++) {
+    const iso = `${mes}-${String(d).padStart(2, '0')}`
+    if (link.start_date && iso < link.start_date) continue
+    if (link.contract_end_date && iso > link.contract_end_date) continue
+    // Meio-dia para o fuso não empurrar a data para o dia anterior
+    const data = new Date(`${iso}T12:00:00`)
+    let trabalha: boolean
+    if (tipo === '12x36') {
+      const diff = Math.round((data.getTime() - new Date(`${ancora}T12:00:00`).getTime()) / 86400000)
+      trabalha = diff >= 0 && diff % 2 === 0   // âncora trabalha; o seguinte folga
+    } else {
+      trabalha = !folgas.includes(data.getDay())
+    }
+    if (trabalha) dias.push(iso)
+  }
+  return dias
+}
+
 // Estado do formulário "+ Vincular". Fica fora do componente para ser a ÚNICA
 // definição — serve de valor inicial e de reset, sem risco de divergirem.
 // vinculo_tipo: 'permanente' = fica no cliente até desligar (service_type real)
@@ -2451,23 +2501,55 @@ export default function EmployeeDetail() {
             const todayStr = new Date().toISOString().slice(0, 10)
             const byDay: Record<string, number> = {}
             ;(agendaItems || []).forEach((a: { planned_date: string }) => { byDay[a.planned_date] = (byDay[a.planned_date] || 0) + 1 })
+            // Dias que vêm da ESCALA (fixo/plantão). Quem é consultoria ou freela
+            // não tem escala e devolve lista vazia — pra esses só valem os dias
+            // lançados. Assim o mesmo calendário serve aos três tipos.
+            const diasEscala = new Set(
+              (links || []).flatMap(l => diasDaEscala(l as LinkEscala, agendaMonth)),
+            )
             const cells: (number | null)[] = [...Array(firstWeekday).fill(null), ...Array.from({ length: daysInMonth }, (_, i) => i + 1)]
             return (
               <div>
-                <p className="text-xs text-gray-400 mb-2">Clique num dia para adicionar o que ele deve fazer.</p>
+                <p className="text-xs text-gray-400 mb-2">Clique num dia para adicionar, editar ou marcar um extra.</p>
+                {/* Legenda: sem ela o azul da escala e o laranja do lançamento
+                    viram só "duas cores" e ninguém sabe o que significam. */}
+                <div className="flex items-center gap-3 flex-wrap mb-2 text-[11px] text-ink-500">
+                  {diasEscala.size > 0 && (
+                    <span className="flex items-center gap-1">
+                      <span className="w-3 h-3 rounded bg-blue-100 border border-blue-300 inline-block" /> dia da escala
+                    </span>
+                  )}
+                  <span className="flex items-center gap-1">
+                    <span className="w-3 h-3 rounded bg-orange-200 border border-orange-400 inline-block" /> dia marcado
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <span className="w-3 h-3 rounded bg-primary-100 ring-2 ring-primary-400 inline-block" /> hoje
+                  </span>
+                </div>
                 <div className="grid grid-cols-7 gap-1 text-center">
                   {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'].map((d, i) => <div key={i} className="text-[10px] font-semibold text-gray-400 py-1">{d}</div>)}
                   {cells.map((day, i) => {
                     if (day === null) return <div key={i} />
                     const dateStr = `${agendaMonth}-${String(day).padStart(2, '0')}`
                     const count = byDay[dateStr] || 0
+                    const naEscala = diasEscala.has(dateStr)
                     const isToday = dateStr === todayStr
+                    // Marcado ganha do calculado: se o RH lançou algo naquele dia,
+                    // é isso que ele quer ver, mesmo caindo em dia de escala.
+                    const cor = count > 0
+                      ? 'bg-orange-200 text-orange-900 font-bold hover:bg-orange-300'
+                      : naEscala
+                        ? 'bg-blue-100 text-blue-800 font-semibold hover:bg-blue-200'
+                        : 'hover:bg-gray-100 text-gray-700'
                     return (
                       <button key={i}
-                        onClick={() => { setAgendaForm(p => ({ ...p, planned_date: dateStr })); setShowAgendaForm(true) }}
-                        className={`aspect-square rounded-lg flex items-center justify-center text-sm transition-colors relative ${count > 0 ? 'bg-orange-100 text-orange-800 font-bold hover:bg-orange-200' : 'hover:bg-gray-100 text-gray-700'} ${isToday ? 'ring-2 ring-primary-400' : ''}`}>
+                        title={count > 0 ? 'Dia marcado — clique para editar'
+                          : naEscala ? 'Dia da escala — clique para marcar um extra ou anotar algo'
+                          : 'Clique para marcar este dia'}
+                        onClick={() => { setEditAgendaId(null); setAgendaForm(p => ({ ...p, planned_date: dateStr })); setShowAgendaForm(true) }}
+                        className={`aspect-square rounded-lg flex items-center justify-center text-sm transition-colors relative ${cor} ${isToday ? 'ring-2 ring-primary-400' : ''}`}>
                         {day}
-                        {count > 0 && <span className="absolute bottom-1 text-[9px] font-bold text-orange-600">●{count > 1 ? count : ''}</span>}
+                        {count > 0 && <span className="absolute bottom-1 text-[9px] font-bold text-orange-700">●{count > 1 ? count : ''}</span>}
                       </button>
                     )
                   })}
@@ -2478,7 +2560,9 @@ export default function EmployeeDetail() {
 
           {showAgendaForm && (
             <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 space-y-3">
-              <p className="text-sm font-medium text-orange-800">Nova data na agenda</p>
+              <p className="text-sm font-medium text-orange-800">
+                {editAgendaId ? 'Editar dia da agenda' : 'Marcar dia na agenda'}
+              </p>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="label">Data *</label>
@@ -3076,6 +3160,11 @@ function VisaoGeral({
   const today = new Date().toISOString().slice(0, 10)
   const visitedDays = new Set(visits?.map(v => Number(v.visit_date?.slice(8, 10))) ?? [])
   const plannedDays = new Set((monthAgenda || []).map(a => Number(a.planned_date?.slice(8, 10))))
+  // Dias que a escala define (fixo/plantão). Consultoria e freela devolvem
+  // vazio — pra esses os dias vêm da agenda, já em plannedDays.
+  const diasEscalaMes = new Set(
+    (links || []).flatMap(l => diasDaEscala(l as LinkEscala, selectedMonth)),
+  )
   const todayDay = selectedMonth === format(new Date(), 'yyyy-MM') ? new Date().getDate() : null
 
   // Stats
@@ -3208,6 +3297,11 @@ function VisaoGeral({
             const day = i + 1
             const hasVisit = visitedDays.has(day)
             const isPlanned = plannedDays.has(day) && !hasVisit  // agendado mas ainda não feito
+            // Dia que vem da ESCALA (fixo/plantão). Sem isso, quem é Fixo abria a
+            // visão geral e via um mês vazio — os dias dele nunca foram lançados,
+            // são calculados. Agora os três tipos mostram os dias de trabalho.
+            const naEscala = diasEscalaMes.has(`${selectedMonth}-${String(day).padStart(2, '0')}`)
+              && !hasVisit && !isPlanned
             const isToday = todayDay === day
             const isFuture = selectedMonth === format(new Date(), 'yyyy-MM') && day > (new Date().getDate())
             const clickable = hasVisit || isPlanned
@@ -3219,8 +3313,9 @@ function VisaoGeral({
                 className={`aspect-square flex items-center justify-center rounded-lg text-xs font-medium transition-colors
                   ${hasVisit ? 'bg-primary-600 text-white shadow-sm hover:bg-primary-700 cursor-pointer'
                     : isPlanned ? 'bg-amber-100 text-amber-800 border border-amber-300 hover:bg-amber-200 cursor-pointer'
+                    : naEscala ? 'bg-blue-100 text-blue-800 border border-blue-200'
                     : isToday ? 'ring-2 ring-primary-400 text-primary-700 bg-primary-50' : isFuture ? 'text-gray-300' : 'text-gray-500'}
-                  ${isPlanned && isToday ? 'ring-2 ring-primary-400' : ''}
+                  ${(isPlanned || naEscala) && isToday ? 'ring-2 ring-primary-400' : ''}
                 `}
               >
                 {day}
@@ -3232,8 +3327,14 @@ function VisaoGeral({
         <div className="flex items-center gap-4 mt-3 text-xs text-gray-500 flex-wrap">
           <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-primary-600 inline-block" /> Trabalhou</span>
           <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-amber-100 border border-amber-300 inline-block" /> Agendado (pendente)</span>
+          {diasEscalaMes.size > 0 && (
+            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-blue-100 border border-blue-200 inline-block" /> Dia da escala</span>
+          )}
           <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded ring-2 ring-primary-400 inline-block" /> Hoje</span>
         </div>
+        <p className="text-xs text-ink-400 mt-2">
+          Para marcar, editar ou lançar um dia extra, use a aba <strong>Agenda</strong>.
+        </p>
       </div>
 
       {/* Detalhe do dia — visitas do portal (entrada/saída, valor, obs, relatório) */}

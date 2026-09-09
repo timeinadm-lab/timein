@@ -2382,12 +2382,35 @@ export default function EmployeeDetail() {
                 </div>
                 <div>
                   <label className="label">Cliente *</label>
-                  <select className="input" value={agendaForm.client_id} onChange={e => setAgendaForm(p => ({ ...p, client_id: e.target.value, unit_id: '' }))}>
-                    <option value="">Selecionar...</option>
-                    {links?.filter(l => l.service_type === 'Consultoria').map(l => (
-                      <option key={l.id} value={(l.client as { id: string; name: string }).id}>{(l.client as { id: string; name: string }).name}</option>
-                    ))}
-                  </select>
+                  {/* Freela também tem agenda — a lista de permissões logo acima já
+                      trata Consultoria e Volante igual. Aqui só Consultoria entrava,
+                      então em quem é freela o campo abria vazio e não dava pra salvar.
+                      Deduplica por cliente: dois vínculos no mesmo cliente (fixo +
+                      cobertura) repetiam o nome duas vezes na lista. */}
+                  {(() => {
+                    const clientesAgenda = Array.from(new Map(
+                      (links || [])
+                        .filter(l => l.service_type === 'Consultoria' || l.service_type === 'Volante')
+                        .map(l => l.client as { id: string; name: string })
+                        .filter(c => c?.id)
+                        .map(c => [c.id, c] as const)
+                    ).values())
+                    if (clientesAgenda.length === 0) {
+                      return (
+                        <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
+                          Esta pessoa não tem vínculo de <strong>Consultoria</strong> nem de <strong>Freela</strong>.
+                          A agenda de visitas é só para esses dois — quem é <strong>Fixo</strong> segue a escala do vínculo,
+                          sem dias avulsos.
+                        </div>
+                      )
+                    }
+                    return (
+                      <select className="input" value={agendaForm.client_id} onChange={e => setAgendaForm(p => ({ ...p, client_id: e.target.value, unit_id: '' }))}>
+                        <option value="">Selecionar...</option>
+                        {clientesAgenda.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                      </select>
+                    )
+                  })()}
                 </div>
                 {agendaClientUnits && agendaClientUnits.length > 0 && (
                   <div>

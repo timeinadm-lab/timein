@@ -211,6 +211,16 @@ export default function PaymentList() {
         .gte('visit_date', monthStart)
         .lte('visit_date', monthEnd))
 
+      // Dias combinados na agenda. Para FREELA avulso é daqui que sai a previsão:
+      // ele não tem escala, os dias são marcados um a um. Sem isso a estimativa
+      // contava TODOS os dias do período como se ele trabalhasse todo dia.
+      const monthAgenda = await fetchAll<{ employee_id: string; client_id: string; planned_date: string }>(
+        () => supabase
+          .from('nutritionist_agenda')
+          .select('employee_id, client_id, planned_date')
+          .gte('planned_date', monthStart)
+          .lte('planned_date', monthEnd))
+
       // Desligados com visitas neste mês que ainda não foram pagos
       const dismissedVisits = (monthVisits || []).filter(v => !activeEmpIds.has(v.employee_id))
       const dismissedEmpIds = [...new Set(dismissedVisits.map(v => v.employee_id))]
@@ -395,9 +405,22 @@ export default function PaymentList() {
           ? visitasTrabalhadas.filter(v => !(v as { report_url?: string }).report_url).length
           : 0
 
-        // Freela por diária: dias previstos vêm da escala dentro do período do lançamento
+        // Freela é AVULSO: os dias combinados são os que estão na agenda dele.
+        // Só quando não há agenda nenhuma é que caímos na escala (freela de
+        // cobertura, que substitui alguém numa escala existente).
+        const freelaDe = (l as { start_date?: string }).start_date || ''
+        const freelaAte = (l as { contract_end_date?: string }).contract_end_date || '9999-12-31'
+        const diasNaAgenda = isFreela
+          ? new Set((monthAgenda || [])
+              .filter(a => a.employee_id === emp?.id && a.client_id === client?.id)
+              .filter(a => (!freelaDe || a.planned_date >= freelaDe) && a.planned_date <= freelaAte)
+              .map(a => a.planned_date)).size
+          : 0
+
         const expDays = isFreela
-          ? (freelaConsultoria ? 0 : freelaExpectedDays(
+          ? (freelaConsultoria ? 0
+            : diasNaAgenda > 0 ? diasNaAgenda
+            : freelaExpectedDays(
               filterMonth,
               (l as { start_date?: string }).start_date || null,
               (l as { contract_end_date?: string }).contract_end_date || null,

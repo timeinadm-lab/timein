@@ -1544,7 +1544,10 @@ export default function EmployeeDetail() {
                 // A ESCALA É O QUE DIZ QUAIS DIAS SÃO DELA. Sem isso o portal não
                 // mostra dia nenhum pra bater ponto e a folha estima 22 dias no
                 // chute — foi assim que gente correta apareceu com falta na folha.
+                // Só vale para PERMANENTE: freela é avulso, os dias vêm da agenda
+                // (marcados um a um) e o pagamento é por dia efetivamente feito.
                 const isFixoEscala = coverageForm.coverage_type === 'Fixo'
+                  && coverageForm.vinculo_tipo === 'permanente'
                 const faltaEscala = isFixoEscala && !coverageForm.work_schedule_type
                 const faltaFolgas = isFixoEscala
                   && ['5x2', '6x1'].includes(coverageForm.work_schedule_type)
@@ -1755,12 +1758,13 @@ export default function EmployeeDetail() {
                 ehConsult
                   && !(((l as { link_units?: { visit_rate?: number }[] }).link_units) || []).some(u => Number(u.visit_rate) > 0)
                   && 'sem valor de vistoria — o pagamento sai R$ 0,00',
+                // Freela não precisa de escala: os dias dele vêm da agenda
                 !ehConsult && l.service_type !== 'Volante' && !escalaL
                   && 'sem escala definida — a folha estima 22 dias no chute',
-                !ehConsult && ['5x2', '6x1'].includes(escalaL || '')
+                !ehConsult && l.service_type !== 'Volante' && ['5x2', '6x1'].includes(escalaL || '')
                   && !((l as { days_off?: number[] }).days_off || []).length
                   && 'sem dias de folga — ela não vê os dias no portal',
-                !ehConsult && escalaL === '12x36'
+                !ehConsult && l.service_type !== 'Volante' && escalaL === '12x36'
                   && !(l as { schedule_anchor_date?: string }).schedule_anchor_date
                   && 'sem a data do primeiro plantão — ela não vê os dias no portal',
               ].filter(Boolean) as string[])

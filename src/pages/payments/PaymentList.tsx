@@ -831,7 +831,15 @@ export default function PaymentList() {
   }
 
   // Totals driven by active vinculos (folhaData), not by payments records
-  const totalEstimativa = (folhaData ?? []).reduce((s, r) => s + (r.adjusted_amount ?? r.monthly_amount) + r.cost_assistance + (r.extrasAprovados || 0), 0)
+  // Consultoria e auditoria NÃO TÊM PREVISÃO: a data não é fixa, o trabalho
+  // acontece quando o cliente libera. Somar uma "estimativa" deles inflava a
+  // folha com dinheiro que talvez nem seja devido. Para esses vale o realizado;
+  // previsão só existe para quem tem salário ou diária combinada.
+  const porTrabalho = (r: { service_type: string; freelaConsultoria: boolean }) =>
+    r.service_type === 'Consultoria' || r.freelaConsultoria
+  const valorPrevisto = (r: typeof folhaData extends (infer U)[] | undefined ? U : never) =>
+    porTrabalho(r) ? (r.actualAmount || 0) : (r.adjusted_amount ?? r.monthly_amount)
+  const totalEstimativa = (folhaData ?? []).reduce((s, r) => s + valorPrevisto(r) + r.cost_assistance + (r.extrasAprovados || 0), 0)
   const totalExpenses = expenses?.reduce((s, e) => s + (Number(e.amount) || 0), 0) ?? 0
   const totalPago = payments?.filter(p => p.status === 'Pago').reduce((s, p) => s + (p.amount || 0), 0) ?? 0
   const totalAtrasado = payments?.filter(p => p.status === 'Pendente' && p.due_date < new Date().toISOString().slice(0, 10)).reduce((s, p) => s + (p.amount || 0), 0) ?? 0
@@ -958,10 +966,10 @@ export default function PaymentList() {
       {/* Summary cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <div className="card p-4 border-l-4 border-l-blue-400">
-          <p className="text-xs text-ink-500 font-semibold">Estimativa da folha</p>
+          <p className="text-xs text-ink-500 font-semibold">Folha do mês</p>
           <p className="text-2xl font-display font-extrabold text-ink-900 mt-1 tnum">{formatCurrency(totalEstimativa)}</p>
           <p className="text-xs text-ink-400 mt-0.5">
-            {folhaData?.length ?? 0} colaboradores · <span className="text-amber-600">consultoria só fecha com as visitas</span>
+            {folhaData?.length ?? 0} colaboradores · <span className="text-amber-600">salários fixos + o que já foi trabalhado</span>
           </p>
         </div>
         <div className="card p-4 border-l-4 border-l-orange-400">
@@ -1084,7 +1092,7 @@ export default function PaymentList() {
               {/* Resumo cards */}
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 {[
-                  { label: 'Estimativa', value: totalEstimativa, color: 'bg-blue-50 text-blue-800', sub: `${folhaData?.length ?? 0} colaboradores` },
+                  { label: 'Folha do mês', value: totalEstimativa, color: 'bg-blue-50 text-blue-800', sub: `${folhaData?.length ?? 0} colaboradores` },
                   { label: 'Gastos extras', value: totalExpenses, color: 'bg-orange-50 text-orange-800', sub: `${expenses?.length || 0} lançamentos` },
                   { label: 'Total Pago', value: totalPago, color: 'bg-green-50 text-green-800', sub: 'confirmados' },
                   { label: 'Atrasado', value: totalAtrasado, color: 'bg-red-50 text-red-800', sub: 'vencidos' },
@@ -1109,9 +1117,9 @@ export default function PaymentList() {
 
               {showCharts && (() => {
                 const groupTotals = [
-                  { name: 'Consultoria', value: (folhaData ?? []).filter(r => r.group === 'consultoria').reduce((s, r) => s + r.monthly_amount, 0), color: '#f97316' },
-                  { name: 'Fixo / Plantão', value: (folhaData ?? []).filter(r => r.group === 'fixo_plantao').reduce((s, r) => s + r.monthly_amount, 0), color: '#3b82f6' },
-                  { name: 'Freelas', value: (folhaData ?? []).filter(r => r.group === 'freela').reduce((s, r) => s + r.monthly_amount, 0), color: '#a855f7' },
+                  { name: 'Consultoria', value: (folhaData ?? []).filter(r => r.group === 'consultoria').reduce((s, r) => s + valorPrevisto(r), 0), color: '#f97316' },
+                  { name: 'Fixo / Plantão', value: (folhaData ?? []).filter(r => r.group === 'fixo_plantao').reduce((s, r) => s + valorPrevisto(r), 0), color: '#3b82f6' },
+                  { name: 'Freelas', value: (folhaData ?? []).filter(r => r.group === 'freela').reduce((s, r) => s + valorPrevisto(r), 0), color: '#a855f7' },
                 ].filter(g => g.value > 0)
                 const byEmployee = (folhaData ?? []).map(r => ({
                   name: r.employee?.full_name?.split(' ').slice(0, 2).join(' ') || '-',
@@ -1235,13 +1243,19 @@ export default function PaymentList() {
                                 <div className="text-center px-3">
                                   {/* Consultoria não tem salário: o que ela recebe sai das visitas.
                                       Chamar de "Salário" fazia a estimativa parecer valor combinado. */}
-                                  <p className={`text-xs ${isConsultoria ? 'text-amber-600' : 'text-gray-400'}`}>
-                                    {isFreela ? (row.freelaConsultoria ? 'Freela' : 'Diária') : isConsultoria ? 'Estimativa' : 'Salário'}
+                                  {/* Consultoria e auditoria não têm data fixa: não
+                                      existe previsão, existe o que foi feito. Mostrar
+                                      um "~R$ X" ali dava a impressão de valor combinado. */}
+                                  <p className={`text-xs ${isConsultoria || row.freelaConsultoria ? 'text-amber-600' : 'text-gray-400'}`}>
+                                    {isConsultoria || row.freelaConsultoria ? 'Por trabalho' : isFreela ? 'Diária' : 'Salário'}
                                   </p>
-                                  <p className={`text-sm font-semibold ${isConsultoria ? 'text-amber-700' : 'text-gray-700'}`}
-                                    title={isConsultoria ? 'Estimativa — o valor real vem das visitas registradas' : undefined}>
-                                    {isConsultoria ? '~' : ''}
-                                    {isFreela && !row.freelaConsultoria ? formatCurrency(row.dailyRate || 0) : formatCurrency(row.monthly_amount)}
+                                  <p className={`text-sm font-semibold ${isConsultoria || row.freelaConsultoria ? 'text-amber-700' : 'text-gray-700'}`}
+                                    title={isConsultoria || row.freelaConsultoria
+                                      ? 'Sem data fixa — o valor sai das visitas registradas'
+                                      : undefined}>
+                                    {isConsultoria || row.freelaConsultoria
+                                      ? 'sob demanda'
+                                      : isFreela ? formatCurrency(row.dailyRate || 0) : formatCurrency(row.monthly_amount)}
                                   </p>
                                   {row.isPartialCycle && !row.payFullSalary && (
                                     <p className="text-xs text-amber-600">{Math.round(row.proportionalFactor * 100)}% ciclo</p>

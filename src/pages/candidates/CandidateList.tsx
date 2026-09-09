@@ -463,7 +463,7 @@ export default function CandidateList() {
               {/* Mapeamento de colunas */}
               <div>
                 <p className="text-sm font-medium text-gray-700 mb-2">Mapeamento de colunas:</p>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {importHeaders.map(h => (
                     <div key={h} className="flex items-center gap-2">
                       <span className="text-sm text-gray-600 w-32 truncate flex-shrink-0">{h}</span>

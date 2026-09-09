@@ -982,7 +982,7 @@ export default function VacancyDetail() {
                 onChange={e => setEntrevistaForm(p => ({ ...p, scheduled_at: e.target.value }))} />
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="label">Duração</label>
                 <select className="input" value={entrevistaForm.duration_min}
@@ -1255,7 +1255,7 @@ export default function VacancyDetail() {
               <h3 className="font-semibold text-sm">Anexar documento</h3>
               <p className="text-xs text-gray-400">Crie o tópico na hora (ex: Colaboradores, Contratos, Fotos 3x4). Tudo que anexar aqui aparece também na aba Documentos do cliente.</p>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="label text-xs">Tópico</label>
                 <input className="input text-sm" placeholder="Ex: Colaboradores" list="doc-topics" value={docForm.topic} onChange={e => setDocForm(p => ({ ...p, topic: e.target.value }))} />
@@ -1656,7 +1656,7 @@ export default function VacancyDetail() {
               </button>
             </div>
             {showMatchFilters && (
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="label">Estado</label>
                   <select className="input" value={matchFilters.state} onChange={e => setMatchFilters(p => ({ ...p, state: e.target.value }))}>
@@ -1722,7 +1722,7 @@ export default function VacancyDetail() {
             {hireDetails.serviceType === 'Fixo' && (
               <div className="space-y-3 bg-gray-50 p-3 rounded-lg">
                 <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Escala de Trabalho <span className="text-primary-500 normal-case font-normal">• pré-preenchido da vaga</span></p>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="label">Turno</label>
                     <select className="input" value={hireDetails.workShift} onChange={e => setHireDetails(p => ({ ...p, workShift: e.target.value }))}>
@@ -1749,7 +1749,7 @@ export default function VacancyDetail() {
               </p>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="label">Data de Início</label>
                 <input className="input" type="date" value={hireDetails.startDate} onChange={e => setHireDetails(p => ({ ...p, startDate: e.target.value }))} />
@@ -1820,7 +1820,7 @@ export default function VacancyDetail() {
             {/* Identificação */}
             <div>
               <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Identificação</p>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="label">CPF <span className="text-orange-400 text-xs">(login portal)</span></label>
                   <input className="input" placeholder="000.000.000-00" value={empForm.cpf} onChange={e => setEmpForm(p => ({ ...p, cpf: e.target.value }))} />
@@ -1843,7 +1843,7 @@ export default function VacancyDetail() {
             {/* Contato */}
             <div>
               <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Contato</p>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="label">Telefone</label>
                   <input className="input" placeholder="(00) 00000-0000" value={empForm.phone} onChange={e => setEmpForm(p => ({ ...p, phone: e.target.value }))} />
@@ -1858,7 +1858,7 @@ export default function VacancyDetail() {
             {/* Endereço */}
             <div>
               <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Endereço</p>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="col-span-2">
                   <label className="label">Rua</label>
                   <input className="input" placeholder="Ex: Rua das Flores" value={empForm.address_street} onChange={e => setEmpForm(p => ({ ...p, address_street: e.target.value }))} />
@@ -1885,7 +1885,7 @@ export default function VacancyDetail() {
             {/* Dados Bancários */}
             <div>
               <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Dados Bancários</p>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="col-span-2">
                   <label className="label">Banco</label>
                   <input className="input" placeholder="Ex: Nubank, Itaú..." value={empForm.bank_name} onChange={e => setEmpForm(p => ({ ...p, bank_name: e.target.value }))} />

@@ -441,7 +441,7 @@ export default function ClientDetail() {
               <h3 className="font-semibold text-sm">Anexar documento</h3>
               <p className="text-xs text-gray-400">Crie o tópico na hora (ex: Colaboradores, Contratos, Fotos 3x4). Documentos anexados nas vagas deste cliente também aparecem aqui.</p>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="label text-xs">Tópico</label>
                 <input className="input text-sm" placeholder="Ex: Colaboradores" list="client-doc-topics" value={docForm.topic} onChange={e => setDocForm(p => ({ ...p, topic: e.target.value }))} />
@@ -545,7 +545,7 @@ export default function ClientDetail() {
           {showContractForm && (
             <div className="card p-4 space-y-3 border border-primary-200">
               <h4 className="text-sm font-medium text-gray-700">Novo Contrato</h4>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <input className="input col-span-2" placeholder="Título / descrição" value={newContract.title} onChange={e => setNewContract(p => ({ ...p, title: e.target.value }))} />
                 <input className="input" placeholder="Número do contrato" value={newContract.contract_number} onChange={e => setNewContract(p => ({ ...p, contract_number: e.target.value }))} />
                 <input className="input" placeholder="Valor mensal R$" type="number" value={newContract.monthly_value} onChange={e => setNewContract(p => ({ ...p, monthly_value: e.target.value }))} />

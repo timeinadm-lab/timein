@@ -1462,7 +1462,7 @@ export default function PaymentList() {
                                 {newExpenseEmpId === row.employee?.id && (
                                   <div className="bg-gray-50 rounded-lg p-3 space-y-2 mt-2">
                                     <p className="text-xs font-semibold text-gray-600">Registrar gasto</p>
-                                    <div className="grid grid-cols-2 gap-2">
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                       <input className="input text-sm col-span-2" placeholder="Descrição *" value={expForm.description} onChange={e => setExpForm(p => ({ ...p, description: e.target.value }))} />
                                       <input className="input text-sm" type="number" placeholder="Valor R$ *" value={expForm.amount} onChange={e => setExpForm(p => ({ ...p, amount: e.target.value }))} />
                                       <select className="input text-sm" value={expForm.category} onChange={e => setExpForm(p => ({ ...p, category: e.target.value }))}>

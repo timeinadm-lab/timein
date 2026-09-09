@@ -200,7 +200,7 @@ export default function CandidateKanban() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div className="bg-white rounded-xl p-6 max-w-md w-full mx-4 space-y-4">
             <h3 className="font-semibold">Agendar Entrevista</h3>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="col-span-2"><label className="label">Data e Hora *</label><input className="input" type="datetime-local" value={interviewForm.scheduled_at} onChange={e => setInterviewForm(p => ({ ...p, scheduled_at: e.target.value }))} /></div>
               <div>
                 <label className="label">Duração</label>

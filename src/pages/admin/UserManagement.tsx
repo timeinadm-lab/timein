@@ -149,7 +149,7 @@ export default function UserManagement() {
       {showNewForm && (
         <div className="card p-5 space-y-4">
           <h3 className="font-medium">Novo Usuário</h3>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div><label className="label">Nome *</label><input className="input" required value={newForm.full_name} onChange={e => setNewForm(p => ({ ...p, full_name: e.target.value }))} /></div>
             <div><label className="label">E-mail *</label><input className="input" type="email" required value={newForm.email} onChange={e => setNewForm(p => ({ ...p, email: e.target.value }))} /></div>
             <div><label className="label">Senha *</label><input className="input" type="password" required value={newForm.password} onChange={e => setNewForm(p => ({ ...p, password: e.target.value }))} /></div>

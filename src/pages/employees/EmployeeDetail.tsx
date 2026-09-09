@@ -1183,7 +1183,7 @@ export default function EmployeeDetail() {
           {/* Dados Bancários */}
           <div className="card p-5">
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Dados Bancários</p>
-            <div className="grid grid-cols-2 gap-3 text-sm">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
               <div><span className="text-xs text-gray-400">Banco</span><p>{employee.bank_name || '-'}</p></div>
               <div><span className="text-xs text-gray-400">Agência</span><p className="font-mono">{employee.bank_agency || '-'}</p></div>
               <div><span className="text-xs text-gray-400">Conta Corrente</span><p className="font-mono">{employee.bank_account || '-'}</p></div>
@@ -2001,7 +2001,7 @@ export default function EmployeeDetail() {
                             {isConsult ? (
                               <>
                                 {/* Frequência + Horas por visita */}
-                                <div className="grid grid-cols-2 gap-2">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                   <div>
                                     <label className="label text-xs">Frequência</label>
                                     <select className="input text-sm" value={editLinkValues.visit_frequency}
@@ -2102,7 +2102,7 @@ export default function EmployeeDetail() {
                                 )}
                               </>
                             ) : (
-                              <div className="grid grid-cols-2 gap-2">
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                 <div>
                                   <label className="label text-xs">Salário Mensal (R$)</label>
                                   <input className="input" type="number" value={editLinkValues.monthly_amount}
@@ -2405,7 +2405,7 @@ export default function EmployeeDetail() {
             {showExpForm && (
               <div className="bg-gray-50 rounded-xl p-3 space-y-2">
                 <input className="input text-sm w-full" placeholder="Descrição *" value={expForm.description} onChange={e => setExpForm(p => ({ ...p, description: e.target.value }))} />
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <input className="input text-sm" type="number" placeholder="Valor R$ *" value={expForm.amount} onChange={e => setExpForm(p => ({ ...p, amount: e.target.value }))} />
                   <select className="input text-sm" value={expForm.category} onChange={e => setExpForm(p => ({ ...p, category: e.target.value }))}>
                     <option>Reembolso</option>
@@ -2592,7 +2592,7 @@ export default function EmployeeDetail() {
               <p className="text-sm font-medium text-orange-800">
                 {editAgendaId ? 'Editar dia da agenda' : 'Marcar dia na agenda'}
               </p>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="label">Data *</label>
                   <input type="date" className="input" value={agendaForm.planned_date} onChange={e => setAgendaForm(p => ({ ...p, planned_date: e.target.value }))} />
@@ -3037,7 +3037,7 @@ export default function EmployeeDetail() {
             </div>
             {showHistoryForm && (
               <div className="bg-gray-50 p-4 rounded-lg space-y-3">
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="label">Tipo</label>
                     <select className="input" value={histForm.type} onChange={e => setHistForm(p => ({ ...p, type: e.target.value }))}>
@@ -3802,6 +3802,7 @@ function PortalTab({ employeeId, employee }: { employeeId: string; employee: Rec
     else {
       toast.success('Senha do portal atualizada!')
       qc.invalidateQueries({ queryKey: ['employee', employeeId] })
+      qc.invalidateQueries({ queryKey: ['portal-tem-senha', employeeId] })
       setLastPin(newPin.trim())
       setNewPin('')
     }
@@ -3809,8 +3810,27 @@ function PortalTab({ employeeId, employee }: { employeeId: string; employee: Rec
   }
 
   const portalUrl = `${window.location.origin}/portal`
-  const hasPin = !!(employee as { portal_pin_hash?: string; portal_pin?: string })?.portal_pin_hash
-    || !!(employee as { portal_pin?: string })?.portal_pin
+
+  // A senha vive num cofre separado (app_private), fora do alcance do site.
+  // Olhar employees.portal_pin_hash daqui sempre daria "sem senha", porque
+  // nesse desenho o campo é zerado de propósito. Quem responde é o banco.
+  const { data: temSenha } = useQuery({
+    queryKey: ['portal-tem-senha', employeeId],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc('portal_has_pin', { p_employee: employeeId })
+      if (error) {
+        // Migração 050 ainda não rodada: cai no jeito antigo em vez de quebrar
+        console.warn('portal_has_pin:', error.message)
+        return null
+      }
+      return !!data
+    },
+  })
+
+  const hasPin = temSenha !== null && temSenha !== undefined
+    ? temSenha
+    : (!!(employee as { portal_pin_hash?: string })?.portal_pin_hash
+      || !!(employee as { portal_pin?: string })?.portal_pin)
   const cpf = (employee as { cpf?: string })?.cpf || '-'
 
   const copyAccess = () => {

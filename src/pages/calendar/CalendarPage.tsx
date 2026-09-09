@@ -617,6 +617,7 @@ export default function CalendarPage() {
                   <>
                     <div>
                       <label className="label">O que é? *</label>
+                      {/* Botões curtos: 2 colunas cabem bem até no celular */}
                       <div className="grid grid-cols-2 gap-1.5">
                         {([['planejada', '🟡 Visita'], ['ausencia', '🔴 Ausência'], ['reuniao', '🔵 Reunião'], ['compromisso', '🟣 Compromisso']] as const).map(([k, t]) => (
                           <button key={k} onClick={() => setAddForm(p => ({ ...p, manualKind: k }))}
@@ -671,7 +672,7 @@ export default function CalendarPage() {
                             só "o que é" e "quem" — o resto vira campo pra ignorar. */}
                         {addForm.manualKind === 'reuniao' && (
                           <>
-                            <div className="grid grid-cols-2 gap-2">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                               <div>
                                 <label className="label">Modalidade</label>
                                 <select className="input" value={addForm.modality}
@@ -747,7 +748,7 @@ export default function CalendarPage() {
 
                 {/* Campos comuns */}
                 {addForm.manualKind !== 'ausencia' && (
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     <div>
                       <label className="label">Hora <span className="text-gray-400 font-normal">(opcional)</span></label>
                       <input className="input" type="time" value={addForm.time} onChange={e => setAddForm(p => ({ ...p, time: e.target.value }))} />

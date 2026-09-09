@@ -129,7 +129,7 @@ export default function InspectionPublic() {
               ))}
             </select>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div><label className="label">Check-in *</label><input className="input" type="datetime-local" value={form.check_in} onChange={e => setForm(p => ({ ...p, check_in: e.target.value }))} /></div>
             <div><label className="label">Check-out *</label><input className="input" type="datetime-local" value={form.check_out} onChange={e => setForm(p => ({ ...p, check_out: e.target.value }))} /></div>
           </div>

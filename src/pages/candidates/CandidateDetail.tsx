@@ -167,7 +167,7 @@ export default function CandidateDetail() {
         </div>
         {showContactForm && (
           <div className="bg-gray-50 p-4 rounded-lg space-y-3">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div><label className="label">Data</label><input className="input" type="date" value={contact.contact_date} onChange={e => setContact(p => ({ ...p, contact_date: e.target.value }))} /></div>
               <div><label className="label">Responsável</label><input className="input" value={contact.responsible} onChange={e => setContact(p => ({ ...p, responsible: e.target.value }))} /></div>
               <div className="col-span-2"><label className="label">Observação</label><textarea className="input" rows={2} value={contact.observations} onChange={e => setContact(p => ({ ...p, observations: e.target.value }))} /></div>

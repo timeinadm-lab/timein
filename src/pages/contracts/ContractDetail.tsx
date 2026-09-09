@@ -93,7 +93,7 @@ export default function ContractDetail() {
         </div>
         {showVisitForm && (
           <div className="bg-gray-50 p-4 rounded-lg mb-4 space-y-3">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="label">Data *</label>
                 <input className="input" type="date" value={visit.visit_date} onChange={e => setVisit(p => ({ ...p, visit_date: e.target.value }))} required />

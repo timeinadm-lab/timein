@@ -767,7 +767,11 @@ export default function EmployeeDetail() {
 
   const updateLinkValues = useMutation({
     mutationFn: async (vals: EditLinkState) => {
+      // Quem é pago POR VISITA: consultoria e freela de auditoria. Os dois
+      // guardam o valor da vistoria por unidade. Amarrar isso só a "Consultoria"
+      // fazia a troca de grupo zerar os valores do freela.
       const isConsult = vals.serviceType === 'Consultoria'
+        || (vals.serviceType === 'Volante' && vals.units.some(u => Number(u.visit_rate) > 0))
       let monthly: number | null = null
       let linkUnits: unknown = null
       if (isConsult) {
@@ -782,7 +786,14 @@ export default function EmployeeDetail() {
       } else {
         monthly = vals.monthly_amount ? Number(vals.monthly_amount) : null
       }
+      // Grupo da folha. Freela guarda em coverage_type se é por visita
+      // (consultoria) ou por diária — é o que decide como ele é pago.
+      const ehFreela = vals.serviceType === 'Volante'
+      const coberturaFreela = linkUnits && (linkUnits as unknown[]).length > 0 ? 'Consultoria' : 'Fixo'
+
       const { error } = await supabase.from('employee_client_links').update({
+        service_type: vals.serviceType,
+        coverage_type: ehFreela ? coberturaFreela : null,
         monthly_amount: monthly,
         cost_assistance: vals.cost_assistance ? Number(vals.cost_assistance) : 0,
         link_units: linkUnits,
@@ -1873,7 +1884,11 @@ export default function EmployeeDetail() {
 
                       {/* Inline edit */}
                       {editLinkValues?.linkId === l.id && (() => {
+                        // Freela de auditoria também é pago por visita, então
+                        // precisa dos mesmos campos de unidade/valor da consultoria.
                         const isConsult = editLinkValues.serviceType === 'Consultoria'
+                          || (editLinkValues.serviceType === 'Volante'
+                              && (l as { coverage_type?: string }).coverage_type === 'Consultoria')
                         // Descarta unidades "fantasma" que não existem mais na lista atual do cliente
                         const validUnitIds = new Set((editClientUnits || []).map(u => u.id))
                         const ratedUnits = isConsult ? editLinkValues.units.filter(u => u.visit_rate && (validUnitIds.size === 0 || validUnitIds.has(u.unit_id))) : []
@@ -1887,6 +1902,37 @@ export default function EmployeeDetail() {
                             <p className={`text-xs font-semibold ${isConsult ? 'text-orange-700' : 'text-blue-700'}`}>
                               {isConsult ? 'Consultoria — Unidades & Valores' : 'Editar valores'}
                             </p>
+
+                            {/* Trocar o grupo do vínculo. Cadastrar no grupo errado
+                                acontece, e até aqui só dava pra corrigir apagando e
+                                refazendo — o que levava junto o histórico. É o mesmo
+                                agrupamento da folha: Consultoria, Fixo/Plantão e Freela. */}
+                            <div>
+                              <label className="label text-xs">Grupo na folha de pagamento</label>
+                              <div className="flex gap-1.5 flex-wrap">
+                                {([
+                                  ['Fixo', '📅 Fixo / Plantão', 'Fica no cliente. Salário mensal.'],
+                                  ['Consultoria', '🔍 Consultoria', 'Visitas periódicas. Paga por visita.'],
+                                  ['Volante', '⚡ Freela', 'Avulso. Paga pelos dias feitos.'],
+                                ] as const).map(([v, t, d]) => (
+                                  <button key={v} type="button" title={d}
+                                    onClick={() => setEditLinkValues(p => p ? { ...p, serviceType: v } : p)}
+                                    className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border-2 transition-colors ${
+                                      editLinkValues.serviceType === v
+                                        ? 'border-primary-600 bg-primary-50 text-primary-700'
+                                        : 'border-ink-200 bg-white text-ink-500 hover:border-ink-300'}`}>
+                                    {t}
+                                  </button>
+                                ))}
+                              </div>
+                              {editLinkValues.serviceType !== l.service_type && (
+                                <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5 mt-1.5">
+                                  Mudando de <strong>{serviceTypeLabel(l.service_type)}</strong> para <strong>{serviceTypeLabel(editLinkValues.serviceType)}</strong>.
+                                  Muda como esta pessoa é paga e em qual grupo ela aparece na folha.
+                                  O histórico de visitas e pagamentos é preservado.
+                                </p>
+                              )}
+                            </div>
 
                             {isConsult ? (
                               <>

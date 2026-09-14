@@ -93,6 +93,7 @@ export default function PaymentList() {
   const [filterMonth, setFilterMonth] = useState(() => format(new Date(), 'yyyy-MM'))
   const [filterStatus, setFilterStatus] = useState('')
   const [newExpenseEmpId, setNewExpenseEmpId] = useState<string | null>(null)
+  const [confirmDelExpense, setConfirmDelExpense] = useState<string | null>(null)
   const [expForm, setExpForm] = useState({ description: '', amount: '', category: 'Reembolso', notes: '' })
   const [editAmountLink, setEditAmountLink] = useState<{ linkId: string; name: string; current: number } | null>(null)
   const [editAmountVal, setEditAmountVal] = useState('')
@@ -149,6 +150,20 @@ export default function PaymentList() {
       qc.invalidateQueries({ queryKey: ['expenses', filterMonth] })
       setNewExpenseEmpId(null)
       setExpForm({ description: '', amount: '', category: 'Reembolso', notes: '' })
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  // Apagar um gasto lançado. Faltava: quem lançasse duas vezes por engano não
+  // tinha como desfazer, e o valor duplicado seguia direto pro pagamento.
+  const deleteExpense = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from('employee_expenses').delete().eq('id', id)
+      if (error) throw error
+    },
+    onSuccess: () => {
+      toast.success('Lançamento apagado.')
+      qc.invalidateQueries({ queryKey: ['expenses', filterMonth] })
     },
     onError: (e: Error) => toast.error(e.message),
   })
@@ -1453,12 +1468,39 @@ export default function PaymentList() {
                                     <span className="font-medium text-blue-800">{formatCurrency(row.cost_assistance)}</span>
                                   </div>
                                 )}
-                                {(expenses?.filter(e => (e as { employee_id?: string }).employee_id === row.employee?.id) ?? []).map(e => (
-                                  <div key={e.id} className="flex items-center justify-between text-xs bg-orange-50 rounded px-2 py-1">
-                                    <span className="text-orange-700">💸 {e.description} <span className="text-gray-400">({e.category})</span></span>
-                                    <span className="font-medium text-orange-800">{formatCurrency(Number(e.amount))}</span>
-                                  </div>
-                                ))}
+                                {(expenses?.filter(e => (e as { employee_id?: string }).employee_id === row.employee?.id) ?? []).map(e => {
+                                  const exp = e as { id: string; description: string; category?: string; amount: number; status?: string }
+                                  const pendente = exp.status === 'pendente'
+                                  const negado = exp.status === 'negado'
+                                  return (
+                                    <div key={exp.id} className={`flex items-center justify-between gap-2 text-xs rounded px-2 py-1 ${negado ? 'bg-ink-100 opacity-60' : 'bg-orange-50'}`}>
+                                      <span className={negado ? 'text-ink-500 line-through' : 'text-orange-700'}>
+                                        💸 {exp.description} <span className="text-gray-400">({exp.category})</span>
+                                        {/* Sem isso, pendente e aprovado ficavam iguais na tela
+                                            e só o aprovado entra no pagamento. */}
+                                        {pendente && <span className="ml-1 text-amber-700 font-semibold">— aguardando análise</span>}
+                                        {negado && <span className="ml-1 text-ink-500">— negado</span>}
+                                      </span>
+                                      <span className="flex items-center gap-1.5 shrink-0">
+                                        <span className={`font-medium ${negado ? 'text-ink-400' : 'text-orange-800'}`}>{formatCurrency(Number(exp.amount))}</span>
+                                        {confirmDelExpense === exp.id ? (
+                                          <>
+                                            <button onClick={() => { deleteExpense.mutate(exp.id); setConfirmDelExpense(null) }}
+                                              className="text-[10px] bg-red-600 text-white px-1.5 py-0.5 rounded font-medium hover:bg-red-700">Apagar</button>
+                                            <button onClick={() => setConfirmDelExpense(null)}
+                                              className="text-[10px] text-gray-400 hover:text-gray-600">não</button>
+                                          </>
+                                        ) : (
+                                          <button onClick={() => setConfirmDelExpense(exp.id)}
+                                            title="Apagar este lançamento"
+                                            className="text-red-400 hover:text-red-600 p-0.5 rounded hover:bg-red-50">
+                                            <Trash2 size={12} />
+                                          </button>
+                                        )}
+                                      </span>
+                                    </div>
+                                  )
+                                })}
                                 {newExpenseEmpId === row.employee?.id && (
                                   <div className="bg-gray-50 rounded-lg p-3 space-y-2 mt-2">
                                     <p className="text-xs font-semibold text-gray-600">Registrar gasto</p>

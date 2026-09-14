@@ -792,8 +792,10 @@ export default function Dashboard() {
   const filledVacancies = vacancies?.filter(v => v.status === 'Preenchida').length ?? 0
   const totalVacancies = (vacancies?.length ?? 0) || 1
 
+  // 'Novo' e 'Em contato' não existem no sistema — os nomes são 'Em Avaliação' e
+  // 'Contato Feito'. O contador vinha ignorando essas duas etapas há tempo.
   const inProcess = candidates?.filter(c =>
-    ['Novo', 'Em contato', 'Entrevista Agendada', 'Aprovado', 'Em Processo de Contratação'].includes(c.pipeline_stage)
+    ['Em Avaliação', 'Contato Feito', 'Entrevista Agendada', 'Aprovado', 'Em Processo de Contratação'].includes(c.pipeline_stage)
   ).length ?? 0
 
   // Enriquecimento dos KPIs

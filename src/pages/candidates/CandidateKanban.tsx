@@ -16,6 +16,8 @@ const STAGE_COLORS: Record<string, string> = {
   'Aprovado': 'bg-green-50 border-green-200',
   'Em Processo de Contratação': 'bg-blue-100 border-blue-300',
   'Contratado': 'bg-green-100 border-green-300',
+  'Não tem interesse': 'bg-amber-50 border-amber-200',
+  'Está trabalhando': 'bg-cyan-50 border-cyan-200',
   'Reprovado': 'bg-red-50 border-red-200',
   'Inativo': 'bg-gray-100 border-gray-300',
 }
@@ -28,6 +30,8 @@ const CARD_ACCENT: Record<string, string> = {
   'Aprovado': 'border-l-green-500',
   'Em Processo de Contratação': 'border-l-blue-600',
   'Contratado': 'border-l-green-600',
+  'Não tem interesse': 'border-l-amber-400',
+  'Está trabalhando': 'border-l-cyan-400',
   'Reprovado': 'border-l-red-400',
   'Inativo': 'border-l-gray-500',
 }

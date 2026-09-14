@@ -159,6 +159,11 @@ export const PIPELINE_STAGES = [
   'Aprovado',
   'Em Processo de Contratação',
   'Contratado',
+  // Saíram do processo, mas por motivos diferentes — e isso importa na hora de
+  // reaproveitar o banco: quem "está trabalhando" pode voltar mais pra frente,
+  // quem "não tem interesse" foi decisão da pessoa, e "reprovado" foi nossa.
+  'Não tem interesse',
+  'Está trabalhando',
   'Reprovado',
   'Inativo',
 ]
@@ -171,6 +176,8 @@ export const PIPELINE_COLORS: Record<string, string> = {
   'Aprovado': 'bg-green-100 text-green-700',
   'Em Processo de Contratação': 'bg-blue-800 text-white',
   'Contratado': 'bg-green-800 text-white',
+  'Não tem interesse': 'bg-amber-100 text-amber-700',
+  'Está trabalhando': 'bg-cyan-100 text-cyan-700',
   'Reprovado': 'bg-red-100 text-red-700',
   'Inativo': 'bg-gray-700 text-white',
 }

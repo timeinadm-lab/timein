@@ -432,9 +432,11 @@ export default function VacancyDetail() {
         }).select('id').single()
         if (empErr) throw empErr
         empId = emp.id
-        // Define a senha do portal já como hash (função no servidor)
-        await supabase.rpc('portal_set_pin', { p_employee: empId, p_pin: autoPin })
-        autoPinToShow = autoPin
+        // Define a senha do portal pelo servidor (ela vive num cofre separado).
+        // Se falhar, não inventa uma senha na tela que não existe no banco —
+        // o RH cria depois na ficha, aba Portal.
+        const { error: pinErr } = await supabase.rpc('portal_set_pin', { p_employee: empId, p_pin: autoPin })
+        autoPinToShow = pinErr ? '' : autoPin
       }
       const emp = { id: empId }
 

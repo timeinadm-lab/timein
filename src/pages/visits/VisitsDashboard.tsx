@@ -221,7 +221,10 @@ export default function VisitsDashboard() {
     const consultLink = empLinks.find(l => l.service_type === 'Consultoria') as { monthly_hours_quota?: number; link_units?: { visit_rate?: number }[] } | undefined
     const monthlyQuota = Number(consultLink?.monthly_hours_quota) || null
     const noRate = consultLink && !(consultLink.link_units || []).some(u => Number(u.visit_rate) > 0)
-    const hasNoPin = !emp.portal_pin
+    // A senha saiu desta tabela e foi para um cofre separado, então este campo
+    // é sempre vazio: o selo "sem portal" apareceria em TODO mundo. Quem sabe
+    // responder isso é a ficha da pessoa, na aba Portal.
+    const hasNoPin = false
     const rawAlert = !hasVisitThisMonth ? (daysSince === null ? 'never' : daysSince > 7 ? 'danger' : 'warning') : 'ok'
     // Antes das últimas 24h do mês não cobra "sem visita" — ela tem até o fim do mês pra fechar
     const alertLevel = (!showShortfall && rawAlert !== 'ok') ? 'no_prazo' : rawAlert

@@ -67,10 +67,21 @@ export default function EmployeeForm() {
         if (error) throw error
         return id
       } else {
-        const autoPin = String(Math.floor(100000 + Math.random() * 900000))
-        const { data, error } = await supabase.from('employees').insert({ ...payload, portal_pin: autoPin }).select('id').single()
+        // A senha NÃO vai no insert: o banco proíbe guardar credencial na tabela
+        // de colaboradores (ela vive num cofre separado). Cria a pessoa primeiro
+        // e define a senha pelo caminho oficial, que é quem sabe escrever lá.
+        const { data, error } = await supabase.from('employees').insert(payload).select('id').single()
         if (error) throw error
-        toast.success(`Colaborador criado! Senha do portal: ${autoPin}`, { duration: 8000 })
+
+        const autoPin = String(Math.floor(100000 + Math.random() * 900000))
+        const { error: pinErr } = await supabase.rpc('portal_set_pin', { p_employee: data.id, p_pin: autoPin })
+        if (pinErr) {
+          // A pessoa foi criada; só a senha falhou. Dizer isso é melhor que
+          // sugerir que deu tudo errado — e o RH define a senha na ficha.
+          toast.error('Colaborador criado, mas a senha do portal não foi definida. Crie na aba Portal da ficha.', { duration: 8000 })
+        } else {
+          toast.success(`Colaborador criado! Senha do portal: ${autoPin}`, { duration: 8000 })
+        }
         return data.id
       }
     },

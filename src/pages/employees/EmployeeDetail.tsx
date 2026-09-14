@@ -121,6 +121,11 @@ export default function EmployeeDetail() {
   const [payMonth, setPayMonth] = useState(format(new Date(), 'yyyy-MM'))
   const [agendaMonth, setAgendaMonth] = useState(format(new Date(), 'yyyy-MM'))
   const [visMonth, setVisMonth] = useState(format(new Date(), 'yyyy-MM'))
+  // Registrar visita pelo RH, para quem esqueceu de lançar no portal
+  const EMPTY_VISITA_RH = { client_id: '', unit_id: '', visit_date: '', check_in: '', check_out: '', break_start: '', break_end: '', obs: '' }
+  const [showVisitaRH, setShowVisitaRH] = useState(false)
+  const [visitaRH, setVisitaRH] = useState(EMPTY_VISITA_RH)
+
   const [showAgendaForm, setShowAgendaForm] = useState(false)
   // Editar/apagar dia da agenda: antes só existia uma lixeira cinza-clara que
   // apagava na hora, sem confirmar, e não havia como corrigir um dia errado.
@@ -587,6 +592,46 @@ export default function EmployeeDetail() {
       qc.invalidateQueries({ queryKey: ['employee-links', id] })
     },
     onError: (e: Error) => toast.error(e.message),
+  })
+
+  // O valor não é digitado: quem calcula é o banco, pela mesma regra do portal.
+  // Se o RH pudesse digitar, o mesmo trabalho valeria diferente conforme quem
+  // lançou — e a folha deixaria de ser confiável.
+  const registrarVisitaRH = useMutation({
+    mutationFn: async () => {
+      if (!visitaRH.client_id) throw new Error('Escolha o cliente')
+      if (!visitaRH.visit_date) throw new Error('Escolha o dia')
+      if (!visitaRH.check_in || !visitaRH.check_out) throw new Error('Informe entrada e saída')
+      const { error } = await supabase.rpc('rh_registrar_visita', {
+        p_employee: id,
+        p_client: visitaRH.client_id,
+        p_unit: visitaRH.unit_id || null,
+        p_date: visitaRH.visit_date,
+        p_in: visitaRH.check_in,
+        p_out: visitaRH.check_out,
+        p_b1: visitaRH.break_start || null,
+        p_b2: visitaRH.break_end || null,
+        p_obs: visitaRH.obs || null,
+      })
+      if (error) throw error
+    },
+    onSuccess: () => {
+      toast.success('Visita registrada! Já entra na folha do mês.')
+      qc.invalidateQueries({ queryKey: ['employee-visit-history', id] })
+      qc.invalidateQueries({ queryKey: ['visao-visits', id] })
+      setShowVisitaRH(false)
+      setVisitaRH(EMPTY_VISITA_RH)
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  const { data: unidadesVisitaRH } = useQuery({
+    queryKey: ['unidades-visita-rh', visitaRH.client_id],
+    queryFn: async () => {
+      const { data } = await supabase.from('client_units').select('id,name').eq('client_id', visitaRH.client_id).order('name')
+      return data || []
+    },
+    enabled: !!visitaRH.client_id,
   })
 
   const addAgendaItem = useMutation({
@@ -2743,6 +2788,12 @@ export default function EmployeeDetail() {
             <div className="flex items-center justify-between flex-wrap gap-2">
               <h3 className="font-medium">Visitas Realizadas</h3>
               <div className="flex items-center gap-2">
+                {/* Quando a pessoa esquece de registrar, o dia some da folha e
+                    ninguém conseguia corrigir — o trabalho ficava sem pagamento. */}
+                <button className="btn-secondary text-sm flex items-center gap-1"
+                  onClick={() => { setShowVisitaRH(true); setVisitaRH({ ...EMPTY_VISITA_RH, visit_date: `${visMonth}-01` }) }}>
+                  <Plus size={14} />Registrar visita
+                </button>
                 <input type="month" className="input text-sm py-1" value={visMonth} onChange={e => setVisMonth(e.target.value)} />
                 <button
                   className="btn-secondary text-sm flex items-center gap-1"
@@ -2758,6 +2809,85 @@ export default function EmployeeDetail() {
                 ><Download size={14} />PDF</button>
               </div>
             </div>
+
+            {showVisitaRH && (
+              <div className="bg-primary-50 border border-primary-200 rounded-xl p-4 space-y-3">
+                <div>
+                  <p className="text-sm font-semibold text-primary-800">Registrar visita que já aconteceu</p>
+                  <p className="text-xs text-ink-500 mt-0.5">
+                    Para quando a pessoa trabalhou mas não lançou no portal. O valor é calculado
+                    pelo sistema, do mesmo jeito que seria se ela tivesse registrado.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="label">Cliente *</label>
+                    <select className="input" value={visitaRH.client_id}
+                      onChange={e => setVisitaRH(p => ({ ...p, client_id: e.target.value, unit_id: '' }))}>
+                      <option value="">Selecionar...</option>
+                      {Array.from(new Map((links || [])
+                        .map(l => l.client as { id: string; name: string })
+                        .filter(c => c?.id).map(c => [c.id, c] as const)).values())
+                        .map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="label">Dia *</label>
+                    <input className="input" type="date" value={visitaRH.visit_date}
+                      onChange={e => setVisitaRH(p => ({ ...p, visit_date: e.target.value }))} />
+                  </div>
+                  {(unidadesVisitaRH?.length ?? 0) > 0 && (
+                    <div className="sm:col-span-2">
+                      <label className="label">Unidade</label>
+                      <select className="input" value={visitaRH.unit_id}
+                        onChange={e => setVisitaRH(p => ({ ...p, unit_id: e.target.value }))}>
+                        <option value="">Selecionar...</option>
+                        {unidadesVisitaRH!.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                      </select>
+                      <p className="text-[11px] text-ink-400 mt-0.5">É da unidade que sai o valor da vistoria.</p>
+                    </div>
+                  )}
+                  <div>
+                    <label className="label">Entrada *</label>
+                    <input className="input" type="time" value={visitaRH.check_in}
+                      onChange={e => setVisitaRH(p => ({ ...p, check_in: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label className="label">Saída *</label>
+                    <input className="input" type="time" value={visitaRH.check_out}
+                      onChange={e => setVisitaRH(p => ({ ...p, check_out: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label className="label">Intervalo — início <span className="text-gray-400 font-normal">(opcional)</span></label>
+                    <input className="input" type="time" value={visitaRH.break_start}
+                      onChange={e => setVisitaRH(p => ({ ...p, break_start: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label className="label">Intervalo — fim <span className="text-gray-400 font-normal">(opcional)</span></label>
+                    <input className="input" type="time" value={visitaRH.break_end}
+                      onChange={e => setVisitaRH(p => ({ ...p, break_end: e.target.value }))} />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="label">Observação <span className="text-gray-400 font-normal">(opcional)</span></label>
+                    <input className="input" placeholder="Ex: evento, não conseguiu registrar no dia"
+                      value={visitaRH.obs} onChange={e => setVisitaRH(p => ({ ...p, obs: e.target.value }))} />
+                  </div>
+                </div>
+
+                <p className="text-[11px] text-ink-500 bg-white/70 rounded-lg px-2.5 py-1.5">
+                  Fica marcado que o lançamento foi feito pelo RH, com o seu usuário.
+                </p>
+
+                <div className="flex gap-2">
+                  <button className="btn-primary text-sm" disabled={registrarVisitaRH.isPending}
+                    onClick={() => registrarVisitaRH.mutate()}>
+                    {registrarVisitaRH.isPending ? 'Registrando...' : 'Registrar'}
+                  </button>
+                  <button className="btn-secondary text-sm" onClick={() => setShowVisitaRH(false)}>Cancelar</button>
+                </div>
+              </div>
+            )}
 
             {visits.length > 0 && (
               <div className="flex items-center gap-2 flex-wrap text-xs">

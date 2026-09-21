@@ -1012,6 +1012,10 @@ export default function EmployeeDetail() {
         category: expForm.category,
         notes: expForm.notes || null,
         reference_month: payMonth,
+        // Lançado pelo RH já nasce aprovado. Sem isto caía no padrão do banco
+        // ("pendente") e ficava fora do pagamento sem ninguém perceber.
+        status: 'aprovado',
+        reviewed_at: new Date().toISOString(),
       })
       if (error) throw error
     },
@@ -2459,6 +2463,7 @@ export default function EmployeeDetail() {
                     <option>Alimentação</option>
                     <option>Material</option>
                     <option>Outro</option>
+                    <option value="Adiantamento">Adiantamento (desconta do pagamento)</option>
                   </select>
                 </div>
                 <input className="input text-sm w-full" placeholder="Observação (opcional)" value={expForm.notes} onChange={e => setExpForm(p => ({ ...p, notes: e.target.value }))} />

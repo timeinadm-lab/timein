@@ -98,8 +98,13 @@ export async function exportFolhaExcel(
   // ── Aba 1: Resumo ──
   const resumo = rows.map(r => {
     const meus = expenses.filter(e => (e.employee_id ?? e.employee?.id) === r.employee?.id)
+    // Adiantamento desconta; o resto é gasto/reembolso e soma
+    const ehAdiant = (e: ExpenseExcel) => e.category === 'Adiantamento'
     const reembolsoAprovado = meus
-      .filter(e => (e.status ?? 'aprovado') === 'aprovado')
+      .filter(e => (e.status ?? 'aprovado') === 'aprovado' && !ehAdiant(e))
+      .reduce((s, e) => s + (Number(e.amount) || 0), 0)
+    const adiantamento = meus
+      .filter(e => (e.status ?? 'aprovado') === 'aprovado' && ehAdiant(e))
       .reduce((s, e) => s + (Number(e.amount) || 0), 0)
     const reembolsoPendente = meus
       .filter(e => e.status === 'pendente')
@@ -128,10 +133,11 @@ export async function exportFolhaExcel(
       'Desconto por falta': isConsult ? '' : n2(r.faltas * r.valorDia),
       'Ajuda de custo': n2(r.cost_assistance),
       'Reembolso aprovado': n2(reembolsoAprovado),
+      'Adiantamento (desconta)': n2(adiantamento),
       'Reembolso aguardando análise': n2(reembolsoPendente),
       'Extras aprovados': n2(r.extrasAprovados),
       'Extras aguardando decisão': r.extrasPendentes.length,
-      'Total a pagar': n2(r.realAmt + r.cost_assistance + reembolsoAprovado + r.extrasAprovados),
+      'Total a pagar': n2(Math.max(0, r.realAmt + r.cost_assistance + reembolsoAprovado + r.extrasAprovados - adiantamento)),
       'Dia do pagamento': r.payDay,
     }
   })

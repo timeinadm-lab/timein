@@ -668,11 +668,19 @@ export default function PaymentList() {
 
   // Só reembolso APROVADO entra no pagamento. Antes somava tudo, inclusive
   // pedido do portal sem nota e sem ninguém ter olhado.
+  // ADIANTAMENTO é dinheiro que a pessoa já recebeu antes: entra na mesma lista
+  // de gastos, mas DESCONTA do pagamento em vez de somar.
+  const ehAdiantamento = (e: unknown) => (e as { category?: string }).category === 'Adiantamento'
+  const aprovadosDe = (empId?: string) => (expenses ?? [])
+    .filter(e => (e as { employee_id?: string }).employee_id === empId)
+    .filter(e => ((e as { status?: string }).status ?? 'aprovado') === 'aprovado')
+  // Líquido: gastos somam, adiantamentos subtraem
   const empExpensesTotal = (empId?: string) =>
-    (expenses ?? [])
-      .filter(e => (e as { employee_id?: string }).employee_id === empId)
-      .filter(e => ((e as { status?: string }).status ?? 'aprovado') === 'aprovado')
-      .reduce((s, e) => s + (Number(e.amount) || 0), 0)
+    aprovadosDe(empId).reduce((s, e) => s + (ehAdiantamento(e) ? -1 : 1) * (Number(e.amount) || 0), 0)
+  const empGastos = (empId?: string) =>
+    aprovadosDe(empId).filter(e => !ehAdiantamento(e)).reduce((s, e) => s + (Number(e.amount) || 0), 0)
+  const empAdiantamento = (empId?: string) =>
+    aprovadosDe(empId).filter(ehAdiantamento).reduce((s, e) => s + (Number(e.amount) || 0), 0)
 
   const expensesPendentes = (expenses ?? []).filter(e => (e as { status?: string }).status === 'pendente')
 
@@ -707,7 +715,7 @@ export default function PaymentList() {
             ...baseRecord(row),
             type: 'Estimativa',
             description: `Honorários – ${who} – 1ª quinzena ${monthLabel}`,
-            amount: Math.round((q1 + (extrasEmQ2 ? 0 : extras)) * 100) / 100,
+            amount: Math.max(0, Math.round((q1 + (extrasEmQ2 ? 0 : extras)) * 100) / 100),
             due_date: `${filterMonth}-20`,
           })
         }
@@ -716,7 +724,7 @@ export default function PaymentList() {
             ...baseRecord(row),
             type: 'Estimativa',
             description: `Honorários – ${who} – 2ª quinzena ${monthLabel}`,
-            amount: Math.round((q2 + (extrasEmQ2 ? extras : 0)) * 100) / 100,
+            amount: Math.max(0, Math.round((q2 + (extrasEmQ2 ? extras : 0)) * 100) / 100),
             due_date: `${nextMonth}-08`,
           })
         }
@@ -725,7 +733,8 @@ export default function PaymentList() {
         // Se o vínculo tiver DOIS dias marcados, o valor é dividido entre eles
         // (quinzena) — o 2º dia cai no mês seguinte quando é menor que o 1º.
         const isFreela = row.service_type === 'Volante'
-        const amount = Math.round((row.adjusted_amount + extras) * 100) / 100
+        // Adiantamento maior que o devido não vira pagamento negativo
+        const amount = Math.max(0, Math.round((row.adjusted_amount + extras) * 100) / 100)
         if (isFreela && amount <= 0) throw new Error('Freela sem valor previsto neste mês — nada a lançar.')
 
         const dias = (row.payDaysAll || []).slice().sort((a, b) => a - b)
@@ -780,7 +789,7 @@ export default function PaymentList() {
         ...baseRecord(row),
         type: 'Real',
         description: `[REAL] ${row.service_type === 'Volante' ? 'Freela' : 'Honorários'} – ${row.employee.full_name}${row.client ? ` (${row.client.name})` : ''} – ${monthLabel}`,
-        amount: Math.round((row.realAmt + extras) * 100) / 100,
+        amount: Math.max(0, Math.round((row.realAmt + extras) * 100) / 100),
         due_date: dueDate.toISOString().slice(0, 10),
       })
     },
@@ -855,7 +864,8 @@ export default function PaymentList() {
   const valorPrevisto = (r: typeof folhaData extends (infer U)[] | undefined ? U : never) =>
     porTrabalho(r) ? (r.actualAmount || 0) : (r.adjusted_amount ?? r.monthly_amount)
   const totalEstimativa = (folhaData ?? []).reduce((s, r) => s + valorPrevisto(r) + r.cost_assistance + (r.extrasAprovados || 0), 0)
-  const totalExpenses = expenses?.reduce((s, e) => s + (Number(e.amount) || 0), 0) ?? 0
+  // Adiantamento não é gasto — fica fora deste total (ele reduz o pagamento)
+  const totalExpenses = expenses?.filter(e => !ehAdiantamento(e)).reduce((s, e) => s + (Number(e.amount) || 0), 0) ?? 0
   const totalPago = payments?.filter(p => p.status === 'Pago').reduce((s, p) => s + (p.amount || 0), 0) ?? 0
   const totalAtrasado = payments?.filter(p => p.status === 'Pendente' && p.due_date < new Date().toISOString().slice(0, 10)).reduce((s, p) => s + (p.amount || 0), 0) ?? 0
 
@@ -1228,8 +1238,12 @@ export default function PaymentList() {
                         const isFreela = row.service_type === 'Volante'
                         const isConsultoria = row.service_type === 'Consultoria' || (isFreela && row.freelaConsultoria)
                         const salarioBase = isConsultoria ? (row.actualAmount || 0) : row.adjusted_amount
-                        const empExpAmt = (expenses?.filter(e => (e as { employee_id?: string }).employee_id === row.employee?.id) ?? []).reduce((s, e) => s + Number(e.amount), 0)
-                        const totalAPagar = salarioBase + empExpAmt + row.cost_assistance + (row.extrasAprovados || 0)
+                        // Mesma conta do lançamento gerado: só o aprovado entra, e
+                        // adiantamento desconta. Antes a tela somava tudo, inclusive
+                        // reembolso pendente/negado, e mostrava outro valor.
+                        const empExpAmt = empGastos(row.employee?.id)
+                        const empAdiant = empAdiantamento(row.employee?.id)
+                        const totalAPagar = Math.max(0, salarioBase + empExpensesTotal(row.employee?.id) + row.cost_assistance + (row.extrasAprovados || 0))
                         // Alerta de dias sem registro: compara com o esperado ATÉ 4 dias atrás (tolerância)
                         const diff = isConsultoria ? 0 : row.actualDays - row.expDaysToDate
                         const isShort = !isConsultoria && row.actualDays < row.expDaysToDate
@@ -1422,6 +1436,7 @@ export default function PaymentList() {
                               )}
                               {row.cost_assistance > 0 && <span className="text-blue-600">🚗 Aj.custo: {formatCurrency(row.cost_assistance)}</span>}
                               {empExpAmt > 0 && <span className="text-orange-600">💸 Gastos: {formatCurrency(empExpAmt)}</span>}
+                              {empAdiant > 0 && <span className="text-emerald-700 font-medium">↩ Adiantamento: −{formatCurrency(empAdiant)}</span>}
                               {isShort && (
                                 <span className="text-red-500 flex items-center gap-1">
                                   <AlertTriangle size={11} />{Math.abs(diff)} dia(s) sem registro
@@ -1472,17 +1487,18 @@ export default function PaymentList() {
                                   const exp = e as { id: string; description: string; category?: string; amount: number; status?: string }
                                   const pendente = exp.status === 'pendente'
                                   const negado = exp.status === 'negado'
+                                  const adiant = exp.category === 'Adiantamento'
                                   return (
-                                    <div key={exp.id} className={`flex items-center justify-between gap-2 text-xs rounded px-2 py-1 ${negado ? 'bg-ink-100 opacity-60' : 'bg-orange-50'}`}>
-                                      <span className={negado ? 'text-ink-500 line-through' : 'text-orange-700'}>
-                                        💸 {exp.description} <span className="text-gray-400">({exp.category})</span>
+                                    <div key={exp.id} className={`flex items-center justify-between gap-2 text-xs rounded px-2 py-1 ${negado ? 'bg-ink-100 opacity-60' : adiant ? 'bg-emerald-50' : 'bg-orange-50'}`}>
+                                      <span className={negado ? 'text-ink-500 line-through' : adiant ? 'text-emerald-800' : 'text-orange-700'}>
+                                        {adiant ? '↩' : '💸'} {exp.description} <span className="text-gray-400">({adiant ? 'adiantamento — desconta' : exp.category})</span>
                                         {/* Sem isso, pendente e aprovado ficavam iguais na tela
                                             e só o aprovado entra no pagamento. */}
                                         {pendente && <span className="ml-1 text-amber-700 font-semibold">— aguardando análise</span>}
                                         {negado && <span className="ml-1 text-ink-500">— negado</span>}
                                       </span>
                                       <span className="flex items-center gap-1.5 shrink-0">
-                                        <span className={`font-medium ${negado ? 'text-ink-400' : 'text-orange-800'}`}>{formatCurrency(Number(exp.amount))}</span>
+                                        <span className={`font-medium ${negado ? 'text-ink-400' : adiant ? 'text-emerald-800' : 'text-orange-800'}`}>{adiant ? '−' : ''}{formatCurrency(Number(exp.amount))}</span>
                                         {confirmDelExpense === exp.id ? (
                                           <>
                                             <button onClick={() => { deleteExpense.mutate(exp.id); setConfirmDelExpense(null) }}
@@ -1509,6 +1525,7 @@ export default function PaymentList() {
                                       <input className="input text-sm" type="number" placeholder="Valor R$ *" value={expForm.amount} onChange={e => setExpForm(p => ({ ...p, amount: e.target.value }))} />
                                       <select className="input text-sm" value={expForm.category} onChange={e => setExpForm(p => ({ ...p, category: e.target.value }))}>
                                         <option>Reembolso</option><option>Ajuda de Custo</option><option>Vale Transporte</option>
+                                        <option value="Adiantamento">Adiantamento (desconta do pagamento)</option>
                                         <option>Alimentação</option><option>Material</option><option>Outro</option>
                                       </select>
                                       <input className="input text-sm col-span-2" placeholder="Observação (opcional)" value={expForm.notes} onChange={e => setExpForm(p => ({ ...p, notes: e.target.value }))} />

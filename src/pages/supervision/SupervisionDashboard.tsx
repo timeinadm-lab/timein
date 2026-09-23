@@ -4,6 +4,7 @@ import { Plus } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { format, startOfMonth, endOfMonth } from 'date-fns'
 import toast from 'react-hot-toast'
+import { hojeISO } from '../../lib/utils'
 
 export default function SupervisionDashboard() {
   const qc = useQueryClient()
@@ -113,7 +114,7 @@ export default function SupervisionDashboard() {
                 </div>
               </div>
               <button
-                onClick={() => setVisitForm({ contractId: c.id, date: new Date().toISOString().slice(0, 10), supervisorId: '', obs: '' })}
+                onClick={() => setVisitForm({ contractId: c.id, date: hojeISO(), supervisorId: '', obs: '' })}
                 className="btn-secondary text-sm w-full flex items-center justify-center gap-1"
               >
                 <Plus size={14} />Registrar visita
@@ -159,7 +160,7 @@ export default function SupervisionDashboard() {
                   </td>
                   <td className="px-4 py-3">
                     <button
-                      onClick={() => setVisitForm({ contractId: c.id, date: new Date().toISOString().slice(0, 10), supervisorId: '', obs: '' })}
+                      onClick={() => setVisitForm({ contractId: c.id, date: hojeISO(), supervisorId: '', obs: '' })}
                       className="btn-secondary text-xs flex items-center gap-1"
                     >
                       <Plus size={12} />Visita

@@ -6,7 +6,7 @@ import { supabase } from '../../lib/supabase'
 import { SignedLink } from '../../components/ui/SignedFile'
 import DeletePinModal from '../../components/ui/DeletePinModal'
 import { SkeletonDetail } from '../../components/ui/Skeleton'
-import { formatDate, formatCurrency, serviceTypeLabel } from '../../lib/utils'
+import { formatDate, formatCurrency, serviceTypeLabel, hojeISO } from '../../lib/utils'
 import { differenceInDays, parseISO } from 'date-fns'
 import toast from 'react-hot-toast'
 
@@ -412,7 +412,7 @@ export default function ClientDetail() {
               <div className="space-y-1.5">
                 {contratosVinculos!.map(l => {
                   const emp = (l as { employee?: { id: string; full_name: string } }).employee
-                  const encerrado = l.contract_end_date && l.contract_end_date < new Date().toISOString().slice(0, 10)
+                  const encerrado = l.contract_end_date && l.contract_end_date < hojeISO()
                   return (
                     <div key={l.id} className="flex items-center justify-between gap-3 px-3 py-2 bg-ink-50 rounded-lg">
                       <div className="min-w-0">
@@ -718,7 +718,7 @@ export default function ClientDetail() {
         const [yy, mm2] = calMonth.split('-').map(Number)
         const dim = new Date(yy, mm2, 0).getDate()
         const firstDow = new Date(yy, mm2 - 1, 1).getDay()
-        const todayStr = new Date().toISOString().slice(0, 10)
+        const todayStr = hojeISO()
         const DOT = { realizada: 'bg-primary-600', planejada: 'bg-amber-400', ausencia: 'bg-red-400' }
         const realizadas = Object.values(byDay).flat().filter(e => e.kind === 'realizada').length
         const planejadas = Object.values(byDay).flat().filter(e => e.kind === 'planejada').length

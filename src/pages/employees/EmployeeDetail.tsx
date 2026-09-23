@@ -3,7 +3,7 @@ import { useParams, useNavigate, useLocation, useSearchParams } from 'react-rout
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Edit, Plus, Trash2, CheckCircle, Clock, XCircle, Download, Upload, ExternalLink, AlertTriangle, Star, X, FileText } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
-import { formatDate, formatCurrency, getInitials, serviceTypeLabel } from '../../lib/utils'
+import { formatDate, formatCurrency, getInitials, serviceTypeLabel, hojeISO } from '../../lib/utils'
 import { exportEmployeeToPDF } from '../../lib/exportUtils'
 import { SignedLink, SignedImage } from '../../components/ui/SignedFile'
 import DeletePinModal from '../../components/ui/DeletePinModal'
@@ -136,7 +136,7 @@ export default function EmployeeDetail() {
   const [histForm, setHistForm] = useState({ type: 'Anotação', description: '', responsible: '' })
   const [showLinkForm, setShowLinkForm] = useState(false)
   // Data de hoje em ISO — usada para saber se um vínculo já foi encerrado
-  const hojeISO = new Date().toISOString().slice(0, 10)
+  const hojeISO = hojeISO()
   const [linkForm, setLinkForm] = useState({ client_id: '', service_type: 'Fixo' as 'Fixo' | 'Consultoria', monthly_amount: '', cost_assistance: '', weekly_hours_quota: '', visit_frequency: 'Semanal' as 'Semanal' | 'Quinzenal' | 'Mensal', contract_end_date: '', work_schedule_type: '', daily_hours: '', days_off: [] as number[], schedule_anchor_date: '' })
   type EditLinkUnit = { unit_id: string; unit_name: string; visit_rate: string }
   type EditLinkState = { linkId: string; serviceType: string; clientId: string; monthly_amount: string; cost_assistance: string; weekly_hours: string; visit_frequency: string; visits_per_week: string; units: EditLinkUnit[]; work_schedule_type: string; daily_hours: string; days_off: number[]; schedule_anchor_date: string; start_date: string; payDays: string[]; pay_full_salary: boolean; expected_days_month: string }
@@ -416,7 +416,7 @@ export default function EmployeeDetail() {
       // percorre todos, mas o portal só enxerga o primeiro — o segundo vira
       // cobrança fantasma. Já permanente + freela por cima é caso real
       // (ela atende o cliente e ainda cobriu dias extras), então é liberado.
-      const hoje = new Date().toISOString().slice(0, 10)
+      const hoje = hojeISO()
       const novoEhPermanente = coverageForm.vinculo_tipo === 'permanente'
       const conflito = (links || []).find(l => {
         if (l.client_id !== coverageForm.client_id) return false
@@ -469,7 +469,7 @@ export default function EmployeeDetail() {
           ? new Date(Date.now() + (Number(coverageForm.contrato_horas) || 48) * 3600000).toISOString()
           : null,
         daily_rate: diaria,
-        start_date: coverageForm.start_date || new Date().toISOString().slice(0, 10),
+        start_date: coverageForm.start_date || hojeISO(),
         contract_end_date: isTemporario ? (coverageForm.end_date || null) : (coverageForm.end_date || null),
         monthly_amount: isFixo ? mensal : null,
         link_units: linkUnits,
@@ -497,7 +497,7 @@ export default function EmployeeDetail() {
       // Agenda o dia no calendário/portal (mesma lógica do "Escalar"):
       // sem isto o freela virava só um vínculo sem data e não aparecia em lugar nenhum.
       // Vazio = começa hoje; vincular já é o início
-      const inicio = coverageForm.start_date || new Date().toISOString().slice(0, 10)
+      const inicio = coverageForm.start_date || hojeISO()
       if (inicio) {
         const { error: agErr } = await supabase.from('nutritionist_agenda').insert({
           employee_id: id,
@@ -820,7 +820,7 @@ export default function EmployeeDetail() {
   const removeLink = useMutation({
     mutationFn: async (linkId: string) => {
       const link = (links || []).find(l => l.id === linkId) as { client_id?: string } | undefined
-      const hoje = new Date().toISOString().slice(0, 10)
+      const hoje = hojeISO()
 
       // Sem client_id não dá pra saber se há histórico. Na dúvida, encerra:
       // encerrar por engano se desfaz, apagar histórico não.
@@ -2577,7 +2577,7 @@ export default function EmployeeDetail() {
             const [yr, mo] = agendaMonth.split('-').map(Number)
             const firstWeekday = new Date(yr, mo - 1, 1).getDay()
             const daysInMonth = new Date(yr, mo, 0).getDate()
-            const todayStr = new Date().toISOString().slice(0, 10)
+            const todayStr = hojeISO()
             const byDay: Record<string, number> = {}
             ;(agendaItems || []).forEach((a: { planned_date: string }) => { byDay[a.planned_date] = (byDay[a.planned_date] || 0) + 1 })
             // Dias que vêm da ESCALA (fixo/plantão). Quem é consultoria ou freela
@@ -3321,7 +3321,7 @@ function VisaoGeral({
   // Calendar data
   const daysInMonth = getDaysInMonth(monthDate)
   const firstDow = getDay(startOfMonth(monthDate)) // 0=Sun
-  const today = new Date().toISOString().slice(0, 10)
+  const today = hojeISO()
   const visitedDays = new Set(visits?.map(v => Number(v.visit_date?.slice(8, 10))) ?? [])
   const plannedDays = new Set((monthAgenda || []).map(a => Number(a.planned_date?.slice(8, 10))))
   // Dias que a escala define (fixo/plantão). Consultoria e freela devolvem
@@ -3981,7 +3981,7 @@ function PortalTab({ employeeId, employee }: { employeeId: string; employee: Rec
   const semCpf = !(employee as { cpf?: string })?.cpf
   const contratosPendentes = (portalLinks || []).filter(l =>
     l.contract_required && !l.contract_file_url
-    && (!l.contract_end_date || l.contract_end_date >= new Date().toISOString().slice(0, 10)))
+    && (!l.contract_end_date || l.contract_end_date >= hojeISO()))
   const impedimentos: string[] = [
     inativo && 'O colaborador está inativo — o login só funciona com status Ativo.',
     semCpf && 'Sem CPF cadastrado — o CPF é o usuário do login.',

@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Edit, MessageCircle, Plus } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
-import { formatDate, formatWhatsApp, getInitials, PIPELINE_COLORS } from '../../lib/utils'
+import { formatDate, formatWhatsApp, getInitials, PIPELINE_COLORS, hojeISO } from '../../lib/utils'
 import { SkeletonDetail } from '../../components/ui/Skeleton'
 import toast from 'react-hot-toast'
 
@@ -12,7 +12,7 @@ export default function CandidateDetail() {
   const navigate = useNavigate()
   const qc = useQueryClient()
   const [showContactForm, setShowContactForm] = useState(false)
-  const [contact, setContact] = useState({ contact_date: new Date().toISOString().slice(0, 10), responsible: '', observations: '' })
+  const [contact, setContact] = useState({ contact_date: hojeISO(), responsible: '', observations: '' })
   const [showWAModal, setShowWAModal] = useState(false)
   const [waMessage, setWAMessage] = useState('')
 
@@ -56,7 +56,7 @@ export default function CandidateDetail() {
       toast.success('Contato registrado!')
       qc.invalidateQueries({ queryKey: ['candidate-contacts', id] })
       setShowContactForm(false)
-      setContact({ contact_date: new Date().toISOString().slice(0, 10), responsible: '', observations: '' })
+      setContact({ contact_date: hojeISO(), responsible: '', observations: '' })
     },
     onError: (e: Error) => toast.error(e.message),
   })

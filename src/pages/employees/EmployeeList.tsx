@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { Plus, Search, Download, AlertCircle, ChevronRight, Star } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
-import { formatDate, getInitials } from '../../lib/utils'
+import { formatDate, getInitials, hojeISO } from '../../lib/utils'
 import { SignedImage } from '../../components/ui/SignedFile'
 import { exportToCSV } from '../../lib/exportUtils'
 import Pagination from '../../components/ui/Pagination'
@@ -62,7 +62,7 @@ export default function EmployeeList() {
   const { data: linkCounts } = useQuery({
     queryKey: ['employee-active-link-counts'],
     queryFn: async () => {
-      const today = new Date().toISOString().slice(0, 10)
+      const today = hojeISO()
       const { data, error } = await supabase.from('employee_client_links').select('employee_id, contract_end_date')
       if (error) throw error
       const map = new Map<string, number>()

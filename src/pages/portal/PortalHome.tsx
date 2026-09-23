@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { LogOut, Clock, Calendar, Plus, ChevronDown, ChevronUp, CalendarDays, Trash2, CheckCircle2, Download, MessageCircle, Send, Home, CreditCard, TrendingUp, CheckCheck } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
-import { formatDate, getInitials } from '../../lib/utils'
+import { formatDate, getInitials, hojeISO } from '../../lib/utils'
 import { format, getDaysInMonth, startOfMonth, endOfMonth } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import toast from 'react-hot-toast'
@@ -322,28 +322,33 @@ export default function PortalHome() {
 
       const recordId = await rpc<string>('portal_save_visit', { p_token: token, p_payload: payload })
 
-      // Upload atestado (falta) ou relatório (consultoria) — o arquivo vai pro storage e a URL é gravada via função
-      if (atestadoFile && recordId) {
-        const ext = atestadoFile.name.split('.').pop()
-        const path = `atestados/${employeeId}/${recordId}.${ext}`
-        const { error: upErr } = await supabase.storage.from('arquivos').upload(path, atestadoFile, { upsert: true })
-        if (!upErr) {
-          await rpc('portal_set_visit_file', { p_token: token, p_id: recordId, p_field: 'atestado_url', p_url: path })
+      // Upload atestado (falta) ou relatório (consultoria) — o arquivo vai pro storage e a URL é gravada via função.
+      // Se o envio falhar o registro já está salvo; antes a falha era engolida
+      // e a pessoa achava que o atestado tinha ido.
+      const anexosFalhos: string[] = []
+      const enviar = async (file: File, pasta: string, campo: string, nome: string) => {
+        try {
+          const ext = file.name.split('.').pop()
+          const path = `${pasta}/${employeeId}/${recordId}.${ext}`
+          const { error: upErr } = await supabase.storage.from('arquivos').upload(path, file, { upsert: true })
+          if (upErr) throw upErr
+          await rpc('portal_set_visit_file', { p_token: token, p_id: recordId, p_field: campo, p_url: path })
+        } catch {
+          anexosFalhos.push(nome)
         }
       }
+      if (atestadoFile && recordId) await enviar(atestadoFile, 'atestados', 'atestado_url', 'atestado')
       if (reportFile && recordId && (isConsultoria || link?.service_type === 'Volante')) {
-        const ext = reportFile.name.split('.').pop()
-        const path = `relatorios/${employeeId}/${recordId}.${ext}`
-        const { error: upErr } = await supabase.storage.from('arquivos').upload(path, reportFile, { upsert: true })
-        if (!upErr) {
-          await rpc('portal_set_visit_file', { p_token: token, p_id: recordId, p_field: 'report_url', p_url: path })
-        }
+        await enviar(reportFile, 'relatorios', 'report_url', 'relatório')
       }
 
-      return { reportPending }
+      return { reportPending, anexosFalhos }
     },
     onSuccess: (result) => {
       toast.success(editingPontoId ? 'Registro atualizado!' : pontoForm.day_type === 'feriado' ? 'Feriado registrado!' : pontoForm.day_type === 'indisponivel' ? 'Falta registrada!' : 'Registro salvo!')
+      if (result?.anexosFalhos?.length) {
+        toast.error(`O registro foi salvo, mas o ${result.anexosFalhos.join(' e o ')} não foi enviado. Toque no ✏️ do registro e anexe de novo.`, { duration: 9000 })
+      }
       if (result?.reportPending) {
         toast('📄 Relatório pendente — anexe depois tocando no ✏️ do registro.', { icon: '⚠️', duration: 7000 })
       }
@@ -371,7 +376,7 @@ export default function PortalHome() {
   const [showPontoModal, setShowPontoModal] = useState(false)
   const [editingPontoId, setEditingPontoId] = useState<string | null>(null)
   const EMPTY_PONTO = {
-    visit_date: new Date().toISOString().slice(0, 10),
+    visit_date: hojeISO(),
     client_id: '',
     day_type: 'normal' as 'normal' | 'feriado' | 'indisponivel',
     check_in: '', check_out: '',
@@ -396,7 +401,7 @@ export default function PortalHome() {
   // Desligar passou a encerrar o vínculo (antes apagava, o que destruía o
   // histórico de pagamento); sem este filtro a pessoa continuaria vendo e
   // batendo ponto num cliente de onde já saiu.
-  const _today = new Date().toISOString().slice(0, 10)
+  const _today = hojeISO()
   const folhaLinks = links?.filter((l: Record<string, unknown>) => {
     const end = (l.contract_end_date as string) || ''
     if (end && end < _today) return false
@@ -414,7 +419,7 @@ export default function PortalHome() {
   const getLinkForClient = (clientId: string, dateStr?: string) => {
     const doCliente = (folhaLinks as FolhaLink[] | undefined)?.filter(l => l.client?.id === clientId) || []
     if (doCliente.length <= 1) return doCliente[0]
-    const dia = dateStr || new Date().toISOString().slice(0, 10)
+    const dia = dateStr || hojeISO()
     const freelaDoDia = doCliente.find(l =>
       l.service_type === 'Volante' &&
       (!l.start_date || dia >= l.start_date) &&
@@ -683,7 +688,7 @@ export default function PortalHome() {
 
         {/* ─── HOME TAB ─── */}
         {tab === 'home' && (() => {
-          const todayStr = new Date().toISOString().slice(0, 10)
+          const todayStr = hojeISO()
           const currentMonth = format(new Date(), 'yyyy-MM')
           const allVisits = (monthFolha?.visits as { client_id?: string; check_out?: string; is_unavailable?: boolean; visit_date?: string }[] | undefined) || []
           const daysWorkedTotal = allVisits.filter(v => v.check_out && !v.is_unavailable).length
@@ -1289,7 +1294,7 @@ export default function PortalHome() {
               const monthDate = new Date(agendaMonth + '-15')
               const daysInMonth = getDaysInMonth(monthDate)
               const firstDow = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1).getDay()
-              const todayStr = new Date().toISOString().slice(0, 10)
+              const todayStr = hojeISO()
               const clientVisits = (agendaVisits || []).filter(v => v.client_id === client.id)
               const filledSet = new Set(clientVisits.map(v => v.visit_date))
               const clientNotices = (notices as Notice[] | undefined)?.filter(n => n.client_id === client.id) ?? []
@@ -1369,7 +1374,7 @@ export default function PortalHome() {
               const monthDate = new Date(agendaMonth + '-15')
               const daysInMonth = getDaysInMonth(monthDate)
               const firstDow = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1).getDay()
-              const todayStr2 = new Date().toISOString().slice(0, 10)
+              const todayStr2 = hojeISO()
               const DOW2 = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S']
               const clientAgenda = (agenda || []).filter(a => (a as { client_id?: string }).client_id === client.id)
               const plannedSet = new Set(clientAgenda.map(a => a.planned_date))
@@ -1450,7 +1455,7 @@ export default function PortalHome() {
                     const clientName = (a as { client?: { name: string } }).client?.name
                     const aClientId = (a as { client_id?: string }).client_id || ''
                     const done = (agendaVisits || []).some(v => v.visit_date === a.planned_date && v.client_id === aClientId && v.check_out)
-                    const isFuture = a.planned_date > new Date().toISOString().slice(0, 10)
+                    const isFuture = a.planned_date > hojeISO()
                     const original = (a as { original_date?: string }).original_date
                     const wasRescheduled = original && original !== a.planned_date
                     const editing = reschedAgenda?.id === a.id

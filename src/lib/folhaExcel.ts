@@ -57,6 +57,7 @@ export type ExpenseExcel = {
   amount: number
   description: string
   employee_id?: string
+  client_id?: string | null
   category?: string | null
   status?: string | null
   receipt_url?: string | null
@@ -95,9 +96,17 @@ export async function exportFolhaExcel(
 ) {
   const XLSX = await import('xlsx')
 
+  // Cada gasto vai para UMA linha (a do cliente em que foi lançado, ou a 1ª
+  // linha da pessoa). Sem isso quem tem dois vínculos tinha o gasto somado 2x.
+  const donoDoGasto = (e: ExpenseExcel) => {
+    const emp = e.employee_id ?? e.employee?.id
+    const linhas = rows.filter(r => r.employee?.id === emp)
+    return linhas.find(r => e.client_id && r.client?.id === e.client_id) ?? linhas[0]
+  }
+
   // ── Aba 1: Resumo ──
   const resumo = rows.map(r => {
-    const meus = expenses.filter(e => (e.employee_id ?? e.employee?.id) === r.employee?.id)
+    const meus = expenses.filter(e => donoDoGasto(e) === r)
     // Adiantamento desconta; o resto é gasto/reembolso e soma
     const ehAdiant = (e: ExpenseExcel) => e.category === 'Adiantamento'
     const reembolsoAprovado = meus

@@ -1,6 +1,17 @@
 import { format, parseISO, differenceInDays, isValid } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 
+/**
+ * A data de HOJE no horário de quem está usando (Brasil), no formato AAAA-MM-DD.
+ * Não use `new Date().toISOString().slice(0, 10)`: isso é o horário de Londres,
+ * e depois das 21h no Brasil já devolve o dia de AMANHÃ — plantão noturno
+ * registrado às 22h ia parar no dia seguinte.
+ */
+export function hojeISO(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
 export function formatDate(date: string | Date | null | undefined, pattern = 'dd/MM/yyyy'): string {
   if (!date) return '-'
   try {

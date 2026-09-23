@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { Plus, Search, Building2, Trash2 } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
-import { formatDate, daysUntil } from '../../lib/utils'
+import { formatDate, daysUntil, hojeISO } from '../../lib/utils'
 import Pagination from '../../components/ui/Pagination'
 import DeletePinModal from '../../components/ui/DeletePinModal'
 import { SkeletonCards, EmptyState } from '../../components/ui/Skeleton'
@@ -36,7 +36,7 @@ export default function ClientList() {
   const { data: coberturaPorCliente } = useQuery({
     queryKey: ['clients-cobertura'],
     queryFn: async () => {
-      const hoje = new Date().toISOString().slice(0, 10)
+      const hoje = hojeISO()
       const { data, error } = await supabase
         .from('employee_client_links')
         .select('client_id, contract_end_date, employee:employees(status)')

@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Edit, MessageCircle, ChevronDown, ChevronUp, FileText, CheckCircle, Clock, Zap, Trash2, CalendarPlus } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
-import { formatDate, formatWhatsApp, formatCurrency, BRAZIL_STATES, DEFAULT_DOCUMENTS, serviceTypeLabel } from '../../lib/utils'
+import { formatDate, formatWhatsApp, formatCurrency, BRAZIL_STATES, DEFAULT_DOCUMENTS, serviceTypeLabel, hojeISO } from '../../lib/utils'
 import { getCityRegion } from '../../lib/geoRegions'
 import { SignedLink } from '../../components/ui/SignedFile'
 import { SkeletonDetail } from '../../components/ui/Skeleton'
@@ -125,7 +125,7 @@ export default function VacancyDetail() {
         category: finForm.category.trim() || null,
         client_id: vacancy?.client_id || null,
         vacancy_id: id,
-        entry_date: finForm.date || new Date().toISOString().slice(0, 10),
+        entry_date: finForm.date || hojeISO(),
         recurrence: finForm.recurrence,
         recurrence_until: finForm.recurrence === 'ate_data' ? finForm.recurrence_until : null,
       })
@@ -309,7 +309,7 @@ export default function VacancyDetail() {
       if (!emps?.length) return []
 
       // Carga atual + quem já está neste cliente (esse não é sugestão)
-      const hoje = new Date().toISOString().slice(0, 10)
+      const hoje = hojeISO()
       const { data: todosLinks } = await supabase
         .from('employee_client_links')
         .select('employee_id, client_id, contract_end_date')
@@ -342,7 +342,7 @@ export default function VacancyDetail() {
         client_id: vacancy?.client_id || null,
         client_name: client?.name || '',
         employee_id: null,
-        start_date: hireDetails.startDate || new Date().toISOString().slice(0, 10),
+        start_date: hireDetails.startDate || hojeISO(),
         end_date: hireDetails.contractEndDate && hireDetails.contractEndDate !== '__indeterminate__' ? hireDetails.contractEndDate : null,
         type: 'Manual',
         signed: false,
@@ -424,7 +424,7 @@ export default function VacancyDetail() {
           crn_region: candidate.crn_region,
           role: candidate.formation || null,
           status: 'Ativo',
-          admission_date: empForm.admission_date || new Date().toISOString().slice(0, 10),
+          admission_date: empForm.admission_date || hojeISO(),
           pix: empForm.pix || null,
           bank_name: empForm.bank_name || null,
           bank_agency: empForm.bank_agency || null,
@@ -547,7 +547,7 @@ export default function VacancyDetail() {
         // (cascade) e deixava os lançamentos já feitos apontando pra um link_id
         // inexistente — ou seja, sumia com o histórico de quanto essa pessoa
         // recebeu naquele cliente, sem jeito de recuperar.
-        const hojeStr = new Date().toISOString().slice(0, 10)
+        const hojeStr = hojeISO()
         await supabase.from('employee_client_links')
           .update({ contract_end_date: hojeStr })
           .eq('employee_id', empId).eq('client_id', vacancy?.client_id)
@@ -556,7 +556,7 @@ export default function VacancyDetail() {
           .select('id,contract_end_date').eq('employee_id', empId)
         const aindaAtivos = (otherLinks || []).filter(l => !l.contract_end_date || l.contract_end_date >= hojeStr)
         if (!aindaAtivos.length) {
-          await supabase.from('employees').update({ status: 'Inativo', dismissal_date: new Date().toISOString().slice(0, 10) }).eq('id', empId)
+          await supabase.from('employees').update({ status: 'Inativo', dismissal_date: hojeISO() }).eq('id', empId)
         }
       }
 

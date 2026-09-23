@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { CalendarDays, ChevronLeft, ChevronRight, X, FileText, Clock, Plus } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
-import { formatDate, formatLocalTime } from '../../lib/utils'
+import { formatDate, formatLocalTime, hojeISO } from '../../lib/utils'
 import toast from 'react-hot-toast'
 
 import { format, startOfMonth, endOfMonth, getDaysInMonth, getDay, addMonths, subMonths } from 'date-fns'
@@ -448,7 +448,7 @@ export default function CalendarPage() {
 
   const daysInMonth = getDaysInMonth(cursor)
   const firstDow = getDay(startOfMonth(cursor))
-  const todayStr = new Date().toISOString().slice(0, 10)
+  const todayStr = hojeISO()
   const DOW = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
 
   const totalMes = filtered.filter(e => e.kind === 'realizada').length

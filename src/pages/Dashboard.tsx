@@ -10,7 +10,7 @@ import {
 import toast from 'react-hot-toast'
 import { supabase, fetchAll } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
-import { formatDate, formatCurrency, formatLocalTime, parseLocal, isMeetingLink, mapsUrl } from '../lib/utils'
+import { formatDate, formatCurrency, formatLocalTime, parseLocal, isMeetingLink, mapsUrl, hojeISO } from '../lib/utils'
 import { addDays, startOfMonth, endOfMonth, isBefore, parseISO, isAfter, differenceInDays, subMonths } from 'date-fns'
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend,
@@ -104,7 +104,7 @@ export default function Dashboard() {
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `timein-backup-dados-${new Date().toISOString().slice(0, 10)}.json`
+      a.download = `timein-backup-dados-${hojeISO()}.json`
       a.click()
       URL.revokeObjectURL(url)
       if (skipped.length) {
@@ -166,7 +166,7 @@ export default function Dashboard() {
       const url = URL.createObjectURL(content)
       const a = document.createElement('a')
       a.href = url
-      a.download = `timein-backup-documentos-${new Date().toISOString().slice(0, 10)}.zip`
+      a.download = `timein-backup-documentos-${hojeISO()}.zip`
       a.click()
       URL.revokeObjectURL(url)
       toast.success(`Backup de documentos exportado! ${done - errors} arquivos${errors ? ` (${errors} com erro)` : ''}`)

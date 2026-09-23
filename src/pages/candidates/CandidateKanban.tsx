@@ -5,7 +5,7 @@ import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd'
 import type { DropResult } from '@hello-pangea/dnd'
 import { ArrowLeft } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
-import { PIPELINE_STAGES } from '../../lib/utils'
+import { PIPELINE_STAGES, hojeISO } from '../../lib/utils'
 import toast from 'react-hot-toast'
 
 const STAGE_COLORS: Record<string, string> = {
@@ -72,7 +72,7 @@ export default function CandidateKanban() {
       const { error } = await supabase.from('candidates').update(updates).eq('id', id)
       if (error) throw error
       if (reason) {
-        await supabase.from('candidate_contacts').insert({ candidate_id: id, contact_date: new Date().toISOString().slice(0, 10), observations: `Reprovado: ${reason}` })
+        await supabase.from('candidate_contacts').insert({ candidate_id: id, contact_date: hojeISO(), observations: `Reprovado: ${reason}` })
       }
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['candidates-kanban'] }) },

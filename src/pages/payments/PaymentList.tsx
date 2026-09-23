@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { Plus, Download, Check, RefreshCw, AlertTriangle, ChevronDown, ChevronUp, BarChart3, Trash2, FileSpreadsheet, X, Paperclip } from 'lucide-react'
 import { supabase, fetchAll } from '../../lib/supabase'
-import { formatDate, formatCurrency } from '../../lib/utils'
+import { formatDate, formatCurrency, hojeISO } from '../../lib/utils'
 import { exportToCSV } from '../../lib/exportUtils'
 import { SkeletonRows } from '../../components/ui/Skeleton'
 import { SignedLink } from '../../components/ui/SignedFile'
@@ -130,10 +130,14 @@ export default function PaymentList() {
   })
 
   const addExpense = useMutation({
-    mutationFn: async (empId: string) => {
+    mutationFn: async ({ empId, clientId }: { empId: string; clientId?: string | null }) => {
       if (!expForm.description || !expForm.amount) throw new Error('Preencha descrição e valor')
-      const { error } = await supabase.from('employee_expenses').insert({
+      if (!(Number(expForm.amount) > 0)) throw new Error('Informe um valor maior que zero')
+      const registro: Record<string, unknown> = {
         employee_id: empId,
+        // De qual cliente é: quem tem dois vínculos aparecia em duas linhas e o
+        // mesmo gasto entrava nas duas — pago em dobro.
+        client_id: clientId || null,
         description: expForm.description,
         amount: Number(expForm.amount),
         category: expForm.category,
@@ -142,7 +146,14 @@ export default function PaymentList() {
         // Lançado aqui pelo RH já nasce aprovado: quem está lançando é quem aprova
         status: 'aprovado',
         reviewed_at: new Date().toISOString(),
-      })
+      }
+      let { error } = await supabase.from('employee_expenses').insert(registro)
+      // Migração 053 ainda não rodada: a coluna client_id não existe. Grava sem
+      // ela em vez de travar o lançamento.
+      if (error && /client_id/i.test(error.message)) {
+        const { client_id: _c, ...semCliente } = registro
+        ;({ error } = await supabase.from('employee_expenses').insert(semCliente))
+      }
       if (error) throw error
     },
     onSuccess: () => {
@@ -304,6 +315,8 @@ export default function PaymentList() {
         .from('payments')
         .select('*')
         .eq('type', 'Real')
+        // Real cancelado não conta — senão não dá para gerar de novo
+        .neq('status', 'Cancelado')
         .or(`reference_month.eq.${filterMonth},and(reference_month.is.null,due_date.gte.${monthStart},due_date.lte.${monthEnd})`)
 
       // Fallback: get vacancy financial data for employees with null monthly_amount
@@ -356,25 +369,29 @@ export default function PaymentList() {
         const irmaos = (links || []).filter(o =>
           (o as { employee?: { id: string } }).employee?.id === emp?.id &&
           (o as { client?: { id: string } }).client?.id === client?.id)
-        const janelasFreela = irmaos
-          .filter(o => o.service_type === 'Volante' && o.id !== l.id)
-          .map(o => ({
-            de: (o as { start_date?: string }).start_date || '',
-            ate: (o as { contract_end_date?: string }).contract_end_date || '9999-12-31',
-          }))
+        const janela = (o: typeof l) => ({
+          id: o.id,
+          de: (o as { start_date?: string }).start_date || '',
+          ate: (o as { contract_end_date?: string }).contract_end_date || '9999-12-31',
+        })
+        const freelasIrmaos = irmaos.filter(o => o.service_type === 'Volante').map(janela)
         const dentroDaJanela = (d: string, j: { de: string; ate: string }) => (!j.de || d >= j.de) && d <= j.ate
+        // Dono único de cada dia. Numa RENOVAÇÃO o fim de um freela e o início
+        // do outro caem no mesmo dia (13/09 → 13/09): as duas janelas continham
+        // aquela visita e os dois vínculos a pagavam. Agora o dia é do freela
+        // mais recente que o contém.
+        const donoFreela = (d: string) => freelasIrmaos
+          .filter(j => dentroDaJanela(d, j))
+          .sort((a, b) => b.de.localeCompare(a.de))[0]?.id
 
         const empVisits = (visits?.filter(v => v.employee_id === emp?.id && v.client_id === client?.id) ?? [])
           .filter(v => {
             if (irmaos.length <= 1) return true
-            if (isFreela) {
-              // Freela só fica com o que caiu dentro do próprio período
-              const de = (l as { start_date?: string }).start_date || ''
-              const ate = (l as { contract_end_date?: string }).contract_end_date || '9999-12-31'
-              return dentroDaJanela(v.visit_date, { de, ate })
-            }
-            // Vínculo fixo abre mão do que já pertence a algum freela
-            return !janelasFreela.some(j => dentroDaJanela(v.visit_date, j))
+            const dono = donoFreela(v.visit_date)
+            // Freela só fica com os dias em que ele é o dono
+            if (isFreela) return dono === l.id
+            // Vínculo fixo abre mão do que pertence a algum freela
+            return !dono
           })
 
         const visitHours = (v: { check_in?: string | null; check_out?: string | null; break_start?: string | null; break_end?: string | null }) => {
@@ -391,8 +408,13 @@ export default function PaymentList() {
           return Math.max(0, min) / 60
         }
 
+        // Dia EXTRA não conta como dia da escala: ele já é pago à parte (quando
+        // aprovado). Contando aqui também, um extra "cobria" uma falta e ainda era
+        // pago — e um extra NEGADO apagava uma falta de graça.
         const actualDays = !isConsultoria && !freelaConsultoria
-          ? empVisits.filter(v => v.check_out && !(v as { is_unavailable?: boolean }).is_unavailable).length
+          ? empVisits.filter(v => v.check_out
+              && !(v as { is_unavailable?: boolean }).is_unavailable
+              && !(v as { is_extra?: boolean }).is_extra).length
           : 0
         const actualVisits = (isConsultoria || freelaConsultoria) ? empVisits.length : 0
         // Consultoria: visit_rate JÁ é o valor final da visita (o portal grava
@@ -671,16 +693,24 @@ export default function PaymentList() {
   // ADIANTAMENTO é dinheiro que a pessoa já recebeu antes: entra na mesma lista
   // de gastos, mas DESCONTA do pagamento em vez de somar.
   const ehAdiantamento = (e: unknown) => (e as { category?: string }).category === 'Adiantamento'
-  const aprovadosDe = (empId?: string) => (expenses ?? [])
-    .filter(e => (e as { employee_id?: string }).employee_id === empId)
+  // Cada gasto pertence a UMA linha da folha. Quem tem dois vínculos aparece em
+  // duas linhas e, antes, o mesmo gasto entrava nas duas — pago em dobro. Vai
+  // para a linha do cliente em que foi lançado; sem cliente, para a 1ª linha.
+  const donoDoGasto = (e: unknown): string | undefined => {
+    const g = e as { employee_id?: string; client_id?: string | null }
+    const linhas = (folhaData ?? []).filter(r => r.employee?.id === g.employee_id)
+    return (linhas.find(r => g.client_id && r.client?.id === g.client_id) ?? linhas[0])?.linkId
+  }
+  const gastosDaLinha = (linkId: string) => (expenses ?? []).filter(e => donoDoGasto(e) === linkId)
+  const aprovadosDe = (linkId: string) => gastosDaLinha(linkId)
     .filter(e => ((e as { status?: string }).status ?? 'aprovado') === 'aprovado')
   // Líquido: gastos somam, adiantamentos subtraem
-  const empExpensesTotal = (empId?: string) =>
-    aprovadosDe(empId).reduce((s, e) => s + (ehAdiantamento(e) ? -1 : 1) * (Number(e.amount) || 0), 0)
-  const empGastos = (empId?: string) =>
-    aprovadosDe(empId).filter(e => !ehAdiantamento(e)).reduce((s, e) => s + (Number(e.amount) || 0), 0)
-  const empAdiantamento = (empId?: string) =>
-    aprovadosDe(empId).filter(ehAdiantamento).reduce((s, e) => s + (Number(e.amount) || 0), 0)
+  const empExpensesTotal = (linkId: string) =>
+    aprovadosDe(linkId).reduce((s, e) => s + (ehAdiantamento(e) ? -1 : 1) * (Number(e.amount) || 0), 0)
+  const empGastos = (linkId: string) =>
+    aprovadosDe(linkId).filter(e => !ehAdiantamento(e)).reduce((s, e) => s + (Number(e.amount) || 0), 0)
+  const empAdiantamento = (linkId: string) =>
+    aprovadosDe(linkId).filter(ehAdiantamento).reduce((s, e) => s + (Number(e.amount) || 0), 0)
 
   const expensesPendentes = (expenses ?? []).filter(e => (e as { status?: string }).status === 'pendente')
 
@@ -699,7 +729,7 @@ export default function PaymentList() {
       if (!row.employee) throw new Error('Sem colaborador')
       const monthLabel = new Date(filterMonth + '-15').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
       const who = `${row.employee.full_name}${row.client ? ` (${row.client.name})` : ''}`
-      const extras = empExpensesTotal(row.employee.id) + row.cost_assistance + row.extrasAprovados
+      const extras = empExpensesTotal(row.linkId) + row.cost_assistance + row.extrasAprovados
 
       if (row.service_type === 'Consultoria') {
         // Consultoria: SÓ dia 20 (visitas da 1ª quinzena) e dia 8 do mês seguinte (2ª quinzena)
@@ -784,14 +814,24 @@ export default function PaymentList() {
       const dueDate = new Date(now.getFullYear(), now.getMonth(), payDay)
       if (dueDate < now) dueDate.setMonth(dueDate.getMonth() + 1)
       const monthLabel = new Date(filterMonth + '-15').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
-      const extras = empExpensesTotal(row.employee.id) + row.cost_assistance + row.extrasAprovados
+      const extras = empExpensesTotal(row.linkId) + row.cost_assistance + row.extrasAprovados
+      // O Real substitui a Estimativa do mês: o que já foi pago dela sai do
+      // valor, e a parte ainda pendente é cancelada. Antes ficavam as duas
+      // abertas e dava para pagar em dobro.
+      const estimativas = lancamentosDaLinha(row).filter(p => p.type !== 'Real')
+      const jaPago = estimativas.filter(p => p.status === 'Pago').reduce((s, p) => s + (Number(p.amount) || 0), 0)
+      const pendentes = estimativas.filter(p => p.status === 'Pendente')
       await insertPayment({
         ...baseRecord(row),
         type: 'Real',
-        description: `[REAL] ${row.service_type === 'Volante' ? 'Freela' : 'Honorários'} – ${row.employee.full_name}${row.client ? ` (${row.client.name})` : ''} – ${monthLabel}`,
-        amount: Math.max(0, Math.round((row.realAmt + extras) * 100) / 100),
-        due_date: dueDate.toISOString().slice(0, 10),
+        description: `[REAL] ${row.service_type === 'Volante' ? 'Freela' : 'Honorários'} – ${row.employee.full_name}${row.client ? ` (${row.client.name})` : ''} – ${monthLabel}${jaPago > 0 ? ` (já pago ${formatCurrency(jaPago)})` : ''}`,
+        amount: Math.max(0, Math.round((row.realAmt + extras - jaPago) * 100) / 100),
+        due_date: `${dueDate.getFullYear()}-${String(dueDate.getMonth() + 1).padStart(2, '0')}-${String(dueDate.getDate()).padStart(2, '0')}`,
       })
+      if (pendentes.length) {
+        const { error } = await supabase.from('payments').update({ status: 'Cancelado' }).in('id', pendentes.map(p => p.id))
+        if (error) throw new Error('Real gerado, mas não consegui cancelar a estimativa pendente: ' + error.message)
+      }
     },
     onSuccess: () => {
       toast.success('Pagamento real gerado!')
@@ -867,16 +907,23 @@ export default function PaymentList() {
   // Adiantamento não é gasto — fica fora deste total (ele reduz o pagamento)
   const totalExpenses = expenses?.filter(e => !ehAdiantamento(e)).reduce((s, e) => s + (Number(e.amount) || 0), 0) ?? 0
   const totalPago = payments?.filter(p => p.status === 'Pago').reduce((s, p) => s + (p.amount || 0), 0) ?? 0
-  const totalAtrasado = payments?.filter(p => p.status === 'Pendente' && p.due_date < new Date().toISOString().slice(0, 10)).reduce((s, p) => s + (p.amount || 0), 0) ?? 0
+  const totalAtrasado = payments?.filter(p => p.status === 'Pendente' && p.due_date < hojeISO()).reduce((s, p) => s + (p.amount || 0), 0) ?? 0
 
   // Lançamento do mês para um vínculo: casa por link_id quando existe (colaborador com
   // 2 clientes tem lançamentos separados); lançamentos antigos casam por colaborador
-  const payForLink = (row: { linkId: string; employee?: { id: string } }) =>
-    payments?.find(p => {
-      if (p.type === 'Real') return false
+  const lancamentosDaLinha = (row: { linkId: string; employee?: { id: string } }) =>
+    (payments ?? []).filter(p => {
+      // Cancelado não conta: antes ele "ocupava" a linha e sumia o botão Gerar
+      if (p.status === 'Cancelado') return false
       const plink = (p as { link_id?: string }).link_id
       return plink ? plink === row.linkId : p.employee_id === row.employee?.id
     })
+  // O Real, quando existe, é o que vale. Antes a linha mostrava a Estimativa
+  // (com botão "Pago") mesmo depois de gerado o Real — risco de pagar os dois.
+  const payForLink = (row: { linkId: string; employee?: { id: string } }) => {
+    const ls = lancamentosDaLinha(row)
+    return ls.find(p => p.type === 'Real') ?? ls.find(p => p.status === 'Pendente') ?? ls[0]
+  }
 
   // Unlinked payment records (manual, no vínculo)
   const linkedEmpIds = new Set((folhaData ?? []).map(r => r.employee?.id).filter(Boolean))
@@ -1241,9 +1288,9 @@ export default function PaymentList() {
                         // Mesma conta do lançamento gerado: só o aprovado entra, e
                         // adiantamento desconta. Antes a tela somava tudo, inclusive
                         // reembolso pendente/negado, e mostrava outro valor.
-                        const empExpAmt = empGastos(row.employee?.id)
-                        const empAdiant = empAdiantamento(row.employee?.id)
-                        const totalAPagar = Math.max(0, salarioBase + empExpensesTotal(row.employee?.id) + row.cost_assistance + (row.extrasAprovados || 0))
+                        const empExpAmt = empGastos(row.linkId)
+                        const empAdiant = empAdiantamento(row.linkId)
+                        const totalAPagar = Math.max(0, salarioBase + empExpensesTotal(row.linkId) +row.cost_assistance + (row.extrasAprovados || 0))
                         // Alerta de dias sem registro: compara com o esperado ATÉ 4 dias atrás (tolerância)
                         const diff = isConsultoria ? 0 : row.actualDays - row.expDaysToDate
                         const isShort = !isConsultoria && row.actualDays < row.expDaysToDate
@@ -1483,7 +1530,7 @@ export default function PaymentList() {
                                     <span className="font-medium text-blue-800">{formatCurrency(row.cost_assistance)}</span>
                                   </div>
                                 )}
-                                {(expenses?.filter(e => (e as { employee_id?: string }).employee_id === row.employee?.id) ?? []).map(e => {
+                                {gastosDaLinha(row.linkId).map(e => {
                                   const exp = e as { id: string; description: string; category?: string; amount: number; status?: string }
                                   const pendente = exp.status === 'pendente'
                                   const negado = exp.status === 'negado'
@@ -1531,7 +1578,7 @@ export default function PaymentList() {
                                       <input className="input text-sm col-span-2" placeholder="Observação (opcional)" value={expForm.notes} onChange={e => setExpForm(p => ({ ...p, notes: e.target.value }))} />
                                     </div>
                                     <div className="flex gap-2">
-                                      <button className="btn-primary text-xs py-1" onClick={() => addExpense.mutate(row.employee!.id)} disabled={addExpense.isPending || !expForm.description || !expForm.amount}>Salvar</button>
+                                      <button className="btn-primary text-xs py-1" onClick={() => addExpense.mutate({ empId: row.employee!.id, clientId: row.client?.id })} disabled={addExpense.isPending || !expForm.description || !expForm.amount}>Salvar</button>
                                       <button className="btn-ghost text-xs" onClick={() => setNewExpenseEmpId(null)}>Cancelar</button>
                                     </div>
                                   </div>

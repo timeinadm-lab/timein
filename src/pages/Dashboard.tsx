@@ -5,7 +5,7 @@ import {
   Users, Briefcase, UserPlus, AlertTriangle, CheckCircle,
   Calendar, Plus, TrendingUp, Clock, Clipboard, Download, X,
   BarChart3, Activity, Check, Database, FolderDown, ChevronDown,
-  MessageSquare, FileWarning, Flag, Video, MapPin,
+  MessageSquare, FileWarning, Flag, Video, MapPin, Wallet, ClipboardCheck,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { supabase, fetchAll } from '../lib/supabase'
@@ -1305,11 +1305,11 @@ export default function Dashboard() {
   const firstName = (profile?.full_name || '').split(' ')[0]
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5 md:space-y-6">
       <div className="flex items-end justify-between flex-wrap gap-2">
-        <div>
-          <p className="eyebrow mb-1">{greeting}{firstName ? `, ${firstName}` : ''}</p>
-          <h1 className="text-2xl md:text-3xl font-display font-extrabold text-ink-900">Dashboard</h1>
+        <div className="min-w-0">
+          <p className="eyebrow mb-1 capitalize">{now.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}</p>
+          <h1 className="text-2xl md:text-3xl font-display font-extrabold text-ink-900">{greeting}{firstName ? `, ${firstName}` : ''}</h1>
         </div>
         <div className="flex items-center gap-3">
           {role === 'chefe' && (
@@ -1320,7 +1320,7 @@ export default function Dashboard() {
                 className="btn-secondary text-sm flex items-center gap-1.5"
               >
                 <Download size={14} />
-                {backingUp ? 'Exportando dados...' : backingUpDocs ? docProgress || 'Exportando docs...' : 'Backup'}
+                <span className={backingUp || backingUpDocs ? '' : 'hidden sm:inline'}>{backingUp ? 'Exportando dados...' : backingUpDocs ? docProgress || 'Exportando docs...' : 'Backup'}</span>
                 {!backingUp && !backingUpDocs && <ChevronDown size={12} />}
               </button>
               {showBackupMenu && (
@@ -1353,7 +1353,6 @@ export default function Dashboard() {
               )}
             </div>
           )}
-          <p className="text-sm text-ink-400 capitalize">{now.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}</p>
         </div>
       </div>
 
@@ -1375,6 +1374,369 @@ export default function Dashboard() {
           </button>
         </div>
       )}
+
+      {/* ── KPI Cards ── */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
+        {/* Colaboradores */}
+        <div className="card card-interactive p-4 md:p-5" onClick={() => navigate('/colaboradores')}>
+          <div className="flex items-start justify-between mb-3">
+            <div>
+              <p className="text-xs text-ink-500 font-semibold">Colaboradores</p>
+              <p className="text-2xl md:text-3xl font-display font-extrabold text-ink-900 mt-1 tnum">{activeEmployees}</p>
+              <p className="text-xs text-gray-400">de {totalEmployees} cadastrados</p>
+            </div>
+            <div className="w-9 h-9 md:w-10 md:h-10 shrink-0 rounded-xl bg-blue-50 flex items-center justify-center">
+              <Users size={20} className="text-blue-600" />
+            </div>
+          </div>
+          <div className="w-full bg-gray-100 rounded-full h-1.5">
+            <div className="bg-blue-500 h-1.5 rounded-full" style={{ width: `${Math.min(100, (activeEmployees / totalEmployees) * 100)}%` }} />
+          </div>
+          <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+            {linksThisMonth > 0 && <p className="text-xs text-green-600 font-medium">↑ {linksThisMonth} contratação{linksThisMonth > 1 ? 'ões' : ''} no mês</p>}
+            {dismissedThisMonth > 0 && <p className="text-xs text-red-500">↓ {dismissedThisMonth} inativado{dismissedThisMonth > 1 ? 's' : ''}</p>}
+          </div>
+        </div>
+
+        {/* Vagas */}
+        <div className="card card-interactive p-4 md:p-5" onClick={() => navigate('/vagas')}>
+          <div className="flex items-start justify-between mb-3">
+            <div>
+              <p className="text-xs text-ink-500 font-semibold">Vagas Abertas</p>
+              <p className="text-2xl md:text-3xl font-display font-extrabold text-ink-900 mt-1 tnum">{openVacancies}</p>
+              <p className="text-xs text-gray-400">{filledVacancies} preenchidas</p>
+            </div>
+            <div className="w-9 h-9 md:w-10 md:h-10 shrink-0 rounded-xl bg-green-50 flex items-center justify-center">
+              <Briefcase size={20} className="text-green-600" />
+            </div>
+          </div>
+          <div className="w-full bg-gray-100 rounded-full h-1.5">
+            <div className="bg-green-500 h-1.5 rounded-full" style={{ width: totalVacancies > 0 ? `${(filledVacancies / totalVacancies) * 100}%` : '0%' }} />
+          </div>
+          <p className="text-xs text-gray-400 mt-1.5">
+            {openPositions > 0
+              ? <span className="text-amber-600 font-medium">{openPositions} posição{openPositions > 1 ? 'ões' : ''} a preencher</span>
+              : `${totalVacancies > 0 ? Math.round((filledVacancies / totalVacancies) * 100) : 0}% das vagas preenchidas`}
+          </p>
+        </div>
+
+        {/* Candidatos */}
+        <div className="card card-interactive p-4 md:p-5" onClick={() => navigate('/candidatos')}>
+          <div className="flex items-start justify-between mb-3">
+            <div>
+              <p className="text-xs text-ink-500 font-semibold">Em Processo</p>
+              <p className="text-2xl md:text-3xl font-display font-extrabold text-ink-900 mt-1 tnum">{inProcess}</p>
+              <p className="text-xs text-gray-400">{approvedCount ?? 0} aprovados aguardando</p>
+            </div>
+            <div className="w-9 h-9 md:w-10 md:h-10 shrink-0 rounded-xl bg-purple-50 flex items-center justify-center">
+              <UserPlus size={20} className="text-purple-600" />
+            </div>
+          </div>
+          {(approvedCount ?? 0) > 0 && (
+            <div className="bg-purple-50 rounded-lg px-2 py-1 text-xs text-purple-700 font-medium">
+              ⚡ {approvedCount} pronto{approvedCount! > 1 ? 's' : ''} para alocar
+            </div>
+          )}
+        </div>
+
+        {/* Pendências operacionais */}
+        <div className={`card p-4 md:p-5 ${pendenciasCount > 0 ? 'border-amber-200 bg-amber-50/30' : ''}`}>
+          <div className="flex items-start justify-between mb-2">
+            <div>
+              <p className="text-xs text-ink-500 font-semibold">Pendências</p>
+              <p className={`text-2xl md:text-3xl font-display font-extrabold mt-1 tnum ${pendenciasCount > 0 ? 'text-amber-600' : 'text-primary-600'}`}>
+                {pendenciasCount}
+              </p>
+              <p className="text-xs text-gray-400">para resolver</p>
+            </div>
+            <div className={`w-9 h-9 md:w-10 md:h-10 shrink-0 rounded-xl flex items-center justify-center ${pendenciasCount > 0 ? 'bg-amber-100' : 'bg-green-100'}`}>
+              {pendenciasCount === 0
+                ? <CheckCircle size={20} className="text-green-600" />
+                : <FileWarning size={20} className="text-amber-600" />
+              }
+            </div>
+          </div>
+          {pendenciasCount === 0 ? (
+            <p className="text-xs text-green-600 font-medium">Nada pendente!</p>
+          ) : (
+            <div className="flex flex-wrap gap-1">
+              {pendDocs > 0 && <span className="badge bg-amber-100 text-amber-700 text-[10px] cursor-pointer" onClick={() => navigate('/colaboradores')}>{pendDocs} doc{pendDocs > 1 ? 's' : ''}</span>}
+              {pendContratos > 0 && <span className="badge bg-red-100 text-red-700 text-[10px] cursor-pointer" onClick={() => navigate('/colaboradores')}>{pendContratos} contrato{pendContratos > 1 ? 's' : ''}</span>}
+              {pendChat > 0 && <span className="badge bg-blue-100 text-blue-700 text-[10px] cursor-pointer" onClick={() => navigate('/chat')}><MessageSquare size={9} /> {pendChat}</span>}
+              {pendExtras > 0 && <span className="badge bg-purple-100 text-purple-700 text-[10px] cursor-pointer" onClick={() => navigate('/visitas')}>{pendExtras} extra{pendExtras > 1 ? 's' : ''}</span>}
+              {pendComprovantes > 0 && <span className="badge bg-gray-100 text-gray-600 text-[10px] cursor-pointer" onClick={() => navigate('/pagamentos')}>{pendComprovantes} comprovante{pendComprovantes > 1 ? 's' : ''}</span>}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Atalhos no celular: logo abaixo dos números, numa faixa que desliza.
+          Antes ficavam no fim da coluna lateral — no celular, lá embaixo. */}
+      <div className="lg:hidden -mx-4 px-4 flex gap-2 overflow-x-auto scrollbar-none">
+        {[
+          { label: 'Pagamentos', path: '/pagamentos', icon: Wallet, only: 'chefe' },
+          { label: 'Visitas', path: '/visitas', icon: ClipboardCheck },
+          { label: 'Colaborador', path: '/colaboradores/novo', icon: Plus },
+          { label: 'Vaga', path: '/vagas/nova', icon: Plus },
+          { label: 'Candidato', path: '/candidatos/novo', icon: Plus },
+          { label: 'Compromisso', path: '/agenda/nova', icon: Plus },
+        ].filter(a => !a.only || a.only === role).map(a => (
+          <button key={a.path} onClick={() => navigate(a.path)}
+            className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-white border border-ink-100 shadow-soft text-sm font-semibold text-ink-700 whitespace-nowrap active:scale-95 transition-all">
+            <a.icon size={15} className="text-primary-600" />{a.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Prioridades + Reuniões — o que importa primeiro ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6 items-start">
+        {/* Prioridades (urgências) */}
+        <div className="lg:col-span-2 space-y-2.5">
+          <div className="flex items-center justify-between px-0.5">
+            <h2 className="section-title text-base">
+              <AlertTriangle size={16} className={filteredRed.length > 0 ? 'text-red-500' : filteredAmber.length > 0 ? 'text-amber-500' : 'text-primary-600'} />
+              Prioridades
+            </h2>
+            <div className="flex items-center gap-1.5">
+              {filteredRed.length > 0 && <span className="badge bg-red-100 text-red-700">{filteredRed.length} crítico{filteredRed.length > 1 ? 's' : ''}</span>}
+              {filteredAmber.length > 0 && <span className="badge bg-amber-100 text-amber-700">{filteredAmber.length} atenção</span>}
+              <button onClick={() => setShowPriorityForm(v => !v)} className="btn-secondary text-xs py-1 px-2.5 flex items-center gap-1">
+                <Flag size={12} /> Criar
+              </button>
+            </div>
+          </div>
+
+          {showPriorityForm && (
+            <div className="card p-3 space-y-2.5 border-primary-200">
+              <input
+                className="input text-sm"
+                placeholder="Escreva a prioridade (ex: Ligar para o cliente X sobre renovação)"
+                value={priorityText}
+                autoFocus
+                onChange={e => setPriorityText(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && priorityText.trim()) addPriority.mutate() }}
+              />
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div className="flex gap-1.5">
+                  <button
+                    onClick={() => setPriorityLevel('amber')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${priorityLevel === 'amber' ? 'bg-amber-500 text-white border-amber-500' : 'bg-white text-amber-600 border-amber-200'}`}
+                  >Atenção</button>
+                  <button
+                    onClick={() => setPriorityLevel('red')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${priorityLevel === 'red' ? 'bg-red-600 text-white border-red-600' : 'bg-white text-red-600 border-red-200'}`}
+                  >Crítico</button>
+                </div>
+                <div className="flex gap-1.5 ml-auto">
+                  <button onClick={() => { setShowPriorityForm(false); setPriorityText('') }} className="btn-ghost text-xs">Cancelar</button>
+                  <button onClick={() => addPriority.mutate()} disabled={!priorityText.trim() || addPriority.isPending} className="btn-primary text-xs py-1.5">
+                    {addPriority.isPending ? 'Criando...' : 'Criar prioridade'}
+                  </button>
+                </div>
+              </div>
+              <p className="text-xs text-ink-400">Aparece para todos os usuários até alguém marcar como concluída.</p>
+            </div>
+          )}
+
+          {allAlerts.length === 0 && !showPriorityForm && (
+            <div className="card p-6 flex items-center gap-4 border-primary-100 bg-primary-50/40">
+              <div className="w-11 h-11 rounded-2xl bg-primary-100 flex items-center justify-center flex-shrink-0">
+                <CheckCircle size={22} className="text-primary-700" />
+              </div>
+              <div>
+                <p className="font-semibold text-ink-900">Tudo em dia!</p>
+                <p className="text-sm text-ink-500">Nenhuma pendência urgente agora{resolvedCount > 0 ? ` — ${resolvedCount} resolvida${resolvedCount > 1 ? 's' : ''}` : ''}.</p>
+              </div>
+            </div>
+          )}
+
+          {filteredRed.length > 0 && (
+            <div className="rounded-2xl border border-red-200 overflow-hidden shadow-card bg-white">
+              <div className="bg-red-50 border-b border-red-100 px-4 py-2.5 flex items-center gap-2">
+                <AlertTriangle size={14} className="text-red-600" />
+                <span className="text-sm font-bold text-red-700">{filteredRed.length} Problema{filteredRed.length > 1 ? 's' : ''} Crítico{filteredRed.length > 1 ? 's' : ''}</span>
+              </div>
+              <div className="divide-y divide-red-100">
+                {filteredRed.map((a, i) => (
+                  <div key={i} className="flex items-center gap-3 px-4 py-3 md:py-2.5 group">
+                    <span className="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0" />
+                    <p className={`text-sm text-red-800 flex-1 ${a.path ? 'cursor-pointer hover:underline' : ''}`}
+                      onClick={() => a.path && navigate(a.path)}>{a.text}</p>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      {a.customId ? (
+                        <button onClick={() => resolvePriority.mutate(a.customId!)} className="text-green-500 hover:text-green-700 md:opacity-0 md:group-hover:opacity-100 transition-opacity p-1.5 md:p-0.5 rounded-lg" title="Concluir prioridade">
+                          <Check size={14} />
+                        </button>
+                      ) : (
+                        <>
+                          {a.key && (
+                            <button onClick={() => resolveAlert(a.key!)} className="text-green-400 hover:text-green-600 md:opacity-0 md:group-hover:opacity-100 transition-opacity p-1.5 md:p-0.5 rounded-lg" title="Marcar como resolvido">
+                              <Check size={14} />
+                            </button>
+                          )}
+                          {a.key && (
+                            <button onClick={() => dismissAlert(a.key!)} className="text-red-300 hover:text-red-600 md:opacity-0 md:group-hover:opacity-100 transition-opacity p-1.5 md:p-0.5 rounded-lg" title="Dispensar alerta">
+                              <X size={14} />
+                            </button>
+                          )}
+                        </>
+                      )}
+                      {a.path && <span className="text-xs text-red-400">→</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {filteredAmber.length > 0 && (
+            <div className="rounded-2xl border border-amber-200 overflow-hidden shadow-card bg-white">
+              <div className="bg-amber-50 border-b border-amber-100 px-4 py-2.5 flex items-center gap-2">
+                <Clock size={14} className="text-amber-600" />
+                <span className="text-sm font-bold text-amber-700">{filteredAmber.length} Atenção</span>
+              </div>
+              <div className="divide-y divide-amber-100 max-h-[19rem] overflow-y-auto">
+                {filteredAmber.map((a, i) => (
+                  <div key={i} className="flex items-center gap-3 px-4 py-3 md:py-2.5 group">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" />
+                    <p className={`text-sm text-amber-800 flex-1 ${a.path ? 'cursor-pointer hover:underline' : ''}`}
+                      onClick={() => a.path && navigate(a.path)}>{a.text}</p>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      {a.customId ? (
+                        <button onClick={() => resolvePriority.mutate(a.customId!)} className="text-green-500 hover:text-green-700 md:opacity-0 md:group-hover:opacity-100 transition-opacity p-1.5 md:p-0.5 rounded-lg" title="Concluir prioridade">
+                          <Check size={14} />
+                        </button>
+                      ) : (
+                        <>
+                          {a.key && (
+                            <button onClick={() => resolveAlert(a.key!)} className="text-green-400 hover:text-green-600 md:opacity-0 md:group-hover:opacity-100 transition-opacity p-1.5 md:p-0.5 rounded-lg" title="Marcar como resolvido">
+                              <Check size={14} />
+                            </button>
+                          )}
+                          {a.key && (
+                            <button onClick={() => dismissAlert(a.key!)} className="text-amber-300 hover:text-amber-600 md:opacity-0 md:group-hover:opacity-100 transition-opacity p-1.5 md:p-0.5 rounded-lg" title="Dispensar alerta">
+                              <X size={14} />
+                            </button>
+                          )}
+                        </>
+                      )}
+                      {a.path && <span className="text-xs text-amber-400">→</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {resolvedCount > 0 && allAlerts.length > 0 && (
+            <div className="flex items-center gap-2 px-4 py-2 bg-green-50 rounded-xl border border-green-200">
+              <CheckCircle size={14} className="text-green-600" />
+              <span className="text-sm text-green-700 font-medium">{resolvedCount} pendência{resolvedCount > 1 ? 's' : ''} resolvida{resolvedCount > 1 ? 's' : ''}</span>
+              <button onClick={() => {
+                setResolvedAlerts(new Set())
+                localStorage.removeItem('timein_resolved_alerts')
+              }} className="text-xs text-green-500 hover:text-green-700 ml-auto">Limpar</button>
+            </div>
+          )}
+        </div>
+
+        {/* Reuniões — compromissos da equipe */}
+        <div className="space-y-2.5">
+          <div className="flex items-center justify-between px-0.5">
+            <h2 className="section-title text-base">
+              <Calendar size={16} className="text-primary-600" />
+              Reuniões
+            </h2>
+            <button onClick={() => navigate('/agenda')} className="text-xs text-primary-600 hover:underline font-medium">Ver tudo →</button>
+          </div>
+          <div className="card p-3">
+            {interviews?.length === 0 ? (
+              <div className="text-center py-5">
+                <Calendar size={24} className="text-ink-200 mx-auto mb-1.5" />
+                <p className="text-sm text-ink-400">Nenhum compromisso agendado</p>
+                <button onClick={() => navigate('/agenda/nova')} className="text-xs text-primary-600 font-semibold hover:underline mt-1.5">+ Agendar compromisso</button>
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                {interviews?.map((i: { id: string; title?: string; candidate?: { full_name: string }; employee?: { full_name: string }; scheduled_at: string; end_date?: string; modality: string; status: string; vacancy?: { title: string }; link_or_address?: string }) => {
+                  const d = parseLocal(i.scheduled_at) ?? new Date(i.scheduled_at)
+                  const isToday = d.toDateString() === now.toDateString()
+                  const isTomorrow = d.toDateString() === addDays(now, 1).toDateString()
+                  return (
+                    <div key={i.id}
+                      className={`flex items-start gap-3 p-2.5 rounded-xl cursor-pointer border transition-colors ${isToday ? 'border-primary-200 bg-primary-50/60 hover:bg-primary-50' : 'border-ink-100 hover:bg-ink-50'}`}
+                      onClick={() => navigate('/agenda')}>
+                      <div className={`w-11 h-11 rounded-xl flex flex-col items-center justify-center flex-shrink-0 ${isToday ? 'bg-primary-600 text-white' : 'bg-primary-50 text-primary-700'}`}>
+                        {isToday || isTomorrow ? (
+                          <span className="text-[9px] font-extrabold uppercase leading-none">{isToday ? 'Hoje' : 'Amanhã'}</span>
+                        ) : (
+                          <span className="text-sm font-bold leading-none">{d.getDate()}</span>
+                        )}
+                        <span className={`text-[9px] leading-none mt-1 ${isToday ? 'text-primary-100' : 'text-primary-400'}`}>
+                          {isToday || isTomorrow ? formatLocalTime(i.scheduled_at) : d.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '')}
+                        </span>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-ink-900 truncate">{i.title || i.candidate?.full_name || 'Compromisso'}</p>
+                        <p className="text-xs text-ink-400 truncate">
+                          {formatLocalTime(i.scheduled_at)}
+                          {i.employee?.full_name ? ` · ${i.employee.full_name}` : ''}
+                          {i.candidate?.full_name ? ` · ${i.candidate.full_name}` : ''}
+                        </p>
+                        {/* Entrar na reunião direto daqui — stopPropagation pra não navegar pra agenda */}
+                        {i.link_or_address && (
+                          isMeetingLink(i.link_or_address) ? (
+                            <a href={i.link_or_address} target="_blank" rel="noopener noreferrer"
+                              onClick={e => e.stopPropagation()}
+                              className="inline-flex items-center gap-1 mt-1.5 px-2.5 py-1 rounded-lg bg-primary-600 text-white text-xs font-semibold hover:bg-primary-700 active:scale-95 transition-all">
+                              <Video size={12} /> Entrar
+                            </a>
+                          ) : (
+                            <a href={mapsUrl(i.link_or_address)} target="_blank" rel="noopener noreferrer"
+                              onClick={e => e.stopPropagation()}
+                              className="inline-flex items-center gap-1 mt-1 text-xs text-primary-700 hover:underline max-w-full">
+                              <MapPin size={11} className="flex-shrink-0" />
+                              <span className="truncate">{i.link_or_address}</span>
+                            </a>
+                          )
+                        )}
+                        <div className="flex gap-1 mt-1 flex-wrap">
+                          <span className={`badge text-[10px] ${MODAL_COLORS[i.modality] || 'bg-gray-100 text-gray-700'}`}>{i.modality}</span>
+                          <span className={`badge text-[10px] ${STATUS_COLORS[i.status] || 'bg-gray-100 text-gray-700'}`}>{i.status}</span>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Atalhos — ficam aqui pra preencher a coluna e deixar as ações à mão */}
+          <div className="hidden lg:flex items-center justify-between px-0.5 pt-1">
+            <h2 className="section-title text-base">
+              <TrendingUp size={16} className="text-primary-600" />
+              Atalhos
+            </h2>
+          </div>
+          <div className="card p-3 hidden lg:grid grid-cols-2 gap-2">
+            {[
+              { label: 'Colaborador', path: '/colaboradores/novo', color: 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100' },
+              { label: 'Vaga', path: '/vagas/nova', color: 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100' },
+              { label: 'Candidato', path: '/candidatos/novo', color: 'bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100' },
+              { label: 'Compromisso', path: '/agenda/nova', color: 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100' },
+              { label: 'Contrato', path: '/contratos/novo', color: 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100' },
+              { label: 'Kanban', path: '/candidatos/kanban', color: 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100' },
+            ].map(q => (
+              <button key={q.path} onClick={() => navigate(q.path)}
+                className={`flex items-center gap-1.5 px-2.5 py-2 rounded-xl border text-xs font-semibold transition-colors ${q.color}`}>
+                <Plus size={12} className="flex-shrink-0" />
+                <span className="truncate">{q.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
 
       {/* ── Mini calendário da semana — clique abre o calendário completo ── */}
       <button
@@ -1483,256 +1845,6 @@ export default function Dashboard() {
         </div>
       </button>
 
-      {/* ── Prioridades + Reuniões — o que importa primeiro ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6 items-start">
-        {/* Prioridades (urgências) */}
-        <div className="lg:col-span-2 space-y-2.5">
-          <div className="flex items-center justify-between px-0.5">
-            <h2 className="section-title text-base">
-              <AlertTriangle size={16} className={filteredRed.length > 0 ? 'text-red-500' : filteredAmber.length > 0 ? 'text-amber-500' : 'text-primary-600'} />
-              Prioridades
-            </h2>
-            <div className="flex items-center gap-1.5">
-              {filteredRed.length > 0 && <span className="badge bg-red-100 text-red-700">{filteredRed.length} crítico{filteredRed.length > 1 ? 's' : ''}</span>}
-              {filteredAmber.length > 0 && <span className="badge bg-amber-100 text-amber-700">{filteredAmber.length} atenção</span>}
-              <button onClick={() => setShowPriorityForm(v => !v)} className="btn-secondary text-xs py-1 px-2.5 flex items-center gap-1">
-                <Flag size={12} /> Criar
-              </button>
-            </div>
-          </div>
-
-          {showPriorityForm && (
-            <div className="card p-3 space-y-2.5 border-primary-200">
-              <input
-                className="input text-sm"
-                placeholder="Escreva a prioridade (ex: Ligar para o cliente X sobre renovação)"
-                value={priorityText}
-                autoFocus
-                onChange={e => setPriorityText(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter' && priorityText.trim()) addPriority.mutate() }}
-              />
-              <div className="flex items-center justify-between gap-2 flex-wrap">
-                <div className="flex gap-1.5">
-                  <button
-                    onClick={() => setPriorityLevel('amber')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${priorityLevel === 'amber' ? 'bg-amber-500 text-white border-amber-500' : 'bg-white text-amber-600 border-amber-200'}`}
-                  >Atenção</button>
-                  <button
-                    onClick={() => setPriorityLevel('red')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${priorityLevel === 'red' ? 'bg-red-600 text-white border-red-600' : 'bg-white text-red-600 border-red-200'}`}
-                  >Crítico</button>
-                </div>
-                <div className="flex gap-1.5 ml-auto">
-                  <button onClick={() => { setShowPriorityForm(false); setPriorityText('') }} className="btn-ghost text-xs">Cancelar</button>
-                  <button onClick={() => addPriority.mutate()} disabled={!priorityText.trim() || addPriority.isPending} className="btn-primary text-xs py-1.5">
-                    {addPriority.isPending ? 'Criando...' : 'Criar prioridade'}
-                  </button>
-                </div>
-              </div>
-              <p className="text-xs text-ink-400">Aparece para todos os usuários até alguém marcar como concluída.</p>
-            </div>
-          )}
-
-          {allAlerts.length === 0 && !showPriorityForm && (
-            <div className="card p-6 flex items-center gap-4 border-primary-100 bg-primary-50/40">
-              <div className="w-11 h-11 rounded-2xl bg-primary-100 flex items-center justify-center flex-shrink-0">
-                <CheckCircle size={22} className="text-primary-700" />
-              </div>
-              <div>
-                <p className="font-semibold text-ink-900">Tudo em dia!</p>
-                <p className="text-sm text-ink-500">Nenhuma pendência urgente agora{resolvedCount > 0 ? ` — ${resolvedCount} resolvida${resolvedCount > 1 ? 's' : ''}` : ''}.</p>
-              </div>
-            </div>
-          )}
-
-          {filteredRed.length > 0 && (
-            <div className="rounded-2xl border border-red-200 overflow-hidden shadow-card bg-white">
-              <div className="bg-red-600 px-4 py-2 flex items-center gap-2">
-                <AlertTriangle size={14} className="text-white" />
-                <span className="text-sm font-semibold text-white">{filteredRed.length} Problema{filteredRed.length > 1 ? 's' : ''} Crítico{filteredRed.length > 1 ? 's' : ''}</span>
-              </div>
-              <div className="divide-y divide-red-100">
-                {filteredRed.map((a, i) => (
-                  <div key={i} className="flex items-center gap-3 px-4 py-2.5 group">
-                    <span className="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0" />
-                    <p className={`text-sm text-red-800 flex-1 ${a.path ? 'cursor-pointer hover:underline' : ''}`}
-                      onClick={() => a.path && navigate(a.path)}>{a.text}</p>
-                    <div className="flex items-center gap-1 flex-shrink-0">
-                      {a.customId ? (
-                        <button onClick={() => resolvePriority.mutate(a.customId!)} className="text-green-500 hover:text-green-700 md:opacity-0 md:group-hover:opacity-100 transition-opacity p-0.5 rounded" title="Concluir prioridade">
-                          <Check size={14} />
-                        </button>
-                      ) : (
-                        <>
-                          {a.key && (
-                            <button onClick={() => resolveAlert(a.key!)} className="text-green-400 hover:text-green-600 opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded" title="Marcar como resolvido">
-                              <Check size={14} />
-                            </button>
-                          )}
-                          {a.key && (
-                            <button onClick={() => dismissAlert(a.key!)} className="text-red-300 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded" title="Dispensar alerta">
-                              <X size={14} />
-                            </button>
-                          )}
-                        </>
-                      )}
-                      {a.path && <span className="text-xs text-red-400">→</span>}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {filteredAmber.length > 0 && (
-            <div className="rounded-2xl border border-amber-200 overflow-hidden shadow-card bg-white">
-              <div className="bg-amber-500 px-4 py-2 flex items-center gap-2">
-                <Clock size={14} className="text-white" />
-                <span className="text-sm font-semibold text-white">{filteredAmber.length} Atenção</span>
-              </div>
-              <div className="divide-y divide-amber-100 max-h-[19rem] overflow-y-auto">
-                {filteredAmber.map((a, i) => (
-                  <div key={i} className="flex items-center gap-3 px-4 py-2.5 group">
-                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" />
-                    <p className={`text-sm text-amber-800 flex-1 ${a.path ? 'cursor-pointer hover:underline' : ''}`}
-                      onClick={() => a.path && navigate(a.path)}>{a.text}</p>
-                    <div className="flex items-center gap-1 flex-shrink-0">
-                      {a.customId ? (
-                        <button onClick={() => resolvePriority.mutate(a.customId!)} className="text-green-500 hover:text-green-700 md:opacity-0 md:group-hover:opacity-100 transition-opacity p-0.5 rounded" title="Concluir prioridade">
-                          <Check size={14} />
-                        </button>
-                      ) : (
-                        <>
-                          {a.key && (
-                            <button onClick={() => resolveAlert(a.key!)} className="text-green-400 hover:text-green-600 opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded" title="Marcar como resolvido">
-                              <Check size={14} />
-                            </button>
-                          )}
-                          {a.key && (
-                            <button onClick={() => dismissAlert(a.key!)} className="text-amber-300 hover:text-amber-600 opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded" title="Dispensar alerta">
-                              <X size={14} />
-                            </button>
-                          )}
-                        </>
-                      )}
-                      {a.path && <span className="text-xs text-amber-400">→</span>}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {resolvedCount > 0 && allAlerts.length > 0 && (
-            <div className="flex items-center gap-2 px-4 py-2 bg-green-50 rounded-xl border border-green-200">
-              <CheckCircle size={14} className="text-green-600" />
-              <span className="text-sm text-green-700 font-medium">{resolvedCount} pendência{resolvedCount > 1 ? 's' : ''} resolvida{resolvedCount > 1 ? 's' : ''}</span>
-              <button onClick={() => {
-                setResolvedAlerts(new Set())
-                localStorage.removeItem('timein_resolved_alerts')
-              }} className="text-xs text-green-500 hover:text-green-700 ml-auto">Limpar</button>
-            </div>
-          )}
-        </div>
-
-        {/* Reuniões — compromissos da equipe */}
-        <div className="space-y-2.5">
-          <div className="flex items-center justify-between px-0.5">
-            <h2 className="section-title text-base">
-              <Calendar size={16} className="text-primary-600" />
-              Reuniões
-            </h2>
-            <button onClick={() => navigate('/agenda')} className="text-xs text-primary-600 hover:underline font-medium">Ver tudo →</button>
-          </div>
-          <div className="card p-3">
-            {interviews?.length === 0 ? (
-              <div className="text-center py-5">
-                <Calendar size={24} className="text-ink-200 mx-auto mb-1.5" />
-                <p className="text-sm text-ink-400">Nenhum compromisso agendado</p>
-                <button onClick={() => navigate('/agenda/nova')} className="text-xs text-primary-600 font-semibold hover:underline mt-1.5">+ Agendar compromisso</button>
-              </div>
-            ) : (
-              <div className="space-y-1.5">
-                {interviews?.map((i: { id: string; title?: string; candidate?: { full_name: string }; employee?: { full_name: string }; scheduled_at: string; end_date?: string; modality: string; status: string; vacancy?: { title: string }; link_or_address?: string }) => {
-                  const d = parseLocal(i.scheduled_at) ?? new Date(i.scheduled_at)
-                  const isToday = d.toDateString() === now.toDateString()
-                  const isTomorrow = d.toDateString() === addDays(now, 1).toDateString()
-                  return (
-                    <div key={i.id}
-                      className={`flex items-start gap-3 p-2.5 rounded-xl cursor-pointer border transition-colors ${isToday ? 'border-primary-200 bg-primary-50/60 hover:bg-primary-50' : 'border-ink-100 hover:bg-ink-50'}`}
-                      onClick={() => navigate('/agenda')}>
-                      <div className={`w-11 h-11 rounded-xl flex flex-col items-center justify-center flex-shrink-0 ${isToday ? 'bg-primary-600 text-white' : 'bg-primary-50 text-primary-700'}`}>
-                        {isToday || isTomorrow ? (
-                          <span className="text-[9px] font-extrabold uppercase leading-none">{isToday ? 'Hoje' : 'Amanhã'}</span>
-                        ) : (
-                          <span className="text-sm font-bold leading-none">{d.getDate()}</span>
-                        )}
-                        <span className={`text-[9px] leading-none mt-1 ${isToday ? 'text-primary-100' : 'text-primary-400'}`}>
-                          {isToday || isTomorrow ? formatLocalTime(i.scheduled_at) : d.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '')}
-                        </span>
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-ink-900 truncate">{i.title || i.candidate?.full_name || 'Compromisso'}</p>
-                        <p className="text-xs text-ink-400 truncate">
-                          {formatLocalTime(i.scheduled_at)}
-                          {i.employee?.full_name ? ` · ${i.employee.full_name}` : ''}
-                          {i.candidate?.full_name ? ` · ${i.candidate.full_name}` : ''}
-                        </p>
-                        {/* Entrar na reunião direto daqui — stopPropagation pra não navegar pra agenda */}
-                        {i.link_or_address && (
-                          isMeetingLink(i.link_or_address) ? (
-                            <a href={i.link_or_address} target="_blank" rel="noopener noreferrer"
-                              onClick={e => e.stopPropagation()}
-                              className="inline-flex items-center gap-1 mt-1.5 px-2.5 py-1 rounded-lg bg-primary-600 text-white text-xs font-semibold hover:bg-primary-700 active:scale-95 transition-all">
-                              <Video size={12} /> Entrar
-                            </a>
-                          ) : (
-                            <a href={mapsUrl(i.link_or_address)} target="_blank" rel="noopener noreferrer"
-                              onClick={e => e.stopPropagation()}
-                              className="inline-flex items-center gap-1 mt-1 text-xs text-primary-700 hover:underline max-w-full">
-                              <MapPin size={11} className="flex-shrink-0" />
-                              <span className="truncate">{i.link_or_address}</span>
-                            </a>
-                          )
-                        )}
-                        <div className="flex gap-1 mt-1 flex-wrap">
-                          <span className={`badge text-[10px] ${MODAL_COLORS[i.modality] || 'bg-gray-100 text-gray-700'}`}>{i.modality}</span>
-                          <span className={`badge text-[10px] ${STATUS_COLORS[i.status] || 'bg-gray-100 text-gray-700'}`}>{i.status}</span>
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </div>
-
-          {/* Atalhos — ficam aqui pra preencher a coluna e deixar as ações à mão */}
-          <div className="flex items-center justify-between px-0.5 pt-1">
-            <h2 className="section-title text-base">
-              <TrendingUp size={16} className="text-primary-600" />
-              Atalhos
-            </h2>
-          </div>
-          <div className="card p-3 grid grid-cols-2 gap-2">
-            {[
-              { label: 'Colaborador', path: '/colaboradores/novo', color: 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100' },
-              { label: 'Vaga', path: '/vagas/nova', color: 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100' },
-              { label: 'Candidato', path: '/candidatos/novo', color: 'bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100' },
-              { label: 'Compromisso', path: '/agenda/nova', color: 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100' },
-              { label: 'Contrato', path: '/contratos/novo', color: 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100' },
-              { label: 'Kanban', path: '/candidatos/kanban', color: 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100' },
-            ].map(q => (
-              <button key={q.path} onClick={() => navigate(q.path)}
-                className={`flex items-center gap-1.5 px-2.5 py-2 rounded-xl border text-xs font-semibold transition-colors ${q.color}`}>
-                <Plus size={12} className="flex-shrink-0" />
-                <span className="truncate">{q.label}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-
       {/* ── Minhas Atividades de hoje (checklist com progresso) ── */}
       {(myActivities?.length ?? 0) > 0 && (() => {
         const total = myActivities!.length
@@ -1811,101 +1923,6 @@ export default function Dashboard() {
         )
       })()}
 
-      {/* ── KPI Cards ── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Colaboradores */}
-        <div className="card card-interactive p-5" onClick={() => navigate('/colaboradores')}>
-          <div className="flex items-start justify-between mb-3">
-            <div>
-              <p className="text-xs text-gray-500 font-medium">Colaboradores</p>
-              <p className="text-3xl font-display font-extrabold text-ink-900 mt-1 tnum">{activeEmployees}</p>
-              <p className="text-xs text-gray-400">de {totalEmployees} cadastrados</p>
-            </div>
-            <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center">
-              <Users size={20} className="text-blue-600" />
-            </div>
-          </div>
-          <div className="w-full bg-gray-100 rounded-full h-1.5">
-            <div className="bg-blue-500 h-1.5 rounded-full" style={{ width: `${Math.min(100, (activeEmployees / totalEmployees) * 100)}%` }} />
-          </div>
-          <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-            {linksThisMonth > 0 && <p className="text-xs text-green-600 font-medium">↑ {linksThisMonth} contratação{linksThisMonth > 1 ? 'ões' : ''} no mês</p>}
-            {dismissedThisMonth > 0 && <p className="text-xs text-red-500">↓ {dismissedThisMonth} inativado{dismissedThisMonth > 1 ? 's' : ''}</p>}
-          </div>
-        </div>
-
-        {/* Vagas */}
-        <div className="card card-interactive p-5" onClick={() => navigate('/vagas')}>
-          <div className="flex items-start justify-between mb-3">
-            <div>
-              <p className="text-xs text-gray-500 font-medium">Vagas Abertas</p>
-              <p className="text-3xl font-display font-extrabold text-ink-900 mt-1 tnum">{openVacancies}</p>
-              <p className="text-xs text-gray-400">{filledVacancies} preenchidas</p>
-            </div>
-            <div className="w-10 h-10 rounded-xl bg-green-50 flex items-center justify-center">
-              <Briefcase size={20} className="text-green-600" />
-            </div>
-          </div>
-          <div className="w-full bg-gray-100 rounded-full h-1.5">
-            <div className="bg-green-500 h-1.5 rounded-full" style={{ width: totalVacancies > 0 ? `${(filledVacancies / totalVacancies) * 100}%` : '0%' }} />
-          </div>
-          <p className="text-xs text-gray-400 mt-1.5">
-            {openPositions > 0
-              ? <span className="text-amber-600 font-medium">{openPositions} posição{openPositions > 1 ? 'ões' : ''} a preencher</span>
-              : `${totalVacancies > 0 ? Math.round((filledVacancies / totalVacancies) * 100) : 0}% das vagas preenchidas`}
-          </p>
-        </div>
-
-        {/* Candidatos */}
-        <div className="card card-interactive p-5" onClick={() => navigate('/candidatos')}>
-          <div className="flex items-start justify-between mb-3">
-            <div>
-              <p className="text-xs text-gray-500 font-medium">Em Processo</p>
-              <p className="text-3xl font-display font-extrabold text-ink-900 mt-1 tnum">{inProcess}</p>
-              <p className="text-xs text-gray-400">{approvedCount ?? 0} aprovados aguardando</p>
-            </div>
-            <div className="w-10 h-10 rounded-xl bg-purple-50 flex items-center justify-center">
-              <UserPlus size={20} className="text-purple-600" />
-            </div>
-          </div>
-          {(approvedCount ?? 0) > 0 && (
-            <div className="bg-purple-50 rounded-lg px-2 py-1 text-xs text-purple-700 font-medium">
-              ⚡ {approvedCount} pronto{approvedCount! > 1 ? 's' : ''} para alocar
-            </div>
-          )}
-        </div>
-
-        {/* Pendências operacionais */}
-        <div className={`card p-5 ${pendenciasCount > 0 ? 'border-amber-200 bg-amber-50/30' : ''}`}>
-          <div className="flex items-start justify-between mb-2">
-            <div>
-              <p className="text-xs text-gray-500 font-medium">Pendências</p>
-              <p className={`text-3xl font-display font-extrabold mt-1 tnum ${pendenciasCount > 0 ? 'text-amber-600' : 'text-primary-600'}`}>
-                {pendenciasCount}
-              </p>
-              <p className="text-xs text-gray-400">para resolver</p>
-            </div>
-            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${pendenciasCount > 0 ? 'bg-amber-100' : 'bg-green-100'}`}>
-              {pendenciasCount === 0
-                ? <CheckCircle size={20} className="text-green-600" />
-                : <FileWarning size={20} className="text-amber-600" />
-              }
-            </div>
-          </div>
-          {pendenciasCount === 0 ? (
-            <p className="text-xs text-green-600 font-medium">Nada pendente!</p>
-          ) : (
-            <div className="flex flex-wrap gap-1">
-              {pendDocs > 0 && <span className="badge bg-amber-100 text-amber-700 text-[10px] cursor-pointer" onClick={() => navigate('/colaboradores')}>{pendDocs} doc{pendDocs > 1 ? 's' : ''}</span>}
-              {pendContratos > 0 && <span className="badge bg-red-100 text-red-700 text-[10px] cursor-pointer" onClick={() => navigate('/colaboradores')}>{pendContratos} contrato{pendContratos > 1 ? 's' : ''}</span>}
-              {pendChat > 0 && <span className="badge bg-blue-100 text-blue-700 text-[10px] cursor-pointer" onClick={() => navigate('/chat')}><MessageSquare size={9} /> {pendChat}</span>}
-              {pendExtras > 0 && <span className="badge bg-purple-100 text-purple-700 text-[10px] cursor-pointer" onClick={() => navigate('/visitas')}>{pendExtras} extra{pendExtras > 1 ? 's' : ''}</span>}
-              {pendComprovantes > 0 && <span className="badge bg-gray-100 text-gray-600 text-[10px] cursor-pointer" onClick={() => navigate('/pagamentos')}>{pendComprovantes} comprovante{pendComprovantes > 1 ? 's' : ''}</span>}
-            </div>
-          )}
-        </div>
-      </div>
-
       {/* ── Panorama — todos os donuts numa faixa só, sem buraco em branco ── */}
       <div className="card p-5">
         <h2 className="section-title text-base mb-4">
@@ -1929,7 +1946,7 @@ export default function Dashboard() {
         {/* ── Contratações (últimos 6 meses) — ocupa 2 colunas ── */}
         {role === 'chefe' && (
           <div className="card p-5 lg:col-span-2">
-            <h2 className="font-semibold text-gray-900 flex items-center gap-2 mb-4">
+            <h2 className="section-title text-base mb-4">
               <BarChart3 size={16} className="text-primary-600" />
               Contratações — Últimos 6 meses
             </h2>
@@ -1953,7 +1970,7 @@ export default function Dashboard() {
 
         {role === 'chefe' && empStatusData.length > 0 && (
           <div className="card p-5">
-            <h2 className="font-semibold text-gray-900 flex items-center gap-2 mb-4">
+            <h2 className="section-title text-base mb-4">
               <Activity size={16} className="text-primary-600" />
               Status dos Colaboradores
             </h2>
@@ -1978,7 +1995,7 @@ export default function Dashboard() {
         {/* ── Freelas — ocupa a linha toda se não houver docs pendentes ao lado ── */}
         {role === 'chefe' && freelasTotal > 0 && (
           <div className={`card p-5 ${(pendingDocs?.length ?? 0) > 0 ? '' : 'lg:col-span-3'}`}>
-            <h2 className="font-semibold text-gray-900 flex items-center gap-2 mb-4">
+            <h2 className="section-title text-base mb-4">
               <Users size={16} className="text-purple-500" />
               Freelas
             </h2>
@@ -2004,7 +2021,7 @@ export default function Dashboard() {
         {role === 'chefe' && (pendingDocs?.length ?? 0) > 0 && (
           <div className={`card p-5 ${freelasTotal > 0 ? 'lg:col-span-2' : 'lg:col-span-3'}`}>
             <div className="flex items-center justify-between mb-3">
-              <h2 className="font-semibold text-gray-900 flex items-center gap-2">
+              <h2 className="section-title text-base">
                 <Clipboard size={16} className="text-amber-500" />
                 Documentos Pendentes
                 <span className="badge bg-amber-100 text-amber-700">{pendingDocs!.length}</span>

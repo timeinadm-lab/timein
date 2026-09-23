@@ -212,3 +212,8 @@ export function isMeetingLink(value?: string | null): boolean {
 export function mapsUrl(address: string): string {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address.trim())}`
 }
+
+// Sem acento e minúsculo, para busca: "debora" acha "Débora", "joao" acha "João"
+export function semAcento(s: string): string {
+  return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+}

@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Search, Download, AlertCircle, ChevronRight, Star } from 'lucide-react'
+import { Plus, Search, Download, AlertCircle, ChevronRight, Star, X, MessageCircle } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
-import { formatDate, getInitials, hojeISO } from '../../lib/utils'
+import { formatDate, getInitials, hojeISO, semAcento, formatWhatsApp } from '../../lib/utils'
 import { SignedImage } from '../../components/ui/SignedFile'
 import { exportToCSV } from '../../lib/exportUtils'
 import Pagination from '../../components/ui/Pagination'
@@ -41,16 +41,18 @@ export default function EmployeeList() {
   const [page, setPage] = useState(1)
   const PAGE_SIZE = 50
 
+  // A busca é feita aqui, não no banco: o banco só achava pelo nome exato e
+  // com acento ("debora" não achava "Débora"). Agora acha sem acento e também
+  // por CPF, telefone, e-mail, cidade e pelo cliente onde a pessoa trabalha.
   const { data: employees, isLoading } = useQuery({
-    queryKey: ['employees', search, status],
+    queryKey: ['employees', status],
     queryFn: async () => {
-      let q = supabase.from('employees').select('id,full_name,role,status,admission_date,photo_url,email,whatsapp,is_favorite,address_city,address_zip')
+      let q = supabase.from('employees').select('id,full_name,role,status,admission_date,photo_url,email,whatsapp,phone,cpf,is_favorite,address_city,address_zip')
       if (status === FAVORITES_KEY) {
         q = q.eq('is_favorite', true)
       } else if (status && status !== ACTING_KEY) {
         q = q.eq('status', status)
       }
-      if (search) q = q.ilike('full_name', `%${search}%`)
       q = q.order('is_favorite', { ascending: false }).order('full_name')
       const { data, error } = await q
       if (error) throw error
@@ -58,25 +60,38 @@ export default function EmployeeList() {
     },
   })
 
-  // Vínculos ativos por colaborador — pro filtro "Atuando" e a contagem na linha
-  const { data: linkCounts } = useQuery({
+  // Vínculos ativos por colaborador — pro filtro "Atuando", a contagem na linha
+  // e para mostrar (e buscar) em qual cliente a pessoa está
+  const { data: vinculosAtivos } = useQuery({
     queryKey: ['employee-active-link-counts'],
     queryFn: async () => {
       const today = hojeISO()
-      const { data, error } = await supabase.from('employee_client_links').select('employee_id, contract_end_date')
+      const { data, error } = await supabase.from('employee_client_links').select('employee_id, contract_end_date, client:clients(name)')
       if (error) throw error
-      const map = new Map<string, number>()
-      for (const l of data || []) {
+      const map = new Map<string, string[]>()
+      for (const l of (data || []) as { employee_id: string; contract_end_date?: string | null; client?: { name?: string } | { name?: string }[] }[]) {
         if (l.contract_end_date && l.contract_end_date < today) continue
-        map.set(l.employee_id, (map.get(l.employee_id) || 0) + 1)
+        const c = Array.isArray(l.client) ? l.client[0] : l.client
+        map.set(l.employee_id, [...(map.get(l.employee_id) || []), c?.name || 'Cliente'])
       }
       return map
     },
   })
+  const linkCounts = { get: (id: string) => vinculosAtivos?.get(id)?.length }
 
-  // Filtros locais: atuando, cidade e UF (derivada do CEP)
+  const termo = semAcento(search.trim())
+  const digitos = search.replace(/\D/g, '')
+
+  // Filtros locais: busca, atuando, cidade e UF (derivada do CEP)
   const filtered = (employees ?? []).filter(e => {
-    if (status === ACTING_KEY && !linkCounts?.get(e.id)) return false
+    if (termo) {
+      const campos = [e.full_name, e.role, e.email, e.address_city, ...(vinculosAtivos?.get(e.id) || [])]
+        .filter(Boolean).map(v => semAcento(String(v)))
+      const porTexto = campos.some(c => c.includes(termo))
+      const porNumero = digitos.length >= 3 && [e.cpf, e.whatsapp, e.phone].some(v => String(v || '').replace(/\D/g, '').includes(digitos))
+      if (!porTexto && !porNumero) return false
+    }
+    if (status === ACTING_KEY && !linkCounts.get(e.id)) return false
     if (cityFilter && (e.address_city || '').trim().toLowerCase() !== cityFilter.toLowerCase()) return false
     if (ufFilter && cepToUF(e.address_zip) !== ufFilter) return false
     return true
@@ -110,7 +125,8 @@ export default function EmployeeList() {
       Nome: e.full_name,
       Cargo: e.role || '',
       Status: e.status,
-      'Vínculos ativos': linkCounts?.get(e.id) || 0,
+      'Vínculos ativos': linkCounts.get(e.id) || 0,
+      Clientes: (vinculosAtivos?.get(e.id) || []).join(', '),
       Cidade: e.address_city || '',
       UF: cepToUF(e.address_zip) || '',
       Admissão: formatDate(e.admission_date),
@@ -142,22 +158,30 @@ export default function EmployeeList() {
           </h1>
         </div>
         <div className="flex gap-2">
-          <button onClick={handleExport} className="btn-secondary text-sm"><Download size={16} />CSV</button>
+          <button onClick={handleExport} className="btn-secondary text-sm" title="Baixar CSV"><Download size={16} /><span className="hidden sm:inline">CSV</span></button>
           <button onClick={() => navigate('/colaboradores/novo')} className="btn-primary text-sm"><Plus size={16} />Novo</button>
         </div>
       </div>
 
-      <div className="card p-3 flex gap-2.5 flex-wrap items-center">
+      {/* No celular a busca gruda no topo ao rolar: dá para procurar outra
+          pessoa sem voltar lá em cima */}
+      <div className="card p-3 flex gap-2.5 flex-wrap items-center sticky top-[62px] md:static z-10">
         <div className="relative flex-1 min-w-48">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-400" />
-          <input className="input pl-9" placeholder="Buscar nome..." value={search} onChange={e => { setSearch(e.target.value); setPage(1) }} />
+          <input className="input pl-9 pr-9" placeholder="Nome, CPF, telefone ou cliente…" value={search}
+            onChange={e => { setSearch(e.target.value); setPage(1) }} enterKeyHint="search" />
+          {search && (
+            <button onClick={() => { setSearch(''); setPage(1) }} className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-lg text-ink-400 hover:bg-ink-100" aria-label="Limpar busca">
+              <X size={14} />
+            </button>
+          )}
         </div>
-        <div className="flex gap-1 flex-wrap">
+        <div className="flex gap-1 overflow-x-auto scrollbar-none -mx-3 px-3 sm:mx-0 sm:px-0 sm:flex-wrap w-full sm:w-auto">
           {filterTabs.map(opt => (
             <button
               key={opt.value}
               onClick={() => { setStatus(opt.value); setPage(1) }}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${status === opt.value ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+              className={`px-3 py-2 sm:py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${status === opt.value ? 'bg-primary-600 text-white' : 'bg-ink-100 text-ink-600 hover:bg-ink-200'}`}
             >
               {opt.label}
             </button>
@@ -222,12 +246,20 @@ export default function EmployeeList() {
                         <span className="font-semibold text-ink-900 truncate">{e.full_name}</span>
                         {pendingDocs?.has(e.id) && <AlertCircle size={14} className="text-red-500 shrink-0" />}
                       </div>
-                      <span className="md:hidden text-xs text-ink-400">{e.role || 'Sem cargo'}</span>
+                      <span className="md:hidden block text-xs text-ink-400 truncate">
+                        {e.role || 'Sem cargo'}
+                        {(vinculosAtivos?.get(e.id)?.length ?? 0) > 0 && <> · <span className="text-ink-600">{vinculosAtivos!.get(e.id)!.join(', ')}</span></>}
+                      </span>
                     </div>
                   </div>
 
-                  {/* Cargo — desktop */}
-                  <div className="hidden md:block md:col-span-3 text-sm text-ink-600 truncate">{e.role || '-'}</div>
+                  {/* Cargo + onde atua — desktop */}
+                  <div className="hidden md:block md:col-span-3 min-w-0">
+                    <p className="text-sm text-ink-600 truncate">{e.role || '-'}</p>
+                    {(vinculosAtivos?.get(e.id)?.length ?? 0) > 0 && (
+                      <p className="text-xs text-ink-400 truncate" title={vinculosAtivos!.get(e.id)!.join(', ')}>{vinculosAtivos!.get(e.id)!.join(', ')}</p>
+                    )}
+                  </div>
 
                   {/* Status + vínculos ativos */}
                   <div className="md:col-span-2 row-start-1 md:row-auto col-start-3 md:col-auto justify-self-end md:justify-self-start flex items-center gap-1.5 flex-wrap">
@@ -243,9 +275,17 @@ export default function EmployeeList() {
                   <div className="md:col-span-2 flex items-center justify-between md:justify-start gap-2 col-span-3 md:col-auto text-sm text-ink-400">
                     <span>{formatDate(e.admission_date)}</span>
                     <div className="flex items-center gap-1 ml-auto">
+                      {/* WhatsApp direto do cartão — no celular é o que mais se faz depois de achar a pessoa */}
+                      {e.whatsapp && (
+                        <a href={formatWhatsApp(e.whatsapp)}
+                          target="_blank" rel="noopener noreferrer" onClick={ev => ev.stopPropagation()}
+                          className="md:hidden p-1.5 rounded-lg text-green-600 bg-green-50 active:scale-95" title="Abrir WhatsApp" aria-label="WhatsApp">
+                          <MessageCircle size={15} />
+                        </a>
+                      )}
                       <button
                         onClick={ev => { ev.stopPropagation(); toggleFavorite.mutate({ id: e.id, val: !isFav }) }}
-                        className={`p-1 rounded-full transition-colors ${isFav ? 'text-amber-400 hover:text-amber-500' : 'text-gray-300 hover:text-amber-400'}`}
+                        className={`p-1.5 rounded-full transition-colors ${isFav ? 'text-amber-400 hover:text-amber-500' : 'text-gray-300 hover:text-amber-400'}`}
                         title={isFav ? 'Remover dos favoritos' : 'Adicionar aos favoritos'}
                       >
                         <Star size={15} fill={isFav ? 'currentColor' : 'none'} />

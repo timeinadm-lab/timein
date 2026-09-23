@@ -1,13 +1,13 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Download, Check, RefreshCw, AlertTriangle, ChevronDown, ChevronUp, BarChart3, Trash2, FileSpreadsheet, X, Paperclip } from 'lucide-react'
+import { Plus, Download, Check, RefreshCw, AlertTriangle, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, BarChart3, Trash2, FileSpreadsheet, X, Paperclip, Search, MoreHorizontal, Pencil, Wallet, ExternalLink } from 'lucide-react'
 import { supabase, fetchAll } from '../../lib/supabase'
-import { formatDate, formatCurrency, hojeISO } from '../../lib/utils'
+import { formatDate, formatCurrency, hojeISO, semAcento } from '../../lib/utils'
 import { exportToCSV } from '../../lib/exportUtils'
 import { SkeletonRows } from '../../components/ui/Skeleton'
 import { SignedLink } from '../../components/ui/SignedFile'
-import { format, startOfMonth, endOfMonth, getDaysInMonth } from 'date-fns'
+import { format, startOfMonth, endOfMonth, getDaysInMonth, addDays } from 'date-fns'
 import toast from 'react-hot-toast'
 import { confirmar } from '../../components/ui/ConfirmDialog'
 import {
@@ -86,13 +86,57 @@ const STATUS_COLORS: Record<string, string> = {
   Cancelado: 'bg-gray-100 text-gray-600',
 }
 
+// Etapas do pagamento de um vínculo, sempre nesta ordem:
+//   lancar   → ainda não tem lançamento no mês
+//   conferir → tem a previsão (Fixo/Freela); falta fechar pelo realizado
+//   pagar    → lançamento final aberto; falta marcar como pago
+//   pago     → tudo pago
+// Consultoria/auditoria não têm "conferir": o lançamento já sai das visitas.
+type Etapa = 'lancar' | 'conferir' | 'pagar' | 'pago'
+
+function Etapas({ etapa, porTrabalho }: { etapa: Etapa; porTrabalho: boolean }) {
+  const ordem: Etapa[] = ['lancar', 'conferir', 'pagar', 'pago']
+  const passos: [Etapa, string][] = porTrabalho
+    ? [['lancar', 'Lançar'], ['pagar', 'Pagar']]
+    : [['lancar', 'Lançar'], ['conferir', 'Conferir'], ['pagar', 'Pagar']]
+  const atualIdx = ordem.indexOf(etapa)
+  return (
+    <ol className="flex items-center text-[11px] font-semibold" aria-label="Etapas do pagamento">
+      {passos.map(([k, rotulo], i) => {
+        const feito = ordem.indexOf(k) < atualIdx
+        const atual = k === etapa
+        return (
+          <li key={k} className="flex items-center">
+            {i > 0 && <span className={`w-3 sm:w-4 h-0.5 rounded ${feito || atual ? 'bg-primary-300' : 'bg-ink-200'}`} />}
+            <span className={`flex items-center gap-1 px-2 py-1 rounded-full whitespace-nowrap ${
+              feito ? 'bg-primary-50 text-primary-700'
+              : atual ? 'bg-amber-100 text-amber-800 ring-1 ring-amber-300'
+              : 'bg-ink-100 text-ink-400'}`}>
+              {feito ? <Check size={11} strokeWidth={3} /> : <span className="tnum">{i + 1}</span>}
+              {rotulo}
+            </span>
+          </li>
+        )
+      })}
+    </ol>
+  )
+}
+
 export default function PaymentList() {
   const navigate = useNavigate()
   const qc = useQueryClient()
   const [tab, setTab] = useState<Tab>('folha')
   const [showCharts, setShowCharts] = useState(false)
   const [filterMonth, setFilterMonth] = useState(() => format(new Date(), 'yyyy-MM'))
-  const [filterStatus, setFilterStatus] = useState('')
+  // Filtro por etapa e busca da folha. O antigo filtro de status ia no banco e
+  // escondia lançamentos: com "Pago" selecionado a linha achava que não havia
+  // pendente, mostrava "Gerar" de novo e os totais saíam errados.
+  const [filtroEtapa, setFiltroEtapa] = useState<'' | Etapa | 'semana' | 'atrasado'>('')
+  const [busca, setBusca] = useState('')
+  const [contaAberta, setContaAberta] = useState<string | null>(null)
+  const [acoesDe, setAcoesDe] = useState<string | null>(null)
+  // Formulário de gasto aberto: guarda o VÍNCULO (linha), não a pessoa —
+  // senão quem tem dois vínculos abria o formulário nas duas linhas
   const [newExpenseEmpId, setNewExpenseEmpId] = useState<string | null>(null)
   const [confirmDelExpense, setConfirmDelExpense] = useState<string | null>(null)
   const [expForm, setExpForm] = useState({ description: '', amount: '', category: 'Reembolso', notes: '' })
@@ -104,12 +148,11 @@ export default function PaymentList() {
 
   // ── Pagamentos — filter by reference_month (falls back to due_date range) ──
   const { data: payments, isLoading } = useQuery({
-    queryKey: ['payments', filterMonth, filterStatus],
+    queryKey: ['payments', filterMonth],
     queryFn: async () => {
       let q = supabase.from('payments').select('*, employee:employees(id,full_name,status)').order('due_date')
       // Try reference_month first, include records where it matches OR where due_date is in range and reference_month is null
       q = q.or(`reference_month.eq.${filterMonth},and(reference_month.is.null,due_date.gte.${monthStart},due_date.lte.${monthEnd})`)
-      if (filterStatus) q = q.eq('status', filterStatus)
       const { data, error } = await q
       if (error) throw error
       return data || []
@@ -926,6 +969,111 @@ export default function PaymentList() {
     return ls.find(p => p.type === 'Real') ?? ls.find(p => p.status === 'Pendente') ?? ls[0]
   }
 
+  type LinhaFolha = NonNullable<typeof folhaData>[number]
+  const r2 = (v: number) => Math.round(v * 100) / 100
+
+  // A conta do "A pagar", item por item — a mesma que o fechamento usa.
+  // Antes a tela mostrava o salário CHEIO do Fixo mesmo com faltas, enquanto
+  // o botão Real descontava: dois números diferentes para a mesma pessoa.
+  const contaDaLinha = (row: LinhaFolha) => {
+    const isFreela = row.service_type === 'Volante'
+    const itens: { rotulo: string; valor: number; nota?: string }[] = []
+    let baseFechamento: number
+    if (porTrabalho(row)) {
+      const n = row.actualVisits
+      itens.push({ rotulo: `${n} visita${n !== 1 ? 's' : ''} registrada${n !== 1 ? 's' : ''}`, valor: row.actualAmount || 0 })
+      baseFechamento = row.actualAmount || 0
+    } else if (isFreela) {
+      itens.push({
+        rotulo: `${row.expDays} dia${row.expDays !== 1 ? 's' : ''} na agenda × ${formatCurrency(row.dailyRate || 0)}`,
+        valor: row.adjusted_amount,
+        nota: `Até agora: ${row.actualDays} dia${row.actualDays !== 1 ? 's' : ''} trabalhado${row.actualDays !== 1 ? 's' : ''} = ${formatCurrency(row.realAmt)}. O fechamento paga os dias trabalhados.`,
+      })
+      baseFechamento = row.realAmt
+    } else {
+      itens.push({
+        rotulo: row.isPartialCycle && !row.payFullSalary
+          ? `Salário proporcional (${Math.round(row.proportionalFactor * 100)}% do ciclo)`
+          : 'Salário do mês',
+        valor: row.adjusted_amount,
+      })
+      if (row.faltas > 0) {
+        itens.push({ rotulo: `${row.faltas} falta${row.faltas > 1 ? 's' : ''} × ${formatCurrency(row.valorDia)} (salário ÷ 30)`, valor: -r2(row.faltas * row.valorDia) })
+      }
+      baseFechamento = row.realAmt
+    }
+    const extras: { rotulo: string; valor: number }[] = []
+    if ((row.extrasAprovados || 0) > 0) extras.push({ rotulo: 'Extras aprovados', valor: row.extrasAprovados })
+    if (row.cost_assistance > 0) extras.push({ rotulo: 'Ajuda de custo', valor: row.cost_assistance })
+    const gastos = empGastos(row.linkId)
+    if (gastos > 0) extras.push({ rotulo: 'Gastos e reembolsos aprovados', valor: gastos })
+    const adiant = empAdiantamento(row.linkId)
+    if (adiant > 0) extras.push({ rotulo: 'Adiantamento (já recebeu)', valor: -adiant })
+    itens.push(...extras)
+    const somaExtras = extras.reduce((s, i) => s + i.valor, 0)
+    return {
+      itens,
+      total: Math.max(0, r2(itens.reduce((s, i) => s + i.valor, 0))),
+      // O que o fechamento (botão Real) vai lançar hoje
+      fechamento: Math.max(0, r2(baseFechamento + somaExtras)),
+    }
+  }
+
+  const hojeStr = hojeISO()
+  const em7dias = format(addDays(new Date(), 7), 'yyyy-MM-dd')
+
+  const etapaDaLinha = (row: LinhaFolha) => {
+    const ls = lancamentosDaLinha(row)
+    const real = ls.find(p => p.type === 'Real')
+    const pendentes = ls.filter(p => p.status === 'Pendente').sort((a, b) => (a.due_date || '').localeCompare(b.due_date || ''))
+    const pagos = ls.filter(p => p.status === 'Pago')
+    const somaPaga = r2(pagos.reduce((s, p) => s + (Number(p.amount) || 0), 0))
+    const somaPendente = r2(pendentes.reduce((s, p) => s + (Number(p.amount) || 0), 0))
+    const etapa: Etapa = !ls.length ? 'lancar'
+      : !pendentes.length ? 'pago'
+      : !porTrabalho(row) && !real ? 'conferir'
+      : 'pagar'
+    const proximo = pendentes[0]
+    const ultimoPago = pagos.map(p => (p as { paid_at?: string }).paid_at || '').sort().pop()
+    return {
+      etapa, real, pendentes, pagos, somaPaga, somaPendente, proximo, ultimoPago,
+      atrasado: !!proximo && proximo.due_date < hojeStr,
+      venceSemana: !!proximo && proximo.due_date >= hojeStr && proximo.due_date <= em7dias,
+    }
+  }
+
+  // Tudo calculado uma vez por linha: a tela, os totais e os filtros usam o mesmo número
+  const linhas = (folhaData ?? []).map(row => {
+    const conta = contaDaLinha(row)
+    const et = etapaDaLinha(row)
+    const aberto = et.etapa === 'pago' ? 0
+      : et.etapa === 'pagar' ? et.somaPendente
+      : et.etapa === 'conferir' ? Math.max(0, r2(conta.fechamento - et.somaPaga))
+      : conta.total
+    // Lançado ≠ o que daria hoje (visita registrada depois, falta, gasto novo…)
+    const lancado = r2(et.somaPaga + et.somaPendente)
+    const divergente = (et.etapa === 'pagar' || et.etapa === 'pago') && Math.abs(lancado - conta.fechamento) >= 1
+    return { row, conta, et, aberto, lancado, divergente }
+  })
+  type Linha = typeof linhas[number]
+
+  const termoBusca = semAcento(busca.trim())
+  const passaFiltro = (l: Linha) => {
+    if (termoBusca && !semAcento(`${l.row.employee?.full_name || ''} ${l.row.client?.name || ''}`).includes(termoBusca)) return false
+    if (!filtroEtapa) return true
+    if (filtroEtapa === 'semana') return l.et.venceSemana
+    if (filtroEtapa === 'atrasado') return l.et.atrasado
+    return l.et.etapa === filtroEtapa
+  }
+  const contagem = {
+    lancar: linhas.filter(l => l.et.etapa === 'lancar').length,
+    conferir: linhas.filter(l => l.et.etapa === 'conferir').length,
+    pagar: linhas.filter(l => l.et.etapa === 'pagar').length,
+    pago: linhas.filter(l => l.et.etapa === 'pago').length,
+    semana: linhas.filter(l => l.et.venceSemana).length,
+    atrasado: linhas.filter(l => l.et.atrasado).length,
+  }
+
   // Unlinked payment records (manual, no vínculo)
   const linkedEmpIds = new Set((folhaData ?? []).map(r => r.employee?.id).filter(Boolean))
   const unlinkedPayments = (payments ?? []).filter(p => {
@@ -1029,40 +1177,58 @@ export default function PaymentList() {
         <div className="flex gap-2">
           <button onClick={baixarExcel} disabled={baixando} className="btn-secondary text-sm"
             title="Planilha com resumo, dia a dia, reembolsos e o histórico de pagamentos de todos os meses">
-            <FileSpreadsheet size={16} />{baixando ? 'Gerando...' : 'Baixar Excel'}
+            <FileSpreadsheet size={16} /><span className="hidden sm:inline">{baixando ? 'Gerando...' : 'Baixar Excel'}</span>
           </button>
-          <button onClick={() => exportToCSV(payments ?? [], 'pagamentos.csv')} className="btn-ghost text-sm"><Download size={16} />CSV</button>
+          <button onClick={() => exportToCSV(payments ?? [], 'pagamentos.csv')} className="btn-ghost text-sm hidden sm:inline-flex"><Download size={16} />CSV</button>
           <button onClick={() => navigate('/pagamentos/novo')} className="btn-primary text-sm"><Plus size={16} />Novo</button>
         </div>
       </div>
 
-      {/* Summary cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <div className="card p-4 border-l-4 border-l-blue-400">
-          <p className="text-xs text-ink-500 font-semibold">Folha do mês</p>
-          <p className="text-2xl font-display font-extrabold text-ink-900 mt-1 tnum">{formatCurrency(totalEstimativa)}</p>
-          <p className="text-xs text-ink-400 mt-0.5">
-            {folhaData?.length ?? 0} colaboradores · <span className="text-amber-600">salários fixos + o que já foi trabalhado</span>
-          </p>
-        </div>
-        <div className="card p-4 border-l-4 border-l-orange-400">
-          <p className="text-xs text-ink-500 font-semibold">Gastos / Reembolsos</p>
-          <p className="text-2xl font-display font-extrabold text-ink-900 mt-1 tnum">{formatCurrency(totalExpenses)}</p>
-          <p className="text-xs text-ink-400 mt-0.5">
-            {expensesPendentes.length > 0
-              ? <span className="text-amber-600 font-semibold">{expensesPendentes.length} aguardando análise</span>
-              : `${expenses?.length || 0} lançamentos`}
-          </p>
-        </div>
-        <div className="card p-4 border-l-4 border-l-primary-400">
-          <p className="text-xs text-ink-500 font-semibold">Total Pago</p>
-          <p className="text-2xl font-display font-extrabold text-primary-700 mt-1 tnum">{formatCurrency(totalPago)}</p>
-        </div>
-        <div className="card p-4 border-l-4 border-l-red-400">
-          <p className="text-xs text-ink-500 font-semibold">Atrasado</p>
-          <p className="text-2xl font-display font-extrabold text-red-600 mt-1 tnum">{formatCurrency(totalAtrasado)}</p>
-        </div>
-      </div>
+      {/* Resumo do mês: quanto é a folha, quanto já saiu e quanto falta.
+          Antes eram 4 cartões aqui e outros 4 iguais dentro da aba — e o
+          "Folha do mês" somava o salário cheio mesmo de quem tinha falta. */}
+      {(() => {
+        const folhaTotal = r2(linhas.reduce((s, l) => s + l.conta.total, 0))
+        const outrosAbertos = unlinkedPayments.filter(p => p.status === 'Pendente').reduce((s, p) => s + (Number(p.amount) || 0), 0)
+        const faltaPagar = r2(linhas.reduce((s, l) => s + l.aberto, 0) + outrosAbertos)
+        const pct = totalPago + faltaPagar > 0 ? Math.round((totalPago / (totalPago + faltaPagar)) * 100) : 0
+        return (
+          <div className="card p-4 md:p-5">
+            <div className="flex items-start justify-between gap-3 flex-wrap">
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-ink-500 capitalize">
+                  Folha de {new Date(filterMonth + '-15').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
+                </p>
+                <p className="text-3xl md:text-4xl font-display font-extrabold text-ink-900 tnum mt-0.5">{formatCurrency(folhaTotal)}</p>
+                <p className="text-xs text-ink-400 mt-0.5">{linhas.length} vínculo{linhas.length !== 1 ? 's' : ''} ativo{linhas.length !== 1 ? 's' : ''} no mês</p>
+              </div>
+              <div className="grid grid-cols-3 gap-2 w-full sm:w-auto">
+                <div className="rounded-xl bg-green-50 px-3 py-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-green-700/80">Já pago</p>
+                  <p className="text-sm md:text-base font-bold text-green-800 tnum">{formatCurrency(totalPago)}</p>
+                </div>
+                <div className="rounded-xl bg-amber-50 px-3 py-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-700/80">Falta pagar</p>
+                  <p className="text-sm md:text-base font-bold text-amber-800 tnum">{formatCurrency(faltaPagar)}</p>
+                </div>
+                <div className={`rounded-xl px-3 py-2 ${totalAtrasado > 0 ? 'bg-red-50' : 'bg-ink-50'}`}>
+                  <p className={`text-[10px] font-semibold uppercase tracking-wide ${totalAtrasado > 0 ? 'text-red-700/80' : 'text-ink-400'}`}>Atrasado</p>
+                  <p className={`text-sm md:text-base font-bold tnum ${totalAtrasado > 0 ? 'text-red-700' : 'text-ink-400'}`}>{formatCurrency(totalAtrasado)}</p>
+                </div>
+              </div>
+            </div>
+            <div className="mt-4">
+              <div className="h-2 rounded-full bg-ink-100 overflow-hidden">
+                <div className="h-2 rounded-full bg-primary-500 transition-all" style={{ width: `${pct}%` }} />
+              </div>
+              <p className="text-[11px] text-ink-400 mt-1">{pct}% pago
+                {totalExpenses > 0 && <> · gastos e reembolsos no mês: {formatCurrency(totalExpenses)}</>}
+                {expensesPendentes.length > 0 && <span className="text-amber-600 font-semibold"> · {expensesPendentes.length} reembolso{expensesPendentes.length > 1 ? 's' : ''} para analisar</span>}
+              </p>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Reembolsos pedidos pelo portal, esperando decisão. O portal promete à
           colaboradora que o gestor vai aprovar — este é o lugar onde isso
@@ -1107,13 +1273,13 @@ export default function PaymentList() {
                       Sem nota anexada
                     </span>
                   )}
-                  <div className="flex gap-1.5">
+                  <div className="flex gap-1.5 w-full sm:w-auto">
                     <button onClick={() => reviewExpense.mutate({ id: exp.id, status: 'aprovado' })}
                       disabled={reviewExpense.isPending}
-                      className="btn-primary text-xs py-1 flex items-center gap-1"><Check size={12} />Aprovar</button>
+                      className="btn-primary text-xs py-2 flex-1 sm:flex-none"><Check size={12} />Aprovar</button>
                     <button onClick={() => reviewExpense.mutate({ id: exp.id, status: 'negado' })}
                       disabled={reviewExpense.isPending}
-                      className="btn-ghost text-xs py-1 text-red-500 flex items-center gap-1"><X size={12} />Negar</button>
+                      className="btn-secondary text-xs py-2 text-red-600 flex-1 sm:flex-none"><X size={12} />Negar</button>
                   </div>
                 </div>
               )
@@ -1122,21 +1288,23 @@ export default function PaymentList() {
         </div>
       )}
 
-      {/* Filters + Tabs */}
-      <div className="space-y-3">
-        <div className="card p-3 flex gap-2.5 flex-wrap items-center">
-          <input className="input w-36" type="month" value={filterMonth} onChange={e => setFilterMonth(e.target.value)} />
-          <select className="input w-36" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
-            <option value="">Todos status</option>
-            <option>Pendente</option><option>Pago</option><option>Cancelado</option>
-          </select>
-          <span className="text-xs text-ink-400 ml-auto capitalize">
-            {new Date(filterMonth + '-15').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
-          </span>
+      {/* Mês + abas */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-1 card p-1">
+          <button className="p-2 rounded-lg hover:bg-ink-100 active:scale-95" aria-label="Mês anterior"
+            onClick={() => setFilterMonth(m => format(addDays(new Date(m + '-15'), -30), 'yyyy-MM'))}>
+            <ChevronLeft size={18} />
+          </button>
+          <input className="bg-transparent text-sm font-semibold text-ink-800 px-1 py-1.5 w-[8.5rem] text-center outline-none" type="month"
+            value={filterMonth} onChange={e => e.target.value && setFilterMonth(e.target.value)} aria-label="Mês" />
+          <button className="p-2 rounded-lg hover:bg-ink-100 active:scale-95" aria-label="Próximo mês"
+            onClick={() => setFilterMonth(m => format(addDays(new Date(m + '-15'), 30), 'yyyy-MM'))}>
+            <ChevronRight size={18} />
+          </button>
         </div>
-        <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+        <div className="flex gap-1.5 ml-auto">
           {([
-            ['folha', 'Folha do Mês'],
+            ['folha', 'Folha do mês'],
             ['pagos', 'Pagos'],
           ] as const).map(([k, label]) => (
             <button key={k} onClick={() => setTab(k)}
@@ -1146,6 +1314,40 @@ export default function PaymentList() {
           ))}
         </div>
       </div>
+
+      {/* Filtro por etapa + busca — acha rápido quem falta lançar, conferir ou pagar */}
+      {tab === 'folha' && linhas.length > 0 && (
+        <div className="space-y-2">
+          <div className="relative">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-400" />
+            <input className="input pl-9 pr-9" placeholder="Buscar colaborador ou cliente…" value={busca}
+              onChange={e => setBusca(e.target.value)} enterKeyHint="search" />
+            {busca && (
+              <button onClick={() => setBusca('')} className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-lg text-ink-400 hover:bg-ink-100" aria-label="Limpar busca">
+                <X size={14} />
+              </button>
+            )}
+          </div>
+          <div className="flex gap-1.5 overflow-x-auto scrollbar-none -mx-4 px-4 md:mx-0 md:px-0 md:flex-wrap">
+            {([
+              ['', 'Todos', linhas.length, 'bg-ink-800 text-white'],
+              ['lancar', 'A lançar', contagem.lancar, 'bg-ink-800 text-white'],
+              ['conferir', 'A conferir', contagem.conferir, 'bg-amber-500 text-white'],
+              ['pagar', 'A pagar', contagem.pagar, 'bg-amber-500 text-white'],
+              ['semana', 'Vence em 7 dias', contagem.semana, 'bg-blue-600 text-white'],
+              ['atrasado', 'Atrasados', contagem.atrasado, 'bg-red-600 text-white'],
+              ['pago', 'Pagos', contagem.pago, 'bg-green-600 text-white'],
+            ] as const).filter(([k, , n]) => k === '' || n > 0 || filtroEtapa === k).map(([k, rotulo, n, corAtiva]) => (
+              <button key={k || 'todos'} onClick={() => setFiltroEtapa(k)}
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-all active:scale-95 ${
+                  filtroEtapa === k ? `${corAtiva} shadow-soft` : 'bg-white border border-ink-100 text-ink-600 hover:border-ink-200'}`}>
+                {rotulo}
+                <span className={`tnum rounded-full px-1.5 py-px text-[10px] ${filtroEtapa === k ? 'bg-white/25' : k === 'atrasado' ? 'bg-red-100 text-red-700' : 'bg-ink-100 text-ink-500'}`}>{n}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ── FOLHA DO MÊS ── */}
       {tab === 'folha' && (
@@ -1162,22 +1364,6 @@ export default function PaymentList() {
                   Nenhum colaborador com vínculo ativo e valor definido — abaixo estão os lançamentos avulsos deste mês.
                 </div>
               )}
-              {/* Resumo cards */}
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                {[
-                  { label: 'Folha do mês', value: totalEstimativa, color: 'bg-blue-50 text-blue-800', sub: `${folhaData?.length ?? 0} colaboradores` },
-                  { label: 'Gastos extras', value: totalExpenses, color: 'bg-orange-50 text-orange-800', sub: `${expenses?.length || 0} lançamentos` },
-                  { label: 'Total Pago', value: totalPago, color: 'bg-green-50 text-green-800', sub: 'confirmados' },
-                  { label: 'Atrasado', value: totalAtrasado, color: 'bg-red-50 text-red-800', sub: 'vencidos' },
-                ].map((c, i) => (
-                  <div key={i} className={`rounded-xl p-3 ${c.color}`}>
-                    <p className="text-xs font-medium opacity-70">{c.label}</p>
-                    <p className="text-xl font-bold mt-0.5">{formatCurrency(c.value)}</p>
-                    <p className="text-xs opacity-60 mt-0.5">{c.sub}</p>
-                  </div>
-                ))}
-              </div>
-
               {/* Gráficos colapsáveis */}
               <button
                 onClick={() => setShowCharts(!showCharts)}
@@ -1251,262 +1437,295 @@ export default function PaymentList() {
                 )
               })()}
 
-              {/* Colaboradores agrupados — estimativa + realizado lado a lado */}
+              {/* Colaboradores agrupados por tipo. Cada linha mostra UMA próxima
+                  ação (Lançar → Conferir → Pagar). Antes a mesma linha tinha
+                  Gerar, Real, Pago e Editar juntos — fácil pagar a coisa errada. */}
+              {linhas.filter(passaFiltro).length === 0 && (busca || filtroEtapa) && (
+                <div className="card p-6 text-center">
+                  <p className="text-sm font-semibold text-ink-700">Ninguém nesse filtro</p>
+                  <button onClick={() => { setBusca(''); setFiltroEtapa('') }} className="text-xs text-primary-700 font-semibold mt-1 hover:underline">Limpar filtros</button>
+                </div>
+              )}
               {([
-                { key: 'consultoria' as WorkerGroup, label: 'Consultoria', icon: '🏥', colors: { bg: 'bg-orange-50', text: 'text-orange-800', badge: 'bg-orange-100 text-orange-700', exp: 'text-orange-700 bg-orange-50' } },
-                { key: 'fixo_plantao' as WorkerGroup, label: 'Fixos / Plantão', icon: '📅', colors: { bg: 'bg-blue-50', text: 'text-blue-800', badge: 'bg-blue-100 text-blue-700', exp: 'text-blue-700 bg-blue-50' } },
-                { key: 'freela' as WorkerGroup, label: 'Freelas', icon: '⚡', colors: { bg: 'bg-purple-50', text: 'text-purple-800', badge: 'bg-purple-100 text-purple-700', exp: 'text-purple-700 bg-purple-50' } },
-              ]).map(({ key, label, icon, colors }) => {
-                const group = folhaData?.filter(r => r.group === key) ?? []
-                if (!group.length) return null
-                const totalSalaries = group.reduce((s, r) => s + r.monthly_amount, 0)
-                const caTotal = group.reduce((s, r) => s + r.cost_assistance, 0)
-                const expGroup = expenses?.filter(e => group.some(r => r.employee?.id === (e as { employee?: { id: string } }).employee?.id)) ?? []
-                const totalExp = expGroup.reduce((s, e) => s + (Number(e.amount) || 0), 0)
+                { key: 'consultoria' as WorkerGroup, label: 'Consultoria', icon: '🏥', dot: 'bg-orange-400' },
+                { key: 'fixo_plantao' as WorkerGroup, label: 'Fixos / Plantão', icon: '📅', dot: 'bg-blue-400' },
+                { key: 'freela' as WorkerGroup, label: 'Freelas', icon: '⚡', dot: 'bg-purple-400' },
+              ]).map(({ key, label, icon, dot }) => {
+                const doGrupo = linhas.filter(l => l.row.group === key)
+                const visiveis = doGrupo.filter(passaFiltro)
+                if (!visiveis.length) return null
+                const totalGrupo = r2(doGrupo.reduce((s, l) => s + l.conta.total, 0))
+                const faltaGrupo = r2(doGrupo.reduce((s, l) => s + l.aberto, 0))
                 return (
                   <div key={key} className="card overflow-hidden">
-                    <div className={`px-4 py-3 ${colors.bg} border-b flex items-center justify-between`}>
-                      <div className="flex items-center gap-2">
+                    <div className="px-4 py-3 bg-ink-50/70 border-b border-ink-100 flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className={`w-2 h-2 rounded-full ${dot}`} />
                         <span className="text-base">{icon}</span>
-                        <span className={`font-semibold ${colors.text}`}>{label}</span>
-                        <span className={`badge ${colors.badge} text-xs`}>{group.length}</span>
+                        <span className="font-display font-bold text-ink-900">{label}</span>
+                        <span className="badge bg-white border border-ink-200 text-ink-600 text-xs">{doGrupo.length}</span>
                       </div>
-                      <div className="text-right">
-                        <p className={`font-bold ${colors.text}`}>{formatCurrency(totalSalaries + caTotal + totalExp)}</p>
-                        {(totalExp > 0 || caTotal > 0) && (
-                          <p className="text-xs text-gray-500">
-                            {formatCurrency(totalSalaries)} base{caTotal > 0 ? ` + ${formatCurrency(caTotal)} aj.custo` : ''}{totalExp > 0 ? ` + ${formatCurrency(totalExp)} gastos` : ''}
-                          </p>
-                        )}
+                      <div className="text-right shrink-0">
+                        <p className="font-bold text-ink-900 tnum">{formatCurrency(totalGrupo)}</p>
+                        <p className="text-[11px] text-ink-400 tnum">{faltaGrupo > 0 ? `falta ${formatCurrency(faltaGrupo)}` : 'tudo pago'}</p>
                       </div>
                     </div>
-                    <div className="divide-y divide-gray-100">
-                      {group.map(row => {
-                        const pay = payForLink(row)
+                    <div className="divide-y divide-ink-100">
+                      {visiveis.map(({ row, conta, et, lancado, divergente }) => {
                         const isFreela = row.service_type === 'Volante'
-                        const isConsultoria = row.service_type === 'Consultoria' || (isFreela && row.freelaConsultoria)
-                        const salarioBase = isConsultoria ? (row.actualAmount || 0) : row.adjusted_amount
-                        // Mesma conta do lançamento gerado: só o aprovado entra, e
-                        // adiantamento desconta. Antes a tela somava tudo, inclusive
-                        // reembolso pendente/negado, e mostrava outro valor.
-                        const empExpAmt = empGastos(row.linkId)
-                        const empAdiant = empAdiantamento(row.linkId)
-                        const totalAPagar = Math.max(0, salarioBase + empExpensesTotal(row.linkId) +row.cost_assistance + (row.extrasAprovados || 0))
-                        // Alerta de dias sem registro: compara com o esperado ATÉ 4 dias atrás (tolerância)
+                        const isConsultoria = porTrabalho(row)
                         const diff = isConsultoria ? 0 : row.actualDays - row.expDaysToDate
                         const isShort = !isConsultoria && row.actualDays < row.expDaysToDate
+                        const nome = row.employee?.full_name || '—'
+                        const contaVisivel = contaAberta === row.linkId
+
+                        // A ação principal da linha — só uma
+                        const acao = et.etapa === 'lancar'
+                          ? {
+                              rotulo: isConsultoria ? 'Lançar pagamento' : 'Lançar previsão',
+                              dica: isConsultoria ? 'Cria o pagamento pelas visitas registradas (dia 20 e dia 8)' : 'Cria a previsão do mês. Depois você confere pelo realizado.',
+                              fazer: () => autoGeneratePayment.mutate(row),
+                              ocupado: autoGeneratePayment.isPending,
+                              icone: <Plus size={15} />,
+                              estilo: 'btn-secondary',
+                            }
+                          : et.etapa === 'conferir'
+                            ? {
+                                rotulo: `Conferir e fechar · ${formatCurrency(Math.max(0, conta.fechamento - et.somaPaga))}`,
+                                dica: isFreela
+                                  ? `Fecha pelos dias trabalhados: ${row.actualDays} × ${formatCurrency(row.dailyRate || 0)}. A previsão pendente é cancelada.`
+                                  : row.faltas > 0
+                                    ? `Salário − ${row.faltas} falta(s) × ${formatCurrency(row.valorDia)}. A previsão pendente é cancelada.`
+                                    : 'Escala cumprida: fecha pelo salário integral. A previsão pendente é cancelada.',
+                                fazer: () => generateRealPayment.mutate(row),
+                                ocupado: generateRealPayment.isPending,
+                                icone: <RefreshCw size={15} />,
+                                estilo: 'btn-secondary border-amber-300 text-amber-800 bg-amber-50 hover:bg-amber-100',
+                              }
+                            : et.etapa === 'pagar' && et.proximo
+                              ? {
+                                  rotulo: `Marcar pago · ${formatCurrency(Number(et.proximo.amount) || 0)}`,
+                                  dica: `${et.proximo.description || ''} — vence ${formatDate(et.proximo.due_date)}`,
+                                  fazer: async () => {
+                                    const p = et.proximo!
+                                    if (await confirmar({
+                                      titulo: `Confirmar pagamento de ${formatCurrency(Number(p.amount) || 0)}?`,
+                                      texto: `${nome}${row.client ? ` · ${row.client.name}` : ''}\n${p.description || ''}`,
+                                      confirmar: 'Sim, foi pago',
+                                    })) markPaid.mutate(p.id)
+                                  },
+                                  ocupado: markPaid.isPending,
+                                  icone: <Check size={15} />,
+                                  estilo: 'btn-primary',
+                                }
+                              : null
 
                         return (
-                          <div key={row.linkId} className="p-4">
-                            <div className="flex items-center gap-4 flex-wrap">
+                          <div key={row.linkId} className="p-4 space-y-3">
+                            {/* Quem é + quanto */}
+                            <div className="flex items-start gap-3">
                               <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <button
-                                    className="font-semibold text-sm text-primary-700 hover:underline text-left truncate"
-                                    onClick={() => navigate(`/colaboradores/${row.employee?.id}`, { state: { tab: 'vinculos' } })}
-                                  >
-                                    {row.employee?.full_name}
-                                  </button>
-                                  <span className="text-xs text-gray-400">{row.client?.name}</span>
-                                  {row.work_schedule && <span className="badge bg-gray-100 text-gray-600 text-xs">{row.work_schedule}</span>}
-                                  {isFreela && <span className="badge bg-purple-100 text-purple-700 text-xs">⚡ Freela{row.freelaConsultoria ? ' · Consultoria' : ''}</span>}
-                                  {isFreela && row.startDate ? (
-                                    <span className="text-xs text-gray-400">{formatDate(row.startDate)}{row.freelaEnd ? ` → ${formatDate(row.freelaEnd)}` : ''}</span>
-                                  ) : row.startDate && <span className="text-xs text-gray-400">Início: {formatDate(row.startDate)}</span>}
+                                <button
+                                  className="font-semibold text-ink-900 hover:text-primary-700 hover:underline text-left leading-snug"
+                                  onClick={() => navigate(`/colaboradores/${row.employee?.id}`, { state: { tab: 'vinculos' } })}
+                                >
+                                  {nome}
+                                </button>
+                                <div className="flex items-center gap-1.5 flex-wrap mt-1 text-xs text-ink-500">
+                                  {row.client?.name && <span className="font-medium text-ink-600">{row.client.name}</span>}
+                                  {row.work_schedule && <span className="badge bg-ink-100 text-ink-600 text-[10px]">{row.work_schedule}</span>}
+                                  {isFreela && <span className="badge bg-purple-100 text-purple-700 text-[10px]">⚡ Freela{row.freelaConsultoria ? ' · Consultoria' : ''}</span>}
+                                  {isFreela && row.startDate
+                                    ? <span className="text-ink-400">{formatDate(row.startDate)}{row.freelaEnd ? ` → ${formatDate(row.freelaEnd)}` : ''}</span>
+                                    : row.startDate && <span className="text-ink-400">desde {formatDate(row.startDate)}</span>}
+                                  {row.payFullSalary && !isConsultoria && <span className="badge bg-blue-50 text-blue-700 text-[10px]">Salário inteiro</span>}
                                 </div>
                               </div>
+                              <button
+                                onClick={() => setContaAberta(contaVisivel ? null : row.linkId)}
+                                className={`text-right shrink-0 rounded-xl px-3 py-1.5 transition-all active:scale-95 ${contaVisivel ? 'bg-primary-100' : 'bg-primary-50 hover:bg-primary-100'}`}
+                                title="Ver a conta"
+                                aria-expanded={contaVisivel}
+                              >
+                                <span className="flex items-center justify-end gap-1 text-[10px] font-semibold uppercase tracking-wide text-primary-700/80">
+                                  A pagar {contaVisivel ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+                                </span>
+                                <span className="block text-base md:text-lg font-display font-extrabold text-primary-800 tnum leading-tight">{formatCurrency(conta.total)}</span>
+                              </button>
+                            </div>
 
-                              <div className="flex items-center gap-3 flex-shrink-0">
-                                <div className="text-center px-3">
-                                  {/* Consultoria não tem salário: o que ela recebe sai das visitas.
-                                      Chamar de "Salário" fazia a estimativa parecer valor combinado. */}
-                                  {/* Consultoria e auditoria não têm data fixa: não
-                                      existe previsão, existe o que foi feito. Mostrar
-                                      um "~R$ X" ali dava a impressão de valor combinado. */}
-                                  <p className={`text-xs ${isConsultoria || row.freelaConsultoria ? 'text-amber-600' : 'text-gray-400'}`}>
-                                    {isConsultoria || row.freelaConsultoria ? 'Por trabalho' : isFreela ? 'Diária' : 'Salário'}
-                                  </p>
-                                  <p className={`text-sm font-semibold ${isConsultoria || row.freelaConsultoria ? 'text-amber-700' : 'text-gray-700'}`}
-                                    title={isConsultoria || row.freelaConsultoria
-                                      ? 'Sem data fixa — o valor sai das visitas registradas'
-                                      : undefined}>
-                                    {isConsultoria || row.freelaConsultoria
-                                      ? 'sob demanda'
-                                      : isFreela ? formatCurrency(row.dailyRate || 0) : formatCurrency(row.monthly_amount)}
-                                  </p>
-                                  {row.isPartialCycle && !row.payFullSalary && (
-                                    <p className="text-xs text-amber-600">{Math.round(row.proportionalFactor * 100)}% ciclo</p>
-                                  )}
-                                </div>
-                                {isConsultoria ? (
-                                  <div className="text-center px-3 border-l border-gray-100">
-                                    <p className="text-xs text-gray-400">{row.actualVisits} visita{row.actualVisits !== 1 ? 's' : ''}</p>
-                                    <p className="text-sm font-bold text-orange-700">{formatCurrency(row.actualAmount || 0)}</p>
+                            {/* Como está o mês */}
+                            <div className="flex items-center gap-1.5 flex-wrap text-xs">
+                              {isConsultoria ? (
+                                <span className="rounded-lg bg-orange-50 text-orange-800 px-2 py-1 font-medium">
+                                  {row.actualVisits} visita{row.actualVisits !== 1 ? 's' : ''} · {formatCurrency(row.actualAmount || 0)}
+                                </span>
+                              ) : isFreela ? (
+                                <span className="rounded-lg bg-purple-50 text-purple-800 px-2 py-1 font-medium">
+                                  {row.actualDays}/{row.expDays} dias · diária {formatCurrency(row.dailyRate || 0)}
+                                </span>
+                              ) : (
+                                <>
+                                  <span className="rounded-lg bg-ink-100 text-ink-700 px-2 py-1 font-medium">Salário {formatCurrency(row.monthly_amount)}</span>
+                                  <span className={`rounded-lg px-2 py-1 font-semibold ${row.faltas > 0 ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'}`}>
+                                    {row.faltas > 0
+                                      ? `${row.faltas} falta${row.faltas > 1 ? 's' : ''} · −${formatCurrency(row.faltas * row.valorDia)}`
+                                      : row.payFullSalary ? 'Sem desconto' : row.presencaCompleta ? 'Foi todos os dias' : 'Escala OK'}
+                                  </span>
+                                  <span className="text-ink-400">{row.actualDays}/{row.faltas > 0 ? row.diasCobraveis : row.expDays} dias{row.faltas > 0 ? ' até hoje' : ''}</span>
+                                </>
+                              )}
+                              {row.ausencias.length > 0 && (
+                                <span className="text-ink-500">
+                                  {row.ausenciasComAtestado.length > 0 && <span className="text-blue-600">{row.ausenciasComAtestado.length} c/ atestado</span>}
+                                  {row.ausenciasComAtestado.length > 0 && row.ausencias.length > row.ausenciasComAtestado.length && ' · '}
+                                  {row.ausencias.length > row.ausenciasComAtestado.length && <span className="text-red-500">{row.ausencias.length - row.ausenciasComAtestado.length} s/ atestado</span>}
+                                </span>
+                              )}
+                              {isShort && row.faltas === 0 && <span className="text-amber-600 font-medium">{Math.abs(diff)} dia(s) sem registro</span>}
+                              {row.reportRequired && row.semRelatorio > 0 && (
+                                <span className="text-red-600 font-medium">📄 {row.semRelatorio} sem relatório</span>
+                              )}
+                              {row.reportRequired && row.semRelatorio === 0 && (row.actualVisits > 0 || row.actualDays > 0) && (
+                                <span className="text-green-600">📄 Relatórios OK</span>
+                              )}
+                            </div>
+
+                            {/* A conta, item por item */}
+                            {contaVisivel && (
+                              <div className="rounded-xl border border-ink-100 bg-ink-50/60 p-3 text-sm space-y-1.5 animate-fade-in">
+                                {conta.itens.map((i, idx) => (
+                                  <div key={idx} className="flex items-start justify-between gap-3">
+                                    <span className="text-ink-600 min-w-0">
+                                      {i.rotulo}
+                                      {i.nota && <span className="block text-[11px] text-ink-400 leading-snug">{i.nota}</span>}
+                                    </span>
+                                    <span className={`tnum font-semibold whitespace-nowrap ${i.valor < 0 ? 'text-red-600' : 'text-ink-800'}`}>
+                                      {i.valor < 0 ? '− ' : ''}{formatCurrency(Math.abs(i.valor))}
+                                    </span>
                                   </div>
-                                ) : (
-                                  <div className="text-center px-3 border-l border-gray-100">
-                                    {/* "X/Y dias" ao lado de "N faltam" confundia: um contava o
-                                        mês todo, o outro só até hoje. Agora a linha de cima é o
-                                        desconto (que é o que mexe no valor) e embaixo o andamento. */}
-                                    <p className={`text-sm font-bold ${row.faltas > 0 ? 'text-red-600' : row.payFullSalary ? 'text-gray-500' : 'text-green-600'}`}>
-                                      {row.faltas > 0
-                                        ? `−${formatCurrency(row.faltas * row.valorDia)}`
-                                        : row.payFullSalary ? 'Sem desconto'
-                                        : row.presencaCompleta ? 'Foi todos os dias' : 'Escala OK'}
-                                    </p>
-                                    <p className="text-xs text-gray-400">
-                                      {row.faltas > 0
-                                        ? `${row.faltas} falta${row.faltas > 1 ? 's' : ''} · ${row.actualDays}/${row.diasCobraveis} dias até hoje`
-                                        : `${row.actualDays}/${row.expDays} dias no mês`}
-                                    </p>
-                                    {/* Ausência avisada com atestado não é o mesmo que sumir
-                                        sem dizer nada — o atestado estava no banco mas nunca
-                                        aparecia aqui, então o RH decidia sem essa informação. */}
-                                    {row.ausencias.length > 0 && (
-                                      <p className="text-[11px] text-ink-500">
-                                        {row.ausenciasComAtestado.length > 0 && (
-                                          <span className="text-blue-600">{row.ausenciasComAtestado.length} c/ atestado</span>
-                                        )}
-                                        {row.ausenciasComAtestado.length > 0 && row.ausencias.length > row.ausenciasComAtestado.length && ' · '}
-                                        {row.ausencias.length > row.ausenciasComAtestado.length && (
-                                          <span className="text-red-500">{row.ausencias.length - row.ausenciasComAtestado.length} s/ atestado</span>
-                                        )}
-                                      </p>
-                                    )}
-                                    {isShort && row.faltas === 0 && (
-                                      <p className="text-[11px] text-amber-600">{Math.abs(diff)} sem registro</p>
-                                    )}
+                                ))}
+                                <div className="border-t border-ink-200 pt-1.5 flex justify-between font-bold text-ink-900">
+                                  <span>A pagar</span><span className="tnum">{formatCurrency(conta.total)}</span>
+                                </div>
+                                {et.somaPaga > 0 && (
+                                  <div className="flex justify-between text-xs text-green-700 font-medium">
+                                    <span>Já pago neste mês</span><span className="tnum">{formatCurrency(et.somaPaga)}</span>
                                   </div>
                                 )}
-                                <div className="text-center px-3 border-l border-gray-100 bg-purple-50 rounded-lg py-1">
-                                  <p className="text-xs text-purple-500">A pagar</p>
-                                  <p className="text-sm font-bold text-purple-800">{formatCurrency(totalAPagar)}</p>
-                                </div>
+                                {conta.fechamento !== conta.total && (
+                                  <p className="text-[11px] text-ink-400">Pelo realizado até hoje o fechamento daria {formatCurrency(conta.fechamento)}.</p>
+                                )}
                               </div>
+                            )}
 
-                              <div className="flex items-center gap-2 flex-shrink-0">
-                                {pay ? (
-                                  <>
-                                    <span className={`badge ${STATUS_COLORS[pay.status] || 'bg-gray-100'}`}>{pay.status}</span>
-                                    {pay.status === 'Pendente' && (
-                                      <button onClick={() => markPaid.mutate(pay.id)} className="btn-primary text-xs flex items-center gap-1 py-1"><Check size={12} />Pago</button>
-                                    )}
-                                    <button onClick={() => navigate(`/pagamentos/${pay.id}/editar`)} className="btn-ghost text-xs">Editar</button>
-                                  </>
-                                ) : (
-                                  <>
-                                    <span className="badge bg-gray-100 text-gray-500 text-xs">Sem lançamento</span>
-                                    <button
-                                      onClick={() => autoGeneratePayment.mutate(row)}
-                                      disabled={autoGeneratePayment.isPending}
-                                      className="btn-secondary text-xs py-1"
-                                    >Gerar</button>
-                                  </>
-                                )}
-                                {!isConsultoria && !row.hasRealPayment && (
-                                  <button
-                                    className="btn-ghost text-xs text-green-600 flex items-center gap-1"
-                                    onClick={() => generateRealPayment.mutate(row)}
-                                    disabled={generateRealPayment.isPending}
-                                    title={isFreela
-                                      ? `Gerar pagamento pelos dias registrados: ${row.actualDays} dia(s) × ${formatCurrency(row.dailyRate || 0)} = ${formatCurrency(row.realAmt)}`
-                                      : row.faltas > 0
-                                        ? `Salário ${formatCurrency(row.adjusted_amount)} − ${row.faltas} falta(s) × ${formatCurrency(row.valorDia)} (salário ÷ 30) = ${formatCurrency(row.realAmt)}`
-                                        : `Escala cumprida: salário integral ${formatCurrency(row.realAmt)}`}
-                                  >
-                                    <RefreshCw size={12} />Real
+                            {/* Etapa + a próxima ação */}
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <Etapas etapa={et.etapa} porTrabalho={isConsultoria} />
+                              <span className="text-[11px] text-ink-500">
+                                {et.etapa === 'pago'
+                                  ? <span className="text-green-700 font-semibold">✓ Pago{et.ultimoPago ? ` em ${formatDate(et.ultimoPago.slice(0, 10))}` : ''}</span>
+                                  : et.atrasado ? <span className="text-red-600 font-semibold">Atrasado desde {formatDate(et.proximo!.due_date)}</span>
+                                  : et.proximo ? <>Vence {formatDate(et.proximo.due_date)}{et.pendentes.length > 1 ? ` (+${et.pendentes.length - 1})` : ''}</>
+                                  : null}
+                              </span>
+                              <div className="flex items-center gap-2 w-full sm:w-auto sm:ml-auto">
+                                {acao && (
+                                  <button onClick={acao.fazer} disabled={acao.ocupado} title={acao.dica}
+                                    className={`${acao.estilo} text-sm flex-1 sm:flex-none py-2`}>
+                                    {acao.icone}{acao.rotulo}
                                   </button>
                                 )}
-                                {!isConsultoria && row.hasRealPayment && (
-                                  <span className="flex items-center gap-1 text-green-600 text-xs font-medium"><Check size={12} />Real</span>
-                                )}
+                                <button onClick={() => setAcoesDe(row.linkId)} className="btn-secondary px-2.5 py-2" aria-label="Mais ações" title="Mais ações">
+                                  <MoreHorizontal size={18} />
+                                </button>
                               </div>
                             </div>
+                            {acao && <p className="text-[11px] text-ink-400 -mt-1 sm:text-right">{acao.dica}</p>}
+
+                            {/* Lançado não bate com o que daria hoje */}
+                            {divergente && (
+                              <div className="flex items-start gap-2 rounded-xl bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-900">
+                                <AlertTriangle size={14} className="shrink-0 mt-0.5 text-amber-600" />
+                                <span>
+                                  <strong>O valor mudou depois do lançamento.</strong> Lançado {formatCurrency(lancado)}; pelo que está registrado hoje daria {formatCurrency(conta.fechamento)}.
+                                  {et.proximo && <> <button className="underline font-semibold" onClick={() => navigate(`/pagamentos/${et.proximo!.id}/editar`)}>Ajustar lançamento</button></>}
+                                </span>
+                              </div>
+                            )}
 
                             {/* Extra aguardando decisão. Ficava invisível aqui: só extra
                                 APROVADO entra no valor, então quem lançou um extra via o
                                 pagamento sair sem ele e sem nenhum aviso. */}
                             {(row.extrasPendentes?.length || 0) > 0 && (
-                              <div className="mt-2 flex items-center justify-between gap-3 flex-wrap rounded-lg bg-amber-100 border border-amber-300 px-3 py-2">
+                              <div className="flex items-center justify-between gap-3 flex-wrap rounded-xl bg-amber-50 border border-amber-200 px-3 py-2">
                                 <span className="text-xs font-semibold text-amber-900 flex items-center gap-1.5">
-                                  <AlertTriangle size={13} />
+                                  <AlertTriangle size={13} className="text-amber-600" />
                                   {row.extrasPendentes.length} extra{row.extrasPendentes.length > 1 ? 's' : ''} aguardando sua decisão
                                   <span className="font-normal text-amber-700">
-                                    — {row.extrasPendentes.map(v => formatDate(v.visit_date)).join(', ')}. Não entra neste pagamento enquanto não aprovar.
+                                    — {row.extrasPendentes.map(v => formatDate(v.visit_date)).join(', ')}. Só entra no pagamento depois de aprovar.
                                   </span>
                                 </span>
-                                <button onClick={() => navigate('/visitas')}
-                                  className="text-xs font-semibold text-amber-900 underline whitespace-nowrap">
+                                <button onClick={() => navigate('/visitas')} className="text-xs font-semibold text-amber-900 underline whitespace-nowrap">
                                   Decidir agora →
                                 </button>
                               </div>
                             )}
 
-                            {/* Info extras: ciclo, proporcional, pay full, alertas */}
-                            <div className="mt-2 flex items-center gap-3 flex-wrap text-xs">
-                              {!isConsultoria && row.cycleStart && row.cycleEnd && (
-                                <span className="text-gray-400">Ciclo: {formatDate(row.cycleStart)} – {formatDate(row.cycleEnd)}</span>
-                              )}
-                              {!isConsultoria && row.isPartialCycle && (
-                                <span className="text-amber-600 flex items-center gap-1">
-                                  <AlertTriangle size={11} />
-                                  Ciclo parcial (início {formatDate(row.startDate!)})
-                                  {row.payFullSalary ? ' — salário inteiro' : ` — proporcional: ${formatCurrency(row.adjusted_amount)}`}
+                            {/* Situações do ciclo que mudam o valor */}
+                            {!isConsultoria && (row.isPartialCycle || row.startsAfterCycle) && (
+                              <div className={`flex items-center justify-between gap-2 flex-wrap rounded-xl px-3 py-2 text-xs ${row.startsAfterCycle && !row.payFullSalary ? 'bg-red-50 border border-red-200 text-red-800' : 'bg-amber-50 border border-amber-200 text-amber-900'}`}>
+                                <span className="flex items-center gap-1.5">
+                                  <AlertTriangle size={13} />
+                                  {row.startsAfterCycle && !row.payFullSalary
+                                    ? `Começou ${formatDate(row.startDate!)}, depois do fechamento do ciclo — nada a pagar neste mês.`
+                                    : `Entrou no meio do ciclo (${formatDate(row.startDate!)}) — ${row.payFullSalary ? 'pagando salário inteiro' : `proporcional: ${formatCurrency(row.adjusted_amount)}`}.`}
                                 </span>
-                              )}
-                              {!isConsultoria && row.startsAfterCycle && !row.payFullSalary && (
-                                <span className="text-red-600 flex items-center gap-1 font-medium">
-                                  <AlertTriangle size={11} />
-                                  Começou {formatDate(row.startDate!)} — após o fechamento do ciclo. Nada a pagar neste mês; 1º pagamento no próximo ciclo.
-                                </span>
-                              )}
-                              {(row.extrasAprovados || 0) > 0 && (
-                                <span className="text-green-600">⭐ Extras aprovados: {formatCurrency(row.extrasAprovados)}</span>
-                              )}
-                              {row.reportRequired && row.semRelatorio > 0 && (
-                                <span className="text-red-600 flex items-center gap-1 font-medium">
-                                  <AlertTriangle size={11} />📄 {row.semRelatorio} visita{row.semRelatorio > 1 ? 's' : ''} sem relatório
-                                </span>
-                              )}
-                              {row.reportRequired && row.semRelatorio === 0 && (row.actualVisits > 0 || row.actualDays > 0) && (
-                                <span className="text-green-600">📄 Relatórios OK</span>
-                              )}
-                              {!isConsultoria && (
-                                <label className="flex items-center gap-1.5 cursor-pointer select-none">
-                                  <input
-                                    type="checkbox"
-                                    checked={row.payFullSalary}
-                                    onChange={() => togglePayFull.mutate({ linkId: row.linkId, value: !row.payFullSalary })}
-                                    className="h-3.5 w-3.5 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-                                  />
-                                  <span className="text-gray-500">Pagar inteiro</span>
-                                </label>
-                              )}
-                              {row.cost_assistance > 0 && <span className="text-blue-600">🚗 Aj.custo: {formatCurrency(row.cost_assistance)}</span>}
-                              {empExpAmt > 0 && <span className="text-orange-600">💸 Gastos: {formatCurrency(empExpAmt)}</span>}
-                              {empAdiant > 0 && <span className="text-emerald-700 font-medium">↩ Adiantamento: −{formatCurrency(empAdiant)}</span>}
-                              {isShort && (
-                                <span className="text-red-500 flex items-center gap-1">
-                                  <AlertTriangle size={11} />{Math.abs(diff)} dia(s) sem registro
-                                </span>
-                              )}
-                              {isConsultoria && row.actualVisits > 0 && (row.visits as { observations?: string }[]).some(v => v.observations) && (
-                                <span className="text-amber-600">⚠ Há observações nos registros</span>
-                              )}
-                            </div>
+                                <button className="font-semibold underline whitespace-nowrap"
+                                  onClick={() => togglePayFull.mutate({ linkId: row.linkId, value: !row.payFullSalary })}>
+                                  {row.payFullSalary ? 'Voltar ao proporcional' : 'Pagar inteiro'}
+                                </button>
+                              </div>
+                            )}
 
-                            <details className="mt-2">
-                              <summary className="text-xs text-primary-600 cursor-pointer hover:underline">
-                                {row.visits.length > 0 ? `${row.visits.length} registro(s) de ponto` : 'Gastos'}
+                            {/* Formulário de gasto / adiantamento */}
+                            {newExpenseEmpId === row.linkId && (
+                              <div className="rounded-xl border border-ink-200 bg-white p-3 space-y-2">
+                                <div className="flex items-center justify-between">
+                                  <p className="text-sm font-semibold text-ink-800">Lançar gasto ou adiantamento</p>
+                                  <button className="p-1 rounded-lg text-ink-400 hover:bg-ink-100" onClick={() => setNewExpenseEmpId(null)} aria-label="Fechar"><X size={16} /></button>
+                                </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                  <input className="input text-sm sm:col-span-2" placeholder="Descrição *" value={expForm.description} onChange={e => setExpForm(p => ({ ...p, description: e.target.value }))} />
+                                  <input className="input text-sm" type="number" inputMode="decimal" placeholder="Valor R$ *" value={expForm.amount} onChange={e => setExpForm(p => ({ ...p, amount: e.target.value }))} />
+                                  <select className="input text-sm" value={expForm.category} onChange={e => setExpForm(p => ({ ...p, category: e.target.value }))}>
+                                    <option>Reembolso</option><option>Ajuda de Custo</option><option>Vale Transporte</option>
+                                    <option value="Adiantamento">Adiantamento (desconta do pagamento)</option>
+                                    <option>Alimentação</option><option>Material</option><option>Outro</option>
+                                  </select>
+                                  <input className="input text-sm sm:col-span-2" placeholder="Observação (opcional)" value={expForm.notes} onChange={e => setExpForm(p => ({ ...p, notes: e.target.value }))} />
+                                </div>
+                                <div className="flex gap-2">
+                                  <button className="btn-primary text-sm flex-1 sm:flex-none" onClick={() => addExpense.mutate({ empId: row.employee!.id, clientId: row.client?.id })} disabled={addExpense.isPending || !expForm.description || !expForm.amount}>Salvar</button>
+                                  <button className="btn-ghost text-sm" onClick={() => setNewExpenseEmpId(null)}>Cancelar</button>
+                                </div>
+                              </div>
+                            )}
+
+                            <details>
+                              <summary className="text-xs font-semibold text-primary-700 cursor-pointer hover:underline select-none">
+                                {row.visits.length > 0 ? `${row.visits.length} registro${row.visits.length > 1 ? 's' : ''} de ponto` : 'Registros'}
+                                {gastosDaLinha(row.linkId).length > 0 ? ` · ${gastosDaLinha(row.linkId).length} gasto${gastosDaLinha(row.linkId).length > 1 ? 's' : ''}` : ''}
+                                {row.cycleStart && row.cycleEnd && !isConsultoria ? ` · ciclo ${formatDate(row.cycleStart)} – ${formatDate(row.cycleEnd)}` : ''}
                               </summary>
                               {row.visits.length > 0 && (
                                 <div className="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-1">
-                                  {row.visits.slice(0, 30).map((v, i) => {
+                                  {row.visits.slice(0, 31).map((v, i) => {
                                     const trabalhada = !!v.check_in && !(v as { is_unavailable?: boolean }).is_unavailable && !(v as { is_holiday?: boolean }).is_holiday
                                     return (
-                                      <div key={i} className="text-xs bg-gray-50 rounded px-2 py-1 flex items-center justify-between gap-1">
-                                        <span className="text-gray-600">{formatDate(v.visit_date)}</span>
-                                        <span className="text-gray-400">{v.check_in?.slice(0, 5)} – {v.check_out?.slice(0, 5) || '?'}</span>
+                                      <div key={i} className="text-xs bg-ink-50 rounded-lg px-2 py-1 flex items-center justify-between gap-1">
+                                        <span className="text-ink-600">{formatDate(v.visit_date)}</span>
+                                        <span className="text-ink-400">{v.check_in?.slice(0, 5)} – {v.check_out?.slice(0, 5) || '?'}</span>
                                         {row.reportRequired && trabalhada && (
                                           (v as { report_url?: string }).report_url
                                             ? <span className="text-green-600" title="Relatório anexado">📄✓</span>
@@ -1517,17 +1736,19 @@ export default function PaymentList() {
                                   })}
                                 </div>
                               )}
-                              <div className="mt-2 space-y-1">
+                              {isConsultoria && row.actualVisits > 0 && (row.visits as { observations?: string }[]).some(v => v.observations) && (
+                                <p className="mt-2 text-xs text-amber-600">⚠ Há observações nos registros</p>
+                              )}
+                              <div className="mt-3 space-y-1">
                                 <div className="flex items-center justify-between">
-                                  <span className="text-xs font-medium text-gray-500">Gastos / Ajuda de Custo</span>
-                                  <button
-                                    className="btn-secondary text-xs flex items-center gap-1 py-0.5"
-                                    onClick={() => setNewExpenseEmpId(newExpenseEmpId === row.employee?.id ? null : (row.employee?.id ?? null))}
-                                  ><Plus size={11} /> Novo Gasto</button>
+                                  <span className="text-xs font-semibold text-ink-500">Gastos / ajuda de custo</span>
+                                  <button className="btn-secondary text-xs py-1" onClick={() => setNewExpenseEmpId(newExpenseEmpId === row.linkId ? null : row.linkId)}>
+                                    <Plus size={12} /> Novo gasto
+                                  </button>
                                 </div>
                                 {row.cost_assistance > 0 && (
-                                  <div className="flex items-center justify-between text-xs bg-blue-50 rounded px-2 py-1">
-                                    <span className="text-blue-700">🚗 Ajuda de Custo (contrato)</span>
+                                  <div className="flex items-center justify-between text-xs bg-blue-50 rounded-lg px-2 py-1">
+                                    <span className="text-blue-700">🚗 Ajuda de custo (contrato)</span>
                                     <span className="font-medium text-blue-800">{formatCurrency(row.cost_assistance)}</span>
                                   </div>
                                 )}
@@ -1537,9 +1758,9 @@ export default function PaymentList() {
                                   const negado = exp.status === 'negado'
                                   const adiant = exp.category === 'Adiantamento'
                                   return (
-                                    <div key={exp.id} className={`flex items-center justify-between gap-2 text-xs rounded px-2 py-1 ${negado ? 'bg-ink-100 opacity-60' : adiant ? 'bg-emerald-50' : 'bg-orange-50'}`}>
-                                      <span className={negado ? 'text-ink-500 line-through' : adiant ? 'text-emerald-800' : 'text-orange-700'}>
-                                        {adiant ? '↩' : '💸'} {exp.description} <span className="text-gray-400">({adiant ? 'adiantamento — desconta' : exp.category})</span>
+                                    <div key={exp.id} className={`flex items-center justify-between gap-2 text-xs rounded-lg px-2 py-1.5 ${negado ? 'bg-ink-100 opacity-60' : adiant ? 'bg-emerald-50' : 'bg-orange-50'}`}>
+                                      <span className={`min-w-0 ${negado ? 'text-ink-500 line-through' : adiant ? 'text-emerald-800' : 'text-orange-700'}`}>
+                                        {adiant ? '↩' : '💸'} {exp.description} <span className="text-ink-400">({adiant ? 'adiantamento — desconta' : exp.category})</span>
                                         {/* Sem isso, pendente e aprovado ficavam iguais na tela
                                             e só o aprovado entra no pagamento. */}
                                         {pendente && <span className="ml-1 text-amber-700 font-semibold">— aguardando análise</span>}
@@ -1552,12 +1773,12 @@ export default function PaymentList() {
                                             <button onClick={() => { deleteExpense.mutate(exp.id); setConfirmDelExpense(null) }}
                                               className="text-[10px] bg-red-600 text-white px-1.5 py-0.5 rounded font-medium hover:bg-red-700">Apagar</button>
                                             <button onClick={() => setConfirmDelExpense(null)}
-                                              className="text-[10px] text-gray-400 hover:text-gray-600">não</button>
+                                              className="text-[10px] text-ink-400 hover:text-ink-600">não</button>
                                           </>
                                         ) : (
                                           <button onClick={() => setConfirmDelExpense(exp.id)}
                                             title="Apagar este lançamento"
-                                            className="text-red-400 hover:text-red-600 p-0.5 rounded hover:bg-red-50">
+                                            className="text-red-400 hover:text-red-600 p-1 rounded hover:bg-red-50">
                                             <Trash2 size={12} />
                                           </button>
                                         )}
@@ -1565,25 +1786,6 @@ export default function PaymentList() {
                                     </div>
                                   )
                                 })}
-                                {newExpenseEmpId === row.employee?.id && (
-                                  <div className="bg-gray-50 rounded-lg p-3 space-y-2 mt-2">
-                                    <p className="text-xs font-semibold text-gray-600">Registrar gasto</p>
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                      <input className="input text-sm col-span-2" placeholder="Descrição *" value={expForm.description} onChange={e => setExpForm(p => ({ ...p, description: e.target.value }))} />
-                                      <input className="input text-sm" type="number" placeholder="Valor R$ *" value={expForm.amount} onChange={e => setExpForm(p => ({ ...p, amount: e.target.value }))} />
-                                      <select className="input text-sm" value={expForm.category} onChange={e => setExpForm(p => ({ ...p, category: e.target.value }))}>
-                                        <option>Reembolso</option><option>Ajuda de Custo</option><option>Vale Transporte</option>
-                                        <option value="Adiantamento">Adiantamento (desconta do pagamento)</option>
-                                        <option>Alimentação</option><option>Material</option><option>Outro</option>
-                                      </select>
-                                      <input className="input text-sm col-span-2" placeholder="Observação (opcional)" value={expForm.notes} onChange={e => setExpForm(p => ({ ...p, notes: e.target.value }))} />
-                                    </div>
-                                    <div className="flex gap-2">
-                                      <button className="btn-primary text-xs py-1" onClick={() => addExpense.mutate({ empId: row.employee!.id, clientId: row.client?.id })} disabled={addExpense.isPending || !expForm.description || !expForm.amount}>Salvar</button>
-                                      <button className="btn-ghost text-xs" onClick={() => setNewExpenseEmpId(null)}>Cancelar</button>
-                                    </div>
-                                  </div>
-                                )}
                               </div>
                             </details>
                           </div>
@@ -1593,6 +1795,69 @@ export default function PaymentList() {
                   </div>
                 )
               })}
+
+              {/* Mais ações de uma linha — janela que sobe de baixo no celular */}
+              {(() => {
+                const l = linhas.find(x => x.row.linkId === acoesDe)
+                if (!l) return null
+                const { row, et } = l
+                const porTrab = porTrabalho(row)
+                const fechar = () => setAcoesDe(null)
+                const Item = ({ onClick, children, perigo }: { onClick: () => void; children: React.ReactNode; perigo?: boolean }) => (
+                  <button onClick={() => { fechar(); onClick() }}
+                    className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl text-left text-sm font-medium active:scale-[0.99] transition-all ${perigo ? 'text-red-600 hover:bg-red-50' : 'text-ink-800 hover:bg-ink-50'}`}>
+                    {children}
+                  </button>
+                )
+                return (
+                  <div className="modal-overlay" onClick={fechar}>
+                    <div className="modal-box max-w-sm space-y-1" onClick={e => e.stopPropagation()}>
+                      <div className="px-3 pb-2">
+                        <p className="font-display font-bold text-ink-900">{row.employee?.full_name}</p>
+                        <p className="text-xs text-ink-400">{row.client?.name}</p>
+                      </div>
+                      {et.proximo && (
+                        <Item onClick={() => navigate(`/pagamentos/${et.proximo!.id}/editar`)}><Pencil size={16} className="text-ink-400" />Editar lançamento pendente</Item>
+                      )}
+                      {!porTrab && et.etapa === 'lancar' && (
+                        <Item onClick={() => generateRealPayment.mutate(row)}><RefreshCw size={16} className="text-ink-400" />Fechar direto pelo realizado</Item>
+                      )}
+                      {et.etapa === 'conferir' && et.proximo && (
+                        <Item onClick={async () => {
+                          const p = et.proximo!
+                          if (await confirmar({
+                            titulo: 'Pagar a previsão sem conferir?',
+                            texto: `${formatCurrency(Number(p.amount) || 0)} — faltas e dias registrados depois NÃO entram. O normal é "Conferir e fechar".`,
+                            confirmar: 'Marcar previsão como paga',
+                          })) markPaid.mutate(p.id)
+                        }}><Check size={16} className="text-ink-400" />Marcar a previsão como paga</Item>
+                      )}
+                      <Item onClick={() => { setNewExpenseEmpId(row.linkId); setExpForm({ description: '', amount: '', category: 'Reembolso', notes: '' }) }}>
+                        <Plus size={16} className="text-ink-400" />Lançar gasto ou adiantamento
+                      </Item>
+                      {!porTrab && (
+                        <Item onClick={() => togglePayFull.mutate({ linkId: row.linkId, value: !row.payFullSalary })}>
+                          <Wallet size={16} className="text-ink-400" />{row.payFullSalary ? 'Voltar a descontar faltas' : 'Pagar salário inteiro (sem descontar faltas)'}
+                        </Item>
+                      )}
+                      <Item onClick={() => navigate(`/colaboradores/${row.employee?.id}`, { state: { tab: 'vinculos' } })}>
+                        <ExternalLink size={16} className="text-ink-400" />Abrir ficha do colaborador
+                      </Item>
+                      {et.proximo && (
+                        <Item perigo onClick={async () => {
+                          const p = et.proximo!
+                          if (await confirmar({
+                            titulo: 'Cancelar este lançamento?',
+                            texto: `${p.description || ''}\n${formatCurrency(Number(p.amount) || 0)} — a linha volta para a etapa anterior e dá para lançar de novo.`,
+                            confirmar: 'Cancelar lançamento', cancelar: 'Voltar', perigo: true,
+                          })) cancelPayment.mutate(p.id)
+                        }}><X size={16} />Cancelar lançamento pendente</Item>
+                      )}
+                      <button onClick={fechar} className="btn-secondary w-full mt-2">Fechar</button>
+                    </div>
+                  </div>
+                )
+              })()}
 
               {/* Unlinked manual payments */}
               {unlinkedPayments.length > 0 && (

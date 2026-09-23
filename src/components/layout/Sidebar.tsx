@@ -168,10 +168,10 @@ export default function Sidebar({ collapsed, onCollapse, mobileOpen, onMobileClo
       {/* Mobile overlay */}
       {mobileOpen && (
         <div className="fixed inset-0 z-40 md:hidden">
-          <div className="absolute inset-0 bg-black/40" onClick={onMobileClose} />
-          <div className="relative h-full w-64 flex-shrink-0">
-            <div className="absolute top-4 right-4 z-50">
-              <button onClick={onMobileClose} className="p-1 rounded-full bg-white shadow">
+          <div className="absolute inset-0 bg-ink-900/50 backdrop-blur-[2px] animate-fade-in" onClick={onMobileClose} />
+          <div className="relative h-full w-64 max-w-[85vw] flex-shrink-0 shadow-lift">
+            <div className="absolute top-4 right-3 z-50">
+              <button onClick={onMobileClose} className="p-2 rounded-xl bg-ink-100 text-ink-600 active:scale-95" aria-label="Fechar menu">
                 <X size={18} />
               </button>
             </div>

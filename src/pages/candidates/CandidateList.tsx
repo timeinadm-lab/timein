@@ -9,6 +9,7 @@ import { parseCSV, parseXLSX } from '../../lib/xlsxImport'
 import Pagination from '../../components/ui/Pagination'
 import { SkeletonCards, EmptyState } from '../../components/ui/Skeleton'
 import toast from 'react-hot-toast'
+import { confirmar } from '../../components/ui/ConfirmDialog'
 
 // Maps "Mais de X anos" vacancy requirement to matching candidate experience_time values
 const EXPERIENCE_FILTER_MAP: Record<string, string[]> = {
@@ -90,7 +91,7 @@ export default function CandidateList() {
         if (expValues) q = q.in('experience_time', expValues)
       }
       if (filterArea) q = q.eq('experience_area', filterArea)
-      if (filterTool) q = q.cs('tools', [filterTool])
+      if (filterTool) q = q.contains('tools', [filterTool])
       if (filterTravel) q = q.eq('requires_travel', true)
       if (filterRelocation) q = q.eq('requires_relocation', true)
       const { data, error, count } = await q
@@ -419,7 +420,7 @@ export default function CandidateList() {
                       <MessageCircle size={16} className="text-green-600" />
                     </a>
                   )}
-                  <button onClick={() => { if (confirm('Excluir candidato?')) deleteCandidate.mutate(c.id) }} className="btn-ghost p-2 text-red-400" title="Excluir">
+                  <button onClick={async () => { if (await confirmar({ titulo: `Excluir ${c.full_name || 'candidato'}?`, perigo: true })) deleteCandidate.mutate(c.id) }} className="btn-ghost p-2 text-red-400" title="Excluir">
                     <Trash2 size={16} />
                   </button>
                 </div>
@@ -433,8 +434,8 @@ export default function CandidateList() {
 
       {/* Modal de importação */}
       {importModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col">
+        <div className="modal-overlay">
+          <div className="bg-white rounded-2xl shadow-lift w-full max-w-3xl max-h-[92vh] flex flex-col">
             <div className="flex items-center justify-between px-6 py-4 border-b">
               <h2 className="font-semibold text-lg">Importar Candidatos</h2>
               <button onClick={() => setImportModal(false)} className="btn-ghost p-1"><X size={18} /></button>

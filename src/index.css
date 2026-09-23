@@ -71,6 +71,22 @@
   .eyebrow {
     @apply text-xs font-semibold uppercase tracking-wider text-primary-600;
   }
+  /* Janela (modal) padrão: fundo escurecido igual em todo o sistema; no
+     celular sobe de baixo, onde o polegar alcança */
+  .modal-overlay {
+    @apply fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-ink-900/50 backdrop-blur-[2px] p-3 sm:p-4 animate-fade-in;
+  }
+  .modal-box {
+    @apply bg-white rounded-2xl shadow-lift p-5 sm:p-6 w-full max-h-[92vh] overflow-y-auto;
+  }
+  /* Cabeçalho de tabela padrão */
+  .th {
+    @apply text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-ink-500;
+  }
+  /* Botão de perigo (excluir, cancelar de vez) */
+  .btn-danger {
+    @apply inline-flex items-center justify-center gap-2 bg-red-600 text-white px-4 py-2.5 rounded-xl text-sm font-semibold shadow-soft hover:bg-red-700 active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed;
+  }
 }
 
 @layer utilities {
@@ -151,7 +167,7 @@
     white-space: nowrap;
   }
   /* Botões com altura mínima de toque confortável */
-  .btn-primary, .btn-secondary {
+  .btn-primary, .btn-secondary, .btn-danger {
     min-height: 44px;
   }
 }

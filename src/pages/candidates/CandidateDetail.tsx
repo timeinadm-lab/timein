@@ -194,8 +194,8 @@ export default function CandidateDetail() {
 
       {/* WhatsApp modal */}
       {showWAModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-xl p-6 max-w-md w-full mx-4 space-y-4">
+        <div className="modal-overlay">
+          <div className="modal-box max-w-md space-y-4">
             <h3 className="font-semibold">Mensagem WhatsApp</h3>
             <textarea className="input" rows={5} value={waMessage} onChange={e => setWAMessage(e.target.value)} placeholder={`Olá ${candidate.full_name}, ...`} />
             <div className="flex gap-3">

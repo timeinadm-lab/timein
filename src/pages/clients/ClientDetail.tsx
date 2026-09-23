@@ -9,6 +9,7 @@ import { SkeletonDetail } from '../../components/ui/Skeleton'
 import { formatDate, formatCurrency, serviceTypeLabel, hojeISO } from '../../lib/utils'
 import { differenceInDays, parseISO } from 'date-fns'
 import toast from 'react-hot-toast'
+import { confirmar } from '../../components/ui/ConfirmDialog'
 
 export default function ClientDetail() {
   const { id } = useParams()
@@ -490,7 +491,7 @@ export default function ClientDetail() {
                       </p>
                     </div>
                     {d.file_url && <SignedLink value={d.file_url} bucket="arquivos" className="text-xs text-primary-600 underline">abrir</SignedLink>}
-                    <button className="text-gray-300 hover:text-red-500 p-1" onClick={() => { if (window.confirm(`Excluir "${d.name}"?`)) deleteSharedDoc.mutate(d.id) }}>✕</button>
+                    <button className="text-gray-300 hover:text-red-500 p-1" onClick={async () => { if (await confirmar({ titulo: `Excluir "${d.name}"?`, perigo: true })) deleteSharedDoc.mutate(d.id) }}>✕</button>
                   </div>
                 ))}
               </div>
@@ -769,8 +770,8 @@ export default function ClientDetail() {
             </div>
 
             {calDayOpen && (
-              <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-4" onClick={() => setCalDayOpen(null)}>
-                <div className="bg-white rounded-2xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto p-5 space-y-3" onClick={e => e.stopPropagation()}>
+              <div className="modal-overlay" onClick={() => setCalDayOpen(null)}>
+                <div className="modal-box max-w-md space-y-3" onClick={e => e.stopPropagation()}>
                   <div className="flex items-center justify-between">
                     <h3 className="font-semibold text-gray-900">{formatDate(calDayOpen)}</h3>
                     <button onClick={() => setCalDayOpen(null)} className="text-gray-400 hover:text-gray-700 p-1">✕</button>

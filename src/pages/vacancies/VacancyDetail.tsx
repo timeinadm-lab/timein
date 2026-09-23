@@ -9,6 +9,7 @@ import { getCityRegion } from '../../lib/geoRegions'
 import { SignedLink } from '../../components/ui/SignedFile'
 import { SkeletonDetail } from '../../components/ui/Skeleton'
 import toast from 'react-hot-toast'
+import { confirmar } from '../../components/ui/ConfirmDialog'
 
 type InterestStatus = 'Interessado' | 'Em contrato' | 'Contratado'
 
@@ -852,8 +853,8 @@ export default function VacancyDetail() {
     <div className="max-w-4xl mx-auto space-y-4">
       {/* Confirm dismiss modal */}
       {confirmDismiss && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-lift p-6 max-w-sm w-full space-y-4">
+        <div className="modal-overlay">
+          <div className="modal-box max-w-sm space-y-4">
             <h3 className="font-display font-bold text-lg text-red-700">Desligar colaborador?</h3>
             <p className="text-sm text-ink-600">
               <strong>{confirmDismiss.empName}</strong> será desligado(a) desta vaga. Se não tiver outros vínculos, ficará como <strong>Inativo</strong>. A vaga reabre nesta posição.
@@ -885,8 +886,8 @@ export default function VacancyDetail() {
 
       {/* Modal: Fechar Vaga com confirmação por digitação */}
       {confirmCloseModal && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl p-6 max-w-sm w-full space-y-4">
+        <div className="modal-overlay">
+          <div className="modal-box max-w-sm space-y-4">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
                 <span className="text-red-600 text-lg">⚠</span>
@@ -969,8 +970,8 @@ export default function VacancyDetail() {
       {/* Modal: Escalar (auditoria/serviço avulso) */}
       {/* Agendar entrevista com um interessado, sem sair da vaga */}
       {entrevistaModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="bg-white rounded-2xl w-full max-w-md p-5 space-y-4 max-h-[90vh] overflow-y-auto">
+        <div className="modal-overlay">
+          <div className="modal-box max-w-md space-y-4">
             <div>
               <h3 className="font-semibold text-ink-900">Agendar entrevista</h3>
               <p className="text-sm text-ink-500 mt-0.5">
@@ -1033,8 +1034,8 @@ export default function VacancyDetail() {
       )}
 
       {escalarOpen && (
-        <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl p-5 max-w-md w-full space-y-4 max-h-[90vh] overflow-y-auto">
+        <div className="modal-overlay">
+          <div className="modal-box max-w-md space-y-4">
             <div>
               <h3 className="font-semibold text-gray-900 flex items-center gap-1.5"><Zap size={17} className="text-orange-500" /> Escalar para serviço avulso</h3>
               <p className="text-xs text-gray-400 mt-0.5">Vínculo de 1 dia. A pessoa vê o dia no portal, registra entrada/saída e recebe o valor. Não fecha a vaga.</p>
@@ -1150,8 +1151,8 @@ export default function VacancyDetail() {
 
       {/* Modal: prolongar contrato */}
       {showExtendModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl p-6 max-w-sm w-full space-y-4">
+        <div className="modal-overlay">
+          <div className="modal-box max-w-sm space-y-4">
             <h3 className="font-bold text-lg">Prolongar contrato</h3>
             <p className="text-sm text-gray-600">
               Novo vencimento de contrato para {contractedCount > 1 ? `os ${contractedCount} colaboradores contratados` : 'o colaborador contratado'} por esta vaga:
@@ -1303,7 +1304,7 @@ export default function VacancyDetail() {
                       <p className="text-xs text-gray-400">{formatDate(d.created_at)}</p>
                     </div>
                     {d.file_url && <SignedLink value={d.file_url} bucket="arquivos" className="text-xs text-primary-600 underline">abrir</SignedLink>}
-                    <button className="text-gray-300 hover:text-red-500 p-1" onClick={() => { if (window.confirm(`Excluir "${d.name}"?`)) deleteDoc.mutate(d.id) }}>✕</button>
+                    <button className="text-gray-300 hover:text-red-500 p-1" onClick={async () => { if (await confirmar({ titulo: `Excluir "${d.name}"?`, perigo: true })) deleteDoc.mutate(d.id) }}>✕</button>
                   </div>
                 ))}
               </div>
@@ -1710,8 +1711,8 @@ export default function VacancyDetail() {
 
       {/* ─── MODAL 1: Deadline + Detalhes do Contrato ─── */}
       {deadlineModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="bg-white rounded-xl p-6 max-w-md w-full space-y-4 max-h-[90vh] overflow-y-auto">
+        <div className="modal-overlay">
+          <div className="modal-box max-w-md space-y-4">
             <h3 className="font-semibold text-lg">Iniciar Contratação</h3>
 
             {/* Tipo vem da vaga — só mostra, não edita */}
@@ -1811,8 +1812,8 @@ export default function VacancyDetail() {
 
       {/* ─── MODAL 3: Criar Colaborador após assinatura ─── */}
       {createEmpModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="bg-white rounded-xl p-6 max-w-lg w-full space-y-4 max-h-[90vh] overflow-y-auto">
+        <div className="modal-overlay">
+          <div className="modal-box max-w-lg space-y-4">
             <div className="flex items-center gap-2">
               <CheckCircle size={20} className="text-green-500" />
               <h3 className="font-semibold text-lg">Criar Colaborador</h3>
@@ -2009,8 +2010,8 @@ _____________________________          _____________________________
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="bg-white rounded-xl p-6 max-w-2xl w-full space-y-4 max-h-[90vh] overflow-y-auto">
+    <div className="modal-overlay">
+      <div className="modal-box max-w-2xl space-y-4">
         <div className="flex items-center justify-between">
           <h3 className="font-semibold text-lg flex items-center gap-2"><FileText size={20} /> Template de Contrato</h3>
           <button onClick={onClose} className="btn-ghost p-1 text-gray-400 hover:text-gray-700">✕</button>

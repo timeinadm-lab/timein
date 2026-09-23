@@ -8,6 +8,7 @@ import { formatDate, formatLocalDateTime, parseLocal, isMeetingLink, mapsUrl } f
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, addMonths, subMonths } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import toast from 'react-hot-toast'
+import { confirmar } from '../../components/ui/ConfirmDialog'
 
 const MODAL_COLORS: Record<string, string> = {
   Online: 'bg-blue-100 text-blue-700',
@@ -202,7 +203,7 @@ export default function InterviewAgenda() {
                     <>
                       <button onClick={() => { setSchedulingId(i.id); setScheduleValue('') }} className="btn-secondary text-xs">Definir data</button>
                       <button onClick={() => navigate(`/agenda/${i.id}/editar`)} className="btn-ghost p-2"><Edit size={14} /></button>
-                      <button onClick={() => { if (confirm('Excluir?')) deleteInterview.mutate(i.id) }} className="btn-ghost p-2 text-red-400"><Trash2 size={14} /></button>
+                      <button onClick={async () => { if (await confirmar({ titulo: 'Excluir esta entrevista?', perigo: true })) deleteInterview.mutate(i.id) }} className="btn-ghost p-2 text-red-400"><Trash2 size={14} /></button>
                     </>
                   )}
                 </div>
@@ -341,7 +342,7 @@ export default function InterviewAgenda() {
                   </>
                 )}
                 <button onClick={() => navigate(`/agenda/${i.id}/editar`)} className="btn-ghost p-2"><Edit size={14} /></button>
-                <button onClick={() => { if (confirm('Excluir compromisso?')) deleteInterview.mutate(i.id) }} className="btn-ghost p-2 text-red-400"><Trash2 size={14} /></button>
+                <button onClick={async () => { if (await confirmar({ titulo: 'Excluir compromisso?', perigo: true })) deleteInterview.mutate(i.id) }} className="btn-ghost p-2 text-red-400"><Trash2 size={14} /></button>
               </div>
             </div>
           </div>

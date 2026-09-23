@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from 'react-hot-toast'
+import { ConfirmHost } from './components/ui/ConfirmDialog'
 import { AuthProvider } from './contexts/AuthContext'
 import { RequireAuth, RequireChefe, RequireContabilidade } from './components/layout/RequireAuth'
 import Layout from './components/layout/Layout'
@@ -158,6 +159,7 @@ export default function App() {
           </Suspense>
         </BrowserRouter>
         <Toaster position="top-right" />
+        <ConfirmHost />
       </AuthProvider>
     </QueryClientProvider>
   )

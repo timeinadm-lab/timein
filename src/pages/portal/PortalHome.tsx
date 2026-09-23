@@ -7,6 +7,7 @@ import { formatDate, getInitials, hojeISO } from '../../lib/utils'
 import { format, getDaysInMonth, startOfMonth, endOfMonth } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import toast from 'react-hot-toast'
+import { confirmar } from '../../components/ui/ConfirmDialog'
 
 type Tab = 'home' | 'folha' | 'agenda' | 'gastos' | 'duvidas'
 
@@ -221,12 +222,14 @@ export default function PortalHome() {
                           - Math.abs(+new Date(b.planned_date) - +new Date(pontoForm.visit_date)))
           const maisProximo = abertos[0]
           if (maisProximo) {
-            const trocar = window.confirm(
-              `Você tinha visita combinada em ${formatDate(maisProximo.planned_date)} neste cliente.\n\n` +
-              `OK = TROQUEI o dia: passou de ${formatDate(maisProximo.planned_date)} para ${formatDate(pontoForm.visit_date)}.\n` +
-              `Cancelar = é uma visita A MAIS, e a de ${formatDate(maisProximo.planned_date)} continua combinada.\n\n` +
-              `O RH é avisado das duas formas.`
-            )
+            // Antes era "OK = troquei / Cancelar = a mais" na caixinha do navegador:
+            // ninguém sabia o que o Cancelar fazia. Agora cada botão diz o que é.
+            const trocar = await confirmar({
+              titulo: `Você tinha visita combinada em ${formatDate(maisProximo.planned_date)}`,
+              texto: `Esta visita de ${formatDate(pontoForm.visit_date)} substitui aquela, ou é uma visita a mais?\n\nO RH é avisado nos dois casos.`,
+              confirmar: 'Troquei o dia',
+              cancelar: 'É uma visita a mais',
+            })
             if (trocar) {
               await rpc('portal_trocar_dia_agenda', {
                 p_token: token, p_id: maisProximo.id, p_nova_data: pontoForm.visit_date,
@@ -269,11 +272,12 @@ export default function PortalHome() {
         const quotaH = Number(link?.weekly_hours_quota) || null
         if (visitAmount != null && unit?.visit_rate && quotaH && visitAmount < Number(unit.visit_rate)) {
           const hrs = calcDurationMin(pontoForm.check_in, pontoForm.check_out) / 60
-          const ok = window.confirm(
-            `Sua visita teve ${hrs.toFixed(1)}h de ${quotaH}h combinadas.\n` +
-            `Valor proporcional: R$ ${visitAmount.toFixed(2)} (vistoria cheia: R$ ${Number(unit.visit_rate).toFixed(2)}).\n\n` +
-            `Confirmar o lançamento com esse valor?`
-          )
+          const ok = await confirmar({
+            titulo: `Visita com ${hrs.toFixed(1)}h de ${quotaH}h combinadas`,
+            texto: `Valor proporcional: R$ ${visitAmount.toFixed(2)} (visita cheia: R$ ${Number(unit.visit_rate).toFixed(2)}).\n\nConfirmar o lançamento com esse valor?`,
+            confirmar: 'Lançar assim',
+            cancelar: 'Corrigir horário',
+          })
           if (!ok) throw new Error('Lançamento cancelado — confira os horários e registre novamente.')
         }
 
@@ -609,7 +613,7 @@ export default function PortalHome() {
   })
 
   const logout = () => {
-    if (token) supabase.rpc('portal_logout', { p_token: token }).catch(() => {})
+    if (token) Promise.resolve(supabase.rpc('portal_logout', { p_token: token })).catch(() => {})
     sealClosed()
     navigate('/portal')
   }
@@ -1025,7 +1029,7 @@ export default function PortalHome() {
                               setAtestadoFile(null); setReportFile(null); setShowPontoModal(true)
                             }}>✏️</button>
                           <button className="text-ink-300 hover:text-red-500 p-1.5 rounded-lg hover:bg-red-50 transition-colors"
-                            title="Excluir" onClick={() => { if (window.confirm(`Excluir o registro de ${formatDate(v.visit_date)}?`)) deletePonto.mutate(v.id) }}>
+                            title="Excluir" onClick={async () => { if (await confirmar({ titulo: `Excluir o registro de ${formatDate(v.visit_date)}?`, texto: 'O RH deixa de ver esse dia.', perigo: true })) deletePonto.mutate(v.id) }}>
                             <Trash2 size={14} />
                           </button>
                         </div>
@@ -1537,8 +1541,8 @@ export default function PortalHome() {
 
       {/* ─── AGENDA ADD MODAL ─── */}
       {agendaForm && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-4">
-          <div className="bg-white rounded-2xl w-full max-w-sm space-y-4 p-5">
+        <div className="modal-overlay">
+          <div className="modal-box max-w-sm space-y-4">
             <div>
               <h3 className="font-semibold text-gray-900">Planejar visita</h3>
               <p className="text-xs text-gray-400 mt-0.5">Escolha só o dia que pretende ir. O horário você lança no dia, ao registrar.</p>
@@ -1607,8 +1611,8 @@ export default function PortalHome() {
         const existing = (notices as Notice[] | undefined)?.find(n =>
           n.client_id === link?.client?.id && (n.notice_date === dayModal.date || n.swap_work_date === dayModal.date))
         return (
-          <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm space-y-4 p-5">
+          <div className="modal-overlay">
+            <div className="modal-box max-w-sm space-y-4">
               <div>
                 <h3 className="font-bold text-lg">{formatDate(dayModal.date)}</h3>
                 <p className="text-sm text-gray-500">{link?.client?.name} · {off ? 'Dia de folga pela escala' : 'Dia de trabalho pela escala'}</p>
@@ -1703,8 +1707,8 @@ export default function PortalHome() {
         const noFixedSchedule = !isConsultoria && modalLink && !hasKnownSchedule(modalLink)
         const extraDayValue = modalLink?.monthly_amount ? Math.round((Number(modalLink.monthly_amount) / 30) * 100) / 100 : null
         return (
-        <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md space-y-4 p-5 max-h-[90vh] overflow-y-auto">
+        <div className="modal-overlay">
+          <div className="modal-box max-w-md space-y-4">
             <h3 className="font-bold text-lg">{editingPontoId ? 'Editar registro' : 'Registrar dia'}</h3>
 
             {/* Cliente */}

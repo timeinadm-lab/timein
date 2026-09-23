@@ -179,8 +179,8 @@ export default function CandidateKanban() {
 
       {/* Reject/Inactivate modal */}
       {rejectModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-xl p-6 max-w-sm w-full mx-4 space-y-4">
+        <div className="modal-overlay">
+          <div className="modal-box max-w-sm space-y-4">
             <h3 className="font-semibold">{rejectModal.stage === 'Reprovado' ? 'Registrar Reprovação' : 'Registrar Inativação'}</h3>
             <p className="text-sm text-gray-500">Informe o motivo:</p>
             <textarea className="input" rows={3} value={reason} onChange={e => setReason(e.target.value)} placeholder="Motivo..." autoFocus />
@@ -201,8 +201,8 @@ export default function CandidateKanban() {
 
       {/* Interview modal */}
       {interviewModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-xl p-6 max-w-md w-full mx-4 space-y-4">
+        <div className="modal-overlay">
+          <div className="modal-box max-w-md space-y-4">
             <h3 className="font-semibold">Agendar Entrevista</h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="col-span-2"><label className="label">Data e Hora *</label><input className="input" type="datetime-local" value={interviewForm.scheduled_at} onChange={e => setInterviewForm(p => ({ ...p, scheduled_at: e.target.value }))} /></div>

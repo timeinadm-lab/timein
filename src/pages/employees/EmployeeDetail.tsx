@@ -136,7 +136,7 @@ export default function EmployeeDetail() {
   const [histForm, setHistForm] = useState({ type: 'Anotação', description: '', responsible: '' })
   const [showLinkForm, setShowLinkForm] = useState(false)
   // Data de hoje em ISO — usada para saber se um vínculo já foi encerrado
-  const hojeISO = hojeISO()
+  const hojeStr = hojeISO()
   const [linkForm, setLinkForm] = useState({ client_id: '', service_type: 'Fixo' as 'Fixo' | 'Consultoria', monthly_amount: '', cost_assistance: '', weekly_hours_quota: '', visit_frequency: 'Semanal' as 'Semanal' | 'Quinzenal' | 'Mensal', contract_end_date: '', work_schedule_type: '', daily_hours: '', days_off: [] as number[], schedule_anchor_date: '' })
   type EditLinkUnit = { unit_id: string; unit_name: string; visit_rate: string }
   type EditLinkState = { linkId: string; serviceType: string; clientId: string; monthly_amount: string; cost_assistance: string; weekly_hours: string; visit_frequency: string; visits_per_week: string; units: EditLinkUnit[]; work_schedule_type: string; daily_hours: string; days_off: number[]; schedule_anchor_date: string; start_date: string; payDays: string[]; pay_full_salary: boolean; expected_days_month: string }
@@ -1837,8 +1837,8 @@ export default function EmployeeDetail() {
               .slice()
               .sort((a, b) => {
                 const fim = (x: typeof a) => (x as { contract_end_date?: string }).contract_end_date || ''
-                const encA = fim(a) && fim(a) <= hojeISO ? 1 : 0
-                const encB = fim(b) && fim(b) <= hojeISO ? 1 : 0
+                const encA = fim(a) && fim(a) <= hojeStr ? 1 : 0
+                const encB = fim(b) && fim(b) <= hojeStr ? 1 : 0
                 return encA - encB
               })
               .map(l => {
@@ -1854,7 +1854,7 @@ export default function EmployeeDetail() {
               // Encerrado = a data de fim já chegou. É diferente de "contrato
               // vencendo": aqui o vínculo acabou, e o card precisa dizer isso em
               // vez de piscar um alerta de prazo que não cabe mais.
-              const encerrado = !!contractEnd && contractEnd <= hojeISO
+              const encerrado = !!contractEnd && contractEnd <= hojeStr
               const expiringSoon = !encerrado && daysLeft !== null && daysLeft >= 0 && daysLeft <= 40
               const expired = !encerrado && daysLeft !== null && daysLeft < 0
               // Sai da folha no mês seguinte ao encerramento — no mês em que
@@ -3514,8 +3514,8 @@ function VisaoGeral({
         }
         const fmt = (min: number) => `${Math.floor(min / 60)}h${min % 60 > 0 ? `${min % 60}min` : ''}`
         return (
-          <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-4" onClick={() => setDayDetail(null)}>
-            <div className="bg-white rounded-2xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto p-5 space-y-3" onClick={e => e.stopPropagation()}>
+          <div className="modal-overlay" onClick={() => setDayDetail(null)}>
+            <div className="modal-box max-w-md space-y-3" onClick={e => e.stopPropagation()}>
               <div className="flex items-center justify-between">
                 <h3 className="font-semibold text-gray-900">{formatDate(dayStr)}</h3>
                 <button onClick={() => setDayDetail(null)} className="text-gray-400 hover:text-gray-700 p-1"><X size={18} /></button>

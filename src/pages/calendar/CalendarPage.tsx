@@ -593,8 +593,8 @@ export default function CalendarPage() {
 
       {/* Detalhe do dia */}
       {dayOpen && (
-        <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-4" onClick={() => setDayOpen(null)}>
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-5 space-y-3" onClick={e => e.stopPropagation()}>
+        <div className="modal-overlay" onClick={() => setDayOpen(null)}>
+          <div className="modal-box max-w-lg space-y-3" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="font-semibold text-gray-900">{formatDate(dayOpen)}</h3>

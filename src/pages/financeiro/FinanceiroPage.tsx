@@ -233,8 +233,8 @@ export default function FinanceiroPage() {
 
       {/* Modal de lançamento */}
       {showForm && (
-        <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-4" onClick={() => setShowForm(null)}>
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto p-5 space-y-3" onClick={e => e.stopPropagation()}>
+        <div className="modal-overlay" onClick={() => setShowForm(null)}>
+          <div className="modal-box max-w-md space-y-3" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between">
               <h3 className="font-semibold text-gray-900">{showForm === 'entrada' ? 'Nova entrada (dinheiro que entra)' : 'Nova despesa'}</h3>
               <button onClick={() => setShowForm(null)} className="text-gray-400 hover:text-gray-700 p-1"><X size={18} /></button>

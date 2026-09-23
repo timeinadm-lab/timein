@@ -9,6 +9,7 @@ import { SkeletonRows } from '../../components/ui/Skeleton'
 import { SignedLink } from '../../components/ui/SignedFile'
 import { format, startOfMonth, endOfMonth, getDaysInMonth } from 'date-fns'
 import toast from 'react-hot-toast'
+import { confirmar } from '../../components/ui/ConfirmDialog'
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend,
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
@@ -1004,7 +1005,7 @@ export default function PaymentList() {
                       <button onClick={() => navigate(`/pagamentos/${p.id}/editar`)} className="btn-ghost text-xs">Editar</button>
                       {p.status === 'Cancelado' && (
                         <button
-                          onClick={() => { if (window.confirm('Excluir este lançamento de vez? Não dá pra desfazer.')) deletePayment.mutate(p.id) }}
+                          onClick={async () => { if (await confirmar({ titulo: 'Excluir este lançamento de vez?', texto: 'Não dá para desfazer.', perigo: true })) deletePayment.mutate(p.id) }}
                           className="btn-ghost text-xs text-red-500 hover:text-red-700 flex items-center gap-1"
                         ><Trash2 size={12} />Excluir</button>
                       )}
@@ -1694,8 +1695,8 @@ export default function PaymentList() {
 
       {/* ── Modal: definir valor do vínculo ── */}
       {editAmountLink && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm space-y-4">
+        <div className="modal-overlay">
+          <div className="modal-box max-w-sm space-y-4">
             <h3 className="font-bold text-lg">Definir valor mensal</h3>
             <p className="text-sm text-gray-600">{editAmountLink.name}</p>
             <div>

@@ -6,6 +6,7 @@ import { useAuth } from '../../contexts/AuthContext'
 import { getInitials } from '../../lib/utils'
 import { SkeletonRows } from '../../components/ui/Skeleton'
 import toast from 'react-hot-toast'
+import { confirmar } from '../../components/ui/ConfirmDialog'
 
 export default function UserManagement() {
   const { user: currentUser, role } = useAuth()
@@ -90,7 +91,7 @@ export default function UserManagement() {
   })
 
   const resetPassword = async (email: string) => {
-    if (!confirm(`Enviar link de redefinição para ${email}?`)) return
+    if (!(await confirmar({ titulo: 'Enviar link de redefinição de senha?', texto: `Vai para ${email}.`, confirmar: 'Enviar' }))) return
     const { error } = await supabase.auth.resetPasswordForEmail(email)
     if (error) toast.error(error.message)
     else toast.success('Link enviado!')

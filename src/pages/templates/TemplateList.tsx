@@ -5,6 +5,7 @@ import { supabase } from '../../lib/supabase'
 import { formatDate } from '../../lib/utils'
 import { SkeletonRows } from '../../components/ui/Skeleton'
 import toast from 'react-hot-toast'
+import { confirmar } from '../../components/ui/ConfirmDialog'
 
 export default function TemplateList() {
   const navigate = useNavigate()
@@ -62,7 +63,7 @@ export default function TemplateList() {
               <div className="flex gap-1">
                 <button onClick={() => navigate(`/templates/${t.id}/editar`)} className="btn-ghost p-2"><Edit size={16} /></button>
                 <button onClick={() => duplicate.mutate(t.id)} className="btn-ghost p-2"><Copy size={16} /></button>
-                <button onClick={() => { if (confirm('Excluir template?')) deleteTemplate.mutate(t.id) }} className="btn-ghost p-2 text-red-400"><Trash2 size={16} /></button>
+                <button onClick={async () => { if (await confirmar({ titulo: 'Excluir template?', perigo: true })) deleteTemplate.mutate(t.id) }} className="btn-ghost p-2 text-red-400"><Trash2 size={16} /></button>
               </div>
             </div>
           ))}

@@ -45,8 +45,8 @@ export default function DeletePinModal({
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4">
-      <div className="bg-white rounded-2xl shadow-lift p-6 max-w-sm w-full space-y-4">
+    <div className="modal-overlay z-[60]">
+      <div className="modal-box max-w-sm space-y-4">
         <div className="flex items-start gap-3">
           <div className="w-11 h-11 rounded-2xl bg-red-100 flex items-center justify-center shrink-0">
             <ShieldAlert size={22} className="text-red-600" />

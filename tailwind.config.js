@@ -30,6 +30,20 @@ export default {
           800: '#2a2925',
           900: '#1a1916',
         },
+        // Metade das telas ainda usava o cinza frio padrão do Tailwind ao lado
+        // do ink quente — o sistema parecia remendado. gray agora É o ink.
+        gray: {
+          50: '#f8f8f7',
+          100: '#f1f1ef',
+          200: '#e6e5e2',
+          300: '#d3d2cd',
+          400: '#a8a7a0',
+          500: '#78776f',
+          600: '#57564f',
+          700: '#41403a',
+          800: '#2a2925',
+          900: '#1a1916',
+        },
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', 'sans-serif'],

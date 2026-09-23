@@ -27,7 +27,7 @@ ALTER TABLE employee_expenses
 -- A nutricionista mexe no mês atual e no anterior (consultoria da 2ª quinzena
 -- só é paga no dia 8 do mês seguinte). Antes disso, só o RH altera.
 CREATE OR REPLACE FUNCTION portal_mes_aberto(p_date date)
-RETURNS boolean LANGUAGE sql IMMUTABLE AS $$
+RETURNS boolean LANGUAGE sql STABLE AS $$
   SELECT p_date >= (date_trunc('month', now() AT TIME ZONE 'America/Sao_Paulo') - interval '1 month')::date
 $$;
 
@@ -69,7 +69,10 @@ BEGIN
     RAISE EXCEPTION 'Nesse dia você não tinha vínculo ativo com este cliente. Fale com o RH.';
   END IF;
 
-  IF v_date > (now() AT TIME ZONE 'America/Sao_Paulo')::date THEN
+  -- Falta ou feriado avisado com antecedência pode; trabalho no futuro, não
+  IF v_date > (now() AT TIME ZONE 'America/Sao_Paulo')::date
+     AND NOT coalesce((p_payload->>'is_unavailable')::boolean, false)
+     AND NOT coalesce((p_payload->>'is_holiday')::boolean, false) THEN
     RAISE EXCEPTION 'Não dá para registrar um dia que ainda não aconteceu.';
   END IF;
 

@@ -1047,8 +1047,17 @@ export default function PaymentList() {
     // Lançado ≠ o que daria hoje (visita registrada depois, falta, gasto novo…)
     const lancado = r2(et.somaPaga + et.somaPendente)
     const divergente = (et.etapa === 'pagar' || et.etapa === 'pago') && Math.abs(lancado - conta.fechamento) >= 1
-    return { row, conta, et, aberto, lancado, divergente }
+    // Vínculo que terminou neste mês (ou antes). Freela tem fim por natureza,
+    // então só marcamos como "encerrado" quem não é freela.
+    const fim = row.freelaEnd
+    const encerradoEm = row.service_type !== 'Volante' && fim && fim <= monthEnd ? fim : null
+    return { row, conta, et, aberto, lancado, divergente, encerradoEm }
   })
+    // Vínculo que acabou e não deixou nada a pagar (nenhum registro, nenhum
+    // lançamento, valor zero) sai da folha. Antes ficava ali com R$ 0,00 e um
+    // botão "Lançar" que não levava a lugar nenhum. Se trabalhou até encerrar,
+    // continua aparecendo para pagar esses dias.
+    .filter(l => !(l.encerradoEm && l.row.visits.length === 0 && l.et.etapa === 'lancar' && l.conta.total <= 0))
   type Linha = typeof linhas[number]
 
   const termoBusca = semAcento(busca.trim())
@@ -1057,10 +1066,12 @@ export default function PaymentList() {
     if (!filtroEtapa) return true
     if (filtroEtapa === 'semana') return l.et.venceSemana
     if (filtroEtapa === 'atrasado') return l.et.atrasado
+    if (filtroEtapa === 'lancar') return l.et.etapa === 'lancar' && l.conta.total > 0
     return l.et.etapa === filtroEtapa
   }
   const contagem = {
-    lancar: linhas.filter(l => l.et.etapa === 'lancar').length,
+    // "A lançar" só conta quem tem algo a receber
+    lancar: linhas.filter(l => l.et.etapa === 'lancar' && l.conta.total > 0).length,
     conferir: linhas.filter(l => l.et.etapa === 'conferir').length,
     pagar: linhas.filter(l => l.et.etapa === 'pagar').length,
     pago: linhas.filter(l => l.et.etapa === 'pago').length,
@@ -1469,7 +1480,7 @@ export default function PaymentList() {
                       </div>
                     </div>
                     <div className="divide-y divide-ink-100">
-                      {visiveis.map(({ row, conta, et, lancado, divergente }) => {
+                      {visiveis.map(({ row, conta, et, lancado, divergente, encerradoEm }) => {
                         const isFreela = row.service_type === 'Volante'
                         const isConsultoria = porTrabalho(row)
                         const diff = isConsultoria ? 0 : row.actualDays - row.expDaysToDate
@@ -1478,7 +1489,10 @@ export default function PaymentList() {
                         const contaVisivel = contaAberta === row.linkId
 
                         // A ação principal da linha — só uma
-                        const acao = et.etapa === 'lancar'
+                        // Nada a pagar ainda (consultoria sem visita no mês, fixo que começa no
+                        // próximo ciclo): sem botão — antes "Lançar" só dava erro.
+                        const nadaAPagar = et.etapa === 'lancar' && conta.total <= 0
+                        const acao = et.etapa === 'lancar' && !nadaAPagar
                           ? {
                               rotulo: isConsultoria ? 'Lançar pagamento' : 'Lançar previsão',
                               dica: isConsultoria ? 'Cria o pagamento pelas visitas registradas (dia 20 e dia 8)' : 'Cria a previsão do mês. Depois você confere pelo realizado.',
@@ -1537,6 +1551,7 @@ export default function PaymentList() {
                                     ? <span className="text-ink-400">{formatDate(row.startDate)}{row.freelaEnd ? ` → ${formatDate(row.freelaEnd)}` : ''}</span>
                                     : row.startDate && <span className="text-ink-400">desde {formatDate(row.startDate)}</span>}
                                   {row.payFullSalary && !isConsultoria && <span className="text-ink-500">· salário inteiro</span>}
+                                  {encerradoEm && <span className="text-red-600">· encerrado em {formatDate(encerradoEm)}</span>}
                                 </div>
                               </div>
                               <button
@@ -1619,12 +1634,13 @@ export default function PaymentList() {
 
                             {/* Etapa + a próxima ação */}
                             <div className="flex items-center gap-2 flex-wrap">
-                              <Etapas etapa={et.etapa} porTrabalho={isConsultoria} />
+                              {!nadaAPagar && <Etapas etapa={et.etapa} porTrabalho={isConsultoria} />}
                               <span className="text-[11px] text-ink-500">
                                 {et.etapa === 'pago'
                                   ? (et.ultimoPago ? <>em {formatDate(et.ultimoPago.slice(0, 10))}</> : null)
                                   : et.atrasado ? <span className="text-red-600 font-semibold">Atrasado desde {formatDate(et.proximo!.due_date)}</span>
                                   : et.proximo ? <>Vence {formatDate(et.proximo.due_date)}{et.pendentes.length > 1 ? ` (+${et.pendentes.length - 1})` : ''}</>
+                                  : nadaAPagar ? (isConsultoria ? 'sem visitas no mês' : 'nada a pagar neste mês')
                                   : null}
                               </span>
                               <div className="flex items-center gap-2 w-full sm:w-auto sm:ml-auto">
@@ -1639,7 +1655,6 @@ export default function PaymentList() {
                                 </button>
                               </div>
                             </div>
-                            {acao && <p className="text-[11px] text-ink-400 -mt-1 sm:text-right">{acao.dica}</p>}
 
                             {/* Lançado não bate com o que daria hoje */}
                             {divergente && (

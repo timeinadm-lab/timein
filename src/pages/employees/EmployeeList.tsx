@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { Plus, Search, Download, AlertCircle, ChevronRight, Star, X, MessageCircle } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
-import { formatDate, getInitials, hojeISO, semAcento, formatWhatsApp } from '../../lib/utils'
+import { formatDate, getInitials, hojeISO, semAcento, formatWhatsApp, corDoAvatar } from '../../lib/utils'
 import { SignedImage } from '../../components/ui/SignedFile'
 import { exportToCSV } from '../../lib/exportUtils'
 import Pagination from '../../components/ui/Pagination'
@@ -139,9 +139,9 @@ export default function EmployeeList() {
     s === 'Ativo' ? 'bg-primary-100 text-primary-700' : s === 'Ocioso' ? 'bg-amber-100 text-amber-700' : 'bg-ink-100 text-ink-600'
 
   const filterTabs = [
-    { label: '⭐ Favoritos', value: FAVORITES_KEY },
+    { label: 'Favoritos', value: FAVORITES_KEY },
     { label: 'Ativos', value: 'Ativo' },
-    { label: '⚡ Atuando', value: ACTING_KEY },
+    { label: 'Atuando', value: ACTING_KEY },
     { label: 'Inativos', value: 'Inativo' },
     { label: 'Ociosos', value: 'Ocioso' },
     { label: 'Todos', value: '' },
@@ -152,7 +152,7 @@ export default function EmployeeList() {
       <div className="flex items-end justify-between flex-wrap gap-3">
         <div>
           <p className="eyebrow mb-1">Equipe</p>
-          <h1 className="text-2xl md:text-3xl font-display font-extrabold text-ink-900">
+          <h1 className="page-title">
             Colaboradores
             {employees && <span className="ml-2 text-base font-semibold text-ink-400 align-middle">{filtered.length}</span>}
           </h1>
@@ -165,7 +165,7 @@ export default function EmployeeList() {
 
       {/* No celular a busca gruda no topo ao rolar: dá para procurar outra
           pessoa sem voltar lá em cima */}
-      <div className="card p-3 flex gap-2.5 flex-wrap items-center sticky top-[62px] md:static z-10">
+      <div className="card p-3 flex gap-2.5 flex-wrap items-center sticky top-[58px] md:static z-10">
         <div className="relative flex-1 min-w-48">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-400" />
           <input className="input pl-9 pr-9" placeholder="Nome, CPF, telefone ou cliente…" value={search}
@@ -211,7 +211,7 @@ export default function EmployeeList() {
         <EmptyState
           icon={status === FAVORITES_KEY ? Star : Search}
           title={status === FAVORITES_KEY ? 'Nenhum favorito ainda' : status === ACTING_KEY ? 'Ninguém atuando com esses filtros' : 'Nenhum colaborador encontrado'}
-          hint={status === FAVORITES_KEY ? 'Clique na ⭐ de um colaborador para favoritá-lo.' : 'Ajuste os filtros ou cadastre um novo.'}
+          hint={status === FAVORITES_KEY ? 'Toque na estrela de um colaborador para favoritá-lo.' : 'Ajuste os filtros ou cadastre um novo.'}
         />
       ) : (
         <>
@@ -234,10 +234,10 @@ export default function EmployeeList() {
                   {/* Avatar */}
                   <div className="md:col-span-5 flex items-center gap-3 min-w-0 row-start-1">
                     {e.photo_url ? (
-                      <SignedImage value={e.photo_url} bucket="fotos de funcionários" alt={e.full_name} className="w-10 h-10 rounded-full object-cover flex-shrink-0 ring-2 ring-white shadow-soft"
-                        fallback={<div className="w-10 h-10 rounded-full bg-primary-100 flex items-center justify-center text-primary-700 text-sm font-bold flex-shrink-0">{getInitials(e.full_name)}</div>} />
+                      <SignedImage value={e.photo_url} bucket="fotos de funcionários" alt={e.full_name} className="w-10 h-10 rounded-full object-cover flex-shrink-0 "
+                        fallback={<div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold flex-shrink-0 ${corDoAvatar(e.full_name)}`}>{getInitials(e.full_name)}</div>} />
                     ) : (
-                      <div className="w-10 h-10 rounded-full bg-primary-100 flex items-center justify-center text-primary-700 text-sm font-bold flex-shrink-0">
+                      <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold flex-shrink-0 ${corDoAvatar(e.full_name)}`}>
                         {getInitials(e.full_name)}
                       </div>
                     )}

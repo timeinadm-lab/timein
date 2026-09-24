@@ -74,7 +74,7 @@ export default function ProfilePage() {
     <div className="space-y-6 max-w-lg">
       <div>
         <p className="eyebrow mb-1">Conta</p>
-        <h1 className="text-2xl font-display font-extrabold text-ink-900">Meu Perfil</h1>
+        <h1 className="page-title">Meu Perfil</h1>
       </div>
 
       {/* Foto + nome */}

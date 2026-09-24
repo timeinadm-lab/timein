@@ -173,7 +173,7 @@ export default function InterviewForm() {
     <div className="max-w-2xl mx-auto space-y-6">
       <div className="flex items-center gap-3">
         <button onClick={() => navigate(-1)} className="btn-ghost p-2"><ArrowLeft size={18} /></button>
-        <h1 className="text-xl font-bold">{isEdit ? 'Editar Compromisso' : 'Novo Compromisso'}</h1>
+        <h1 className="page-title-sm">{isEdit ? 'Editar Compromisso' : 'Novo Compromisso'}</h1>
       </div>
       <form onSubmit={handleSubmit} className="card p-6 space-y-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

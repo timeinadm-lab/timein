@@ -460,7 +460,7 @@ export default function CalendarPage() {
       <div className="flex items-end justify-between flex-wrap gap-3">
         <div>
           <p className="eyebrow mb-1">Operação</p>
-          <h1 className="text-2xl md:text-3xl font-display font-extrabold text-ink-900 flex items-center gap-2">
+          <h1 className="page-title flex items-center gap-2">
             <CalendarDays size={26} className="text-primary-600" /> Calendário
           </h1>
           <p className="text-sm text-ink-400 mt-1">Tudo que acontece na empresa: visitas, ausências e compromissos.</p>

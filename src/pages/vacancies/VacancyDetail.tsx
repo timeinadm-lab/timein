@@ -931,7 +931,7 @@ export default function VacancyDetail() {
       <div className="card p-4 md:p-5">
         <div className="flex items-start justify-between gap-3 flex-wrap">
           <div className="min-w-0">
-            <h1 className="text-xl md:text-2xl font-display font-extrabold text-ink-900">{vacancy.title}</h1>
+            <h1 className="page-title-sm">{vacancy.title}</h1>
             <div className="flex gap-1.5 flex-wrap mt-2">
               <span className={`badge ${vacancy.status === 'Aberta' ? 'bg-primary-100 text-primary-700' : vacancy.status === 'Atuando' ? 'bg-green-100 text-green-700' : vacancy.status === 'Preenchida' ? 'bg-purple-100 text-purple-700' : 'bg-ink-100 text-ink-600'}`}>{vacancy.status === 'Atuando' ? '● Atuando' : vacancy.status}</span>
               <span className="badge bg-ink-100 text-ink-600">{[vacancy.city, vacancy.state].filter(Boolean).join(', ')}</span>

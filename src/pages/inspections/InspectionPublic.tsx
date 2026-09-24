@@ -76,7 +76,7 @@ export default function InspectionPublic() {
         <div className="w-full max-w-sm">
           <div className="text-center mb-8">
             <div className="w-16 h-16 rounded-full bg-primary-600 flex items-center justify-center text-white font-bold text-2xl mx-auto mb-4">TI</div>
-            <h1 className="text-2xl font-bold">Time IN — Vistoria</h1>
+            <h1 className="page-title">Time IN — Vistoria</h1>
             <p className="text-gray-500 mt-1">Informe sua senha para continuar</p>
           </div>
           <div className="card p-6 space-y-4">
@@ -106,7 +106,7 @@ export default function InspectionPublic() {
       <div className="max-w-lg mx-auto space-y-6">
         <div className="text-center">
           <div className="w-12 h-12 rounded-full bg-primary-600 flex items-center justify-center text-white font-bold text-lg mx-auto mb-3">TI</div>
-          <h1 className="text-xl font-bold">{data.employee.full_name}</h1>
+          <h1 className="page-title-sm">{data.employee.full_name}</h1>
           <p className="text-gray-500 text-sm">{data.client.name}</p>
         </div>
 

@@ -133,7 +133,7 @@ export default function InterviewAgenda() {
       <div className="flex items-end justify-between flex-wrap gap-3">
         <div>
           <p className="eyebrow mb-1">Gestão</p>
-          <h1 className="text-2xl md:text-3xl font-display font-extrabold text-ink-900">
+          <h1 className="page-title">
             {aba === 'reunioes' ? 'Reuniões' : aba === 'compromissos' ? 'Compromissos' : aba === 'entrevistas' ? 'Entrevistas' : 'Todos os compromissos'}
           </h1>
         </div>

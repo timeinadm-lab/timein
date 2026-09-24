@@ -47,18 +47,21 @@ export default {
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', 'sans-serif'],
-        display: ['"Plus Jakarta Sans"', 'Inter', 'system-ui', 'sans-serif'],
+        // display = Inter (números e títulos de seção). A serifa é só p/ títulos de página.
+        display: ['Inter', 'system-ui', 'sans-serif'],
+        serif: ['"Instrument Serif"', 'Georgia', 'serif'],
       },
       boxShadow: {
         // Sombras suaves e em camadas — dão profundidade sem o "drop-shadow" duro
-        soft: '0 1px 2px rgba(16,24,40,0.04), 0 1px 3px rgba(16,24,40,0.06)',
-        card: '0 1px 3px rgba(16,24,40,0.04), 0 4px 12px rgba(16,24,40,0.04)',
+        soft: '0 1px 2px rgba(26,25,22,0.04)',
+        card: '0 1px 2px rgba(26,25,22,0.03)',
         lift: '0 4px 8px rgba(16,24,40,0.05), 0 12px 28px rgba(16,24,40,0.08)',
-        glow: '0 4px 16px rgba(22,163,74,0.18)',
+        // Brilho verde aposentado (cara de template); mantido o nome p/ não quebrar classes
+        glow: '0 1px 2px rgba(26,25,22,0.06)',
       },
       borderRadius: {
-        '2xl': '1rem',
-        '3xl': '1.25rem',
+        '2xl': '0.875rem',
+        '3xl': '1rem',
       },
       keyframes: {
         'fade-in': {

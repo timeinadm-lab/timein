@@ -149,7 +149,7 @@ export default function EmployeeForm() {
     <div className="max-w-2xl mx-auto space-y-6">
       <div className="flex items-center gap-3">
         <button onClick={() => navigate(-1)} className="btn-ghost p-2"><ArrowLeft size={18} /></button>
-        <h1 className="text-xl font-bold">{isEdit ? 'Editar Colaborador' : 'Novo Colaborador'}</h1>
+        <h1 className="page-title-sm">{isEdit ? 'Editar Colaborador' : 'Novo Colaborador'}</h1>
       </div>
 
       <div className="flex gap-1 border-b border-gray-200">

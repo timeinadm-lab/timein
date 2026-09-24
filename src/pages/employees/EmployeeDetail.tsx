@@ -3,7 +3,7 @@ import { useParams, useNavigate, useLocation, useSearchParams } from 'react-rout
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Edit, Plus, Trash2, CheckCircle, Clock, XCircle, Download, Upload, ExternalLink, AlertTriangle, Star, X, FileText } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
-import { formatDate, formatCurrency, getInitials, serviceTypeLabel, hojeISO } from '../../lib/utils'
+import { formatDate, formatCurrency, getInitials, serviceTypeLabel, hojeISO, corDoAvatar } from '../../lib/utils'
 import { exportEmployeeToPDF } from '../../lib/exportUtils'
 import { SignedLink, SignedImage } from '../../components/ui/SignedFile'
 import DeletePinModal from '../../components/ui/DeletePinModal'
@@ -1092,15 +1092,15 @@ export default function EmployeeDetail() {
       <div className="card p-4 md:p-5">
         <div className="flex items-start gap-4">
           {employee.photo_url ? (
-            <SignedImage value={employee.photo_url} bucket="fotos de funcionários" alt={employee.full_name} className="w-16 h-16 rounded-2xl object-cover flex-shrink-0 ring-2 ring-white shadow-soft"
-              fallback={<div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary-400 to-primary-600 flex items-center justify-center text-white font-display font-extrabold text-xl flex-shrink-0">{getInitials(employee.full_name)}</div>} />
+            <SignedImage value={employee.photo_url} bucket="fotos de funcionários" alt={employee.full_name} className="w-16 h-16 rounded-full object-cover flex-shrink-0"
+              fallback={<div className={`w-16 h-16 rounded-full flex items-center justify-center font-semibold text-xl flex-shrink-0 ${corDoAvatar(employee.full_name)}`}>{getInitials(employee.full_name)}</div>} />
           ) : (
-            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary-400 to-primary-600 flex items-center justify-center text-white font-display font-extrabold text-xl flex-shrink-0">
+            <div className={`w-16 h-16 rounded-full flex items-center justify-center font-semibold text-xl flex-shrink-0 ${corDoAvatar(employee.full_name)}`}>
               {getInitials(employee.full_name)}
             </div>
           )}
           <div className="flex-1 min-w-0">
-            <h1 className="text-xl md:text-2xl font-display font-extrabold text-ink-900 truncate">{employee.full_name}</h1>
+            <h1 className="page-title-sm truncate">{employee.full_name}</h1>
             <p className="text-sm text-ink-500">{employee.role || 'Sem cargo'}</p>
             <div className="flex flex-wrap gap-1.5 mt-2">
               {/* Status editável: clica no badge e escolhe Ativo / Ocioso / Inativo */}

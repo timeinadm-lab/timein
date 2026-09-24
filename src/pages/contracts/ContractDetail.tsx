@@ -67,7 +67,7 @@ export default function ContractDetail() {
     <div className="max-w-3xl mx-auto space-y-4">
       <div className="flex items-center gap-3">
         <button onClick={() => navigate(-1)} className="btn-ghost p-2"><ArrowLeft size={18} /></button>
-        <h1 className="text-xl font-bold flex-1">{contract.client_name || 'Contrato'}</h1>
+        <h1 className="page-title-sm flex-1">{contract.client_name || 'Contrato'}</h1>
         <button onClick={() => navigate(`/contratos/${id}/editar`)} className="btn-secondary flex items-center gap-2"><Edit size={14} />Editar</button>
       </div>
 

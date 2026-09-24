@@ -643,7 +643,7 @@ export default function PortalHome() {
       <div className="bg-gradient-to-br from-primary-600 to-primary-700 text-white px-4 pt-5 pb-4" style={{ paddingTop: 'max(1.25rem, env(safe-area-inset-top))' }}>
         <div className="max-w-lg mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="w-11 h-11 rounded-2xl bg-white/15 backdrop-blur flex items-center justify-center text-white font-display font-extrabold ring-1 ring-white/25 shrink-0">
+            <div className="w-11 h-11 rounded-2xl bg-white/15 backdrop-blur flex items-center justify-center text-white font-display font-bold ring-1 ring-white/25 shrink-0">
               {getInitials(employeeName)}
             </div>
             <div className="min-w-0">
@@ -702,21 +702,21 @@ export default function PortalHome() {
             <div className="space-y-4">
               <div className="bg-white rounded-2xl p-4 shadow-soft border border-ink-100">
                 <p className="text-xs text-ink-400 mb-1">Olá,</p>
-                <h2 className="text-xl font-display font-extrabold text-ink-900 leading-tight">{employeeName.split(' ')[0] || 'Olá'} 👋</h2>
+                <h2 className="text-xl font-display font-bold text-ink-900 leading-tight">{employeeName.split(' ')[0] || 'Olá'} 👋</h2>
                 <p className="text-xs text-ink-400 mt-0.5">{new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}</p>
               </div>
 
               {/* Stats do mês */}
               <div className="grid grid-cols-2 gap-3">
                 <div className="bg-blue-50 rounded-2xl p-4 border border-blue-100">
-                  <p className="text-3xl font-display font-extrabold text-blue-700 leading-none">{daysWorkedTotal}</p>
+                  <p className="text-3xl font-display font-bold text-blue-700 leading-none">{daysWorkedTotal}</p>
                   <p className="text-xs text-blue-500 mt-1 font-medium">dias registrados</p>
                   <p className="text-[10px] text-blue-400 capitalize">{monthLabel}</p>
                 </div>
                 <div className={`rounded-2xl p-4 border ${pendingAll.length > 0 ? 'bg-amber-50 border-amber-200' : 'bg-green-50 border-green-100'}`}>
                   {pendingAll.length > 0 ? (
                     <>
-                      <p className="text-3xl font-display font-extrabold text-amber-600 leading-none">{pendingAll.length}</p>
+                      <p className="text-3xl font-display font-bold text-amber-600 leading-none">{pendingAll.length}</p>
                       <p className="text-xs text-amber-500 mt-1 font-medium">dias pendentes</p>
                       <p className="text-[10px] text-amber-400">preencha a folha</p>
                     </>
@@ -897,7 +897,7 @@ export default function PortalHome() {
                       </div>
                     </div>
                     <div className="text-right shrink-0 pl-3">
-                      <p className={`text-3xl font-display font-extrabold leading-none tnum ${isConsultoria ? 'text-orange-600' : 'text-blue-600'}`}>{isConsultoria ? clientVisits.length : daysWorked}</p>
+                      <p className={`text-3xl font-display font-bold leading-none tnum ${isConsultoria ? 'text-orange-600' : 'text-blue-600'}`}>{isConsultoria ? clientVisits.length : daysWorked}</p>
                       <p className="text-[11px] text-ink-400 mt-1">{isConsultoria ? 'visitas' : 'dias'}</p>
                     </div>
                   </div>
@@ -942,7 +942,7 @@ export default function PortalHome() {
                       <div className="rounded-xl bg-orange-50 px-3.5 py-3 space-y-2">
                         <div className="flex items-end justify-between">
                           <span className="text-sm text-orange-700 font-medium">Horas este mês</span>
-                          <span className="font-display font-extrabold text-orange-800 text-lg leading-none tnum">{fmtH(monthHours)}{monthlyQuota ? <span className="text-sm font-semibold text-orange-500"> / {monthlyQuota}h</span> : null}</span>
+                          <span className="font-display font-bold text-orange-800 text-lg leading-none tnum">{fmtH(monthHours)}{monthlyQuota ? <span className="text-sm font-semibold text-orange-500"> / {monthlyQuota}h</span> : null}</span>
                         </div>
                         {monthlyQuota && (
                           <div className="h-2 bg-orange-200/70 rounded-full overflow-hidden">
@@ -962,7 +962,7 @@ export default function PortalHome() {
                       {earnings !== null && earnings > 0 && (
                         <div className="rounded-xl bg-gradient-to-br from-primary-500 to-primary-600 px-3.5 py-3 flex items-center justify-between text-white shadow-glow">
                           <span className="text-sm font-medium text-white/90">💰 A receber este mês</span>
-                          <span className="font-display font-extrabold text-lg tnum">R$ {earnings.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                          <span className="font-display font-bold text-lg tnum">R$ {earnings.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
                         </div>
                       )}
                       {linkUnits.length > 0 ? (
@@ -1468,7 +1468,7 @@ export default function PortalHome() {
                     return (
                       <div key={a.id} className={`flex items-center gap-3 p-2.5 rounded-xl border ${done ? 'bg-primary-50/50 border-primary-100' : isFixed ? 'bg-blue-50/40 border-blue-100' : 'bg-white border-ink-100'}`}>
                         <div className={`w-11 h-11 rounded-xl flex flex-col items-center justify-center flex-shrink-0 ${isFixed ? 'bg-blue-100' : 'bg-orange-50'}`}>
-                          <span className={`text-sm font-display font-extrabold leading-none ${isFixed ? 'text-blue-700' : 'text-orange-700'}`}>{new Date(a.planned_date + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit' })}</span>
+                          <span className={`text-sm font-display font-bold leading-none ${isFixed ? 'text-blue-700' : 'text-orange-700'}`}>{new Date(a.planned_date + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit' })}</span>
                           <span className={`text-[10px] uppercase mt-0.5 ${isFixed ? 'text-blue-500' : 'text-orange-500'}`}>{new Date(a.planned_date + 'T12:00:00').toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '')}</span>
                         </div>
                         <div className="flex-1 min-w-0">

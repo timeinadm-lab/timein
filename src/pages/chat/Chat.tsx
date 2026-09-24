@@ -190,7 +190,7 @@ export default function Chat() {
     <div className="flex flex-col h-full max-h-[calc(100vh-120px)]">
       <div className="mb-4">
         <p className="eyebrow mb-1">Comunicação</p>
-        <h1 className="text-2xl md:text-3xl font-display font-extrabold text-ink-900">Chat</h1>
+        <h1 className="page-title">Chat</h1>
       </div>
 
       <div className="flex gap-1 mb-3">

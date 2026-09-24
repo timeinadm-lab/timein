@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Download, Check, RefreshCw, AlertTriangle, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, BarChart3, Trash2, FileSpreadsheet, X, Paperclip, Search, MoreHorizontal, Pencil, Wallet, ExternalLink } from 'lucide-react'
+import { Plus, Download, Check, RefreshCw, AlertTriangle, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, BarChart3, Trash2, FileSpreadsheet, X, Paperclip, Search, MoreHorizontal, Pencil, Wallet, ExternalLink, FileCheck2, FileX2 } from 'lucide-react'
 import { supabase, fetchAll } from '../../lib/supabase'
 import { formatDate, formatCurrency, hojeISO, semAcento } from '../../lib/utils'
 import { exportToCSV } from '../../lib/exportUtils'
@@ -96,29 +96,21 @@ type Etapa = 'lancar' | 'conferir' | 'pagar' | 'pago'
 
 function Etapas({ etapa, porTrabalho }: { etapa: Etapa; porTrabalho: boolean }) {
   const ordem: Etapa[] = ['lancar', 'conferir', 'pagar', 'pago']
-  const passos: [Etapa, string][] = porTrabalho
-    ? [['lancar', 'Lançar'], ['pagar', 'Pagar']]
-    : [['lancar', 'Lançar'], ['conferir', 'Conferir'], ['pagar', 'Pagar']]
+  const passos: Etapa[] = porTrabalho ? ['lancar', 'pagar'] : ['lancar', 'conferir', 'pagar']
   const atualIdx = ordem.indexOf(etapa)
+  const nome: Record<Etapa, string> = { lancar: 'A lançar', conferir: 'A conferir', pagar: 'A pagar', pago: 'Pago' }
+  // Barrinhas discretas: feito = verde, atual = âmbar, falta = cinza
   return (
-    <ol className="flex items-center text-[11px] font-semibold" aria-label="Etapas do pagamento">
-      {passos.map(([k, rotulo], i) => {
-        const feito = ordem.indexOf(k) < atualIdx
-        const atual = k === etapa
-        return (
-          <li key={k} className="flex items-center">
-            {i > 0 && <span className={`w-3 sm:w-4 h-0.5 rounded ${feito || atual ? 'bg-primary-300' : 'bg-ink-200'}`} />}
-            <span className={`flex items-center gap-1 px-2 py-1 rounded-full whitespace-nowrap ${
-              feito ? 'bg-primary-50 text-primary-700'
-              : atual ? 'bg-amber-100 text-amber-800 ring-1 ring-amber-300'
-              : 'bg-ink-100 text-ink-400'}`}>
-              {feito ? <Check size={11} strokeWidth={3} /> : <span className="tnum">{i + 1}</span>}
-              {rotulo}
-            </span>
-          </li>
-        )
-      })}
-    </ol>
+    <span className="flex items-center gap-2" aria-label={`Etapa: ${nome[etapa]}`}>
+      <span className="flex items-center gap-0.5" aria-hidden="true">
+        {passos.map(k => {
+          const i = ordem.indexOf(k)
+          const cor = i < atualIdx ? 'bg-primary-600' : k === etapa ? 'bg-amber-500' : 'bg-ink-200'
+          return <span key={k} className={`w-4 h-1 rounded-full ${cor}`} />
+        })}
+      </span>
+      <span className={`text-xs font-medium ${etapa === 'pago' ? 'text-green-700' : 'text-ink-700'}`}>{nome[etapa]}</span>
+    </span>
   )
 }
 
@@ -133,6 +125,7 @@ export default function PaymentList() {
   // pendente, mostrava "Gerar" de novo e os totais saíam errados.
   const [filtroEtapa, setFiltroEtapa] = useState<'' | Etapa | 'semana' | 'atrasado'>('')
   const [busca, setBusca] = useState('')
+  const mesRef = useRef<HTMLInputElement>(null)
   const [contaAberta, setContaAberta] = useState<string | null>(null)
   const [acoesDe, setAcoesDe] = useState<string | null>(null)
   // Formulário de gasto aberto: guarda o VÍNCULO (linha), não a pessoa —
@@ -143,6 +136,7 @@ export default function PaymentList() {
   const [editAmountLink, setEditAmountLink] = useState<{ linkId: string; name: string; current: number } | null>(null)
   const [editAmountVal, setEditAmountVal] = useState('')
 
+  const nomeDoMes = new Date(filterMonth + '-15').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
   const monthStart = format(startOfMonth(new Date(filterMonth + '-15')), 'yyyy-MM-dd')
   const monthEnd = format(endOfMonth(new Date(filterMonth + '-15')), 'yyyy-MM-dd')
 
@@ -1172,7 +1166,7 @@ export default function PaymentList() {
       <div className="flex items-end justify-between flex-wrap gap-3">
         <div>
           <p className="eyebrow mb-1">Financeiro</p>
-          <h1 className="text-2xl md:text-3xl font-display font-extrabold text-ink-900">Pagamentos</h1>
+          <h1 className="page-title">Pagamentos</h1>
         </div>
         <div className="flex gap-2">
           <button onClick={baixarExcel} disabled={baixando} className="btn-secondary text-sm"
@@ -1196,30 +1190,30 @@ export default function PaymentList() {
           <div className="card p-4 md:p-5">
             <div className="flex items-start justify-between gap-3 flex-wrap">
               <div className="min-w-0">
-                <p className="text-xs font-semibold text-ink-500 capitalize">
-                  Folha de {new Date(filterMonth + '-15').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
+                <p className="text-xs text-ink-500">
+                  Folha de {nomeDoMes}
                 </p>
-                <p className="text-3xl md:text-4xl font-display font-extrabold text-ink-900 tnum mt-0.5">{formatCurrency(folhaTotal)}</p>
+                <p className="text-3xl md:text-4xl font-semibold text-ink-900 tnum mt-1 tracking-tight">{formatCurrency(folhaTotal)}</p>
                 <p className="text-xs text-ink-400 mt-0.5">{linhas.length} vínculo{linhas.length !== 1 ? 's' : ''} ativo{linhas.length !== 1 ? 's' : ''} no mês</p>
               </div>
               <div className="grid grid-cols-3 gap-2 w-full sm:w-auto">
-                <div className="rounded-xl bg-green-50 px-3 py-2">
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-green-700/80">Já pago</p>
-                  <p className="text-sm md:text-base font-bold text-green-800 tnum">{formatCurrency(totalPago)}</p>
+                <div className="px-3 py-1 sm:border-l border-ink-100">
+                  <p className="text-xs text-ink-500">Já pago</p>
+                  <p className="text-sm md:text-base font-semibold text-green-700 tnum">{formatCurrency(totalPago)}</p>
                 </div>
-                <div className="rounded-xl bg-amber-50 px-3 py-2">
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-700/80">Falta pagar</p>
-                  <p className="text-sm md:text-base font-bold text-amber-800 tnum">{formatCurrency(faltaPagar)}</p>
+                <div className="px-3 py-1 border-l border-ink-100">
+                  <p className="text-xs text-ink-500">Falta pagar</p>
+                  <p className="text-sm md:text-base font-semibold text-ink-900 tnum">{formatCurrency(faltaPagar)}</p>
                 </div>
-                <div className={`rounded-xl px-3 py-2 ${totalAtrasado > 0 ? 'bg-red-50' : 'bg-ink-50'}`}>
-                  <p className={`text-[10px] font-semibold uppercase tracking-wide ${totalAtrasado > 0 ? 'text-red-700/80' : 'text-ink-400'}`}>Atrasado</p>
-                  <p className={`text-sm md:text-base font-bold tnum ${totalAtrasado > 0 ? 'text-red-700' : 'text-ink-400'}`}>{formatCurrency(totalAtrasado)}</p>
+                <div className="px-3 py-1 border-l border-ink-100">
+                  <p className="text-xs text-ink-500">Atrasado</p>
+                  <p className={`text-sm md:text-base font-semibold tnum ${totalAtrasado > 0 ? 'text-red-600' : 'text-ink-400'}`}>{formatCurrency(totalAtrasado)}</p>
                 </div>
               </div>
             </div>
             <div className="mt-4">
-              <div className="h-2 rounded-full bg-ink-100 overflow-hidden">
-                <div className="h-2 rounded-full bg-primary-500 transition-all" style={{ width: `${pct}%` }} />
+              <div className="h-1.5 rounded-full bg-ink-100 overflow-hidden">
+                <div className="h-1.5 rounded-full bg-primary-600 transition-all" style={{ width: `${pct}%` }} />
               </div>
               <p className="text-[11px] text-ink-400 mt-1">{pct}% pago
                 {totalExpenses > 0 && <> · gastos e reembolsos no mês: {formatCurrency(totalExpenses)}</>}
@@ -1295,8 +1289,14 @@ export default function PaymentList() {
             onClick={() => setFilterMonth(m => format(addDays(new Date(m + '-15'), -30), 'yyyy-MM'))}>
             <ChevronLeft size={18} />
           </button>
-          <input className="bg-transparent text-sm font-semibold text-ink-800 px-1 py-1.5 w-[8.5rem] text-center outline-none" type="month"
-            value={filterMonth} onChange={e => e.target.value && setFilterMonth(e.target.value)} aria-label="Mês" />
+          {/* Nome do mês por extenso; tocar abre o calendário do próprio aparelho */}
+          <label className="relative px-2 py-1.5 text-sm font-medium text-ink-800 min-w-[9.5rem] text-center cursor-pointer first-letter:uppercase">
+            {nomeDoMes}
+            <input ref={mesRef} className="absolute inset-0 opacity-0 cursor-pointer" type="month"
+              value={filterMonth} onChange={e => e.target.value && setFilterMonth(e.target.value)}
+              onClick={() => { try { mesRef.current?.showPicker?.() } catch { /* navegador sem showPicker */ } }}
+              aria-label="Escolher mês" />
+          </label>
           <button className="p-2 rounded-lg hover:bg-ink-100 active:scale-95" aria-label="Próximo mês"
             onClick={() => setFilterMonth(m => format(addDays(new Date(m + '-15'), 30), 'yyyy-MM'))}>
             <ChevronRight size={18} />
@@ -1330,17 +1330,17 @@ export default function PaymentList() {
           </div>
           <div className="flex gap-1.5 overflow-x-auto scrollbar-none -mx-4 px-4 md:mx-0 md:px-0 md:flex-wrap">
             {([
-              ['', 'Todos', linhas.length, 'bg-ink-800 text-white'],
-              ['lancar', 'A lançar', contagem.lancar, 'bg-ink-800 text-white'],
-              ['conferir', 'A conferir', contagem.conferir, 'bg-amber-500 text-white'],
-              ['pagar', 'A pagar', contagem.pagar, 'bg-amber-500 text-white'],
-              ['semana', 'Vence em 7 dias', contagem.semana, 'bg-blue-600 text-white'],
-              ['atrasado', 'Atrasados', contagem.atrasado, 'bg-red-600 text-white'],
-              ['pago', 'Pagos', contagem.pago, 'bg-green-600 text-white'],
+              ['', 'Todos', linhas.length, 'bg-ink-900 text-white'],
+              ['lancar', 'A lançar', contagem.lancar, 'bg-ink-900 text-white'],
+              ['conferir', 'A conferir', contagem.conferir, 'bg-ink-900 text-white'],
+              ['pagar', 'A pagar', contagem.pagar, 'bg-ink-900 text-white'],
+              ['semana', 'Vence em 7 dias', contagem.semana, 'bg-ink-900 text-white'],
+              ['atrasado', 'Atrasados', contagem.atrasado, 'bg-ink-900 text-white'],
+              ['pago', 'Pagos', contagem.pago, 'bg-ink-900 text-white'],
             ] as const).filter(([k, , n]) => k === '' || n > 0 || filtroEtapa === k).map(([k, rotulo, n, corAtiva]) => (
               <button key={k || 'todos'} onClick={() => setFiltroEtapa(k)}
-                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-all active:scale-95 ${
-                  filtroEtapa === k ? `${corAtiva} shadow-soft` : 'bg-white border border-ink-100 text-ink-600 hover:border-ink-200'}`}>
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors active:scale-95 ${
+                  filtroEtapa === k ? corAtiva : 'bg-white border border-ink-200 text-ink-600 hover:border-ink-300'}`}>
                 {rotulo}
                 <span className={`tnum rounded-full px-1.5 py-px text-[10px] ${filtroEtapa === k ? 'bg-white/25' : k === 'atrasado' ? 'bg-red-100 text-red-700' : 'bg-ink-100 text-ink-500'}`}>{n}</span>
               </button>
@@ -1447,10 +1447,10 @@ export default function PaymentList() {
                 </div>
               )}
               {([
-                { key: 'consultoria' as WorkerGroup, label: 'Consultoria', icon: '🏥', dot: 'bg-orange-400' },
-                { key: 'fixo_plantao' as WorkerGroup, label: 'Fixos / Plantão', icon: '📅', dot: 'bg-blue-400' },
-                { key: 'freela' as WorkerGroup, label: 'Freelas', icon: '⚡', dot: 'bg-purple-400' },
-              ]).map(({ key, label, icon, dot }) => {
+                { key: 'consultoria' as WorkerGroup, label: 'Consultoria' },
+                { key: 'fixo_plantao' as WorkerGroup, label: 'Fixos e plantão' },
+                { key: 'freela' as WorkerGroup, label: 'Freelas' },
+              ]).map(({ key, label }) => {
                 const doGrupo = linhas.filter(l => l.row.group === key)
                 const visiveis = doGrupo.filter(passaFiltro)
                 if (!visiveis.length) return null
@@ -1458,15 +1458,13 @@ export default function PaymentList() {
                 const faltaGrupo = r2(doGrupo.reduce((s, l) => s + l.aberto, 0))
                 return (
                   <div key={key} className="card overflow-hidden">
-                    <div className="px-4 py-3 bg-ink-50/70 border-b border-ink-100 flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className={`w-2 h-2 rounded-full ${dot}`} />
-                        <span className="text-base">{icon}</span>
-                        <span className="font-display font-bold text-ink-900">{label}</span>
-                        <span className="badge bg-white border border-ink-200 text-ink-600 text-xs">{doGrupo.length}</span>
+                    <div className="px-4 py-3 border-b border-ink-100 flex items-center justify-between gap-3">
+                      <div className="flex items-baseline gap-2 min-w-0">
+                        <span className="text-sm font-semibold text-ink-900">{label}</span>
+                        <span className="text-sm text-ink-400 tnum">{doGrupo.length}</span>
                       </div>
                       <div className="text-right shrink-0">
-                        <p className="font-bold text-ink-900 tnum">{formatCurrency(totalGrupo)}</p>
+                        <p className="text-sm font-semibold text-ink-900 tnum">{formatCurrency(totalGrupo)}</p>
                         <p className="text-[11px] text-ink-400 tnum">{faltaGrupo > 0 ? `falta ${formatCurrency(faltaGrupo)}` : 'tudo pago'}</p>
                       </div>
                     </div>
@@ -1500,7 +1498,7 @@ export default function PaymentList() {
                                 fazer: () => generateRealPayment.mutate(row),
                                 ocupado: generateRealPayment.isPending,
                                 icone: <RefreshCw size={15} />,
-                                estilo: 'btn-secondary border-amber-300 text-amber-800 bg-amber-50 hover:bg-amber-100',
+                                estilo: 'btn-secondary',
                               }
                             : et.etapa === 'pagar' && et.proximo
                               ? {
@@ -1516,7 +1514,7 @@ export default function PaymentList() {
                                   },
                                   ocupado: markPaid.isPending,
                                   icone: <Check size={15} />,
-                                  estilo: 'btn-primary',
+                                  estilo: 'btn-secondary',
                                 }
                               : null
 
@@ -1526,48 +1524,48 @@ export default function PaymentList() {
                             <div className="flex items-start gap-3">
                               <div className="flex-1 min-w-0">
                                 <button
-                                  className="font-semibold text-ink-900 hover:text-primary-700 hover:underline text-left leading-snug"
+                                  className="font-medium text-ink-900 hover:underline text-left leading-snug"
                                   onClick={() => navigate(`/colaboradores/${row.employee?.id}`, { state: { tab: 'vinculos' } })}
                                 >
                                   {nome}
                                 </button>
                                 <div className="flex items-center gap-1.5 flex-wrap mt-1 text-xs text-ink-500">
                                   {row.client?.name && <span className="font-medium text-ink-600">{row.client.name}</span>}
-                                  {row.work_schedule && <span className="badge bg-ink-100 text-ink-600 text-[10px]">{row.work_schedule}</span>}
-                                  {isFreela && <span className="badge bg-purple-100 text-purple-700 text-[10px]">⚡ Freela{row.freelaConsultoria ? ' · Consultoria' : ''}</span>}
+                                  {row.work_schedule && <span className="text-ink-400">· {row.work_schedule}</span>}
+                                  {isFreela && <span className="text-ink-500">Freela{row.freelaConsultoria ? ' · consultoria' : ''}</span>}
                                   {isFreela && row.startDate
                                     ? <span className="text-ink-400">{formatDate(row.startDate)}{row.freelaEnd ? ` → ${formatDate(row.freelaEnd)}` : ''}</span>
                                     : row.startDate && <span className="text-ink-400">desde {formatDate(row.startDate)}</span>}
-                                  {row.payFullSalary && !isConsultoria && <span className="badge bg-blue-50 text-blue-700 text-[10px]">Salário inteiro</span>}
+                                  {row.payFullSalary && !isConsultoria && <span className="text-ink-500">· salário inteiro</span>}
                                 </div>
                               </div>
                               <button
                                 onClick={() => setContaAberta(contaVisivel ? null : row.linkId)}
-                                className={`text-right shrink-0 rounded-xl px-3 py-1.5 transition-all active:scale-95 ${contaVisivel ? 'bg-primary-100' : 'bg-primary-50 hover:bg-primary-100'}`}
+                                className={`text-right shrink-0 rounded-lg px-2.5 py-1 -mr-1 transition-colors active:scale-95 ${contaVisivel ? 'bg-ink-100' : 'hover:bg-ink-50'}`}
                                 title="Ver a conta"
                                 aria-expanded={contaVisivel}
                               >
-                                <span className="flex items-center justify-end gap-1 text-[10px] font-semibold uppercase tracking-wide text-primary-700/80">
+                                <span className="flex items-center justify-end gap-1 text-[11px] text-ink-400">
                                   A pagar {contaVisivel ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
                                 </span>
-                                <span className="block text-base md:text-lg font-display font-extrabold text-primary-800 tnum leading-tight">{formatCurrency(conta.total)}</span>
+                                <span className="block text-base md:text-lg font-semibold text-ink-900 tnum leading-tight">{formatCurrency(conta.total)}</span>
                               </button>
                             </div>
 
                             {/* Como está o mês */}
-                            <div className="flex items-center gap-1.5 flex-wrap text-xs">
+                            <div className="flex items-center gap-x-2.5 gap-y-1 flex-wrap text-xs">
                               {isConsultoria ? (
-                                <span className="rounded-lg bg-orange-50 text-orange-800 px-2 py-1 font-medium">
+                                <span className="text-ink-600">
                                   {row.actualVisits} visita{row.actualVisits !== 1 ? 's' : ''} · {formatCurrency(row.actualAmount || 0)}
                                 </span>
                               ) : isFreela ? (
-                                <span className="rounded-lg bg-purple-50 text-purple-800 px-2 py-1 font-medium">
+                                <span className="text-ink-600">
                                   {row.actualDays}/{row.expDays} dias · diária {formatCurrency(row.dailyRate || 0)}
                                 </span>
                               ) : (
                                 <>
-                                  <span className="rounded-lg bg-ink-100 text-ink-700 px-2 py-1 font-medium">Salário {formatCurrency(row.monthly_amount)}</span>
-                                  <span className={`rounded-lg px-2 py-1 font-semibold ${row.faltas > 0 ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'}`}>
+                                  <span className="text-ink-600">Salário {formatCurrency(row.monthly_amount)}</span>
+                                  <span className={row.faltas > 0 ? 'text-red-600 font-medium' : 'text-ink-500'}>
                                     {row.faltas > 0
                                       ? `${row.faltas} falta${row.faltas > 1 ? 's' : ''} · −${formatCurrency(row.faltas * row.valorDia)}`
                                       : row.payFullSalary ? 'Sem desconto' : row.presencaCompleta ? 'Foi todos os dias' : 'Escala OK'}
@@ -1584,10 +1582,10 @@ export default function PaymentList() {
                               )}
                               {isShort && row.faltas === 0 && <span className="text-amber-600 font-medium">{Math.abs(diff)} dia(s) sem registro</span>}
                               {row.reportRequired && row.semRelatorio > 0 && (
-                                <span className="text-red-600 font-medium">📄 {row.semRelatorio} sem relatório</span>
+                                <span className="text-red-600">{row.semRelatorio} sem relatório</span>
                               )}
                               {row.reportRequired && row.semRelatorio === 0 && (row.actualVisits > 0 || row.actualDays > 0) && (
-                                <span className="text-green-600">📄 Relatórios OK</span>
+                                <span className="text-ink-400">relatórios ok</span>
                               )}
                             </div>
 
@@ -1624,7 +1622,7 @@ export default function PaymentList() {
                               <Etapas etapa={et.etapa} porTrabalho={isConsultoria} />
                               <span className="text-[11px] text-ink-500">
                                 {et.etapa === 'pago'
-                                  ? <span className="text-green-700 font-semibold">✓ Pago{et.ultimoPago ? ` em ${formatDate(et.ultimoPago.slice(0, 10))}` : ''}</span>
+                                  ? (et.ultimoPago ? <>em {formatDate(et.ultimoPago.slice(0, 10))}</> : null)
                                   : et.atrasado ? <span className="text-red-600 font-semibold">Atrasado desde {formatDate(et.proximo!.due_date)}</span>
                                   : et.proximo ? <>Vence {formatDate(et.proximo.due_date)}{et.pendentes.length > 1 ? ` (+${et.pendentes.length - 1})` : ''}</>
                                   : null}
@@ -1728,8 +1726,8 @@ export default function PaymentList() {
                                         <span className="text-ink-400">{v.check_in?.slice(0, 5)} – {v.check_out?.slice(0, 5) || '?'}</span>
                                         {row.reportRequired && trabalhada && (
                                           (v as { report_url?: string }).report_url
-                                            ? <span className="text-green-600" title="Relatório anexado">📄✓</span>
-                                            : <span className="text-red-500 font-medium" title="Relatório pendente">📄✗</span>
+                                            ? <FileCheck2 size={13} className="text-green-600" aria-label="Relatório anexado" />
+                                            : <FileX2 size={13} className="text-red-500" aria-label="Relatório pendente" />
                                         )}
                                       </div>
                                     )
@@ -1737,7 +1735,7 @@ export default function PaymentList() {
                                 </div>
                               )}
                               {isConsultoria && row.actualVisits > 0 && (row.visits as { observations?: string }[]).some(v => v.observations) && (
-                                <p className="mt-2 text-xs text-amber-600">⚠ Há observações nos registros</p>
+                                <p className="mt-2 text-xs text-amber-600">Há observações nos registros</p>
                               )}
                               <div className="mt-3 space-y-1">
                                 <div className="flex items-center justify-between">
@@ -1747,9 +1745,9 @@ export default function PaymentList() {
                                   </button>
                                 </div>
                                 {row.cost_assistance > 0 && (
-                                  <div className="flex items-center justify-between text-xs bg-blue-50 rounded-lg px-2 py-1">
-                                    <span className="text-blue-700">🚗 Ajuda de custo (contrato)</span>
-                                    <span className="font-medium text-blue-800">{formatCurrency(row.cost_assistance)}</span>
+                                  <div className="flex items-center justify-between text-xs bg-ink-50 rounded-lg px-2 py-1.5">
+                                    <span className="text-ink-600">Ajuda de custo (contrato)</span>
+                                    <span className="font-medium text-ink-800 tnum">{formatCurrency(row.cost_assistance)}</span>
                                   </div>
                                 )}
                                 {gastosDaLinha(row.linkId).map(e => {
@@ -1758,16 +1756,16 @@ export default function PaymentList() {
                                   const negado = exp.status === 'negado'
                                   const adiant = exp.category === 'Adiantamento'
                                   return (
-                                    <div key={exp.id} className={`flex items-center justify-between gap-2 text-xs rounded-lg px-2 py-1.5 ${negado ? 'bg-ink-100 opacity-60' : adiant ? 'bg-emerald-50' : 'bg-orange-50'}`}>
-                                      <span className={`min-w-0 ${negado ? 'text-ink-500 line-through' : adiant ? 'text-emerald-800' : 'text-orange-700'}`}>
-                                        {adiant ? '↩' : '💸'} {exp.description} <span className="text-ink-400">({adiant ? 'adiantamento — desconta' : exp.category})</span>
+                                    <div key={exp.id} className={`flex items-center justify-between gap-2 text-xs rounded-lg px-2 py-1.5 bg-ink-50 ${negado ? 'opacity-60' : ''}`}>
+                                      <span className={`min-w-0 ${negado ? 'text-ink-500 line-through' : 'text-ink-700'}`}>
+                                        {exp.description} <span className="text-ink-400">({adiant ? 'adiantamento — desconta' : exp.category})</span>
                                         {/* Sem isso, pendente e aprovado ficavam iguais na tela
                                             e só o aprovado entra no pagamento. */}
                                         {pendente && <span className="ml-1 text-amber-700 font-semibold">— aguardando análise</span>}
                                         {negado && <span className="ml-1 text-ink-500">— negado</span>}
                                       </span>
                                       <span className="flex items-center gap-1.5 shrink-0">
-                                        <span className={`font-medium ${negado ? 'text-ink-400' : adiant ? 'text-emerald-800' : 'text-orange-800'}`}>{adiant ? '−' : ''}{formatCurrency(Number(exp.amount))}</span>
+                                        <span className={`font-medium tnum ${negado ? 'text-ink-400' : adiant ? 'text-red-600' : 'text-ink-800'}`}>{adiant ? '−' : ''}{formatCurrency(Number(exp.amount))}</span>
                                         {confirmDelExpense === exp.id ? (
                                           <>
                                             <button onClick={() => { deleteExpense.mutate(exp.id); setConfirmDelExpense(null) }}
@@ -1865,7 +1863,7 @@ export default function PaymentList() {
                   <div className="px-4 py-3 bg-gray-50 border-b">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <span className="text-base">📄</span>
+                        
                         <span className="font-semibold text-gray-700">Outros Lançamentos</span>
                         <span className="badge bg-gray-200 text-gray-600 text-xs">{unlinkedPayments.length}</span>
                       </div>

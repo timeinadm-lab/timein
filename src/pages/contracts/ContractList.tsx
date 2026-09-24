@@ -32,7 +32,7 @@ export default function ContractList() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Contratos</h1>
+        <h1 className="page-title">Contratos</h1>
         <button onClick={() => navigate('/contratos/novo')} className="btn-primary flex items-center gap-2"><Plus size={16} />Novo Contrato</button>
       </div>
 

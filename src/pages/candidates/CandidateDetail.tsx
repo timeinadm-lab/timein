@@ -70,11 +70,11 @@ export default function CandidateDetail() {
       <div className="card p-4 md:p-5">
         <div className="flex items-start justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-4 min-w-0">
-            <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-primary-400 to-primary-600 flex items-center justify-center text-white font-display font-extrabold text-lg flex-shrink-0">
+            <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-primary-400 to-primary-600 flex items-center justify-center text-white font-display font-bold text-lg flex-shrink-0">
               {getInitials(candidate.full_name)}
             </div>
             <div className="min-w-0">
-              <h1 className="text-xl md:text-2xl font-display font-extrabold text-ink-900 truncate">{candidate.full_name}</h1>
+              <h1 className="page-title-sm truncate">{candidate.full_name}</h1>
               <div className="flex gap-1.5 flex-wrap mt-1.5">
                 <span className={`badge ${PIPELINE_COLORS[candidate.pipeline_stage] || 'bg-ink-100 text-ink-600'}`}>{candidate.pipeline_stage}</span>
                 {candidate.state && <span className="badge bg-ink-100 text-ink-600">{candidate.city}, {candidate.state}</span>}

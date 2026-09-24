@@ -81,7 +81,7 @@ export default function ClientList() {
       <div className="flex items-end justify-between flex-wrap gap-3">
         <div>
           <p className="eyebrow mb-1">Carteira</p>
-          <h1 className="text-2xl md:text-3xl font-display font-extrabold text-ink-900">
+          <h1 className="page-title">
             Clientes
             {clients && <span className="ml-2 text-base font-semibold text-ink-400 align-middle">{clients.length}</span>}
           </h1>

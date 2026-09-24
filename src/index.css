@@ -10,20 +10,19 @@
     @apply text-ink-800;
     margin: 0;
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    font-feature-settings: 'cv11', 'ss01';
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    /* Fundo levemente quente com um brilho de marca discreto no topo */
-    background-color: #f6f7f6;
-    background-image:
-      radial-gradient(1200px 600px at 100% -10%, rgba(34, 197, 94, 0.05), transparent 60%),
-      radial-gradient(900px 500px at -10% 0%, rgba(34, 197, 94, 0.04), transparent 55%);
-    background-attachment: fixed;
+    /* Fundo "papel": branco levemente quente, liso. Os cartões brancos
+       ficam por cima. (Antes: brilhos verdes em degradê — cara de template.) */
+    background-color: #f7f6f2;
   }
   * {
     box-sizing: border-box;
   }
+  /* Uma fonte só na interface (Inter). A serifa entra só nos títulos de
+     página e saudações, via .page-title — é o "tempero" da marca. */
   h1, h2, h3, h4 {
-    font-family: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;
     @apply tracking-tight text-ink-900;
   }
   /* Tipografia tabular para números (valores, horas, datas) ficarem alinhados */
@@ -33,59 +32,71 @@
   /* Scrollbar discreta */
   ::-webkit-scrollbar { width: 10px; height: 10px; }
   ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: rgba(16,24,40,0.12); border-radius: 9999px; border: 3px solid transparent; background-clip: content-box; }
-  ::-webkit-scrollbar-thumb:hover { background: rgba(16,24,40,0.22); background-clip: content-box; }
+  ::-webkit-scrollbar-thumb { background: rgba(26,25,22,0.12); border-radius: 9999px; border: 3px solid transparent; background-clip: content-box; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(26,25,22,0.22); background-clip: content-box; }
 }
 
 @layer components {
   .input {
-    @apply w-full bg-white border border-ink-200 rounded-xl px-3.5 py-2.5 text-sm text-ink-900 placeholder:text-ink-400 shadow-sm transition-all focus:outline-none focus:ring-4 focus:ring-primary-500/15 focus:border-primary-500;
+    @apply w-full bg-white border border-ink-200 rounded-lg px-3 py-2.5 text-sm text-ink-900 placeholder:text-ink-400 transition-colors hover:border-ink-300 focus:outline-none focus:ring-2 focus:ring-primary-600/15 focus:border-primary-600;
   }
   .label {
-    @apply block text-xs font-semibold text-ink-500 uppercase tracking-wide mb-1.5;
+    @apply block text-xs font-medium text-ink-600 mb-1.5;
   }
   .btn-primary {
-    @apply inline-flex items-center justify-center gap-2 bg-primary-600 text-white px-4 py-2.5 rounded-xl text-sm font-semibold shadow-soft hover:bg-primary-700 hover:shadow-glow active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-soft;
+    @apply inline-flex items-center justify-center gap-2 bg-primary-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium hover:bg-primary-800 active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed;
   }
   .btn-secondary {
-    @apply inline-flex items-center justify-center gap-2 bg-white text-ink-700 px-4 py-2.5 rounded-xl text-sm font-semibold border border-ink-200 shadow-soft hover:bg-ink-50 hover:border-ink-300 active:scale-[0.98] transition-all disabled:opacity-50;
+    @apply inline-flex items-center justify-center gap-2 bg-white text-ink-800 px-4 py-2.5 rounded-lg text-sm font-medium border border-ink-200 hover:bg-ink-50 hover:border-ink-300 active:scale-[0.98] transition-all disabled:opacity-50;
   }
   .btn-ghost {
-    @apply inline-flex items-center justify-center gap-2 text-ink-600 px-3 py-2 rounded-xl text-sm font-medium hover:bg-ink-100 active:scale-[0.98] transition-all;
+    @apply inline-flex items-center justify-center gap-2 text-ink-600 px-3 py-2 rounded-lg text-sm font-medium hover:bg-ink-100 hover:text-ink-900 active:scale-[0.98] transition-all;
   }
   .badge {
-    @apply inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold;
+    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium;
   }
+  /* Cartão: branco sobre o papel, linha fina, sem sombra pesada */
   .card {
-    @apply rounded-2xl border border-ink-100 shadow-card bg-white;
+    @apply rounded-xl border border-ink-200/70 bg-white;
   }
-  /* Card clicável — usar junto de .card para feedback de hover consistente */
+  /* Card clicável — só a borda escurece; nada de "pular" */
   .card-interactive {
-    @apply transition-all duration-200 hover:shadow-lift hover:-translate-y-0.5 cursor-pointer;
+    @apply transition-colors duration-150 hover:border-ink-300 hover:bg-ink-50/40 cursor-pointer;
   }
   /* Cabeçalho de seção padrão */
   .section-title {
-    @apply font-display font-bold text-ink-900 flex items-center gap-2;
+    @apply text-sm font-semibold text-ink-900 flex items-center gap-2;
   }
-  /* Faixa de eyebrow/label acima de títulos */
+  /* Rótulo pequeno acima do título (antes: verde, MAIÚSCULO — cara de template) */
   .eyebrow {
-    @apply text-xs font-semibold uppercase tracking-wider text-primary-600;
+    @apply text-xs font-medium text-ink-400;
+  }
+  /* Título de página: a serifa da marca */
+  .page-title {
+    @apply font-serif text-3xl md:text-4xl font-normal text-ink-900 leading-tight tracking-tight;
+  }
+  .page-title-sm {
+    @apply font-serif text-2xl md:text-3xl font-normal text-ink-900 leading-tight tracking-tight;
   }
   /* Janela (modal) padrão: fundo escurecido igual em todo o sistema; no
      celular sobe de baixo, onde o polegar alcança */
   .modal-overlay {
-    @apply fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-ink-900/50 backdrop-blur-[2px] p-3 sm:p-4 animate-fade-in;
+    @apply fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-ink-900/40 p-3 sm:p-4 animate-fade-in;
   }
   .modal-box {
-    @apply bg-white rounded-2xl shadow-lift p-5 sm:p-6 w-full max-h-[92vh] overflow-y-auto;
+    @apply bg-white rounded-xl shadow-lift p-5 sm:p-6 w-full max-h-[92vh] overflow-y-auto;
   }
   /* Cabeçalho de tabela padrão */
   .th {
-    @apply text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-ink-500;
+    @apply text-left px-4 py-3 text-xs font-medium text-ink-500;
   }
   /* Botão de perigo (excluir, cancelar de vez) */
   .btn-danger {
-    @apply inline-flex items-center justify-center gap-2 bg-red-600 text-white px-4 py-2.5 rounded-xl text-sm font-semibold shadow-soft hover:bg-red-700 active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply inline-flex items-center justify-center gap-2 bg-red-600 text-white px-4 py-2.5 rounded-lg text-sm font-medium hover:bg-red-700 active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  /* Status com pontinho: cor só quando significa algo */
+  .dot {
+    @apply inline-block w-1.5 h-1.5 rounded-full shrink-0;
   }
 }
 
@@ -170,4 +181,10 @@
   .btn-primary, .btn-secondary, .btn-danger {
     min-height: 44px;
   }
+}
+
+/* Números e contadores dentro do título continuam na fonte da interface */
+.page-title span, .page-title-sm span, .page-title small, .page-title-sm small {
+  font-family: 'Inter', system-ui, sans-serif;
+  letter-spacing: normal;
 }

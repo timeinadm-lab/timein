@@ -76,7 +76,7 @@ export default function PaymentForm() {
     <div className="max-w-lg mx-auto space-y-6">
       <div className="flex items-center gap-3">
         <button onClick={() => navigate(-1)} className="btn-ghost p-2"><ArrowLeft size={18} /></button>
-        <h1 className="text-xl font-bold">{isEdit ? 'Editar Pagamento' : 'Novo Pagamento'}</h1>
+        <h1 className="page-title-sm">{isEdit ? 'Editar Pagamento' : 'Novo Pagamento'}</h1>
       </div>
       <form onSubmit={handleSubmit} className="card p-6 space-y-4">
         <div><label className="label">Descrição *</label><input className="input" required value={form.description} onChange={e => set('description', e.target.value)} /></div>

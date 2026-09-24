@@ -183,7 +183,7 @@ export default function FinanceiroPage() {
       <div className="flex items-end justify-between flex-wrap gap-3">
         <div>
           <p className="eyebrow mb-1">Contabilidade</p>
-          <h1 className="text-2xl md:text-3xl font-display font-extrabold text-ink-900 flex items-center gap-2">
+          <h1 className="page-title flex items-center gap-2">
             <Wallet size={26} className="text-primary-600" /> Financeiro
           </h1>
         </div>
@@ -194,21 +194,21 @@ export default function FinanceiroPage() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <div className="card p-4 border-l-4 border-l-green-400">
           <p className="text-xs text-ink-500 font-semibold flex items-center gap-1"><TrendingUp size={13} className="text-green-500" /> Entrou</p>
-          <p className="text-2xl font-display font-extrabold text-green-700 mt-1 tnum">{formatCurrency(totalRecebido)}</p>
+          <p className="text-2xl font-display font-bold text-green-700 mt-1 tnum">{formatCurrency(totalRecebido)}</p>
           {totalAReceber > 0 && <p className="text-[10px] text-amber-600">a receber: {formatCurrency(totalAReceber)}</p>}
         </div>
         <div className="card p-4 border-l-4 border-l-red-400">
           <p className="text-xs text-ink-500 font-semibold flex items-center gap-1"><TrendingDown size={13} className="text-red-500" /> Folha (salários)</p>
-          <p className="text-2xl font-display font-extrabold text-red-600 mt-1 tnum">{formatCurrency(folha)}</p>
+          <p className="text-2xl font-display font-bold text-red-600 mt-1 tnum">{formatCurrency(folha)}</p>
           <p className="text-[10px] text-ink-400">pagos no mês</p>
         </div>
         <div className="card p-4 border-l-4 border-l-orange-400">
           <p className="text-xs text-ink-500 font-semibold flex items-center gap-1"><TrendingDown size={13} className="text-orange-500" /> Despesas</p>
-          <p className="text-2xl font-display font-extrabold text-orange-600 mt-1 tnum">{formatCurrency(totalDespesas)}</p>
+          <p className="text-2xl font-display font-bold text-orange-600 mt-1 tnum">{formatCurrency(totalDespesas)}</p>
         </div>
         <div className={`card p-4 border-l-4 ${saldo >= 0 ? 'border-l-primary-400' : 'border-l-red-500'}`}>
           <p className="text-xs text-ink-500 font-semibold">Saldo do mês</p>
-          <p className={`text-2xl font-display font-extrabold mt-1 tnum ${saldo >= 0 ? 'text-primary-700' : 'text-red-600'}`}>{formatCurrency(saldo)}</p>
+          <p className={`text-2xl font-display font-bold mt-1 tnum ${saldo >= 0 ? 'text-primary-700' : 'text-red-600'}`}>{formatCurrency(saldo)}</p>
           <p className="text-[10px] text-ink-400">entrou − folha − despesas</p>
         </div>
       </div>

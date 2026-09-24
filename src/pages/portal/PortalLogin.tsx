@@ -56,7 +56,7 @@ export default function PortalLogin() {
       <div className="w-full max-w-sm relative animate-fade-in">
         <div className="text-center mb-8">
           <img src="/logo.svg" alt="TIN" className="w-16 h-16 mx-auto mb-4 rounded-2xl shadow-lift" />
-          <h1 className="text-2xl font-display font-extrabold text-white">Portal do Nutricionista</h1>
+          <h1 className="text-2xl font-display font-bold text-white">Portal do Nutricionista</h1>
           <p className="text-primary-100/90 mt-1 text-sm font-medium">TIN · Time IN</p>
         </div>
         <div className="card p-6 space-y-4">

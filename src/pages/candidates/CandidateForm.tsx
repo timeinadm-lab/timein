@@ -111,7 +111,7 @@ export default function CandidateForm() {
       <div className="max-w-2xl mx-auto space-y-6">
         <div className="flex items-center gap-3">
           <button onClick={() => navigate(-1)} className="btn-ghost p-2"><ArrowLeft size={18} /></button>
-          <h1 className="text-xl font-bold">Editar Candidato</h1>
+          <h1 className="page-title-sm">Editar Candidato</h1>
         </div>
         <div className="card p-8 flex items-center justify-center gap-3 text-gray-400">
           <div className="w-5 h-5 border-2 border-primary-500 border-t-transparent rounded-full animate-spin" />
@@ -125,7 +125,7 @@ export default function CandidateForm() {
     <div className="max-w-2xl mx-auto space-y-6">
       <div className="flex items-center gap-3">
         <button onClick={() => navigate(-1)} className="btn-ghost p-2"><ArrowLeft size={18} /></button>
-        <h1 className="text-xl font-bold">{isEdit ? 'Editar Candidato' : 'Novo Candidato'}</h1>
+        <h1 className="page-title-sm">{isEdit ? 'Editar Candidato' : 'Novo Candidato'}</h1>
       </div>
 
       <div className="flex gap-1 border-b border-gray-200 overflow-x-auto">

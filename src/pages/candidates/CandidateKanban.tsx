@@ -127,7 +127,7 @@ export default function CandidateKanban() {
     <div className="space-y-4">
       <div className="flex items-center gap-3">
         <button onClick={() => navigate('/candidatos')} className="btn-ghost p-2"><ArrowLeft size={18} /></button>
-        <h1 className="text-xl font-bold">Pipeline Kanban</h1>
+        <h1 className="page-title-sm">Pipeline Kanban</h1>
         <span className="text-sm text-gray-500">({candidates?.length ?? 0} candidatos)</span>
       </div>
 

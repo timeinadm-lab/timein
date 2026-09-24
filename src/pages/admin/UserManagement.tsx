@@ -102,7 +102,7 @@ export default function UserManagement() {
       <div className="flex items-end justify-between flex-wrap gap-3">
         <div>
           <p className="eyebrow mb-1">Administração</p>
-          <h1 className="text-2xl md:text-3xl font-display font-extrabold text-ink-900">Gestão de Usuários</h1>
+          <h1 className="page-title">Gestão de Usuários</h1>
         </div>
         <button onClick={() => setShowNewForm(true)} className="btn-primary text-sm"><Plus size={16} />Novo Usuário</button>
       </div>

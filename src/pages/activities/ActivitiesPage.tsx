@@ -169,7 +169,7 @@ export default function ActivitiesPage() {
     <div className="space-y-5">
       <div>
         <p className="eyebrow mb-1">Administrativo</p>
-        <h1 className="text-2xl md:text-3xl font-display font-extrabold text-ink-900 flex items-center gap-2">
+        <h1 className="page-title flex items-center gap-2">
           <ClipboardList size={26} className="text-primary-600" /> Atividades
         </h1>
         <p className="text-sm text-ink-400 mt-1">Checklist do dia. Marque o que foi feito — e monte o dia de outra pessoa do time se precisar.</p>

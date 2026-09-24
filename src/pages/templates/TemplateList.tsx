@@ -45,7 +45,7 @@ export default function TemplateList() {
       <div className="flex items-end justify-between flex-wrap gap-3">
         <div>
           <p className="eyebrow mb-1">Documentos</p>
-          <h1 className="text-2xl md:text-3xl font-display font-extrabold text-ink-900">Templates de Contrato</h1>
+          <h1 className="page-title">Templates de Contrato</h1>
         </div>
         <button onClick={() => navigate('/templates/novo')} className="btn-primary text-sm"><Plus size={16} />Novo Template</button>
       </div>

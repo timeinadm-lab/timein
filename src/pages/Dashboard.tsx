@@ -2,20 +2,14 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { useState, useEffect } from 'react'
 import {
-  Users, Briefcase, UserPlus, AlertTriangle, CheckCircle,
-  Calendar, Plus, TrendingUp, Clock, Clipboard, Download, X,
-  BarChart3, Activity, Check, Database, FolderDown, ChevronDown,
-  MessageSquare, FileWarning, Flag, Video, MapPin, Wallet, ClipboardCheck,
+  Briefcase, UserPlus, UserCheck, CheckCircle, Calendar, Plus, Download, X, Check,
+  Database, FolderDown, FileWarning, Flag, Video, MapPin, ChevronRight, FileText,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { supabase, fetchAll } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { formatDate, formatCurrency, formatLocalTime, parseLocal, isMeetingLink, mapsUrl, hojeISO } from '../lib/utils'
 import { addDays, startOfMonth, endOfMonth, isBefore, parseISO, isAfter, differenceInDays, subMonths } from 'date-fns'
-import {
-  PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend,
-  BarChart, Bar, XAxis, YAxis, CartesianGrid,
-} from 'recharts'
 
 const BACKUP_TABLES = [
   'user_profiles', 'clients', 'client_locations', 'client_units', 'client_contracts',
@@ -50,7 +44,8 @@ export default function Dashboard() {
   const [showPriorityForm, setShowPriorityForm] = useState(false)
   const [priorityText, setPriorityText] = useState('')
   const [priorityLevel, setPriorityLevel] = useState<'red' | 'amber'>('amber')
-  const [confetti, setConfetti] = useState(false)
+  const [showNovoMenu, setShowNovoMenu] = useState(false)
+  const [mostrarTodos, setMostrarTodos] = useState(false)
 
   // Consulta que falha deixava o card em zero — visualmente igual a "não tem nada".
   // Agora todas lançam erro e este observador do cache mostra o que não carregou.
@@ -143,7 +138,7 @@ export default function Dashboard() {
       }
 
       if (allFiles.length === 0) {
-        toast('Nenhum documento encontrado para backup.', { icon: '📂' })
+        toast('Nenhum documento encontrado para backup.')
         return
       }
 
@@ -517,7 +512,6 @@ export default function Dashboard() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['dashboard-my-activities', profile?.id] }),
     onError: (e: Error) => toast.error(e.message),
   })
-  const fireConfetti = () => { setConfetti(true); setTimeout(() => setConfetti(false), 1800) }
 
   const currentMonthStr = now.toISOString().slice(0, 7) // 'yyyy-MM'
   const monthStartStr = startOfMonth(now).toISOString().slice(0, 10)
@@ -778,7 +772,7 @@ export default function Dashboard() {
 
   // ── Derived ──────────────────────────────────────────────────────────────────
   const activeEmployees = employees?.filter(e => e.status === 'Ativo').length ?? 0
-  const totalEmployees = employees?.length ?? 1
+  const totalEmployees = employees?.length ?? 0
   const dismissedThisMonth = employees?.filter(e =>
     e.status === 'Inativo' && e.dismissal_date &&
     e.dismissal_date >= monthStart && e.dismissal_date <= monthEnd
@@ -919,7 +913,7 @@ export default function Dashboard() {
 
   // Prioridades manuais entram no topo da lista (vermelho ou amarelo conforme criadas)
   ;(customPriorities || []).forEach(p => {
-    const item: AlertItem = { text: `📌 ${p.text}`, key: `custom-${p.id}`, customId: p.id }
+    const item: AlertItem = { text: `${p.text}`, key: `custom-${p.id}`, customId: p.id }
     if (p.level === 'red') redAlerts.push(item)
     else amberAlerts.push(item)
   })
@@ -932,7 +926,7 @@ export default function Dashboard() {
     const tm = (p as { target_month?: string }).target_month
     const mesTxt = tm ? ` (${MESES[Number(String(tm).slice(5, 7)) - 1]}/${String(tm).slice(0, 4)})` : ''
     amberAlerts.push({
-      text: `📌 Definir data d${isVisita ? 'a visita' : 'o compromisso'}: "${p.title || 'Compromisso'}"${cli ? ` — ${cli}` : ''}${mesTxt}`,
+      text: `Definir data d${isVisita ? 'a visita' : 'o compromisso'}: "${p.title || 'Compromisso'}"${cli ? ` — ${cli}` : ''}${mesTxt}`,
       path: '/agenda',
     })
   })
@@ -1021,7 +1015,7 @@ export default function Dashboard() {
     const dias = Math.max(0, Math.ceil((d.getTime() - now.getTime()) / 86400000))
     const cli = (v as { client?: { name: string } }).client?.name
     amberAlerts.push({
-      text: `🗓️ Visita ${dias === 0 ? 'hoje' : dias === 1 ? 'amanhã' : `em ${dias} dias`}: "${v.title || 'Visita'}"${cli ? ` — ${cli}` : ''}`,
+      text: `Visita ${dias === 0 ? 'hoje' : dias === 1 ? 'amanhã' : `em ${dias} dias`}: "${v.title || 'Visita'}"${cli ? ` — ${cli}` : ''}`,
       path: '/agenda',
     })
   })
@@ -1118,7 +1112,7 @@ export default function Dashboard() {
     amberAlerts.push({ text: `Freela: ${name}${client ? ' – ' + client : ''} — ${when}`, path: '/colaboradores' })
   })
 
-  // Aniversários dos colaboradores — só hoje e amanhã (avisa 1 dia antes) 🎂
+  // Aniversários dos colaboradores — só hoje e amanhã (avisa 1 dia antes) 
   employees?.forEach(e => {
     const bd = (e as { birth_date?: string }).birth_date
     if (!bd || e.status === 'Inativo') return
@@ -1129,10 +1123,10 @@ export default function Dashboard() {
     if (next < todayMid) next = new Date(now.getFullYear() + 1, bm - 1, bdd)
     const days = Math.round((next.getTime() - todayMid.getTime()) / 86400000)
     if (days > 1) return
-    const when = days === 0 ? 'é HOJE! 🎉' : days === 1 ? 'é amanhã' : `${String(bdd).padStart(2, '0')}/${String(bm).padStart(2, '0')} — em ${days} dias`
+    const when = days === 0 ? 'é hoje' : days === 1 ? 'é amanhã' : `${String(bdd).padStart(2, '0')}/${String(bm).padStart(2, '0')} — em ${days} dias`
     amberAlerts.push({
       key: `bday-${e.id}-${next.getFullYear()}`,
-      text: `🎂 Aniversário de ${e.full_name} ${when}`,
+      text: `Aniversário de ${e.full_name} ${when}`,
       path: `/colaboradores/${e.id}`,
     })
   })
@@ -1304,48 +1298,93 @@ export default function Dashboard() {
   const greeting = hour < 12 ? 'Bom dia' : hour < 18 ? 'Boa tarde' : 'Boa noite'
   const firstName = (profile?.full_name || '').split(' ')[0]
 
+  // Lista única "Precisa de atenção": crítico primeiro, com um pontinho de cor.
+  // Antes eram duas faixas coloridas (vermelha e amarela) disputando a tela.
+  const atencao = [
+    ...filteredRed.map(a => ({ ...a, nivel: 'red' as const })),
+    ...filteredAmber.map(a => ({ ...a, nivel: 'amber' as const })),
+  ]
+  const atencaoVisivel = mostrarTodos ? atencao : atencao.slice(0, 7)
+
+  // Agenda: o que tem hoje e o resumo da semana
+  const hojeEventos = (interviews || []).filter((i: { scheduled_at: string }) => {
+    const d = parseLocal(i.scheduled_at) ?? new Date(i.scheduled_at)
+    return d.toDateString() === now.toDateString()
+  })
+  const proximosEventos = hojeEventos.length ? hojeEventos : (interviews || []).slice(0, 3)
+  const eventosSemana = (weekEvents || []).length
+
+  // Panorama em barras de uma linha (antes: 5 gráficos de rosca lado a lado)
+  const pct = (a: number, b: number) => (b > 0 ? Math.round((a / b) * 100) : 0)
+  const vagasPreenchidas = (vacancies || []).filter(v => v.status === 'Preenchida' || v.status === 'Atuando').length
+  const visitasRealizadas = visitasPie.find(p => p.name === 'Realizadas')?.value ?? 0
+  const visitasPlanejadas = visitasPie.find(p => p.name === 'Planejadas')?.value ?? 0
+  const panorama = [
+    { rotulo: 'Contratos anexados', valor: `${contratosAnexados}/${contratosAnexados + contratosPendentes}`, p: pct(contratosAnexados, contratosAnexados + contratosPendentes), caminho: '/colaboradores' },
+    ...(role === 'chefe' ? [{ rotulo: 'Documentos entregues', valor: `${pct(deliveredDocsCount ?? 0, (deliveredDocsCount ?? 0) + (pendingDocs?.length ?? 0))}%`, p: pct(deliveredDocsCount ?? 0, (deliveredDocsCount ?? 0) + (pendingDocs?.length ?? 0)), caminho: '/colaboradores' }] : []),
+    { rotulo: 'Vagas preenchidas', valor: `${vagasPreenchidas}/${vacancies?.length ?? 0}`, p: pct(vagasPreenchidas, vacancies?.length ?? 0), caminho: '/vagas' },
+    ...(role === 'chefe' ? [{ rotulo: 'Visitas do mês', valor: `${visitasRealizadas} de ${Math.max(visitasRealizadas, visitasPlanejadas)}`, p: pct(visitasRealizadas, Math.max(visitasRealizadas, visitasPlanejadas)), caminho: '/visitas' }] : []),
+  ]
+  const maxContratacoes = Math.max(1, ...hiringBarData.map(h => h.contratacoes))
+
+  const ATALHOS = [
+    { label: 'Colaborador', path: '/colaboradores/novo', icon: UserCheck },
+    { label: 'Vaga', path: '/vagas/nova', icon: Briefcase },
+    { label: 'Candidato', path: '/candidatos/novo', icon: UserPlus },
+    { label: 'Compromisso', path: '/agenda/nova', icon: Calendar },
+    { label: 'Contrato', path: '/contratos/novo', icon: FileText },
+  ]
+
+  const Kpi = ({ rotulo, valor, sub, subCor, onClick, extra }: {
+    rotulo: string; valor: number | string; sub?: React.ReactNode; subCor?: string; onClick?: () => void; extra?: React.ReactNode
+  }) => (
+    <button onClick={onClick} className="text-left p-4 md:px-5 hover:bg-ink-50/60 transition-colors min-w-0">
+      <p className="text-xs text-ink-500">{rotulo}</p>
+      <div className="flex items-end justify-between gap-2 mt-1">
+        <p className="text-2xl md:text-[28px] font-semibold text-ink-900 tnum leading-none">{valor}</p>
+        {extra}
+      </div>
+      {sub && <p className={`text-xs mt-1.5 truncate ${subCor || 'text-ink-400'}`}>{sub}</p>}
+    </button>
+  )
+
   return (
-    <div className="space-y-5 md:space-y-6">
-      <div className="flex items-end justify-between flex-wrap gap-2">
+    <div className="space-y-6 md:space-y-8">
+      {/* Cabeçalho: data, saudação em serifa e ações */}
+      <div className="flex items-end justify-between flex-wrap gap-3">
         <div className="min-w-0">
-          <p className="eyebrow mb-1 capitalize">{now.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}</p>
-          <h1 className="text-2xl md:text-3xl font-display font-extrabold text-ink-900">{greeting}{firstName ? `, ${firstName}` : ''}</h1>
+          <p className="text-xs text-ink-400 first-letter:uppercase">{now.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}</p>
+          <h1 className="page-title mt-1">{greeting}{firstName ? <>, <em className="text-primary-700">{firstName}</em></> : ''}</h1>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           {role === 'chefe' && (
             <div className="relative">
               <button
                 onClick={() => setShowBackupMenu(p => !p)}
                 disabled={backingUp || backingUpDocs}
-                className="btn-secondary text-sm flex items-center gap-1.5"
+                className="btn-ghost text-sm"
+                title="Backup"
               >
-                <Download size={14} />
+                <Download size={15} />
                 <span className={backingUp || backingUpDocs ? '' : 'hidden sm:inline'}>{backingUp ? 'Exportando dados...' : backingUpDocs ? docProgress || 'Exportando docs...' : 'Backup'}</span>
-                {!backingUp && !backingUpDocs && <ChevronDown size={12} />}
               </button>
               {showBackupMenu && (
                 <>
                   <div className="fixed inset-0 z-30" onClick={() => setShowBackupMenu(false)} />
-                  <div className="absolute right-0 top-full mt-1 z-40 w-72 bg-white rounded-xl shadow-lg border border-ink-100 overflow-hidden">
-                    <button
-                      onClick={handleBackupData}
-                      className="w-full flex items-start gap-3 px-4 py-3 hover:bg-ink-50 transition-colors text-left"
-                    >
-                      <Database size={18} className="text-blue-600 mt-0.5 flex-shrink-0" />
+                  <div className="absolute right-0 top-full mt-1 z-40 w-72 bg-white rounded-xl shadow-lift border border-ink-200 overflow-hidden">
+                    <button onClick={handleBackupData} className="w-full flex items-start gap-3 px-4 py-3 hover:bg-ink-50 transition-colors text-left">
+                      <Database size={16} className="text-ink-400 mt-0.5 flex-shrink-0" />
                       <div>
-                        <p className="text-sm font-semibold text-ink-900">Backup do Sistema</p>
-                        <p className="text-xs text-ink-400 mt-0.5">Todos os dados (clientes, vagas, colaboradores, pagamentos...) em JSON</p>
+                        <p className="text-sm font-medium text-ink-900">Backup do sistema</p>
+                        <p className="text-xs text-ink-400 mt-0.5">Todos os dados em JSON</p>
                       </div>
                     </button>
                     <div className="border-t border-ink-100" />
-                    <button
-                      onClick={handleBackupDocs}
-                      className="w-full flex items-start gap-3 px-4 py-3 hover:bg-ink-50 transition-colors text-left"
-                    >
-                      <FolderDown size={18} className="text-amber-600 mt-0.5 flex-shrink-0" />
+                    <button onClick={handleBackupDocs} className="w-full flex items-start gap-3 px-4 py-3 hover:bg-ink-50 transition-colors text-left">
+                      <FolderDown size={16} className="text-ink-400 mt-0.5 flex-shrink-0" />
                       <div>
-                        <p className="text-sm font-semibold text-ink-900">Backup dos Documentos</p>
-                        <p className="text-xs text-ink-400 mt-0.5">Todos os PDFs, contratos, comprovantes e fotos em ZIP</p>
+                        <p className="text-sm font-medium text-ink-900">Backup dos documentos</p>
+                        <p className="text-xs text-ink-400 mt-0.5">PDFs, contratos, comprovantes e fotos em ZIP</p>
                       </div>
                     </button>
                   </div>
@@ -1353,6 +1392,25 @@ export default function Dashboard() {
               )}
             </div>
           )}
+          {/* "+ Novo": os atalhos num lugar só */}
+          <div className="relative">
+            <button onClick={() => setShowNovoMenu(v => !v)} className="btn-primary text-sm">
+              <Plus size={16} />Novo
+            </button>
+            {showNovoMenu && (
+              <>
+                <div className="fixed inset-0 z-30" onClick={() => setShowNovoMenu(false)} />
+                <div className="absolute right-0 top-full mt-1 z-40 w-52 bg-white rounded-xl shadow-lift border border-ink-200 p-1">
+                  {ATALHOS.map(a => (
+                    <button key={a.path} onClick={() => { setShowNovoMenu(false); navigate(a.path) }}
+                      className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm text-ink-800 hover:bg-ink-50 text-left">
+                      <a.icon size={16} className="text-ink-400" />{a.label}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </div>
 
@@ -1361,156 +1419,64 @@ export default function Dashboard() {
         <div className="card p-4 border-red-200 bg-red-50 flex items-start gap-3">
           <FileWarning size={18} className="text-red-600 flex-shrink-0 mt-0.5" />
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-red-800">
-              {failedQueries.length} informação{failedQueries.length > 1 ? 'ões' : ''} não carregou
+            <p className="text-sm font-medium text-red-800">
+              {failedQueries.length > 1 ? `${failedQueries.length} informações não carregaram` : '1 informação não carregou'}
             </p>
-            <p className="text-xs text-red-600 mt-0.5">
-              Alguns números abaixo podem estar incompletos ou zerados. Recarregue a página; se continuar, avise o suporte.
-            </p>
-            <p className="text-[11px] text-red-400 mt-1 break-words">{failedQueries.join(', ')}</p>
+            <p className="text-xs text-red-600 mt-0.5">Alguns números abaixo podem estar incompletos. Recarregue a página; se continuar, avise o suporte.</p>
           </div>
-          <button onClick={() => qc.refetchQueries()} className="btn-secondary text-xs flex-shrink-0">
-            Tentar de novo
-          </button>
+          <button onClick={() => qc.refetchQueries()} className="btn-secondary text-xs flex-shrink-0">Tentar de novo</button>
         </div>
       )}
 
-      {/* ── KPI Cards ── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
-        {/* Colaboradores */}
-        <div className="card card-interactive p-4 md:p-5" onClick={() => navigate('/colaboradores')}>
-          <div className="flex items-start justify-between mb-3">
-            <div>
-              <p className="text-xs text-ink-500 font-semibold">Colaboradores</p>
-              <p className="text-2xl md:text-3xl font-display font-extrabold text-ink-900 mt-1 tnum">{activeEmployees}</p>
-              <p className="text-xs text-gray-400">de {totalEmployees} cadastrados</p>
-            </div>
-            <div className="w-9 h-9 md:w-10 md:h-10 shrink-0 rounded-xl bg-blue-50 flex items-center justify-center">
-              <Users size={20} className="text-blue-600" />
-            </div>
-          </div>
-          <div className="w-full bg-gray-100 rounded-full h-1.5">
-            <div className="bg-blue-500 h-1.5 rounded-full" style={{ width: `${Math.min(100, (activeEmployees / totalEmployees) * 100)}%` }} />
-          </div>
-          <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-            {linksThisMonth > 0 && <p className="text-xs text-green-600 font-medium">↑ {linksThisMonth} contratação{linksThisMonth > 1 ? 'ões' : ''} no mês</p>}
-            {dismissedThisMonth > 0 && <p className="text-xs text-red-500">↓ {dismissedThisMonth} inativado{dismissedThisMonth > 1 ? 's' : ''}</p>}
-          </div>
-        </div>
-
-        {/* Vagas */}
-        <div className="card card-interactive p-4 md:p-5" onClick={() => navigate('/vagas')}>
-          <div className="flex items-start justify-between mb-3">
-            <div>
-              <p className="text-xs text-ink-500 font-semibold">Vagas Abertas</p>
-              <p className="text-2xl md:text-3xl font-display font-extrabold text-ink-900 mt-1 tnum">{openVacancies}</p>
-              <p className="text-xs text-gray-400">{filledVacancies} preenchidas</p>
-            </div>
-            <div className="w-9 h-9 md:w-10 md:h-10 shrink-0 rounded-xl bg-green-50 flex items-center justify-center">
-              <Briefcase size={20} className="text-green-600" />
-            </div>
-          </div>
-          <div className="w-full bg-gray-100 rounded-full h-1.5">
-            <div className="bg-green-500 h-1.5 rounded-full" style={{ width: totalVacancies > 0 ? `${(filledVacancies / totalVacancies) * 100}%` : '0%' }} />
-          </div>
-          <p className="text-xs text-gray-400 mt-1.5">
-            {openPositions > 0
-              ? <span className="text-amber-600 font-medium">{openPositions} posição{openPositions > 1 ? 'ões' : ''} a preencher</span>
-              : `${totalVacancies > 0 ? Math.round((filledVacancies / totalVacancies) * 100) : 0}% das vagas preenchidas`}
-          </p>
-        </div>
-
-        {/* Candidatos */}
-        <div className="card card-interactive p-4 md:p-5" onClick={() => navigate('/candidatos')}>
-          <div className="flex items-start justify-between mb-3">
-            <div>
-              <p className="text-xs text-ink-500 font-semibold">Em Processo</p>
-              <p className="text-2xl md:text-3xl font-display font-extrabold text-ink-900 mt-1 tnum">{inProcess}</p>
-              <p className="text-xs text-gray-400">{approvedCount ?? 0} aprovados aguardando</p>
-            </div>
-            <div className="w-9 h-9 md:w-10 md:h-10 shrink-0 rounded-xl bg-purple-50 flex items-center justify-center">
-              <UserPlus size={20} className="text-purple-600" />
-            </div>
-          </div>
-          {(approvedCount ?? 0) > 0 && (
-            <div className="bg-purple-50 rounded-lg px-2 py-1 text-xs text-purple-700 font-medium">
-              ⚡ {approvedCount} pronto{approvedCount! > 1 ? 's' : ''} para alocar
-            </div>
-          )}
-        </div>
-
-        {/* Pendências operacionais */}
-        <div className={`card p-4 md:p-5 ${pendenciasCount > 0 ? 'border-amber-200 bg-amber-50/30' : ''}`}>
-          <div className="flex items-start justify-between mb-2">
-            <div>
-              <p className="text-xs text-ink-500 font-semibold">Pendências</p>
-              <p className={`text-2xl md:text-3xl font-display font-extrabold mt-1 tnum ${pendenciasCount > 0 ? 'text-amber-600' : 'text-primary-600'}`}>
-                {pendenciasCount}
-              </p>
-              <p className="text-xs text-gray-400">para resolver</p>
-            </div>
-            <div className={`w-9 h-9 md:w-10 md:h-10 shrink-0 rounded-xl flex items-center justify-center ${pendenciasCount > 0 ? 'bg-amber-100' : 'bg-green-100'}`}>
-              {pendenciasCount === 0
-                ? <CheckCircle size={20} className="text-green-600" />
-                : <FileWarning size={20} className="text-amber-600" />
-              }
-            </div>
-          </div>
-          {pendenciasCount === 0 ? (
-            <p className="text-xs text-green-600 font-medium">Nada pendente!</p>
-          ) : (
-            <div className="flex flex-wrap gap-1">
-              {pendDocs > 0 && <span className="badge bg-amber-100 text-amber-700 text-[10px] cursor-pointer" onClick={() => navigate('/colaboradores')}>{pendDocs} doc{pendDocs > 1 ? 's' : ''}</span>}
-              {pendContratos > 0 && <span className="badge bg-red-100 text-red-700 text-[10px] cursor-pointer" onClick={() => navigate('/colaboradores')}>{pendContratos} contrato{pendContratos > 1 ? 's' : ''}</span>}
-              {pendChat > 0 && <span className="badge bg-blue-100 text-blue-700 text-[10px] cursor-pointer" onClick={() => navigate('/chat')}><MessageSquare size={9} /> {pendChat}</span>}
-              {pendExtras > 0 && <span className="badge bg-purple-100 text-purple-700 text-[10px] cursor-pointer" onClick={() => navigate('/visitas')}>{pendExtras} extra{pendExtras > 1 ? 's' : ''}</span>}
-              {pendComprovantes > 0 && <span className="badge bg-gray-100 text-gray-600 text-[10px] cursor-pointer" onClick={() => navigate('/pagamentos')}>{pendComprovantes} comprovante{pendComprovantes > 1 ? 's' : ''}</span>}
-            </div>
-          )}
-        </div>
+      {/* Números principais numa faixa só, com linhas finas */}
+      <div className="card grid grid-cols-2 lg:grid-cols-4 divide-ink-100 [&>*]:border-ink-100 [&>*:nth-child(2n)]:border-l lg:[&>*:not(:first-child)]:border-l [&>*:nth-child(n+3)]:border-t lg:[&>*:nth-child(n+3)]:border-t-0 overflow-hidden">
+        <Kpi rotulo="Colaboradores ativos" valor={activeEmployees}
+          sub={linksThisMonth > 0 ? `+${linksThisMonth} no mês${dismissedThisMonth > 0 ? ` · −${dismissedThisMonth}` : ''}` : `de ${totalEmployees} cadastrados`}
+          subCor={linksThisMonth > 0 ? 'text-green-700' : undefined}
+          onClick={() => navigate('/colaboradores')}
+          extra={
+            // Minigráfico: contratações dos últimos 6 meses
+            <svg width="56" height="24" viewBox="0 0 56 24" className="shrink-0" aria-hidden="true">
+              {hiringBarData.map((h, i) => {
+                const alt = Math.max(2, Math.round((h.contratacoes / maxContratacoes) * 22))
+                return <rect key={i} x={i * 9.6} y={24 - alt} width="6" height={alt} rx="1.5" fill={i === hiringBarData.length - 1 ? '#1b8552' : '#d3d2cd'} />
+              })}
+            </svg>
+          } />
+        <Kpi rotulo="Vagas abertas" valor={openVacancies}
+          sub={openPositions > 0 ? `${openPositions} posição${openPositions > 1 ? 'ões' : ''} a preencher` : `${filledVacancies} preenchidas`}
+          onClick={() => navigate('/vagas')} />
+        <Kpi rotulo="Em processo" valor={inProcess}
+          sub={(approvedCount ?? 0) > 0 ? `${approvedCount} aprovado${approvedCount! > 1 ? 's' : ''} para alocar` : 'candidatos'}
+          subCor={(approvedCount ?? 0) > 0 ? 'text-primary-700' : undefined}
+          onClick={() => navigate('/candidatos')} />
+        <Kpi rotulo="Pendências" valor={pendenciasCount}
+          sub={pendenciasCount === 0 ? 'nada pendente' : [
+            pendDocs && `${pendDocs} doc`, pendContratos && `${pendContratos} contrato`, pendExtras && `${pendExtras} extra`,
+            pendComprovantes && `${pendComprovantes} comprov.`, pendChat && `${pendChat} chat`,
+          ].filter(Boolean).join(' · ')}
+          subCor={pendenciasCount > 0 ? 'text-amber-700' : 'text-green-700'}
+          onClick={() => navigate(pendExtras ? '/visitas' : pendChat ? '/chat' : '/colaboradores')} />
       </div>
 
-      {/* Atalhos no celular: logo abaixo dos números, numa faixa que desliza.
-          Antes ficavam no fim da coluna lateral — no celular, lá embaixo. */}
-      <div className="lg:hidden -mx-4 px-4 flex gap-2 overflow-x-auto scrollbar-none">
-        {[
-          { label: 'Pagamentos', path: '/pagamentos', icon: Wallet, only: 'chefe' },
-          { label: 'Visitas', path: '/visitas', icon: ClipboardCheck },
-          { label: 'Colaborador', path: '/colaboradores/novo', icon: Plus },
-          { label: 'Vaga', path: '/vagas/nova', icon: Plus },
-          { label: 'Candidato', path: '/candidatos/novo', icon: Plus },
-          { label: 'Compromisso', path: '/agenda/nova', icon: Plus },
-        ].filter(a => !a.only || a.only === role).map(a => (
-          <button key={a.path} onClick={() => navigate(a.path)}
-            className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-white border border-ink-100 shadow-soft text-sm font-semibold text-ink-700 whitespace-nowrap active:scale-95 transition-all">
-            <a.icon size={15} className="text-primary-600" />{a.label}
-          </button>
-        ))}
-      </div>
-
-      {/* ── Prioridades + Reuniões — o que importa primeiro ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6 items-start">
-        {/* Prioridades (urgências) */}
-        <div className="lg:col-span-2 space-y-2.5">
-          <div className="flex items-center justify-between px-0.5">
-            <h2 className="section-title text-base">
-              <AlertTriangle size={16} className={filteredRed.length > 0 ? 'text-red-500' : filteredAmber.length > 0 ? 'text-amber-500' : 'text-primary-600'} />
-              Prioridades
+      {/* Precisa de atenção + Hoje */}
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 lg:gap-8 items-start">
+        <section className="lg:col-span-3 min-w-0">
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="section-title">
+              Precisa de atenção
+              {atencao.length > 0 && <span className="text-ink-400 font-normal tnum">{atencao.length}</span>}
             </h2>
-            <div className="flex items-center gap-1.5">
-              {filteredRed.length > 0 && <span className="badge bg-red-100 text-red-700">{filteredRed.length} crítico{filteredRed.length > 1 ? 's' : ''}</span>}
-              {filteredAmber.length > 0 && <span className="badge bg-amber-100 text-amber-700">{filteredAmber.length} atenção</span>}
-              <button onClick={() => setShowPriorityForm(v => !v)} className="btn-secondary text-xs py-1 px-2.5 flex items-center gap-1">
-                <Flag size={12} /> Criar
-              </button>
-            </div>
+            <button onClick={() => setShowPriorityForm(v => !v)} className="btn-ghost text-xs px-2 py-1">
+              <Flag size={13} /> Criar
+            </button>
           </div>
 
           {showPriorityForm && (
-            <div className="card p-3 space-y-2.5 border-primary-200">
+            <div className="card p-3 space-y-2.5 mb-3">
               <input
                 className="input text-sm"
-                placeholder="Escreva a prioridade (ex: Ligar para o cliente X sobre renovação)"
+                placeholder="Ex.: ligar para o cliente X sobre a renovação"
                 value={priorityText}
                 autoFocus
                 onChange={e => setPriorityText(e.target.value)}
@@ -1518,578 +1484,189 @@ export default function Dashboard() {
               />
               <div className="flex items-center justify-between gap-2 flex-wrap">
                 <div className="flex gap-1.5">
-                  <button
-                    onClick={() => setPriorityLevel('amber')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${priorityLevel === 'amber' ? 'bg-amber-500 text-white border-amber-500' : 'bg-white text-amber-600 border-amber-200'}`}
-                  >Atenção</button>
-                  <button
-                    onClick={() => setPriorityLevel('red')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${priorityLevel === 'red' ? 'bg-red-600 text-white border-red-600' : 'bg-white text-red-600 border-red-200'}`}
-                  >Crítico</button>
+                  <button onClick={() => setPriorityLevel('amber')}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${priorityLevel === 'amber' ? 'border-amber-400 bg-amber-50 text-amber-800' : 'border-ink-200 text-ink-500'}`}>
+                    <span className="dot bg-amber-500" />Atenção
+                  </button>
+                  <button onClick={() => setPriorityLevel('red')}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${priorityLevel === 'red' ? 'border-red-400 bg-red-50 text-red-800' : 'border-ink-200 text-ink-500'}`}>
+                    <span className="dot bg-red-600" />Crítico
+                  </button>
                 </div>
                 <div className="flex gap-1.5 ml-auto">
                   <button onClick={() => { setShowPriorityForm(false); setPriorityText('') }} className="btn-ghost text-xs">Cancelar</button>
                   <button onClick={() => addPriority.mutate()} disabled={!priorityText.trim() || addPriority.isPending} className="btn-primary text-xs py-1.5">
-                    {addPriority.isPending ? 'Criando...' : 'Criar prioridade'}
+                    {addPriority.isPending ? 'Criando...' : 'Criar'}
                   </button>
                 </div>
               </div>
-              <p className="text-xs text-ink-400">Aparece para todos os usuários até alguém marcar como concluída.</p>
+              <p className="text-xs text-ink-400">Aparece para toda a equipe até alguém concluir.</p>
             </div>
           )}
 
-          {allAlerts.length === 0 && !showPriorityForm && (
-            <div className="card p-6 flex items-center gap-4 border-primary-100 bg-primary-50/40">
-              <div className="w-11 h-11 rounded-2xl bg-primary-100 flex items-center justify-center flex-shrink-0">
-                <CheckCircle size={22} className="text-primary-700" />
-              </div>
+          {atencao.length === 0 ? (
+            <div className="card px-4 py-6 flex items-center gap-3">
+              <CheckCircle size={20} className="text-primary-700 shrink-0" strokeWidth={1.75} />
               <div>
-                <p className="font-semibold text-ink-900">Tudo em dia!</p>
-                <p className="text-sm text-ink-500">Nenhuma pendência urgente agora{resolvedCount > 0 ? ` — ${resolvedCount} resolvida${resolvedCount > 1 ? 's' : ''}` : ''}.</p>
+                <p className="text-sm font-medium text-ink-900">Tudo em dia</p>
+                <p className="text-xs text-ink-500">Nenhuma pendência urgente agora{resolvedCount > 0 ? ` · ${resolvedCount} resolvida${resolvedCount > 1 ? 's' : ''} hoje` : ''}.</p>
               </div>
             </div>
-          )}
-
-          {filteredRed.length > 0 && (
-            <div className="rounded-2xl border border-red-200 overflow-hidden shadow-card bg-white">
-              <div className="bg-red-50 border-b border-red-100 px-4 py-2.5 flex items-center gap-2">
-                <AlertTriangle size={14} className="text-red-600" />
-                <span className="text-sm font-bold text-red-700">{filteredRed.length} Problema{filteredRed.length > 1 ? 's' : ''} Crítico{filteredRed.length > 1 ? 's' : ''}</span>
-              </div>
-              <div className="divide-y divide-red-100">
-                {filteredRed.map((a, i) => (
-                  <div key={i} className="flex items-center gap-3 px-4 py-3 md:py-2.5 group">
-                    <span className="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0" />
-                    <p className={`text-sm text-red-800 flex-1 ${a.path ? 'cursor-pointer hover:underline' : ''}`}
-                      onClick={() => a.path && navigate(a.path)}>{a.text}</p>
-                    <div className="flex items-center gap-1 flex-shrink-0">
-                      {a.customId ? (
-                        <button onClick={() => resolvePriority.mutate(a.customId!)} className="text-green-500 hover:text-green-700 md:opacity-0 md:group-hover:opacity-100 transition-opacity p-1.5 md:p-0.5 rounded-lg" title="Concluir prioridade">
-                          <Check size={14} />
+          ) : (
+            <div className="card divide-y divide-ink-100 overflow-hidden">
+              {atencaoVisivel.map((a, i) => (
+                <div key={a.key || i} className="flex items-center gap-3 px-4 py-3 group">
+                  <span className={`dot ${a.nivel === 'red' ? 'bg-red-600' : 'bg-amber-500'}`} />
+                  <p className={`text-sm text-ink-800 flex-1 min-w-0 ${a.path ? 'cursor-pointer hover:text-ink-950' : ''}`}
+                    onClick={() => a.path && navigate(a.path)}>{a.text}</p>
+                  <div className="flex items-center gap-0.5 shrink-0">
+                    {a.customId ? (
+                      <button onClick={() => resolvePriority.mutate(a.customId!)} className="p-1.5 rounded-md text-ink-400 hover:text-green-700 hover:bg-green-50 md:opacity-0 md:group-hover:opacity-100 transition-opacity" title="Concluir">
+                        <Check size={15} />
+                      </button>
+                    ) : a.key && (
+                      <>
+                        <button onClick={() => resolveAlert(a.key!)} className="p-1.5 rounded-md text-ink-400 hover:text-green-700 hover:bg-green-50 md:opacity-0 md:group-hover:opacity-100 transition-opacity" title="Marcar como resolvido">
+                          <Check size={15} />
                         </button>
-                      ) : (
-                        <>
-                          {a.key && (
-                            <button onClick={() => resolveAlert(a.key!)} className="text-green-400 hover:text-green-600 md:opacity-0 md:group-hover:opacity-100 transition-opacity p-1.5 md:p-0.5 rounded-lg" title="Marcar como resolvido">
-                              <Check size={14} />
-                            </button>
-                          )}
-                          {a.key && (
-                            <button onClick={() => dismissAlert(a.key!)} className="text-red-300 hover:text-red-600 md:opacity-0 md:group-hover:opacity-100 transition-opacity p-1.5 md:p-0.5 rounded-lg" title="Dispensar alerta">
-                              <X size={14} />
-                            </button>
-                          )}
-                        </>
-                      )}
-                      {a.path && <span className="text-xs text-red-400">→</span>}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {filteredAmber.length > 0 && (
-            <div className="rounded-2xl border border-amber-200 overflow-hidden shadow-card bg-white">
-              <div className="bg-amber-50 border-b border-amber-100 px-4 py-2.5 flex items-center gap-2">
-                <Clock size={14} className="text-amber-600" />
-                <span className="text-sm font-bold text-amber-700">{filteredAmber.length} Atenção</span>
-              </div>
-              <div className="divide-y divide-amber-100 max-h-[19rem] overflow-y-auto">
-                {filteredAmber.map((a, i) => (
-                  <div key={i} className="flex items-center gap-3 px-4 py-3 md:py-2.5 group">
-                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" />
-                    <p className={`text-sm text-amber-800 flex-1 ${a.path ? 'cursor-pointer hover:underline' : ''}`}
-                      onClick={() => a.path && navigate(a.path)}>{a.text}</p>
-                    <div className="flex items-center gap-1 flex-shrink-0">
-                      {a.customId ? (
-                        <button onClick={() => resolvePriority.mutate(a.customId!)} className="text-green-500 hover:text-green-700 md:opacity-0 md:group-hover:opacity-100 transition-opacity p-1.5 md:p-0.5 rounded-lg" title="Concluir prioridade">
-                          <Check size={14} />
+                        <button onClick={() => dismissAlert(a.key!)} className="p-1.5 rounded-md text-ink-400 hover:text-ink-700 hover:bg-ink-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity" title="Dispensar">
+                          <X size={15} />
                         </button>
-                      ) : (
-                        <>
-                          {a.key && (
-                            <button onClick={() => resolveAlert(a.key!)} className="text-green-400 hover:text-green-600 md:opacity-0 md:group-hover:opacity-100 transition-opacity p-1.5 md:p-0.5 rounded-lg" title="Marcar como resolvido">
-                              <Check size={14} />
-                            </button>
-                          )}
-                          {a.key && (
-                            <button onClick={() => dismissAlert(a.key!)} className="text-amber-300 hover:text-amber-600 md:opacity-0 md:group-hover:opacity-100 transition-opacity p-1.5 md:p-0.5 rounded-lg" title="Dispensar alerta">
-                              <X size={14} />
-                            </button>
-                          )}
-                        </>
-                      )}
-                      {a.path && <span className="text-xs text-amber-400">→</span>}
-                    </div>
+                      </>
+                    )}
+                    {a.path && (
+                      <button onClick={() => navigate(a.path!)} className="p-1.5 rounded-md text-ink-300 hover:text-ink-700" aria-label="Abrir">
+                        <ChevronRight size={15} />
+                      </button>
+                    )}
                   </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {resolvedCount > 0 && allAlerts.length > 0 && (
-            <div className="flex items-center gap-2 px-4 py-2 bg-green-50 rounded-xl border border-green-200">
-              <CheckCircle size={14} className="text-green-600" />
-              <span className="text-sm text-green-700 font-medium">{resolvedCount} pendência{resolvedCount > 1 ? 's' : ''} resolvida{resolvedCount > 1 ? 's' : ''}</span>
-              <button onClick={() => {
-                setResolvedAlerts(new Set())
-                localStorage.removeItem('timein_resolved_alerts')
-              }} className="text-xs text-green-500 hover:text-green-700 ml-auto">Limpar</button>
-            </div>
-          )}
-        </div>
-
-        {/* Reuniões — compromissos da equipe */}
-        <div className="space-y-2.5">
-          <div className="flex items-center justify-between px-0.5">
-            <h2 className="section-title text-base">
-              <Calendar size={16} className="text-primary-600" />
-              Reuniões
-            </h2>
-            <button onClick={() => navigate('/agenda')} className="text-xs text-primary-600 hover:underline font-medium">Ver tudo →</button>
-          </div>
-          <div className="card p-3">
-            {interviews?.length === 0 ? (
-              <div className="text-center py-5">
-                <Calendar size={24} className="text-ink-200 mx-auto mb-1.5" />
-                <p className="text-sm text-ink-400">Nenhum compromisso agendado</p>
-                <button onClick={() => navigate('/agenda/nova')} className="text-xs text-primary-600 font-semibold hover:underline mt-1.5">+ Agendar compromisso</button>
-              </div>
-            ) : (
-              <div className="space-y-1.5">
-                {interviews?.map((i: { id: string; title?: string; candidate?: { full_name: string }; employee?: { full_name: string }; scheduled_at: string; end_date?: string; modality: string; status: string; vacancy?: { title: string }; link_or_address?: string }) => {
-                  const d = parseLocal(i.scheduled_at) ?? new Date(i.scheduled_at)
-                  const isToday = d.toDateString() === now.toDateString()
-                  const isTomorrow = d.toDateString() === addDays(now, 1).toDateString()
-                  return (
-                    <div key={i.id}
-                      className={`flex items-start gap-3 p-2.5 rounded-xl cursor-pointer border transition-colors ${isToday ? 'border-primary-200 bg-primary-50/60 hover:bg-primary-50' : 'border-ink-100 hover:bg-ink-50'}`}
-                      onClick={() => navigate('/agenda')}>
-                      <div className={`w-11 h-11 rounded-xl flex flex-col items-center justify-center flex-shrink-0 ${isToday ? 'bg-primary-600 text-white' : 'bg-primary-50 text-primary-700'}`}>
-                        {isToday || isTomorrow ? (
-                          <span className="text-[9px] font-extrabold uppercase leading-none">{isToday ? 'Hoje' : 'Amanhã'}</span>
-                        ) : (
-                          <span className="text-sm font-bold leading-none">{d.getDate()}</span>
-                        )}
-                        <span className={`text-[9px] leading-none mt-1 ${isToday ? 'text-primary-100' : 'text-primary-400'}`}>
-                          {isToday || isTomorrow ? formatLocalTime(i.scheduled_at) : d.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '')}
-                        </span>
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-ink-900 truncate">{i.title || i.candidate?.full_name || 'Compromisso'}</p>
-                        <p className="text-xs text-ink-400 truncate">
-                          {formatLocalTime(i.scheduled_at)}
-                          {i.employee?.full_name ? ` · ${i.employee.full_name}` : ''}
-                          {i.candidate?.full_name ? ` · ${i.candidate.full_name}` : ''}
-                        </p>
-                        {/* Entrar na reunião direto daqui — stopPropagation pra não navegar pra agenda */}
-                        {i.link_or_address && (
-                          isMeetingLink(i.link_or_address) ? (
-                            <a href={i.link_or_address} target="_blank" rel="noopener noreferrer"
-                              onClick={e => e.stopPropagation()}
-                              className="inline-flex items-center gap-1 mt-1.5 px-2.5 py-1 rounded-lg bg-primary-600 text-white text-xs font-semibold hover:bg-primary-700 active:scale-95 transition-all">
-                              <Video size={12} /> Entrar
-                            </a>
-                          ) : (
-                            <a href={mapsUrl(i.link_or_address)} target="_blank" rel="noopener noreferrer"
-                              onClick={e => e.stopPropagation()}
-                              className="inline-flex items-center gap-1 mt-1 text-xs text-primary-700 hover:underline max-w-full">
-                              <MapPin size={11} className="flex-shrink-0" />
-                              <span className="truncate">{i.link_or_address}</span>
-                            </a>
-                          )
-                        )}
-                        <div className="flex gap-1 mt-1 flex-wrap">
-                          <span className={`badge text-[10px] ${MODAL_COLORS[i.modality] || 'bg-gray-100 text-gray-700'}`}>{i.modality}</span>
-                          <span className={`badge text-[10px] ${STATUS_COLORS[i.status] || 'bg-gray-100 text-gray-700'}`}>{i.status}</span>
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </div>
-
-          {/* Atalhos — ficam aqui pra preencher a coluna e deixar as ações à mão */}
-          <div className="hidden lg:flex items-center justify-between px-0.5 pt-1">
-            <h2 className="section-title text-base">
-              <TrendingUp size={16} className="text-primary-600" />
-              Atalhos
-            </h2>
-          </div>
-          <div className="card p-3 hidden lg:grid grid-cols-2 gap-2">
-            {[
-              { label: 'Colaborador', path: '/colaboradores/novo', color: 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100' },
-              { label: 'Vaga', path: '/vagas/nova', color: 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100' },
-              { label: 'Candidato', path: '/candidatos/novo', color: 'bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100' },
-              { label: 'Compromisso', path: '/agenda/nova', color: 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100' },
-              { label: 'Contrato', path: '/contratos/novo', color: 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100' },
-              { label: 'Kanban', path: '/candidatos/kanban', color: 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100' },
-            ].map(q => (
-              <button key={q.path} onClick={() => navigate(q.path)}
-                className={`flex items-center gap-1.5 px-2.5 py-2 rounded-xl border text-xs font-semibold transition-colors ${q.color}`}>
-                <Plus size={12} className="flex-shrink-0" />
-                <span className="truncate">{q.label}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* ── Mini calendário da semana — clique abre o calendário completo ── */}
-      <button
-        onClick={() => navigate('/calendario')}
-        className="card p-4 w-full text-left hover:border-primary-300 hover:shadow-md transition-all group"
-      >
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="section-title text-base mb-0">
-            <Calendar size={16} className="text-primary-600" />
-            Minha semana
-          </h2>
-          <span className="text-xs text-ink-400 group-hover:text-primary-600 transition-colors">
-            Ver calendário completo →
-          </span>
-        </div>
-        {/* Celular: lista dos dias — 7 colunas viram ~45px cada, ilegível no dedo */}
-        <div className="sm:hidden space-y-1.5">
-          {Array.from({ length: 7 }).map((_, i) => {
-            const day = new Date(weekStart)
-            day.setDate(day.getDate() + i)
-            const isToday = day.toDateString() === now.toDateString()
-            const dayEvents = (weekEvents || []).filter(e => {
-              const d = parseLocal(e.scheduled_at)
-              return d && d.toDateString() === day.toDateString()
-            })
-            if (dayEvents.length === 0 && !isToday) return null
-            return (
-              <div key={i} className={`flex gap-3 rounded-xl border p-2.5 ${isToday ? 'border-primary-400 bg-primary-50/60' : 'border-ink-100 bg-ink-50/40'}`}>
-                <div className="w-11 flex-shrink-0 text-center">
-                  <p className={`text-[10px] uppercase font-semibold ${isToday ? 'text-primary-600' : 'text-ink-400'}`}>
-                    {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'][i]}
-                  </p>
-                  <p className={`text-lg font-bold leading-none ${isToday ? 'text-primary-700' : 'text-ink-700'}`}>
-                    {day.getDate()}
-                  </p>
-                </div>
-                <div className="flex-1 min-w-0 space-y-1">
-                  {dayEvents.length === 0 ? (
-                    <p className="text-xs text-ink-400 leading-relaxed">Nada marcado hoje</p>
-                  ) : dayEvents.map(e => (
-                    <div key={e.id}
-                      className={`text-xs leading-tight px-2 py-1 rounded-lg truncate ${
-                        e.category === 'Visita' ? 'bg-primary-100 text-primary-700' : 'bg-blue-100 text-blue-700'
-                      }`}>
-                      <span className="font-semibold">{formatLocalTime(e.scheduled_at)}</span> {e.title || 'Compromisso'}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )
-          })}
-          {(weekEvents || []).length === 0 && (
-            <p className="text-xs text-ink-400 text-center py-1">Nenhum compromisso nesta semana.</p>
-          )}
-        </div>
-
-        {/* Tablet/computador: grade da semana */}
-        <div className="hidden sm:grid grid-cols-7 gap-1.5">
-          {Array.from({ length: 7 }).map((_, i) => {
-            const day = new Date(weekStart)
-            day.setDate(day.getDate() + i)
-            const isToday = day.toDateString() === now.toDateString()
-            const dayEvents = (weekEvents || []).filter(e => {
-              const d = parseLocal(e.scheduled_at)
-              return d && d.toDateString() === day.toDateString()
-            })
-            return (
-              <div
-                key={i}
-                className={`rounded-xl p-2 min-h-[4rem] border transition-colors ${
-                  isToday ? 'border-primary-400 bg-primary-50/60' : 'border-ink-100 bg-ink-50/40'
-                }`}
-              >
-                <div className="flex items-baseline justify-center gap-1 mb-1">
-                  <p className={`text-[10px] uppercase font-semibold ${isToday ? 'text-primary-600' : 'text-ink-400'}`}>
-                    {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'][i]}
-                  </p>
-                  <p className={`text-sm font-bold leading-none ${isToday ? 'text-primary-700' : 'text-ink-700'}`}>
-                    {day.getDate()}
-                  </p>
-                </div>
-                <div className="space-y-1">
-                  {dayEvents.length === 0 && (
-                    <p className="text-[10px] text-ink-300 text-center leading-tight">—</p>
-                  )}
-                  {dayEvents.slice(0, 2).map(e => (
-                    <div
-                      key={e.id}
-                      title={`${formatLocalTime(e.scheduled_at)} · ${e.title || 'Compromisso'}`}
-                      className={`text-[10px] leading-tight px-1 py-0.5 rounded truncate ${
-                        e.category === 'Visita'
-                          ? 'bg-primary-100 text-primary-700'
-                          : 'bg-blue-100 text-blue-700'
-                      }`}
-                    >
-                      {formatLocalTime(e.scheduled_at)} {e.title || 'Compromisso'}
-                    </div>
-                  ))}
-                  {dayEvents.length > 2 && (
-                    <p className="text-[10px] text-ink-400 px-1">+{dayEvents.length - 2} mais</p>
-                  )}
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      </button>
-
-      {/* ── Minhas Atividades de hoje (checklist com progresso) ── */}
-      {(myActivities?.length ?? 0) > 0 && (() => {
-        const total = myActivities!.length
-        const feitas = myActivities!.filter(a => (a as { done?: boolean }).done === true).length
-        const naoFeitas = myActivities!.filter(a => (a as { done?: boolean }).done === false).length
-        const pendentes = total - feitas - naoFeitas
-        const pct = Math.round((feitas / total) * 100)
-        // vermelho → amarelo → verde conforme completa
-        const cor = pct >= 67 ? '#22c55e' : pct >= 34 ? '#f59e0b' : '#ef4444'
-        const pie = [
-          { name: 'Feitas', value: feitas, color: cor },
-          { name: 'Não feitas', value: naoFeitas, color: '#fca5a5' },
-          { name: 'Pendentes', value: pendentes, color: '#e5e7eb' },
-        ].filter(d => d.value > 0)
-        const restante = total - feitas
-        const microcopy = feitas === 0 ? 'Bora começar 👊'
-          : restante === 0 ? '🎉 Tudo feito hoje!'
-          : restante === 1 ? 'Falta só 1! 💪'
-          : `Mandou bem — faltam ${restante}`
-        const CONF = ['#22c55e', '#f59e0b', '#3b82f6', '#ef4444', '#a855f7', '#ec4899']
-        return (
-          <div className="card p-5 relative overflow-hidden">
-            {confetti && (
-              <div className="pointer-events-none absolute inset-0 z-10">
-                {Array.from({ length: 34 }).map((_, i) => (
-                  <span key={i} className="absolute top-0 w-2 h-2 rounded-[2px]"
-                    style={{ left: `${Math.random() * 100}%`, background: CONF[i % CONF.length],
-                      animation: `confetti-fall ${1 + Math.random() * 0.8}s ease-in forwards`, animationDelay: `${Math.random() * 0.3}s` }} />
-                ))}
-              </div>
-            )}
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="section-title text-base">
-                <Clipboard size={16} className="text-primary-600" /> Minhas Atividades de hoje
-              </h2>
-              <button onClick={() => navigate('/atividades')} className="text-xs text-primary-600 hover:underline font-medium">Abrir →</button>
-            </div>
-            <div className="flex items-center gap-5 flex-wrap">
-              <div className="h-32 w-32 relative shrink-0">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie data={pie} cx="50%" cy="50%" innerRadius={38} outerRadius={58} dataKey="value" paddingAngle={3} stroke="none">
-                      {pie.map((e, i) => <Cell key={i} fill={e.color} />)}
-                    </Pie>
-                    <Tooltip />
-                  </PieChart>
-                </ResponsiveContainer>
-                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                  <span className="text-2xl font-display font-extrabold tnum transition-colors duration-500" style={{ color: cor }}>{pct}%</span>
-                  <span className="text-[10px] text-ink-400">{feitas}/{total} feitas</span>
-                </div>
-              </div>
-              <div className="flex-1 min-w-[160px] space-y-1">
-                <p className="text-xs font-semibold mb-1" style={{ color: restante === 0 ? '#16a34a' : '#78776f' }}>{microcopy}</p>
-                {myActivities!.slice(0, 6).map(a => {
-                  const done = (a as { done?: boolean }).done === true
-                  return (
-                    <button key={a.id}
-                      onClick={() => {
-                        const next = done ? null : true
-                        if (next === true && feitas + 1 === total) fireConfetti()
-                        toggleActivity.mutate({ id: a.id, done: next })
-                      }}
-                      className="w-full flex items-center gap-2 text-sm text-left group py-0.5">
-                      <span className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-all ${done ? 'bg-green-500 border-green-500 animate-check-pop' : 'border-ink-300 group-hover:border-green-400'}`}>
-                        {done && <Check size={12} className="text-white" strokeWidth={3.5} />}
-                      </span>
-                      <span className={`truncate transition-colors ${done ? 'text-ink-400 line-through' : 'text-ink-700 group-hover:text-ink-900'}`}>{(a as { activity_name: string }).activity_name}</span>
-                    </button>
-                  )
-                })}
-                {total > 6 && <p className="text-xs text-ink-400 pt-0.5">+{total - 6} atividade(s)</p>}
-              </div>
-            </div>
-          </div>
-        )
-      })()}
-
-      {/* ── Panorama — todos os donuts numa faixa só, sem buraco em branco ── */}
-      <div className="card p-5">
-        <h2 className="section-title text-base mb-4">
-          <BarChart3 size={16} className="text-primary-600" />
-          Panorama
-        </h2>
-        <div className={`grid grid-cols-2 sm:grid-cols-3 ${role === 'chefe' ? 'lg:grid-cols-5' : 'lg:grid-cols-2'} gap-x-5 gap-y-6 divide-ink-100 lg:divide-x`}>
-          <div className="lg:pr-5"><MiniDonut title="Vagas" data={vagasPie} total={vagasTotal} empty="Nenhuma vaga" /></div>
-          <div className="lg:px-5"><MiniDonut title="Contratos" data={contratosPie} total={contratosTotal} empty="Nenhum contrato" /></div>
-          {role === 'chefe' && (
-            <>
-              <div className="lg:px-5"><MiniDonut title="Colaboradores" data={colaboradoresPie} total={colaboradoresTotal} empty="Nenhum colaborador" /></div>
-              <div className="lg:px-5"><MiniDonut title="Visitas do mês" data={visitasPie} total={visitasTotal} empty="Sem visitas" /></div>
-              <div className="lg:pl-5"><MiniDonut title="Documentos" data={documentosPie} total={documentosTotal} empty="Sem documentos" /></div>
-            </>
-          )}
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* ── Contratações (últimos 6 meses) — ocupa 2 colunas ── */}
-        {role === 'chefe' && (
-          <div className="card p-5 lg:col-span-2">
-            <h2 className="section-title text-base mb-4">
-              <BarChart3 size={16} className="text-primary-600" />
-              Contratações — Últimos 6 meses
-            </h2>
-            {hiringBarData.some(d => d.contratacoes > 0) ? (
-              <div className="h-48">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={hiringBarData} barSize={28}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
-                    <XAxis dataKey="month" tick={{ fontSize: 12, fill: '#6b7280' }} axisLine={false} tickLine={false} />
-                    <YAxis allowDecimals={false} tick={{ fontSize: 12, fill: '#6b7280' }} axisLine={false} tickLine={false} width={24} />
-                    <Tooltip formatter={(v: number) => [v, 'Contratações']} />
-                    <Bar dataKey="contratacoes" fill="#1b8552" radius={[6, 6, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            ) : (
-              <p className="text-center text-sm text-gray-400 py-8">Sem contratações no período</p>
-            )}
-          </div>
-        )}
-
-        {role === 'chefe' && empStatusData.length > 0 && (
-          <div className="card p-5">
-            <h2 className="section-title text-base mb-4">
-              <Activity size={16} className="text-primary-600" />
-              Status dos Colaboradores
-            </h2>
-            <div className="h-48 relative">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie data={empStatusData} cx="50%" cy="50%" innerRadius={45} outerRadius={70} dataKey="value" paddingAngle={3} stroke="none">
-                    {empStatusData.map((e, i) => <Cell key={i} fill={e.color} />)}
-                  </Pie>
-                  <Tooltip />
-                  <Legend iconType="circle" iconSize={8} formatter={(v) => <span className="text-xs text-gray-600">{v}</span>} />
-                </PieChart>
-              </ResponsiveContainer>
-              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                <span className="text-2xl font-display font-extrabold text-ink-900 tnum">{employees?.length ?? 0}</span>
-                <span className="text-[10px] text-ink-400">total</span>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ── Freelas — ocupa a linha toda se não houver docs pendentes ao lado ── */}
-        {role === 'chefe' && freelasTotal > 0 && (
-          <div className={`card p-5 ${(pendingDocs?.length ?? 0) > 0 ? '' : 'lg:col-span-3'}`}>
-            <h2 className="section-title text-base mb-4">
-              <Users size={16} className="text-purple-500" />
-              Freelas
-            </h2>
-            <div className="h-48 relative">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie data={freelasPie} cx="50%" cy="50%" innerRadius={45} outerRadius={70} dataKey="value" paddingAngle={3} stroke="none">
-                    {freelasPie.map((e, i) => <Cell key={i} fill={e.color} />)}
-                  </Pie>
-                  <Tooltip />
-                  <Legend iconType="circle" iconSize={8} formatter={(v) => <span className="text-xs text-gray-600">{v}</span>} />
-                </PieChart>
-              </ResponsiveContainer>
-              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                <span className="text-2xl font-display font-extrabold text-ink-900 tnum">{freelasTotal}</span>
-                <span className="text-[10px] text-ink-400">freelas</span>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ── Pendências de Documentação (chefe) ── */}
-        {role === 'chefe' && (pendingDocs?.length ?? 0) > 0 && (
-          <div className={`card p-5 ${freelasTotal > 0 ? 'lg:col-span-2' : 'lg:col-span-3'}`}>
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="section-title text-base">
-                <Clipboard size={16} className="text-amber-500" />
-                Documentos Pendentes
-                <span className="badge bg-amber-100 text-amber-700">{pendingDocs!.length}</span>
-              </h2>
-              <button onClick={() => navigate('/colaboradores')} className="text-xs text-primary-600 hover:underline">Ver colaboradores →</button>
-            </div>
-            <div className={`grid gap-1.5 max-h-48 overflow-y-auto ${freelasTotal > 0 ? 'sm:grid-cols-2' : 'sm:grid-cols-3'}`}>
-              {pendingDocs?.slice(0, 15).map(d => (
-                <div key={d.id} className="flex items-center justify-between px-3 py-2 bg-amber-50 rounded-lg cursor-pointer hover:bg-amber-100"
-                  onClick={() => navigate(`/colaboradores/${(d as { employee?: { id: string } }).employee?.id}?tab=arquivos`)}>
-                  <div>
-                    <p className="text-xs font-medium text-amber-800">{(d as { employee?: { full_name: string } }).employee?.full_name}</p>
-                    <p className="text-xs text-amber-600">{d.name}</p>
-                  </div>
-                  <span className="text-xs text-amber-400">→</span>
                 </div>
               ))}
-              {(pendingDocs?.length ?? 0) > 15 && (
-                <p className="text-xs text-gray-400 text-center">+{(pendingDocs?.length ?? 0) - 15} mais…</p>
+              {atencao.length > 7 && (
+                <button onClick={() => setMostrarTodos(!mostrarTodos)} className="w-full px-4 py-2.5 text-xs font-medium text-ink-500 hover:bg-ink-50 text-left">
+                  {mostrarTodos ? 'Mostrar menos' : `Ver mais ${atencao.length - 7}`}
+                </button>
               )}
             </div>
-          </div>
-        )}
+          )}
+          {resolvedCount > 0 && atencao.length > 0 && (
+            <p className="text-xs text-ink-400 mt-2">
+              {resolvedCount} resolvida{resolvedCount > 1 ? 's' : ''} ·{' '}
+              <button onClick={() => { setResolvedAlerts(new Set()); try { localStorage.removeItem('timein_resolved_alerts') } catch { /* sem armazenamento */ } }}
+                className="underline hover:text-ink-600">limpar</button>
+            </p>
+          )}
+        </section>
 
+        <section className="lg:col-span-2 min-w-0">
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="section-title">{hojeEventos.length ? 'Hoje' : 'Próximos compromissos'}</h2>
+            <button onClick={() => navigate('/calendario')} className="text-xs text-ink-500 hover:text-ink-800">Calendário <ChevronRight size={12} className="inline" /></button>
+          </div>
+          <div className="card divide-y divide-ink-100 overflow-hidden">
+            {proximosEventos.length === 0 ? (
+              <div className="px-4 py-6 text-center">
+                <p className="text-sm text-ink-500">Nada marcado</p>
+                <button onClick={() => navigate('/agenda/nova')} className="text-xs text-primary-700 font-medium hover:underline mt-1">Agendar compromisso</button>
+              </div>
+            ) : proximosEventos.map((i: { id: string; title?: string; candidate?: { full_name: string }; employee?: { full_name: string }; scheduled_at: string; modality?: string; link_or_address?: string }) => {
+              const d = parseLocal(i.scheduled_at) ?? new Date(i.scheduled_at)
+              const eHoje = d.toDateString() === now.toDateString()
+              return (
+                <div key={i.id} className="flex gap-3 px-4 py-3 cursor-pointer hover:bg-ink-50/60" onClick={() => navigate('/agenda')}>
+                  <div className="w-12 shrink-0 text-right">
+                    <p className="text-sm font-medium text-ink-900 tnum">{formatLocalTime(i.scheduled_at)}</p>
+                    {!eHoje && <p className="text-[11px] text-ink-400">{d.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' }).replace('.', '')}</p>}
+                  </div>
+                  <div className="flex-1 min-w-0 border-l border-ink-100 pl-3">
+                    <p className="text-sm text-ink-900 truncate">{i.title || i.candidate?.full_name || 'Compromisso'}</p>
+                    <p className="text-xs text-ink-400 truncate">
+                      {[i.modality, i.employee?.full_name, i.candidate?.full_name].filter(Boolean).join(' · ')}
+                    </p>
+                    {i.link_or_address && (
+                      isMeetingLink(i.link_or_address) ? (
+                        <a href={i.link_or_address} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
+                          className="inline-flex items-center gap-1 mt-1 text-xs font-medium text-primary-700 hover:underline">
+                          <Video size={12} /> Entrar na reunião
+                        </a>
+                      ) : (
+                        <a href={mapsUrl(i.link_or_address)} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
+                          className="inline-flex items-center gap-1 mt-1 text-xs text-ink-500 hover:underline max-w-full">
+                          <MapPin size={11} className="flex-shrink-0" /><span className="truncate">{i.link_or_address}</span>
+                        </a>
+                      )
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+          <p className="text-xs text-ink-400 mt-2">
+            Esta semana: {eventosSemana} compromisso{eventosSemana !== 1 ? 's' : ''} ·{' '}
+            <button onClick={() => navigate('/agenda')} className="underline hover:text-ink-600">ver reuniões</button>
+          </p>
+        </section>
       </div>
 
-    </div>
-  )
-}
-
-// Donut compacto reutilizável (rosca com total no centro + legenda)
-function MiniDonut({ title, data, total, empty }: {
-  title: string
-  data: { name: string; value: number; color: string }[]
-  total: number
-  empty: string
-}) {
-  return (
-    <div className="flex flex-col">
-      <p className="text-xs font-semibold text-ink-500 mb-1 text-center">{title}</p>
-      {total > 0 ? (
-        <>
-          <div className="h-32 relative">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie data={data} cx="50%" cy="50%" innerRadius={34} outerRadius={54} dataKey="value" paddingAngle={3} stroke="none">
-                  {data.map((e, i) => <Cell key={i} fill={e.color} />)}
-                </Pie>
-                <Tooltip />
-              </PieChart>
-            </ResponsiveContainer>
-            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-              <span className="text-xl font-display font-extrabold text-ink-900 tnum">{total}</span>
-              <span className="text-[10px] text-ink-400">total</span>
-            </div>
-          </div>
-          <div className="space-y-1 mt-2">
-            {data.map((d, i) => (
-              <div key={i} className="flex items-center justify-between text-xs">
-                <span className="flex items-center gap-1.5 text-ink-600"><span className="w-2 h-2 rounded-full" style={{ backgroundColor: d.color }} />{d.name}</span>
-                <span className="font-semibold text-ink-800 tnum">
-                  {d.value} <span className="text-ink-400 font-normal">· {Math.round((d.value / total) * 100)}%</span>
-                </span>
+      {/* Atividades + Panorama */}
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 lg:gap-8 items-start">
+        {(myActivities?.length ?? 0) > 0 && (() => {
+          const total = myActivities!.length
+          const feitas = myActivities!.filter(a => (a as { done?: boolean }).done === true).length
+          return (
+            <section className="lg:col-span-3 min-w-0">
+              <div className="flex items-center justify-between mb-2">
+                <h2 className="section-title">Minhas atividades de hoje</h2>
+                <span className="text-xs text-ink-400 tnum">{feitas} de {total}</span>
               </div>
+              <div className="card p-4">
+                <div className="h-1.5 rounded-full bg-ink-100 overflow-hidden mb-3">
+                  <div className="h-1.5 rounded-full bg-primary-600 transition-all duration-500" style={{ width: `${pct(feitas, total)}%` }} />
+                </div>
+                <div className="space-y-0.5">
+                  {myActivities!.slice(0, 7).map(a => {
+                    const done = (a as { done?: boolean }).done === true
+                    return (
+                      <button key={a.id}
+                        onClick={() => toggleActivity.mutate({ id: a.id, done: done ? null : true })}
+                        className="w-full flex items-center gap-2.5 text-sm text-left py-1.5 rounded-md hover:bg-ink-50 px-1 -mx-1">
+                        <span className={`w-[18px] h-[18px] rounded-full border flex items-center justify-center shrink-0 transition-colors ${done ? 'bg-primary-600 border-primary-600' : 'border-ink-300'}`}>
+                          {done && <Check size={11} className="text-white" strokeWidth={3} />}
+                        </span>
+                        <span className={`truncate ${done ? 'text-ink-400 line-through' : 'text-ink-800'}`}>{(a as { activity_name: string }).activity_name}</span>
+                      </button>
+                    )
+                  })}
+                  {total > 7 && (
+                    <button onClick={() => navigate('/atividades')} className="text-xs text-ink-500 hover:text-ink-800 pt-1">+{total - 7} atividade(s) · abrir</button>
+                  )}
+                </div>
+              </div>
+            </section>
+          )
+        })()}
+
+        <section className={`${(myActivities?.length ?? 0) > 0 ? 'lg:col-span-2' : 'lg:col-span-5'} min-w-0`}>
+          <h2 className="section-title mb-2">Panorama</h2>
+          <div className="card p-4 space-y-3.5">
+            {panorama.map(p => (
+              <button key={p.rotulo} onClick={() => navigate(p.caminho)} className="w-full grid grid-cols-[1fr_auto] gap-x-3 gap-y-1.5 items-center text-left group">
+                <span className="text-sm text-ink-600 group-hover:text-ink-900">{p.rotulo}</span>
+                <span className="text-sm font-medium text-ink-900 tnum text-right">{p.valor}</span>
+                <span className="col-span-2 h-1.5 rounded-full bg-ink-100 overflow-hidden">
+                  <span className="block h-1.5 rounded-full bg-ink-500" style={{ width: `${p.p}%` }} />
+                </span>
+              </button>
             ))}
+            {role === 'chefe' && colaboradoresTotal > 0 && (
+              <p className="text-xs text-ink-400 pt-1 border-t border-ink-100">
+                Vínculos: {colaboradoresPie.map(c => `${c.value} ${c.name.toLowerCase()}`).join(' · ')}
+                {freelasTotal > 0 && <> · {freelaAtuando} freela{freelaAtuando !== 1 ? 's' : ''} atuando, {favoritosDisp} favorito{favoritosDisp !== 1 ? 's' : ''} livre{favoritosDisp !== 1 ? 's' : ''}</>}
+              </p>
+            )}
           </div>
-        </>
-      ) : <p className="text-center text-xs text-ink-400 py-10">{empty}</p>}
+        </section>
+      </div>
     </div>
   )
 }

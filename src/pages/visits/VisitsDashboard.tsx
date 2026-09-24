@@ -278,11 +278,11 @@ export default function VisitsDashboard() {
                 )}
                 {empHours > 0 && (
                   <span className={`text-xs font-medium ${monthlyQuota && empHours >= monthlyQuota ? 'text-green-600' : 'text-gray-500'}`}>
-                    ⏱ {Math.floor(empHours)}h{Math.round((empHours % 1) * 60) > 0 ? Math.round((empHours % 1) * 60) + 'min' : ''}{monthlyQuota ? ` de ${monthlyQuota}h/mês` : ''}
+                    {Math.floor(empHours)}h{Math.round((empHours % 1) * 60) > 0 ? Math.round((empHours % 1) * 60) + 'min' : ''}{monthlyQuota ? ` de ${monthlyQuota}h/mês` : ''}
                   </span>
                 )}
                 {noRate && (
-                  <span className="text-xs text-amber-600 font-medium">⚠ valores das unidades não definidos</span>
+                  <span className="text-xs text-amber-600 font-medium">valores das unidades não definidos</span>
                 )}
                 {openEmp.length === 0 && alertLevel === 'warning' && (
                   <span className="flex items-center gap-1 text-xs text-amber-600 font-medium">
@@ -363,7 +363,7 @@ export default function VisitsDashboard() {
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-sm font-medium text-gray-900">{formatDate(v.visit_date)}</span>
                         <span className={`text-xs px-2 py-0.5 rounded-full ${isOpen ? 'bg-red-100 text-red-700' : 'text-gray-500 bg-gray-100'}`}>
-                          {v.check_in?.slice(0, 5)} — {isOpen ? '⚠ sem saída' : v.check_out?.slice(0, 5)}
+                          {v.check_in?.slice(0, 5)} — {isOpen ? 'sem saída' : v.check_out?.slice(0, 5)}
                           {duration && ` (${duration})`}
                         </span>
                         {v.unit_name ? (
@@ -371,13 +371,13 @@ export default function VisitsDashboard() {
                         ) : (
                           <span className="text-xs text-primary-600 font-medium">{clientName}</span>
                         )}
-                        {(v as { extra_approval?: string }).extra_approval === 'pendente' && <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">⏳ extra — decidir</span>}
+                        {(v as { extra_approval?: string }).extra_approval === 'pendente' && <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">extra — decidir</span>}
                         {(v as { extra_approval?: string }).extra_approval === 'aprovada' && <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">✓ extra aprovada</span>}
                         {(v as { extra_approval?: string }).extra_approval === 'negada' && <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full font-medium">extra não paga</span>}
                       </div>
                       {v.observations && <p className="text-xs text-gray-500 mt-1">{v.observations}</p>}
                       {(v as { report_url?: string }).report_url && (
-                        <SignedLink value={(v as { report_url?: string }).report_url} bucket="arquivos" className="text-xs text-primary-600 underline mt-1 inline-block">📄 Ver relatório</SignedLink>
+                        <SignedLink value={(v as { report_url?: string }).report_url} bucket="arquivos" className="text-xs text-primary-600 underline mt-1 inline-block">Ver relatório</SignedLink>
                       )}
                     </div>
                     {v.visit_rate && (
@@ -541,10 +541,10 @@ export default function VisitsDashboard() {
                 ) : (
                   <>
                     {pendingExtras.length > 0 && (
-                      <span className="text-amber-600 font-medium">⏳ {pendingExtras.length} folga{pendingExtras.length !== 1 ? 's' : ''} trabalhada{pendingExtras.length !== 1 ? 's' : ''} — definir valor</span>
+                      <span className="text-amber-600 font-medium">{pendingExtras.length} folga{pendingExtras.length !== 1 ? 's' : ''} trabalhada{pendingExtras.length !== 1 ? 's' : ''} — definir valor</span>
                     )}
                     {extraDays.length > pendingExtras.length && (
-                      <span className="text-green-600 font-medium">⭐ {extraDays.length - pendingExtras.length} extra{extraDays.length - pendingExtras.length !== 1 ? 's' : ''} aprovado{extraDays.length - pendingExtras.length !== 1 ? 's' : ''}{extraTotal > 0 ? ` (+R$ ${extraTotal.toFixed(2)})` : ''}</span>
+                      <span className="text-green-600 font-medium">{extraDays.length - pendingExtras.length} extra{extraDays.length - pendingExtras.length !== 1 ? 's' : ''} aprovado{extraDays.length - pendingExtras.length !== 1 ? 's' : ''}{extraTotal > 0 ? ` (+R$ ${extraTotal.toFixed(2)})` : ''}</span>
                     )}
                     {unavailDays.length > 0 && (
                       <span className="text-red-600 font-medium">{unavailDays.length} falta{unavailDays.length !== 1 ? 's' : ''} justificada{unavailDays.length !== 1 ? 's' : ''}</span>
@@ -558,17 +558,17 @@ export default function VisitsDashboard() {
               {/* Avisos feitos pela agenda do portal */}
               {faltaNotices.map(n => (
                 <p key={n.id} className="text-xs font-medium mt-1 text-red-600">
-                  🔔 Avisou falta em {formatDate(n.notice_date)}{n.reason ? ` — ${n.reason}` : ''}
+                  Avisou falta em {formatDate(n.notice_date)}{n.reason ? ` — ${n.reason}` : ''}
                 </p>
               ))}
               {trocaNotices.map(n => (
                 <p key={n.id} className="text-xs font-medium mt-1 text-amber-600">
-                  🔁 Troca combinada: folga {formatDate(n.notice_date)} → trabalha {n.swap_work_date ? formatDate(n.swap_work_date) : '?'}
+                  Troca combinada: folga {formatDate(n.notice_date)} → trabalha {n.swap_work_date ? formatDate(n.swap_work_date) : '?'}
                 </p>
               ))}
               {pendingDays.length > 0 && (
                 <p className={`text-xs font-medium mt-1 ${oldPending ? 'text-red-600' : 'text-amber-600'}`}>
-                  ⚠ Não preencheu {pendingDays.length} dia{pendingDays.length !== 1 ? 's' : ''} da escala: {pendingDays.slice(0, 5).map(d => formatDate(d)).join(', ')}{pendingDays.length > 5 ? '…' : ''}
+                  Não preencheu {pendingDays.length} dia{pendingDays.length !== 1 ? 's' : ''} da escala: {pendingDays.slice(0, 5).map(d => formatDate(d)).join(', ')}{pendingDays.length > 5 ? '…' : ''}
                   {oldPending ? ' — pendente há mais de 7 dias, cobrar!' : ''}
                 </p>
               )}
@@ -637,11 +637,11 @@ export default function VisitsDashboard() {
                         {isHoliday && <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">Feriado</span>}
                         {isUnavail && <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full">Falta</span>}
                         {(v as { is_extra?: boolean }).is_extra && (v as { extra_approval?: string }).extra_approval === 'pendente' && (
-                          <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">⏳ extra — definir valor</span>
+                          <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">extra — definir valor</span>
                         )}
                         {(v as { is_extra?: boolean }).is_extra && (v as { extra_approval?: string }).extra_approval === 'aprovada' && (
                           <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">
-                            ⭐ extra aprovado{(v as { extra_amount?: number }).extra_amount ? ` +R$ ${Number((v as { extra_amount?: number }).extra_amount).toFixed(2)}` : ''}
+                            extra aprovado{(v as { extra_amount?: number }).extra_amount ? ` +R$ ${Number((v as { extra_amount?: number }).extra_amount).toFixed(2)}` : ''}
                           </span>
                         )}
                         {(v as { is_extra?: boolean }).is_extra && (v as { extra_approval?: string }).extra_approval === 'negada' && (
@@ -649,12 +649,12 @@ export default function VisitsDashboard() {
                         )}
                         {(v as { is_swap?: boolean }).is_swap && (
                           <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">
-                            🔁 Troca de dia{(v as { swapped_from?: string }).swapped_from ? ` (no lugar de ${formatDate((v as { swapped_from?: string }).swapped_from!)})` : ''}
+                            Troca de dia{(v as { swapped_from?: string }).swapped_from ? ` (no lugar de ${formatDate((v as { swapped_from?: string }).swapped_from!)})` : ''}
                           </span>
                         )}
                         {!isHoliday && !isUnavail && v.check_in && (
                           <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">
-                            {v.check_in.slice(0,5)} — {v.check_out?.slice(0,5) || '⚠ sem saída'}
+                            {v.check_in.slice(0,5)} — {v.check_out?.slice(0,5) || 'sem saída'}
                             {v.check_in && v.check_out ? ` (${formatDuration(v.check_in.slice(0,5), v.check_out.slice(0,5))})` : ''}
                           </span>
                         )}
@@ -717,7 +717,7 @@ export default function VisitsDashboard() {
       <div className="flex items-end justify-between flex-wrap gap-3">
         <div>
           <p className="eyebrow mb-1">Operação</p>
-          <h1 className="text-2xl md:text-3xl font-display font-extrabold text-ink-900">Visitas & Ponto</h1>
+          <h1 className="page-title">Visitas & Ponto</h1>
           <p className="text-sm text-ink-500 mt-0.5">Acompanhe consultoria e fixos registrados pelo portal</p>
         </div>
         <input className="input w-40" type="month" value={month} onChange={e => setMonth(e.target.value)} />
@@ -792,7 +792,7 @@ export default function VisitsDashboard() {
             return (
               <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-3">
                 <p className="font-semibold text-amber-800 text-sm flex items-center gap-2">
-                  ⏳ {pendingExtras.length} visita{pendingExtras.length > 1 ? 's' : ''} extra{pendingExtras.length > 1 ? 's' : ''} aguardando sua decisão
+                  {pendingExtras.length} visita{pendingExtras.length > 1 ? 's' : ''} extra{pendingExtras.length > 1 ? 's' : ''} aguardando sua decisão
                 </p>
                 {pendingExtras.map(v => {
                   const emp = employees?.find(e => e.id === v.employee_id)
@@ -815,7 +815,7 @@ export default function VisitsDashboard() {
                           disabled={decideExtra.isPending}
                           onClick={() => decideExtra.mutate({ visitId: v.id, approve: true, amount: proposed || null })}
                         >
-                          💰 Pagar{proposed ? ` R$ ${proposed.toFixed(2)}` : ''}
+                          Pagar{proposed ? ` R$ ${proposed.toFixed(2)}` : ''}
                         </button>
                         <button
                           className="btn-secondary text-xs text-gray-600"
@@ -951,7 +951,7 @@ export default function VisitsDashboard() {
                         const dr = (l as { daily_rate?: number }).daily_rate
                         return (
                           <span key={l.id} className="text-purple-700 font-medium">
-                            ⚡ {(l as { client?: { name: string } }).client?.name}
+                            {(l as { client?: { name: string } }).client?.name}
                             {end ? ` até ${formatDate(end)}` : ''}
                             {dr ? ` · R$ ${Number(dr).toFixed(2)}/dia` : ''}
                           </span>

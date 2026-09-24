@@ -365,7 +365,7 @@ export default function ClientDetail() {
         <div className="w-14 h-14 rounded-2xl bg-primary-50 flex items-center justify-center flex-shrink-0">
           <Building2 size={26} className="text-primary-600" />
         </div>
-        <h1 className="text-xl md:text-2xl font-display font-extrabold text-ink-900 flex-1 min-w-0 truncate">{client.name}</h1>
+        <h1 className="page-title-sm flex-1 min-w-0 truncate">{client.name}</h1>
         {canManageClient && (
           <div className="flex gap-2 shrink-0">
             <button onClick={() => navigate(`/clientes/${id}/editar`)} className="btn-secondary text-sm">

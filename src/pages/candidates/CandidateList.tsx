@@ -297,7 +297,7 @@ export default function CandidateList() {
       <div className="flex items-end justify-between flex-wrap gap-3">
         <div>
           <p className="eyebrow mb-1">Banco de talentos</p>
-          <h1 className="text-2xl md:text-3xl font-display font-extrabold text-ink-900">
+          <h1 className="page-title">
             Candidatos
             {totalCount > 0 && <span className="ml-2 text-base font-semibold text-ink-400 align-middle">{totalCount}</span>}
           </h1>

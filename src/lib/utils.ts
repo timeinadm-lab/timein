@@ -217,3 +217,23 @@ export function mapsUrl(address: string): string {
 export function semAcento(s: string): string {
   return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
 }
+
+// Cor fixa por pessoa para o avatar de iniciais: a mesma pessoa tem sempre a
+// mesma cor, em qualquer tela. Tons suaves — ajuda a achar gente numa lista
+// sem virar arco-íris.
+const CORES_AVATAR = [
+  'bg-[#E1F5EE] text-[#085041]', // verde-água
+  'bg-[#E6F1FB] text-[#0C447C]', // azul
+  'bg-[#FBEAF0] text-[#72243E]', // rosa
+  'bg-[#FAEEDA] text-[#633806]', // âmbar
+  'bg-[#EEEDFE] text-[#3C3489]', // lilás
+  'bg-[#FAECE7] text-[#712B13]', // coral
+  'bg-[#EAF3DE] text-[#27500A]', // verde
+  'bg-[#F1EFE8] text-[#444441]', // areia
+]
+export function corDoAvatar(nome?: string | null): string {
+  const s = semAcento(nome || '?')
+  let h = 0
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0
+  return CORES_AVATAR[h % CORES_AVATAR.length]
+}

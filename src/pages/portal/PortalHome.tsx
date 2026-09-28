@@ -26,8 +26,16 @@ export default function PortalHome() {
   const rpc = async <T,>(fn: string, args: Record<string, unknown>): Promise<T> => {
     const { data, error } = await supabase.rpc(fn, args)
     if (error) {
-      if (/sess[aã]o|28000|JWT|invalid/i.test(error.message)) {
+      // Só sai do portal quando a SESSÃO acabou (código 28000). Antes qualquer
+      // erro com "invalid" na mensagem derrubava o login — a pessoa entrava e
+      // era jogada para fora sem saber por quê.
+      const sessaoAcabou = (error as { code?: string }).code === '28000' || /sess[aã]o inv[aá]lida|expirad/i.test(error.message)
+      console.error('[portal]', fn, error)
+      if (sessaoAcabou) {
+        toast.error('Sua sessão expirou. Entre de novo.')
         localStorage.removeItem('portal_token'); navigate('/portal')
+      } else {
+        toast.error('Erro no portal (' + fn + '): ' + error.message, { id: 'erro-' + fn, duration: 8000 })
       }
       throw error
     }
@@ -80,7 +88,7 @@ export default function PortalHome() {
   })
 
   useEffect(() => {
-    if (baseError && /sess[aã]o|28000/i.test((baseError as Error).message)) {
+    if (baseError && ((baseError as { code?: string }).code === '28000' || /sess[aã]o inv[aá]lida|expirad/i.test((baseError as Error).message))) {
       sealClosed(); navigate('/portal')
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

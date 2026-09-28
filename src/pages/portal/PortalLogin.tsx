@@ -77,7 +77,7 @@ export default function PortalLogin() {
             <input
               className="input !text-base py-3"
               type="password"
-              placeholder="Senha criada pelo seu gestor"
+              placeholder="Senha do portal"
               value={pin}
               autoComplete="new-password"
               onChange={e => setPin(e.target.value)}

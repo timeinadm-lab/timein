@@ -7,6 +7,7 @@ import { getInitials } from '../../lib/utils'
 import { SkeletonRows } from '../../components/ui/Skeleton'
 import toast from 'react-hot-toast'
 import { confirmar } from '../../components/ui/ConfirmDialog'
+import SenhaPadraoPortal from './SenhaPadraoPortal'
 
 export default function UserManagement() {
   const { user: currentUser, role } = useAuth()
@@ -146,6 +147,9 @@ export default function UserManagement() {
           </div>
         </div>
       )}
+
+      {/* Senha padrão do portal da nutricionista — só o chefe */}
+      {role === 'chefe' && <SenhaPadraoPortal />}
 
       {showNewForm && (
         <div className="card p-5 space-y-4">

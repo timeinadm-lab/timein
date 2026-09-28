@@ -10,6 +10,7 @@ import DeletePinModal from '../../components/ui/DeletePinModal'
 import { SkeletonDetail } from '../../components/ui/Skeleton'
 import { useAuth } from '../../contexts/AuthContext'
 import toast from 'react-hot-toast'
+import { confirmar } from '../../components/ui/ConfirmDialog'
 import { format, startOfMonth, endOfMonth, getDaysInMonth, getDay, differenceInDays } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import type { EmployeeClientLink, EmployeePaymentDate } from '../../types'
@@ -3938,6 +3939,7 @@ function PortalTab({ employeeId, employee }: { employeeId: string; employee: Rec
       toast.success('Senha do portal atualizada!')
       qc.invalidateQueries({ queryKey: ['employee', employeeId] })
       qc.invalidateQueries({ queryKey: ['portal-tem-senha', employeeId] })
+      qc.invalidateQueries({ queryKey: ['portal-tipo-senha', employeeId] })
       setLastPin(newPin.trim())
       setNewPin('')
     }
@@ -3962,6 +3964,32 @@ function PortalTab({ employeeId, employee }: { employeeId: string; employee: Rec
     },
   })
 
+  // Senha própria ou a padrão do portal (migração 054)
+  const { data: tipoSenha } = useQuery({
+    queryKey: ['portal-tipo-senha', employeeId],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc('portal_tipo_senha', { p_employee: employeeId })
+      if (error) return null // migração 054 ainda não rodada
+      return data as 'propria' | 'padrao' | 'nenhuma'
+    },
+  })
+  const [voltando, setVoltando] = useState(false)
+  const voltarParaPadrao = async () => {
+    if (!(await confirmar({
+      titulo: 'Voltar para a senha padrão?',
+      texto: 'A senha própria desta pessoa deixa de valer e ela passa a entrar com a senha padrão do portal.',
+      confirmar: 'Usar senha padrão',
+    }))) return
+    setVoltando(true)
+    const { error } = await supabase.rpc('portal_usar_senha_padrao', { p_employee: employeeId })
+    setVoltando(false)
+    if (error) { toast.error('Erro: ' + error.message); return }
+    toast.success('Agora usa a senha padrão do portal')
+    setLastPin('')
+    qc.invalidateQueries({ queryKey: ['portal-tipo-senha', employeeId] })
+    qc.invalidateQueries({ queryKey: ['portal-tem-senha', employeeId] })
+  }
+
   const hasPin = temSenha !== null && temSenha !== undefined
     ? temSenha
     : (!!(employee as { portal_pin_hash?: string })?.portal_pin_hash
@@ -3969,7 +3997,7 @@ function PortalTab({ employeeId, employee }: { employeeId: string; employee: Rec
   const cpf = (employee as { cpf?: string })?.cpf || '-'
 
   const copyAccess = () => {
-    const text = `Portal Time IN: ${portalUrl}\nCPF: ${cpf}\nSenha: ${lastPin || '(defina uma nova senha abaixo)'}`
+    const text = `Portal Time IN: ${portalUrl}\nCPF: ${cpf}\nSenha: ${lastPin || (tipoSenha === 'padrao' ? 'a senha padrão do portal' : '(defina uma nova senha abaixo)')}`
     navigator.clipboard.writeText(text)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
@@ -4031,7 +4059,7 @@ function PortalTab({ employeeId, employee }: { employeeId: string; employee: Rec
           </div>
           <div className="flex justify-between items-center">
             <span className="text-gray-500">Senha:</span>
-            <span className="font-mono">{lastPin ? lastPin : hasPin ? '•••••• (definida)' : '—'}</span>
+            <span className={lastPin ? 'font-mono' : ''}>{lastPin ? lastPin : tipoSenha === 'padrao' ? 'senha padrão do portal' : tipoSenha === 'propria' ? 'senha própria (••••••)' : hasPin ? '•••••• (definida)' : '—'}</span>
           </div>
         </div>
 
@@ -4048,17 +4076,22 @@ function PortalTab({ employeeId, employee }: { employeeId: string; employee: Rec
 
         {(lastPin || hasPin) && (
           <button onClick={copyAccess} className="btn-secondary w-full text-sm" disabled={!lastPin && !hasPin}>
-            {copied ? '✓ Copiado!' : '📋 Copiar dados de acesso para enviar'}
+            {copied ? 'Copiado' : 'Copiar dados de acesso para enviar'}
           </button>
         )}
 
         <div className="border-t pt-4 space-y-2">
-          <label className="label">{hasPin ? 'Alterar senha' : 'Criar senha de acesso'}</label>
+          {tipoSenha === 'propria' && (
+            <button onClick={voltarParaPadrao} disabled={voltando} className="btn-secondary w-full text-sm mb-2">
+              {voltando ? 'Voltando…' : 'Voltar para a senha padrão'}
+            </button>
+          )}
+          <label className="label">{tipoSenha === 'padrao' ? 'Dar uma senha própria a esta pessoa (opcional)' : hasPin ? 'Alterar senha' : 'Criar senha de acesso'}</label>
           <div className="flex gap-2">
             <input
               className="input flex-1"
               type="text"
-              placeholder="Ex: nutri2025"
+              placeholder="Mínimo 6 caracteres"
               value={newPin}
               onChange={e => setNewPin(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && savePin()}

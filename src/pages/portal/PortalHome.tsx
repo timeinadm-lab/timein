@@ -97,7 +97,26 @@ export default function PortalHome() {
   /* eslint-disable @typescript-eslint/no-explicit-any */
   const links = base?.links as any[] | undefined
   const allUnits = base?.units as any[] | undefined
-  const agenda = base?.agenda as any[] | undefined
+  // A agenda do portal_base só traz dias de hoje em diante: dia combinado que
+  // já passou sem registro sumia. portal_agenda (migração 056) traz o mês
+  // inteiro; juntamos as duas. Sem a migração, fica só a de hoje em diante.
+  const { data: agendaDoMes } = useQuery({
+    queryKey: ['portal-agenda-mes', employeeId, agendaMonth],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc('portal_agenda', { p_token: token, p_month: agendaMonth })
+      if (error) { console.warn('portal_agenda:', error.message); return [] }
+      return (data || []) as any[]
+    },
+    enabled: !!token,
+  })
+  const agenda = (() => {
+    const futura = (base?.agenda as any[] | undefined) || []
+    const doMes = agendaDoMes || []
+    if (!base && !agendaDoMes) return undefined
+    const vistos = new Set(futura.map(a => a.id))
+    return [...doMes.filter(a => !vistos.has(a.id)), ...futura]
+      .sort((a, b) => String(a.planned_date).localeCompare(String(b.planned_date)))
+  })()
   const notices = base?.notices as any[] | undefined
   const myDuvidas = base?.questions as any[] | undefined
 
@@ -117,7 +136,7 @@ export default function PortalHome() {
     },
     onSuccess: (_d, vars) => {
       toast.success(vars.type === 'falta' ? 'Falta avisada! O RH foi notificado.' : 'Troca de dia registrada!')
-      qc.invalidateQueries({ queryKey: ['portal-base', employeeId] })
+      { qc.invalidateQueries({ queryKey: ['portal-base', employeeId] }); qc.invalidateQueries({ queryKey: ['portal-agenda-mes', employeeId] }) }
       setDayModal(null)
       setNoticeAction('')
       setNoticeForm({ reason: '', otherDate: '' })
@@ -131,7 +150,7 @@ export default function PortalHome() {
     },
     onSuccess: () => {
       toast.success('Aviso removido.')
-      qc.invalidateQueries({ queryKey: ['portal-base', employeeId] })
+      { qc.invalidateQueries({ queryKey: ['portal-base', employeeId] }); qc.invalidateQueries({ queryKey: ['portal-agenda-mes', employeeId] }) }
     },
     onError: (e: Error) => toast.error(e.message),
   })
@@ -174,7 +193,7 @@ export default function PortalHome() {
     },
     onSuccess: () => {
       toast.success('Agenda atualizada!')
-      qc.invalidateQueries({ queryKey: ['portal-base', employeeId] })
+      { qc.invalidateQueries({ queryKey: ['portal-base', employeeId] }); qc.invalidateQueries({ queryKey: ['portal-agenda-mes', employeeId] }) }
       setAgendaForm(null)
       setAgendaEntry({ planned_date: '', unit_id: '', notes: '' })
     },
@@ -185,7 +204,7 @@ export default function PortalHome() {
     mutationFn: async (id: string) => {
       await rpc('portal_delete_agenda', { p_token: token, p_id: id })
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['portal-base', employeeId] }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['portal-base', employeeId] }); qc.invalidateQueries({ queryKey: ['portal-agenda-mes', employeeId] }) },
   })
 
   // Remarcar a data de uma visita planejada — guarda a data original; o chefe vê na agenda dela
@@ -195,7 +214,7 @@ export default function PortalHome() {
     },
     onSuccess: () => {
       toast.success('Visita remarcada!')
-      qc.invalidateQueries({ queryKey: ['portal-base', employeeId] })
+      { qc.invalidateQueries({ queryKey: ['portal-base', employeeId] }); qc.invalidateQueries({ queryKey: ['portal-agenda-mes', employeeId] }) }
       setReschedAgenda(null)
     },
     onError: (e: Error) => toast.error(e.message),
@@ -614,7 +633,7 @@ export default function PortalHome() {
     },
     onSuccess: () => {
       toast.success('Mensagem enviada! O RH vai responder em breve.')
-      qc.invalidateQueries({ queryKey: ['portal-base', employeeId] })
+      { qc.invalidateQueries({ queryKey: ['portal-base', employeeId] }); qc.invalidateQueries({ queryKey: ['portal-agenda-mes', employeeId] }) }
       setDuvidaText('')
     },
     onError: (e: Error) => toast.error(e.message),
@@ -1380,8 +1399,15 @@ export default function PortalHome() {
               </div>
             ) : null}
 
-            {/* Consultoria: calendário visual de visitas planejadas */}
-            {(folhaLinks as FolhaLink[] | undefined)?.filter(l => effectiveType(l) === 'Consultoria').map(link => {
+            {/* Dias combinados com o RH (agenda). Antes só aparecia para consultoria:
+                freela — que trabalha exatamente nos dias da agenda — não via os dias
+                marcados para ele. Agora vale para consultoria, freela e qualquer
+                vínculo com dia marcado no mês (fixo com escala já tem o calendário acima). */}
+            {(folhaLinks as FolhaLink[] | undefined)?.filter(l =>
+              effectiveType(l) === 'Consultoria'
+              || l.service_type === 'Volante'
+              || (!hasKnownSchedule(l) && (agenda || []).some(a => (a as { client_id?: string }).client_id === l.client?.id))
+            ).map(link => {
               const client = link.client!
               const monthDate = new Date(agendaMonth + '-15')
               const daysInMonth = getDaysInMonth(monthDate)
@@ -1397,7 +1423,7 @@ export default function PortalHome() {
                 <div key={`cal-consult-${link.id}`} className="card p-4 space-y-3">
                   <div className="flex items-center gap-2">
                     <p className="font-semibold text-sm">{client.name}</p>
-                    <span className="badge bg-orange-100 text-orange-700 text-xs">Consultoria</span>
+                    <span className="badge bg-orange-100 text-orange-700 text-xs">{link.service_type === 'Volante' ? 'Freela' : effectiveType(link)}</span>
                   </div>
                   <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-ink-500">
                     <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-orange-400 inline-block" /> Planejado</span>

@@ -11,6 +11,8 @@ import { SkeletonDetail } from '../../components/ui/Skeleton'
 import { useAuth } from '../../contexts/AuthContext'
 import toast from 'react-hot-toast'
 import { confirmar } from '../../components/ui/ConfirmDialog'
+import EncerrarVinculoModal, { QUEM_ENCERROU } from './EncerrarVinculoModal'
+import type { VinculoParaEncerrar } from './EncerrarVinculoModal'
 import { format, startOfMonth, endOfMonth, getDaysInMonth, getDay, differenceInDays } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import type { EmployeeClientLink, EmployeePaymentDate } from '../../types'
@@ -150,6 +152,8 @@ export default function EmployeeDetail() {
   const [uploadingLinkId, setUploadingLinkId] = useState<string | null>(null)
   const [editContractDate, setEditContractDate] = useState<{ linkId: string; date: string } | null>(null)
   const [confirmRemoveLinkId, setConfirmRemoveLinkId] = useState<string | null>(null)
+  // Vínculo aberto na janela de encerramento (rescisão)
+  const [encerrandoLink, setEncerrandoLink] = useState<VinculoParaEncerrar | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [statusMenuOpen, setStatusMenuOpen] = useState(false)
   const [editVisitId, setEditVisitId] = useState<string | null>(null)
@@ -840,10 +844,10 @@ export default function EmployeeDetail() {
       const temPagamentos = pagCount || 0
 
       if (temVisitas > 0 || temPagamentos > 0) {
-        const { error } = await supabase.from('employee_client_links')
-          .update({ contract_end_date: hoje }).eq('id', linkId)
-        if (error) throw error
-        return 'encerrado' as const
+        // Tem visita ou pagamento: não apaga. Encerrar é pela janela "Encerrar
+        // contrato", que registra a data real, o motivo e o distrato.
+        void hoje
+        throw new Error('Este vínculo tem visitas ou pagamentos e não pode ser apagado. Use "Encerrar contrato".')
       }
 
       const { error } = await supabase.from('employee_client_links').delete().eq('id', linkId)
@@ -859,6 +863,43 @@ export default function EmployeeDetail() {
       setConfirmRemoveLinkId(null)
     },
     onError: (e: Error) => { toast.error(e.message); setConfirmRemoveLinkId(null) },
+  })
+
+  // Desfazer um encerramento (feito por engano): volta a valer. Nada foi apagado
+  // no encerramento, então não há nada para recuperar além das datas.
+  const desfazerEncerramento = useMutation({
+    mutationFn: async (linkId: string) => {
+      const l = (links || []).find(x => x.id === linkId) as { service_type?: string } | undefined
+      const ok = await confirmar({
+        titulo: 'Desfazer o encerramento?',
+        texto: l?.service_type === 'Volante'
+          ? 'O vínculo volta a valer sem data de fim. Confira depois a data de fim do freela.'
+          : 'O vínculo volta a valer, sem data de fim. O motivo e o distrato registrados são apagados do vínculo.',
+        confirmar: 'Desfazer',
+      })
+      if (!ok) return false
+      const { error } = await supabase.from('employee_client_links').update({
+        contract_end_date: null, ended_at: null, ended_by: null, end_initiated_by: null,
+        end_reason: null, end_document_url: null, end_fine_amount: null, end_fine_description: null,
+      }).eq('id', linkId)
+      if (error) {
+        // Sem a migração 057 as colunas novas não existem: desfaz só a data
+        if (/ended_at|end_|column/i.test(error.message)) {
+          const { error: e2 } = await supabase.from('employee_client_links').update({ contract_end_date: null }).eq('id', linkId)
+          if (e2) throw e2
+          return true
+        }
+        throw error
+      }
+      return true
+    },
+    onSuccess: (ok) => {
+      if (!ok) return
+      toast.success('Encerramento desfeito — o vínculo voltou a valer')
+      qc.invalidateQueries({ queryKey: ['employee-links', id] })
+      qc.invalidateQueries({ queryKey: ['employees'] })
+    },
+    onError: (e: Error) => toast.error(e.message),
   })
 
   const updateLinkValues = useMutation({
@@ -1150,6 +1191,20 @@ export default function EmployeeDetail() {
       </div>
 
       {/* Confirm delete modal — exige PIN */}
+      {encerrandoLink && (
+        <EncerrarVinculoModal
+          vinculo={encerrandoLink}
+          employeeId={id!}
+          nome={(employee as { full_name?: string })?.full_name || ''}
+          onClose={() => setEncerrandoLink(null)}
+          onSaved={() => {
+            setEncerrandoLink(null)
+            qc.invalidateQueries({ queryKey: ['employee-links', id] })
+            qc.invalidateQueries({ queryKey: ['employees'] })
+            qc.invalidateQueries({ queryKey: ['folha-ponto'] })
+          }}
+        />
+      )}
       <DeletePinModal
         open={confirmDelete}
         title="Excluir colaborador?"
@@ -1761,10 +1816,10 @@ export default function EmployeeDetail() {
                       <button className="text-xs text-primary-600 hover:underline px-2 py-1" onClick={() => { setExtendLinkId(isExtending ? null : l.id); setNewEndDate(endDate || '') }}>
                         {isExtending ? 'Cancelar' : 'Estender'}
                       </button>
-                      <button className="text-xs text-red-400 hover:text-red-600 px-2 py-1"
-                        title="Encerra o vínculo hoje — o histórico de visitas e pagamentos é preservado"
-                        onClick={() => { if (confirmRemoveLinkId === l.id) { removeLink.mutate(l.id); setConfirmRemoveLinkId(null) } else setConfirmRemoveLinkId(l.id) }}>
-                        {confirmRemoveLinkId === l.id ? '⚠ Confirmar' : 'Encerrar'}
+                      <button className="text-xs text-red-500 hover:text-red-700 px-2 py-1"
+                        title="Encerrar contrato — registra o último dia, o motivo e o distrato. Nada é apagado."
+                        onClick={() => setEncerrandoLink(l as VinculoParaEncerrar)}>
+                        {(l as { ended_at?: string }).ended_at ? 'Encerramento' : 'Encerrar'}
                       </button>
                     </div>
                   </div>
@@ -1900,18 +1955,36 @@ export default function EmployeeDetail() {
                   )}
                   {/* Encerrar não apaga: o vínculo fica como histórico, e sem
                       esta faixa parecia que o botão não tinha funcionado. */}
-                  {encerrado && (
-                    <div className="mb-3 rounded-lg bg-white border border-ink-200 px-3 py-2">
-                      <p className="text-xs text-ink-700">
-                        <strong>Vínculo encerrado.</strong> Fica aqui como histórico — as visitas e os
-                        pagamentos deste cliente continuam guardados.
-                      </p>
-                      <p className="text-xs text-ink-500 mt-0.5">
-                        Não gera mais cobrança: sai da folha a partir de <strong>{saiDaFolhaEm}</strong>.
-                        No mês em que encerrou ele ainda aparece, pelos dias trabalhados.
-                      </p>
-                    </div>
-                  )}
+                  {encerrado && (() => {
+                    const enc = l as VinculoParaEncerrar
+                    return (
+                      <div className="mb-3 rounded-lg bg-white border border-ink-200 px-3 py-2.5 space-y-1">
+                        <p className="text-xs text-ink-700">
+                          <strong>Contrato encerrado em {formatDate(contractEnd!)}</strong>
+                          {enc.end_initiated_by && <> · {QUEM_ENCERROU[enc.end_initiated_by] || enc.end_initiated_by}</>}
+                        </p>
+                        {enc.end_reason && <p className="text-xs text-ink-600">Motivo: {enc.end_reason}</p>}
+                        {enc.end_fine_amount ? (
+                          <p className="text-xs text-ink-600">Multa/indenização: {formatCurrency(Number(enc.end_fine_amount))}{enc.end_fine_description ? ` — ${enc.end_fine_description}` : ''}</p>
+                        ) : null}
+                        <p className="text-xs text-ink-500">
+                          Visitas, pagamentos e documentos deste cliente continuam guardados. O acerto aparece em
+                          Pagamentos no mês do encerramento; sai da folha a partir de <strong>{saiDaFolhaEm}</strong>.
+                        </p>
+                        <div className="flex items-center gap-3 flex-wrap pt-0.5">
+                          {enc.end_document_url
+                            ? <SignedLink value={enc.end_document_url} bucket="arquivos" className="text-xs text-primary-700 font-medium hover:underline">Ver distrato</SignedLink>
+                            : null}
+                          <button className="text-xs text-primary-700 font-medium hover:underline" onClick={() => setEncerrandoLink(enc)}>
+                            {enc.ended_at ? 'Editar encerramento' : 'Registrar motivo e distrato'}
+                          </button>
+                          <button className="text-xs text-ink-500 hover:underline" onClick={() => desfazerEncerramento.mutate(enc.id)}>
+                            Desfazer encerramento
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  })()}
                   <div className="flex items-start justify-between">
                     <div className={`flex-1 min-w-0 ${encerrado ? 'opacity-70' : ''}`}>
                       <p className="font-medium">{(l as { client?: { name: string } }).client?.name}</p>
@@ -2383,13 +2456,24 @@ export default function EmployeeDetail() {
                           </button>
                         </>
                       ) : (
-                        <button
-                          onClick={() => setConfirmRemoveLinkId(l.id)}
-                          className="text-red-400 hover:text-red-600 p-1"
-                          title="Encerrar vínculo — o histórico de visitas e pagamentos é preservado"
-                        >
-                          <Trash2 size={14} />
-                        </button>
+                        <>
+                          {!encerrado && (
+                            <button
+                              onClick={() => setEncerrandoLink(l as VinculoParaEncerrar)}
+                              className="text-xs font-medium text-red-600 hover:text-red-700 px-1.5 py-0.5 rounded hover:bg-red-50"
+                              title="Encerrar contrato — registra o último dia, o motivo e o distrato. Nada é apagado."
+                            >
+                              Encerrar contrato
+                            </button>
+                          )}
+                          <button
+                            onClick={() => setConfirmRemoveLinkId(l.id)}
+                            className="text-ink-300 hover:text-red-600 p-1"
+                            title="Apagar vínculo criado por engano (só funciona se não tiver visita nem pagamento)"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </>
                       )}
                     </div>
                   </div>

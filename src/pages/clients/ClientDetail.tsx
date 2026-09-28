@@ -848,8 +848,19 @@ export default function ClientDetail() {
             <p className="text-sm text-gray-400">Nenhum colaborador vinculado</p>
           ) : (
             <div className="space-y-3">
-              {links?.map(l => {
+              {[...(links || [])].sort((a, b) => {
+                const fimA = (a as { contract_end_date?: string }).contract_end_date
+                const fimB = (b as { contract_end_date?: string }).contract_end_date
+                const encA = fimA && fimA < hojeISO() ? 1 : 0
+                const encB = fimB && fimB < hojeISO() ? 1 : 0
+                return encA - encB
+              }).map(l => {
                 const emp = (l as { employee?: { id: string; full_name: string; role?: string } }).employee
+                // Encerrado = último dia já passou. Fica listado como histórico,
+                // com o registro do encerramento (quem, motivo, multa, distrato).
+                const fimVinc = (l as { contract_end_date?: string }).contract_end_date
+                const encerrado = !!fimVinc && fimVinc < hojeISO()
+                const enc = l as { ended_at?: string; end_initiated_by?: string; end_reason?: string; end_fine_amount?: number; end_fine_description?: string; end_document_url?: string }
                 const isFixo = l.service_type !== 'Consultoria'
                 const payDates = ((l as { payment_dates?: { day_of_month: number; amount: number }[] }).payment_dates || []).sort((a, b) => a.day_of_month - b.day_of_month)
                 const contractEnd = (l as { contract_end_date?: string }).contract_end_date
@@ -858,7 +869,21 @@ export default function ClientDetail() {
                 const daysOff = ((l as { days_off?: number[] }).days_off || []).map((d: number) => WEEKDAYS[d]).join(', ')
 
                 return (
-                  <div key={l.id} className={`rounded-xl border p-4 space-y-3 ${isFixo ? 'border-blue-200 bg-blue-50/30' : 'border-orange-200 bg-orange-50/30'}`}>
+                  <div key={l.id} className={`rounded-xl border p-4 space-y-3 ${encerrado ? 'border-ink-200 bg-ink-50/60' : isFixo ? 'border-blue-200 bg-blue-50/30' : 'border-orange-200 bg-orange-50/30'}`}>
+                    {encerrado && (
+                      <div className="rounded-lg bg-white border border-ink-200 px-3 py-2 space-y-0.5">
+                        <p className="text-xs text-ink-800">
+                          <strong>Contrato encerrado em {formatDate(fimVinc!)}</strong>
+                          {enc.end_initiated_by && <> · {({ cliente: 'Cliente rompeu', nutricionista: 'Nutricionista pediu para sair', tin: 'TIN desligou', acordo: 'Acordo entre as partes' } as Record<string, string>)[enc.end_initiated_by] || enc.end_initiated_by}</>}
+                        </p>
+                        {enc.end_reason && <p className="text-xs text-ink-600">Motivo: {enc.end_reason}</p>}
+                        {enc.end_fine_amount ? <p className="text-xs text-ink-600">Multa/indenização: {formatCurrency(Number(enc.end_fine_amount))}{enc.end_fine_description ? ` — ${enc.end_fine_description}` : ''}</p> : null}
+                        <p className="text-[11px] text-ink-400">Histórico preservado: visitas e pagamentos continuam na ficha do colaborador.</p>
+                        {enc.end_document_url && (
+                          <SignedLink value={enc.end_document_url} bucket="arquivos" className="text-xs text-primary-700 font-medium hover:underline">Ver distrato</SignedLink>
+                        )}
+                      </div>
+                    )}
                     {/* Header */}
                     <div className="flex items-start justify-between gap-2">
                       <div>

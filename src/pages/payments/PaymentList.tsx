@@ -241,8 +241,7 @@ export default function PaymentList() {
       const { data: rawLinks, error } = await supabase
         .from('employee_client_links')
         .select(`
-          id, service_type, monthly_amount, work_schedule, expected_days_month, cost_assistance, start_date, pay_full_salary,
-          coverage_type, daily_rate, contract_end_date, work_schedule_type, days_off, schedule_anchor_date,
+          *,
           employee:employees!inner(id, full_name, status),
           client:clients(id, name),
           payment_dates:employee_payment_dates(day_of_month, amount)
@@ -251,11 +250,32 @@ export default function PaymentList() {
       // Vínculo encerrado ANTES do mês que está sendo pago não entra na folha.
       // Encerrado no meio do mês continua (tem dias a pagar). O histórico do
       // vínculo é preservado — desligar encerra, não apaga.
+      // Fixo/plantão paga por CICLO (dia 5, 8, 20…): quem encerra no meio do
+      // ciclo tem dias que caem na folha do mês seguinte. Antes esse vínculo
+      // saía da folha e os últimos dias nunca eram pagos. Agora fica até o
+      // ciclo que contém o último dia (quem não tem dia no ciclo é tirado abaixo).
+      const fimMin = format(addDays(new Date(monthStart + 'T12:00:00'), -31), 'yyyy-MM-dd')
+      const ehFixo = (l: { service_type?: string }) => l.service_type !== 'Consultoria' && l.service_type !== 'Volante'
       const activeLinks = (rawLinks || []).filter(l => {
         if ((l as { employee?: { status?: string } }).employee?.status !== 'Ativo') return false
         const fim = (l as { contract_end_date?: string }).contract_end_date
-        return !fim || fim >= monthStart
+        return !fim || fim >= monthStart || (ehFixo(l) && fim >= fimMin)
       })
+
+      // Registros de ponto do período do encerramento (o ciclo pode começar no
+      // mês anterior): é com eles que se confere se a folha ponto está completa
+      const encerrandoFixo = activeLinks.filter(l => {
+        const fim = (l as { contract_end_date?: string }).contract_end_date
+        return ehFixo(l) && !!fim && fim >= fimMin
+      })
+      const visitasRescisao = encerrandoFixo.length
+        ? await fetchAll<{ employee_id: string; client_id: string; visit_date: string; check_out?: string; is_unavailable?: boolean; is_holiday?: boolean; atestado_url?: string }>(
+            () => supabase.from('nutritionist_visits')
+              .select('employee_id, client_id, visit_date, check_out, is_unavailable, is_holiday, atestado_url')
+              .in('employee_id', [...new Set(encerrandoFixo.map(l => (l as { employee?: { id: string } }).employee?.id).filter(Boolean) as string[])])
+              .gte('visit_date', fimMin)
+              .lte('visit_date', monthEnd))
+        : []
 
       // 2) Visitas do mês de colaboradores desligados (sem vínculo ativo)
       const activeEmpIds = new Set(activeLinks.map(l => (l as { employee?: { id: string } }).employee?.id).filter(Boolean))
@@ -520,7 +540,13 @@ export default function PaymentList() {
           const rpLink = (rp as { link_id?: string }).link_id
           return rpLink ? rpLink === l.id : rp.employee_id === emp?.id
         }) ?? false
-        const costAssistance = Number((l as { cost_assistance?: number }).cost_assistance) || 0
+        const costAssistanceCheia = Number((l as { cost_assistance?: number }).cost_assistance) || 0
+        // Encerrou neste mês: ajuda de custo só até o último dia (dias ÷ 30)
+        const fimNoMes = (l as { contract_end_date?: string }).contract_end_date
+        const costAssistance = fimNoMes && fimNoMes >= monthStart && fimNoMes <= monthEnd
+          ? Math.round(costAssistanceCheia * Math.min(1, Number(fimNoMes.slice(8, 10)) / 30) * 100) / 100
+          : costAssistanceCheia
+        const multaEncerramento = Number((l as { end_fine_amount?: number }).end_fine_amount) || 0
         const group = workerGroup(l.service_type)
         const payDates = ((l as { payment_dates?: { day_of_month: number }[] }).payment_dates ?? [])
           .slice().sort((a, b) => a.day_of_month - b.day_of_month)
@@ -534,6 +560,12 @@ export default function PaymentList() {
         // Se o colaborador começou mid-cycle, calcula proporcional (a não ser que pay_full_salary = true)
         let cycleStart: string | null = null
         let cycleEnd: string | null = null
+        const fimVinculo = (l as { contract_end_date?: string }).contract_end_date || null
+        let foraDoCiclo = false
+        let rescisao: {
+          ini: string; fim: string; diasCorridos: number; esperados: number | null
+          registrados: number; pendentes: number; faltas: number; semSaida: number
+        } | null = null
         let isPartialCycle = false
         let startsAfterCycle = false
         let proportionalFactor = 1
@@ -560,6 +592,37 @@ export default function PaymentList() {
             // Começou depois do ciclo fechar: nada a pagar neste mês (1º pagamento no próximo ciclo)
             startsAfterCycle = true
             if (!payFullSalary) proportionalFactor = 0
+          }
+
+          // Encerrou antes deste ciclo começar: nada a pagar aqui (já foi na folha anterior)
+          if (fimVinculo && fimVinculo < cycleStart) foraDoCiclo = true
+          // ENCERROU NO MEIO DO CICLO: acerto = dias corridos até o último dia × salário ÷ 30
+          else if (fimVinculo && fimVinculo <= cycleEnd) {
+            const ini = startDate && startDate > cycleStart ? startDate : cycleStart
+            const diasCorridos = Math.max(0, Math.round((new Date(fimVinculo + 'T12:00:00').getTime() - new Date(ini + 'T12:00:00').getTime()) / 86400000) + 1)
+            if (!payFullSalary) proportionalFactor = Math.min(1, diasCorridos / 30)
+            isPartialCycle = true
+            // Folha ponto do período: todo dia de escala precisa ter registro
+            // (trabalhado, falta ou feriado) para o acerto poder fechar
+            const escalaConhecida = ((l as { work_schedule_type?: string }).work_schedule_type === '12x36' && !!(l as { schedule_anchor_date?: string }).schedule_anchor_date)
+              || (((l as { days_off?: number[] }).days_off || []).length > 0)
+            const meses = [...new Set([ini.slice(0, 7), fimVinculo.slice(0, 7)])]
+            const esperados = escalaConhecida
+              ? meses.reduce((s, m) => s + freelaExpectedDays(m, ini, fimVinculo,
+                  (l as { work_schedule_type?: string }).work_schedule_type || null,
+                  (l as { days_off?: number[] }).days_off || null,
+                  (l as { schedule_anchor_date?: string }).schedule_anchor_date || null), 0)
+              : null
+            const regs = visitasRescisao.filter(v => v.employee_id === emp?.id && v.client_id === client?.id && v.visit_date >= ini && v.visit_date <= fimVinculo)
+            const diasComRegistro = new Set(regs.map(v => v.visit_date)).size
+            rescisao = {
+              ini, fim: fimVinculo, diasCorridos,
+              esperados,
+              registrados: diasComRegistro,
+              pendentes: esperados === null ? 0 : Math.max(0, esperados - diasComRegistro),
+              faltas: regs.filter(v => v.is_unavailable).length,
+              semSaida: regs.filter(v => !v.check_out && !v.is_unavailable && !v.is_holiday).length,
+            }
           }
         }
 
@@ -610,7 +673,7 @@ export default function PaymentList() {
         // "Pagar inteiro" marcado significa exatamente isso: não desconta.
         const diasCobraveis = Math.min(expDays, expDaysToDate)
         const faltas = !isConsultoria && !isFreela && !payFullSalary
-          ? Math.max(0, diasCobraveis - actualDays)
+          ? (rescisao ? rescisao.faltas : Math.max(0, diasCobraveis - actualDays))
           : 0
 
         // Ausências declaradas — separadas entre as que têm atestado anexado e as
@@ -668,8 +731,13 @@ export default function PaymentList() {
           ausenciasComAtestado,
           presencaCompleta,
           visitHours,
+          rescisao,
+          foraDoCiclo,
+          multaEncerramento,
+          multaDescricao: (l as { end_fine_description?: string }).end_fine_description || null,
+          encerradoPor: (l as { end_initiated_by?: string }).end_initiated_by || null,
         }
-      })
+      }).filter(r => !r.foraDoCiclo)
     },
     // Always load so Estimativa tab can group correctly
     enabled: true,
@@ -724,6 +792,9 @@ export default function PaymentList() {
     payDay: number
     payDaysAll?: number[]
     visits: { visit_date: string; visit_rate?: number | null }[]
+    multaEncerramento?: number
+    rescisao?: { fim: string } | null
+    encerradoPor?: string | null
   }
 
   // Só reembolso APROVADO entra no pagamento. Antes somava tudo, inclusive
@@ -767,7 +838,7 @@ export default function PaymentList() {
       if (!row.employee) throw new Error('Sem colaborador')
       const monthLabel = new Date(filterMonth + '-15').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
       const who = `${row.employee.full_name}${row.client ? ` (${row.client.name})` : ''}`
-      const extras = empExpensesTotal(row.linkId) + row.cost_assistance + row.extrasAprovados
+      const extras = empExpensesTotal(row.linkId) + row.cost_assistance + row.extrasAprovados + (row.multaEncerramento || 0)
 
       if (row.service_type === 'Consultoria') {
         // Consultoria: SÓ dia 20 (visitas da 1ª quinzena) e dia 8 do mês seguinte (2ª quinzena)
@@ -852,7 +923,7 @@ export default function PaymentList() {
       const dueDate = new Date(now.getFullYear(), now.getMonth(), payDay)
       if (dueDate < now) dueDate.setMonth(dueDate.getMonth() + 1)
       const monthLabel = new Date(filterMonth + '-15').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
-      const extras = empExpensesTotal(row.linkId) + row.cost_assistance + row.extrasAprovados
+      const extras = empExpensesTotal(row.linkId) + row.cost_assistance + row.extrasAprovados + (row.multaEncerramento || 0)
       // O Real substitui a Estimativa do mês: o que já foi pago dela sai do
       // valor, e a parte ainda pendente é cancelada. Antes ficavam as duas
       // abertas e dava para pagar em dobro.
@@ -862,7 +933,9 @@ export default function PaymentList() {
       await insertPayment({
         ...baseRecord(row),
         type: 'Real',
-        description: `[REAL] ${row.service_type === 'Volante' ? 'Freela' : 'Honorários'} – ${row.employee.full_name}${row.client ? ` (${row.client.name})` : ''} – ${monthLabel}${jaPago > 0 ? ` (já pago ${formatCurrency(jaPago)})` : ''}`,
+        description: row.rescisao
+          ? `Rescisão – ${row.employee.full_name}${row.client ? ` (${row.client.name})` : ''} – até ${formatDate(row.rescisao.fim)}${jaPago > 0 ? ` (já pago ${formatCurrency(jaPago)})` : ''}`
+          : `[REAL] ${row.service_type === 'Volante' ? 'Freela' : 'Honorários'} – ${row.employee.full_name}${row.client ? ` (${row.client.name})` : ''} – ${monthLabel}${jaPago > 0 ? ` (já pago ${formatCurrency(jaPago)})` : ''}`,
         amount: Math.max(0, Math.round((row.realAmt + extras - jaPago) * 100) / 100),
         due_date: `${dueDate.getFullYear()}-${String(dueDate.getMonth() + 1).padStart(2, '0')}-${String(dueDate.getDate()).padStart(2, '0')}`,
       })
@@ -986,9 +1059,11 @@ export default function PaymentList() {
       baseFechamento = row.realAmt
     } else {
       itens.push({
-        rotulo: row.isPartialCycle && !row.payFullSalary
-          ? `Salário proporcional (${Math.round(row.proportionalFactor * 100)}% do ciclo)`
-          : 'Salário do mês',
+        rotulo: row.rescisao && !row.payFullSalary
+          ? `Salário até o encerramento: ${row.rescisao.diasCorridos} dias corridos × ${formatCurrency(row.valorDia)} (salário ÷ 30)`
+          : row.isPartialCycle && !row.payFullSalary
+            ? `Salário proporcional (${Math.round(row.proportionalFactor * 100)}% do ciclo)`
+            : 'Salário do mês',
         valor: row.adjusted_amount,
       })
       if (row.faltas > 0) {
@@ -1003,6 +1078,9 @@ export default function PaymentList() {
     if (gastos > 0) extras.push({ rotulo: 'Gastos e reembolsos aprovados', valor: gastos })
     const adiant = empAdiantamento(row.linkId)
     if (adiant > 0) extras.push({ rotulo: 'Adiantamento (já recebeu)', valor: -adiant })
+    if ((row.multaEncerramento || 0) > 0) {
+      extras.push({ rotulo: `Multa/indenização do encerramento${row.multaDescricao ? ` — ${row.multaDescricao}` : ''}`, valor: row.multaEncerramento })
+    }
     itens.push(...extras)
     const somaExtras = extras.reduce((s, i) => s + i.valor, 0)
     return {
@@ -1492,7 +1570,12 @@ export default function PaymentList() {
                         // Nada a pagar ainda (consultoria sem visita no mês, fixo que começa no
                         // próximo ciclo): sem botão — antes "Lançar" só dava erro.
                         const nadaAPagar = et.etapa === 'lancar' && conta.total <= 0
-                        const acao = et.etapa === 'lancar' && !nadaAPagar
+                        // Encerramento de fixo/plantão: o acerto só fecha com a folha ponto
+                        // completa até o último dia (regra do Gabriel, 28/09/2026)
+                        const folhaIncompleta = !!row.rescisao && (row.rescisao.pendentes > 0 || row.rescisao.semSaida > 0)
+                          && (et.etapa === 'lancar' || et.etapa === 'conferir')
+                        const acao = folhaIncompleta ? null
+                          : et.etapa === 'lancar' && !nadaAPagar
                           ? {
                               rotulo: isConsultoria ? 'Lançar pagamento' : 'Lançar previsão',
                               dica: isConsultoria ? 'Cria o pagamento pelas visitas registradas (dia 20 e dia 8)' : 'Cria a previsão do mês. Depois você confere pelo realizado.',
@@ -1655,6 +1738,21 @@ export default function PaymentList() {
                                 </button>
                               </div>
                             </div>
+
+                            {/* Encerramento: folha ponto precisa estar completa até o último dia */}
+                            {row.rescisao && (
+                              <div className={`flex items-start gap-2 rounded-xl px-3 py-2 text-xs ${folhaIncompleta ? 'bg-amber-50 border border-amber-200 text-amber-900' : 'bg-ink-50 text-ink-700'}`}>
+                                <AlertTriangle size={14} className={`shrink-0 mt-0.5 ${folhaIncompleta ? 'text-amber-600' : 'text-ink-400'}`} />
+                                <span>
+                                  <strong>Encerramento em {formatDate(row.rescisao.fim)}</strong> — acerto de {formatDate(row.rescisao.ini)} a {formatDate(row.rescisao.fim)} ({row.rescisao.diasCorridos} dias corridos).
+                                  {row.rescisao.esperados !== null
+                                    ? <> Folha ponto: {row.rescisao.registrados} de {row.rescisao.esperados} dias da escala registrados.</>
+                                    : <> Escala sem dias de folga cadastrados — confira a folha ponto antes de fechar.</>}
+                                  {row.rescisao.semSaida > 0 && <> {row.rescisao.semSaida} registro(s) sem horário de saída.</>}
+                                  {folhaIncompleta && <> <strong>O acerto só fecha com a folha ponto completa</strong> — peça para ela preencher os dias que faltam.</>}
+                                </span>
+                              </div>
+                            )}
 
                             {/* Lançado não bate com o que daria hoje */}
                             {divergente && (

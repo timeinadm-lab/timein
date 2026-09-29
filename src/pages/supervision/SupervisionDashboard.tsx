@@ -46,6 +46,9 @@ export default function SupervisionDashboard() {
   const [buscaCliente, setBuscaCliente] = useState('')
   const [aberta, setAberta] = useState<Supervisao | null>(null)
   const [naoFoi, setNaoFoi] = useState<{ sup: Supervisao; motivo: string; remarcar: boolean; nova_data: string; novo_resp: string } | null>(null)
+  // Meta editada aqui mesmo (grava no "Visitas/mês" do cliente)
+  const [editMeta, setEditMeta] = useState<{ id: string; valor: string } | null>(null)
+  const [novaMeta, setNovaMeta] = useState<{ client_id: string; valor: string } | null>(null)
 
   const inicioMes = format(startOfMonth(new Date(mes + '-15')), 'yyyy-MM-dd')
   const fimMes = format(endOfMonth(new Date(mes + '-15')), 'yyyy-MM-dd')
@@ -177,6 +180,25 @@ export default function SupervisionDashboard() {
       agendadas: doCliente.filter(s => s.status === 'agendada').length,
     }
   })
+
+  // A meta é a quantidade de supervisões por mês do cliente. A equipe define
+  // aqui; o "feito" enche sozinho com os check-ins do mês.
+  const salvarMeta = useMutation({
+    mutationFn: async ({ ids, valor }: { ids: string[]; valor: number | null }) => {
+      const { error } = await supabase.from('clients').update({ supervision_visits_per_month: valor }).in('id', ids)
+      if (error) throw error
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['supervisao-clientes'] })
+      setEditMeta(null); setNovaMeta(null)
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+  const gravarMeta = (id: string, texto: string) => {
+    const n = Math.round(Number(texto))
+    if (!texto.trim() || !Number.isFinite(n) || n < 0) { toast.error('Digite um número'); return }
+    salvarMeta.mutate({ ids: [id], valor: n > 0 ? n : null })
+  }
 
   const clientesFiltrados = useMemo(() => {
     const q = semAcento(buscaCliente.trim())
@@ -326,21 +348,75 @@ export default function SupervisionDashboard() {
         </div>
       </div>
 
-      {/* Meta por cliente (campo "Visitas/mês" do cadastro do cliente) */}
-      {metas.length > 0 && (
-        <section>
-          <h2 className="section-title mb-2">Meta do mês por cliente</h2>
-          <div className="card divide-y divide-ink-100 overflow-hidden">
-            {metas.map(m => (
-              <div key={m.id} className="flex items-center gap-3 px-4 py-2.5 text-sm">
-                <span className="flex-1 min-w-0 truncate text-ink-800">{m.nome}</span>
-                <span className="text-xs text-ink-400 tnum">{m.agendadas > 0 ? `${m.agendadas} agendada${m.agendadas > 1 ? 's' : ''} · ` : ''}</span>
-                <span className={`tnum font-medium ${m.realizadas >= m.meta ? 'text-green-700' : 'text-ink-800'}`}>{m.realizadas}/{m.meta}</span>
-              </div>
-            ))}
+      {/* Meta por cliente: a equipe digita a quantidade do mês; o feito enche
+          com os check-ins. Grava no "Visitas/mês" do cadastro do cliente. */}
+      <section>
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <h2 className="section-title">Meta do mês por cliente</h2>
+          <div className="flex items-center gap-3">
+            {metas.length > 0 && (
+              <button className="text-xs text-ink-400 hover:text-red-600" onClick={async () => {
+                if (!(await confirmar({ titulo: 'Zerar todas as metas?', texto: `${metas.length} cliente(s) ficam sem meta. As supervisões não mudam.`, perigo: true }))) return
+                salvarMeta.mutate({ ids: metas.map(m => m.id), valor: null })
+              }}>Zerar todas</button>
+            )}
+            <button className="btn-secondary text-xs py-1 inline-flex items-center gap-1" onClick={() => setNovaMeta({ client_id: '', valor: '' })}>
+              <Plus size={12} /> Meta
+            </button>
           </div>
-        </section>
-      )}
+        </div>
+        <div className="card divide-y divide-ink-100 overflow-hidden">
+          {novaMeta && (
+            <form className="flex items-center gap-2 px-4 py-2.5 flex-wrap" onSubmit={e => {
+              e.preventDefault()
+              if (!novaMeta.client_id) { toast.error('Escolha o cliente'); return }
+              gravarMeta(novaMeta.client_id, novaMeta.valor)
+            }}>
+              <select className="input flex-1 min-w-[12rem] text-sm" value={novaMeta.client_id} autoFocus
+                onChange={e => setNovaMeta(p => p ? { ...p, client_id: e.target.value } : p)}>
+                <option value="">Cliente…</option>
+                {(clientes || []).filter(c => !((c.supervision_visits_per_month || 0) > 0)).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+              <input type="number" min={1} inputMode="numeric" className="input w-24 text-sm" placeholder="Qtd/mês" value={novaMeta.valor}
+                onChange={e => setNovaMeta(p => p ? { ...p, valor: e.target.value } : p)} />
+              <button type="submit" className="btn-primary text-xs py-1.5" disabled={salvarMeta.isPending}>Salvar</button>
+              <button type="button" className="p-1.5 text-ink-400 hover:text-ink-700" onClick={() => setNovaMeta(null)} aria-label="Cancelar"><X size={14} /></button>
+            </form>
+          )}
+          {metas.length === 0 && !novaMeta && (
+            <p className="px-4 py-4 text-sm text-ink-400">Nenhuma meta. Toque em <b>+ Meta</b> para definir quantas supervisões por mês um cliente precisa.</p>
+          )}
+          {metas.map(m => {
+            const pct = Math.min(100, Math.round((m.realizadas / m.meta) * 100))
+            const bateu = m.realizadas >= m.meta
+            return (
+              <div key={m.id} className="px-4 py-2.5 text-sm">
+                <div className="flex items-center gap-3">
+                  <span className="flex-1 min-w-0 truncate text-ink-800">{m.nome}</span>
+                  <span className="text-xs text-ink-400 tnum">{m.agendadas > 0 ? `${m.agendadas} agendada${m.agendadas > 1 ? 's' : ''}` : ''}</span>
+                  {editMeta?.id === m.id ? (
+                    <form className="flex items-center gap-1" onSubmit={e => { e.preventDefault(); gravarMeta(m.id, editMeta.valor) }}>
+                      <span className="tnum text-ink-500">{m.realizadas}/</span>
+                      <input type="number" min={0} inputMode="numeric" autoFocus className="input w-16 py-1 text-sm" value={editMeta.valor}
+                        onChange={e => setEditMeta({ id: m.id, valor: e.target.value })}
+                        onKeyDown={e => { if (e.key === 'Escape') setEditMeta(null) }} />
+                      <button type="submit" className="p-1 text-green-700" aria-label="Salvar meta"><Check size={14} /></button>
+                    </form>
+                  ) : (
+                    <button className={`tnum font-medium rounded px-1 -mx-1 hover:bg-ink-100 ${bateu ? 'text-green-700' : 'text-ink-800'}`}
+                      title="Alterar a meta (0 tira a meta)" onClick={() => setEditMeta({ id: m.id, valor: String(m.meta) })}>
+                      {m.realizadas}/{m.meta}
+                    </button>
+                  )}
+                </div>
+                <div className="mt-1.5 h-1.5 rounded-full bg-ink-100 overflow-hidden">
+                  <div className={`h-full rounded-full ${bateu ? 'bg-green-600' : 'bg-primary-500'}`} style={{ width: `${pct}%` }} />
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </section>
 
       {/* ── Agendar ── */}
       {novo && (

@@ -976,7 +976,7 @@ export default function PortalHome() {
                         {excessMins > 0 && (
                           <p className="flex items-start gap-2 text-xs text-amber-800 bg-amber-50 rounded-lg px-3 py-2">
                             <Hourglass size={14} className="shrink-0 mt-px" />
-                            {fmtHoras(excessMins)} acima do combinado por visita, aguardando aprovação do gestor
+                            {fmtHoras(excessMins)} acima do combinado. A visita é paga pelo valor inteiro e o RH avalia as horas a mais.
                           </p>
                         )}
                         {unidades.length > 0 && (
@@ -1115,6 +1115,9 @@ export default function PortalHome() {
                           {(v as { is_extra?: boolean }).is_extra && <span className="badge bg-ink-100 text-ink-700">Dia extra</span>}
                           {(v as { is_swap?: boolean }).is_swap && <span className="badge bg-ink-100 text-ink-700 inline-flex items-center gap-1"><Repeat size={11} /> Troca{(v as { swapped_from?: string }).swapped_from ? ` de ${formatDate((v as { swapped_from?: string }).swapped_from!)}` : ''}</span>}
                           {extraApproval === 'pendente' && <span className="badge bg-amber-50 text-amber-700">Aguardando gestor</span>}
+                          {(v as { excesso_status?: string }).excesso_status === 'pendente' && <span className="badge bg-amber-50 text-amber-700">Horas a mais em análise</span>}
+                          {(v as { excesso_status?: string }).excesso_status === 'pago' && <span className="badge bg-primary-50 text-primary-700">Hora extra paga{Number((v as { excesso_valor?: number }).excesso_valor) > 0 ? ` · ${formatCurrency(Number((v as { excesso_valor?: number }).excesso_valor))}` : ''}</span>}
+                          {(v as { excesso_status?: string }).excesso_status === 'nao_pago' && <span className="badge bg-ink-100 text-ink-500">Horas a mais não pagas</span>}
                           {extraApproval === 'aprovada' && <span className="badge bg-primary-50 text-primary-700">Extra aprovada</span>}
                           {extraApproval === 'negada' && <span className="badge bg-ink-100 text-ink-500">Extra não remunerada</span>}
                           {atestadoUrl && <span className="badge bg-primary-50 text-primary-700 inline-flex items-center gap-1"><Check size={11} /> Atestado</span>}

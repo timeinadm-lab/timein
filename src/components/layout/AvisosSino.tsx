@@ -28,7 +28,7 @@ export default function AvisosSino() {
         const { count, error } = await q
         return error ? 0 : count ?? 0
       }
-      const [reembolsos, extras, atrasados, docs, perguntas, contratos, supervisoes, trocas] = await Promise.all([
+      const [reembolsos, extras, atrasados, docs, perguntas, contratos, supervisoes, trocas, horasAcima] = await Promise.all([
         chefe ? conta(supabase.from('employee_expenses').select('id', { count: 'exact', head: true }).eq('status', 'pendente')) : 0,
         chefe ? conta(supabase.from('nutritionist_visits').select('id', { count: 'exact', head: true }).eq('extra_approval', 'pendente')) : 0,
         chefe ? conta(supabase.from('payments').select('id', { count: 'exact', head: true }).eq('status', 'Pendente').lt('due_date', hojeISO())) : 0,
@@ -47,10 +47,13 @@ export default function AvisosSino() {
         conta(supabase.from('supervision_visits').select('id', { count: 'exact', head: true }).eq('status', 'agendada').lt('visit_date', hojeISO())),
         // Visita da agenda trocada pela pessoa no portal e ainda não vista (migração 060)
         conta(supabase.from('nutritionist_agenda').select('id', { count: 'exact', head: true }).eq('changed_by_portal', true).is('change_seen_at', null)),
+        // Visita que passou das horas combinadas: decidir a hora extra em Pagamentos (migração 062)
+        chefe ? conta(supabase.from('nutritionist_visits').select('id', { count: 'exact', head: true }).eq('excesso_status', 'pendente')) : 0,
       ])
       return ([
         { chave: 'atrasados', rotulo: 'Pagamentos atrasados', n: atrasados, caminho: '/pagamentos', icone: AlertTriangle, urgente: true },
         { chave: 'reembolsos', rotulo: 'Reembolsos para analisar', n: reembolsos, caminho: '/pagamentos', icone: Receipt },
+        { chave: 'horasAcima', rotulo: 'Horas acima do combinado', n: horasAcima, caminho: '/pagamentos', icone: Clock3 },
         { chave: 'extras', rotulo: 'Extras para aprovar', n: extras, caminho: '/visitas', icone: Clock3 },
         { chave: 'trocas', rotulo: 'Visitas trocadas no portal', n: trocas, caminho: '/calendario', icone: Repeat },
         { chave: 'supervisoes', rotulo: 'Supervisões sem check-in', n: supervisoes, caminho: '/supervisao', icone: ShieldAlert },

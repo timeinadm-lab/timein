@@ -116,6 +116,28 @@ function Etapas({ etapa, porTrabalho }: { etapa: Etapa; porTrabalho: boolean }) 
 export default function PaymentList() {
   const navigate = useNavigate()
   const qc = useQueryClient()
+
+  // Horas acima do combinado (migração 062): pagar a hora extra ou não.
+  // A visita já foi paga pelo valor inteiro; isto decide só o extra.
+  const decidirHorasAcima = useMutation({
+    mutationFn: async ({ visitId, pagar, valor }: { visitId: string; pagar: boolean; valor: number | null }) => {
+      if (pagar && !(valor && valor > 0)) throw new Error('Informe o valor da hora extra')
+      const { data: { user } } = await supabase.auth.getUser()
+      const { error } = await supabase.from('nutritionist_visits').update({
+        excesso_status: pagar ? 'pago' : 'nao_pago',
+        excesso_valor: pagar ? Math.round(valor! * 100) / 100 : null,
+        excesso_decidido_em: new Date().toISOString(),
+        excesso_decidido_por: user?.id ?? null,
+      }).eq('id', visitId)
+      if (error) throw error
+    },
+    onSuccess: (_d, v) => {
+      toast.success(v.pagar ? 'Hora extra aprovada. Entra no próximo lançamento.' : 'Hora extra marcada como não paga.')
+      qc.invalidateQueries({ queryKey: ['folha-ponto'] })
+      qc.invalidateQueries({ queryKey: ['avisos-sino'] })
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
   const [tab, setTab] = useState<Tab>('folha')
   const [showCharts, setShowCharts] = useState(false)
   const [filterMonth, setFilterMonth] = useState(() => format(new Date(), 'yyyy-MM'))
@@ -281,18 +303,26 @@ export default function PaymentList() {
       // Paginado: o Supabase corta em 1000 linhas SEM avisar. Um mês de visitas
       // passa disso conforme a operação cresce, e a folha calcularia pagamento
       // com parte das visitas faltando, sem erro nenhum na tela.
-      const monthVisits = await fetchAll<{
-        employee_id: string; client_id: string; visit_date: string
+      const colsVisitas = 'id, employee_id, client_id, visit_date, check_in, check_out, break_start, break_end, visit_rate, is_unavailable, is_extra, extra_approval, extra_amount, observations, report_url, is_holiday, atestado_url, unavailability_reason, unit_name'
+      type VisitaMes = {
+        id: string; employee_id: string; client_id: string; visit_date: string
         check_in?: string; check_out?: string; break_start?: string; break_end?: string
         visit_rate?: number; is_unavailable?: boolean; is_extra?: boolean
         extra_approval?: string; extra_amount?: number; observations?: string
         report_url?: string; is_holiday?: boolean
         atestado_url?: string; unavailability_reason?: string; unit_name?: string
-      }>(() => supabase
+        excesso_min?: number | null; excesso_sugerido?: number | null; excesso_status?: string | null; excesso_valor?: number | null
+      }
+      // Colunas montadas em texto: o Supabase perde o tipo, então ele é dado aqui
+      type PaginaVisitas = { range: (from: number, to: number) => PromiseLike<{ data: VisitaMes[] | null; error: { message: string } | null }> }
+      const buscarVisitas = (cols: string) => fetchAll<VisitaMes>(() => supabase
         .from('nutritionist_visits')
-        .select('employee_id, client_id, visit_date, check_in, check_out, break_start, break_end, visit_rate, is_unavailable, is_extra, extra_approval, extra_amount, observations, report_url, is_holiday, atestado_url, unavailability_reason, unit_name')
+        .select(cols)
         .gte('visit_date', monthStart)
-        .lte('visit_date', monthEnd))
+        .lte('visit_date', monthEnd) as unknown as PaginaVisitas)
+      // Horas acima do combinado (migração 062). Sem a migração, segue sem elas.
+      const monthVisits = await buscarVisitas(colsVisitas + ', excesso_min, excesso_sugerido, excesso_status, excesso_valor')
+        .catch(e => { if (/excesso/i.test((e as Error).message)) return buscarVisitas(colsVisitas); throw e })
 
       // Dias combinados na agenda. Para FREELA avulso é daqui que sai a previsão:
       // ele não tem escala, os dias são marcados um a um. Sem isso a estimativa
@@ -503,12 +533,19 @@ export default function PaymentList() {
         const actualAmount = (isConsultoria || freelaConsultoria)
           ? empVisits.reduce((s, v) => s + (Number(v.visit_rate) || 0), 0)
           : null
+        // Consultoria por visita: horas acima do combinado (migração 062). A visita
+        // já foi paga pelo valor inteiro; aqui entra só a hora extra que o RH
+        // decidiu pagar. As pendentes aparecem na linha para decidir.
+        const horasAcimaPagas = empVisits
+          .filter(v => (v as { excesso_status?: string | null }).excesso_status === 'pago')
+          .reduce((s, v) => s + (Number((v as { excesso_valor?: number | null }).excesso_valor) || 0), 0)
+        const horasAcimaPendentes = empVisits.filter(v => (v as { excesso_status?: string | null }).excesso_status === 'pendente')
         // Fixo: dias extras aprovados pelo chefe entram no pagamento
-        const extrasAprovados = !isConsultoria
+        const extrasAprovados = horasAcimaPagas + (!isConsultoria
           ? empVisits
               .filter(v => (v as { is_extra?: boolean }).is_extra && (v as { extra_approval?: string }).extra_approval === 'aprovada')
               .reduce((s, v) => s + (Number((v as { extra_amount?: number }).extra_amount) || 0), 0)
-          : 0
+          : 0)
         // Extra/visita aguardando a decisão do chefe. Não entra no valor, mas
         // precisa aparecer: antes sumia da folha e o pagamento saía sem ele.
         const extrasPendentes = empVisits.filter(v =>
@@ -751,6 +788,8 @@ export default function PaymentList() {
           proportionalFactor,
           extrasAprovados,
           extrasPendentes,
+          horasAcimaPendentes,
+          horasAcimaPagas,
           expDaysToDate,
           diasCobraveis,
           reportRequired,
@@ -1825,6 +1864,11 @@ export default function PaymentList() {
                               </div>
                             )}
 
+                            {(row.horasAcimaPendentes?.length || 0) > 0 && (
+                              <HorasAcimaBox visitas={row.horasAcimaPendentes} salvando={decidirHorasAcima.isPending}
+                                onDecidir={(visitId, pagar, valor) => decidirHorasAcima.mutate({ visitId, pagar, valor })} />
+                            )}
+
                             {/* Situações do ciclo que mudam o valor */}
                             {!isConsultoria && (row.isPartialCycle || row.startsAfterCycle) && (
                               <div className={`flex items-center justify-between gap-2 flex-wrap rounded-xl px-3 py-2 text-xs ${row.startsAfterCycle && !row.payFullSalary ? 'bg-red-50 border border-red-200 text-red-800' : 'bg-amber-50 border border-amber-200 text-amber-900'}`}>
@@ -2143,6 +2187,43 @@ export default function PaymentList() {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// Visitas que passaram das horas combinadas: o RH decide se paga a hora extra.
+// Valor sugerido = valor da unidade ÷ horas combinadas × horas a mais (editável).
+function HorasAcimaBox({ visitas, salvando, onDecidir }: {
+  visitas: { id: string; visit_date: string; excesso_min?: number | null; excesso_sugerido?: number | null }[]
+  salvando: boolean
+  onDecidir: (visitId: string, pagar: boolean, valor: number | null) => void
+}) {
+  const [valores, setValores] = useState<Record<string, string>>({})
+  const fmtMin = (m: number) => { const h = Math.floor(m / 60), r = m % 60; return r ? `${h}h${String(r).padStart(2, '0')}` : `${h}h` }
+  return (
+    <div className="rounded-xl bg-amber-50 border border-amber-200 px-3 py-2.5 space-y-2">
+      <p className="text-xs font-semibold text-amber-900 flex items-center gap-1.5">
+        <AlertTriangle size={13} className="text-amber-600" />
+        {visitas.length === 1 ? '1 visita passou' : `${visitas.length} visitas passaram`} das horas combinadas
+        <span className="font-normal text-amber-700">· a visita já está paga pelo valor inteiro; decida a hora extra</span>
+      </p>
+      {visitas.map(v => {
+        const valor = valores[v.id] ?? (v.excesso_sugerido != null ? String(v.excesso_sugerido) : '')
+        return (
+          <div key={v.id} className="flex items-center gap-2 flex-wrap bg-white rounded-lg border border-amber-100 px-2.5 py-1.5">
+            <span className="text-xs text-ink-800 tnum flex-1 min-w-[9rem]">
+              {formatDate(v.visit_date)} · <strong>+{fmtMin(Number(v.excesso_min) || 0)}</strong> acima
+            </span>
+            <span className="text-xs text-ink-500">R$</span>
+            <input className="input w-20 py-1 text-xs tnum" type="number" min={0} step="0.01" inputMode="decimal" value={valor}
+              onChange={e => setValores(p => ({ ...p, [v.id]: e.target.value }))} aria-label="Valor da hora extra" />
+            <button className="btn-primary text-xs py-1 px-2.5" disabled={salvando}
+              onClick={() => onDecidir(v.id, true, Number(valor) || null)}>Pagar</button>
+            <button className="btn-secondary text-xs py-1 px-2.5" disabled={salvando}
+              onClick={() => onDecidir(v.id, false, null)}>Não pagar</button>
+          </div>
+        )
+      })}
     </div>
   )
 }

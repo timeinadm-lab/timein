@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { LogOut, Clock, Calendar, Plus, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, X, CalendarDays, Trash2, CheckCircle2, Download, MessageCircle, Send, Home, CreditCard, TrendingUp, CheckCheck, AlertTriangle, Hourglass, Pencil, Repeat, Check, FileText, Paperclip } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
-import { formatDate, formatCurrency, getInitials, corDoAvatar, hojeISO, tipoDoVinculo, pagaPorDiaria, ehTemporario } from '../../lib/utils'
+import { formatDate, formatCurrency, getInitials, corDoAvatar, hojeISO, tipoDoVinculo, pagaPorDiaria, ehTemporario, recebeMensal } from '../../lib/utils'
 import { format, getDaysInMonth, startOfMonth, endOfMonth } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import toast from 'react-hot-toast'
@@ -275,11 +275,12 @@ export default function PortalHome() {
 
       // Trabalhei / Folga / Faltei vale para Fixo e Consultoria (pedido de 29/09).
       // Folga e falta não têm horário, unidade nem valor.
-      const isNormal = pontoForm.day_type === 'normal'
+      // Folga e Falta só para quem recebe mensal; os demais só registram trabalho
+      const isNormal = !recebeMensal(link) || pontoForm.day_type === 'normal'
       if (isNormal && (!pontoForm.check_in || !pontoForm.check_out))
         throw new Error('Informe os horários de entrada e saída')
-      if (pontoForm.day_type === 'indisponivel' && !pontoForm.unavailability_reason)
-        throw new Error('Informe o motivo da falta')
+      if (!isNormal && !pontoForm.unavailability_reason)
+        throw new Error(pontoForm.day_type === 'feriado' ? 'Informe o motivo da folga' : 'Informe o motivo da falta')
       if (isConsultoria && isNormal && !pontoForm.unit_id && getLinkUnitsForClient(pontoForm.client_id).length > 0)
         throw new Error('Escolha a unidade')
 
@@ -386,9 +387,10 @@ export default function PortalHome() {
         check_out: isNormal ? pontoForm.check_out : null,
         break_start: isNormal && !isConsultoria ? (pontoForm.break_start || null) : null,
         break_end: isNormal && !isConsultoria ? (pontoForm.break_end || null) : null,
-        is_holiday: pontoForm.day_type === 'feriado',
-        is_unavailable: pontoForm.day_type === 'indisponivel',
-        unavailability_reason: pontoForm.day_type === 'indisponivel' ? pontoForm.unavailability_reason : null,
+        is_holiday: !isNormal && pontoForm.day_type === 'feriado',
+        is_unavailable: !isNormal && pontoForm.day_type === 'indisponivel',
+        // Motivo da falta ou da folga (o RH vê os dois)
+        unavailability_reason: !isNormal ? pontoForm.unavailability_reason : null,
         observations: pontoForm.observations || null,
         unit_id: isConsultoria && isNormal ? (pontoForm.unit_id || null) : null,
         unit_name: isConsultoria && isNormal ? (pontoForm.unit_name || null) : null,
@@ -1122,7 +1124,7 @@ export default function PortalHome() {
                         )}
 
                         <div className="flex flex-wrap gap-1.5">
-                          {isHoliday && <span className="badge bg-amber-50 text-amber-700">Folga</span>}
+                          {isHoliday && <span className="badge bg-amber-50 text-amber-700">Folga{unavailReason ? ` · ${unavailReason}` : ''}</span>}
                           {isUnavailable && <span className="badge bg-red-50 text-red-700">Falta{unavailReason ? ` · ${unavailReason}` : ''}</span>}
                           {(v as { is_extra?: boolean }).is_extra && <span className="badge bg-ink-100 text-ink-700">Dia extra</span>}
                           {(v as { is_swap?: boolean }).is_swap && <span className="badge bg-ink-100 text-ink-700 inline-flex items-center gap-1"><Repeat size={11} /> Troca{(v as { swapped_from?: string }).swapped_from ? ` de ${formatDate((v as { swapped_from?: string }).swapped_from!)}` : ''}</span>}
@@ -1814,6 +1816,7 @@ export default function PortalHome() {
       {showPontoModal && (() => {
         const modalLink = getLinkForClient(pontoForm.client_id, pontoForm.visit_date)
         const isConsultoria = effectiveType(modalLink) === 'Consultoria'
+        const mensal = recebeMensal(modalLink)
         const dayIsOff = !isConsultoria && pontoForm.day_type === 'normal' && isDayOff(modalLink, pontoForm.visit_date)
         const noFixedSchedule = !isConsultoria && modalLink && !hasKnownSchedule(modalLink)
         const extraDayValue = modalLink?.monthly_amount ? Math.round((Number(modalLink.monthly_amount) / 30) * 100) / 100 : null
@@ -1825,7 +1828,7 @@ export default function PortalHome() {
             {/* Cliente */}
             <div>
               <label className="label">Cliente *</label>
-              <select className="input" value={pontoForm.client_id} onChange={e => setPontoForm(p => ({ ...p, client_id: e.target.value, unit_id: '', unit_name: '', is_extra: false }))}>
+              <select className="input" value={pontoForm.client_id} onChange={e => setPontoForm(p => ({ ...p, client_id: e.target.value, unit_id: '', unit_name: '', is_extra: false, day_type: 'normal', unavailability_reason: '' }))}>
                 <option value="">Selecionar...</option>
                 {folhaLinks?.map(l => {
                   const c = (l as { client?: { id: string; name: string } }).client
@@ -1845,8 +1848,8 @@ export default function PortalHome() {
               <input className="input" type="date" value={pontoForm.visit_date} onChange={e => setPontoForm(p => ({ ...p, visit_date: e.target.value }))} />
             </div>
 
-            {/* ── Tipo do dia (Fixo e Consultoria) ── */}
-            {modalLink && (
+            {/* ── Tipo do dia: só para quem recebe mensal (Fixo mensal e consultoria com salário) ── */}
+            {modalLink && mensal && (
             <div>
               <label className="label">O que aconteceu neste dia? *</label>
               <div className="grid grid-cols-3 gap-2">
@@ -1869,7 +1872,7 @@ export default function PortalHome() {
             )}
 
             {/* ── CONSULTORIA: unidade + horários + valor + relatório (só quando trabalhou) ── */}
-            {isConsultoria && pontoForm.day_type === 'normal' && (
+            {isConsultoria && (!mensal || pontoForm.day_type === 'normal') && (
               <>
                 {getLinkUnitsForClient(pontoForm.client_id).length > 0 && (
                   <div>
@@ -2021,10 +2024,23 @@ export default function PortalHome() {
               </>
             )}
 
-            {/* Feriado: só confirmação */}
-            {modalLink && pontoForm.day_type === 'feriado' && (
-              <div className="bg-amber-50 rounded-xl px-4 py-3 text-sm text-amber-700">
-                O dia será registrado como folga — não conta como falta nem como dia trabalhado.
+            {/* Folga: foi dispensada (não é falta). Motivo obrigatório — o RH vê. */}
+            {modalLink && mensal && pontoForm.day_type === 'feriado' && (
+              <div className="space-y-2">
+                <div>
+                  <label className="label">Motivo da folga *</label>
+                  <select className="input" value={pontoForm.unavailability_reason} onChange={e => setPontoForm(p => ({ ...p, unavailability_reason: e.target.value }))}>
+                    <option value="">Selecionar motivo...</option>
+                    <option value="Feriado">Feriado</option>
+                    <option value="Cliente fechado">Cliente fechado</option>
+                    <option value="Liberada pelo gestor">Liberada pelo gestor</option>
+                    <option value="Cliente pediu para não ir">Cliente pediu para não ir</option>
+                    <option value="Outro">Outro</option>
+                  </select>
+                </div>
+                <p className="bg-amber-50 rounded-xl px-4 py-3 text-sm text-amber-700">
+                  Folga é quando você foi dispensada. Não conta como falta nem como dia trabalhado, e o RH é avisado. Se foi você que não pôde ir, marque Faltei.
+                </p>
               </div>
             )}
 
@@ -2049,7 +2065,7 @@ export default function PortalHome() {
             )}
 
             {/* Falta: motivo + atestado — aparece para o RH cobrar/acompanhar */}
-            {modalLink && pontoForm.day_type === 'indisponivel' && (
+            {modalLink && mensal && pontoForm.day_type === 'indisponivel' && (
               <div className="space-y-3">
                 <div>
                   <label className="label">Motivo da falta *</label>

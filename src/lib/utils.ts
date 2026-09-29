@@ -232,6 +232,17 @@ export function salarioConsultoria(l?: VinculoTipo | null): boolean {
   return !!l && tipoDoVinculo(l) === 'Consultoria' && l.pay_mode === 'salario_fixo'
 }
 
+/**
+ * Recebe MENSAL por contrato (não por visita nem por diária): Fixo mensal e
+ * Consultoria com salário fixo. Só esse grupo tem Folga e Falta no portal —
+ * para quem recebe por visita/diária, dia sem trabalho simplesmente não é pago.
+ * (Decisão do Gabriel, 29/09/2026.)
+ */
+export function recebeMensal(l?: VinculoTipo | null): boolean {
+  if (!l) return false
+  return salarioConsultoria(l) || (tipoDoVinculo(l) === 'Fixo' && !pagaPorDiaria(l))
+}
+
 /** Vínculo que nasceu para acabar (cobertura, auditoria avulsa) */
 export function ehTemporario(l?: VinculoTipo | null): boolean {
   return !!l && (l.service_type === 'Volante' || !!l.is_temporary)

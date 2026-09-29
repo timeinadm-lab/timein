@@ -732,6 +732,23 @@ export default function Dashboard() {
     },
   })
 
+  // Folga marcada no portal (quem recebe mensal): foi dispensada, não é falta.
+  // O RH precisa ver para confirmar — senão "folga" vira falta sem desconto.
+  const { data: folgasRecentes } = useQuery({
+    queryKey: ['dashboard-folgas'],
+    queryFn: async () => {
+      const desde = new Date(now); desde.setDate(desde.getDate() - 30)
+      const { data, error } = await supabase.from('nutritionist_visits')
+        .select('id,visit_date,unavailability_reason,employee:employees(id,full_name,status),client:clients(name)')
+        .eq('is_holiday', true)
+        .gte('visit_date', desde.toISOString().slice(0, 10))
+        .order('visit_date', { ascending: false })
+      if (error) throw error
+      type Folga = { id: string; visit_date: string; unavailability_reason: string | null; employee?: { id: string; full_name: string; status?: string }; client?: { name: string } }
+      return ((data || []) as unknown as Folga[]).filter(v => v.employee?.status === 'Ativo')
+    },
+  })
+
   // Documentos entregues (com arquivo) — para o gráfico de documentos
   const { data: deliveredDocsCount } = useQuery({
     queryKey: ['dashboard-delivered-docs'],
@@ -955,6 +972,18 @@ export default function Dashboard() {
     }
     if (naoVista) redAlerts.unshift(item)
     else amberAlerts.push(item)
+  })
+
+  // Folga registrada no portal
+  ;(folgasRecentes || []).forEach(v => {
+    const nome = (v as { employee?: { full_name: string } }).employee?.full_name || 'Colaborador'
+    const empId = (v as { employee?: { id: string } }).employee?.id
+    const cli = (v as { client?: { name: string } }).client?.name
+    amberAlerts.push({
+      text: `${nome} marcou folga em ${formatDate(v.visit_date)}${cli ? ` — ${cli}` : ''}${v.unavailability_reason ? ` (${v.unavailability_reason})` : ''}`,
+      path: empId ? `/colaboradores/${empId}?tab=visitas` : '/visitas',
+      key: `folga-${v.id}`,
+    })
   })
 
   // Fez visita em dia que não estava combinado

@@ -516,6 +516,7 @@ export default function CalendarPage() {
         date: (sv as { visit_date: string }).visit_date,
         employee: resp,
         client: (allClients || []).find(c => c.id === (sv as { client_id?: string }).client_id)?.name,
+        unit: (sv as { unit_name?: string | null }).unit_name || undefined,
         note: `Supervisão · ${st === 'agendada' ? 'agendada' : st === 'realizada' ? 'realizada' : 'não realizada'}`,
         isRh: true,
       })

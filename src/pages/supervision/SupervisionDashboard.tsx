@@ -20,6 +20,8 @@ type Status = 'agendada' | 'realizada' | 'nao_realizada'
 type Supervisao = {
   id: string
   client_id: string | null
+  unit_id?: string | null
+  unit_name?: string | null
   supervisor_id: string | null
   visit_date: string
   observations: string | null
@@ -42,7 +44,7 @@ export default function SupervisionDashboard() {
   const hoje = hojeISO()
   const [mes, setMes] = useState(format(new Date(), 'yyyy-MM'))
   const [filtroResp, setFiltroResp] = useState<string>('') // '' = todos
-  const [novo, setNovo] = useState<{ client_id: string; visit_date: string; supervisor_id: string; observations: string } | null>(null)
+  const [novo, setNovo] = useState<{ client_id: string; unit_id: string; visit_date: string; supervisor_id: string; observations: string } | null>(null)
   const [buscaCliente, setBuscaCliente] = useState('')
   const [aberta, setAberta] = useState<Supervisao | null>(null)
   const [naoFoi, setNaoFoi] = useState<{ sup: Supervisao; motivo: string; remarcar: boolean; nova_data: string; novo_resp: string } | null>(null)
@@ -97,16 +99,34 @@ export default function SupervisionDashboard() {
     qc.invalidateQueries({ queryKey: ['supervisoes'] })
     qc.invalidateQueries({ queryKey: ['avisos-sino'] })
   }
-  const erroMigracao = (e: Error) => toast.error(/status|checked_in|remarcada|created_by|column/i.test(e.message)
+  const erroMigracao = (e: Error) => toast.error(/unit_id|unit_name/i.test(e.message)
+    ? 'Falta rodar a migração 063 no Supabase (unidade na supervisão).'
+    : /status|checked_in|remarcada|created_by|column/i.test(e.message)
     ? 'Falta rodar a migração 059 no Supabase.' : e.message)
+
+  // Unidades do cliente escolhido: com unidade cadastrada, escolher é obrigatório
+  const { data: unidadesNovo = [] } = useQuery({
+    queryKey: ['supervisao-unidades', novo?.client_id],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('client_units').select('id,name').eq('client_id', novo!.client_id).order('name')
+      if (error) throw error
+      return (data || []) as { id: string; name: string }[]
+    },
+    enabled: !!novo?.client_id,
+  })
+  // "Cliente · Unidade" em todo lugar que mostra a supervisão
+  const nomeLocal = (s: { client_id: string | null; unit_name?: string | null }) =>
+    s.unit_name ? `${nomeCliente(s.client_id)} · ${s.unit_name}` : nomeCliente(s.client_id)
 
   const criar = useMutation({
     mutationFn: async () => {
       if (!novo?.client_id) throw new Error('Escolha o cliente')
       if (!novo.visit_date) throw new Error('Escolha o dia')
       if (!novo.supervisor_id) throw new Error('Escolha o responsável')
+      if (unidadesNovo.length > 0 && !novo.unit_id) throw new Error('Escolha a unidade')
+      const unidade = unidadesNovo.find(u => u.id === novo.unit_id)
       const { error } = await supabase.from('supervision_visits').insert({
-        client_id: novo.client_id, visit_date: novo.visit_date, supervisor_id: novo.supervisor_id,
+        client_id: novo.client_id, ...(unidade ? { unit_id: unidade.id, unit_name: unidade.name } : {}), visit_date: novo.visit_date, supervisor_id: novo.supervisor_id,
         observations: novo.observations.trim() || null, status: 'agendada', created_by: user?.id ?? null,
       })
       if (error) throw error
@@ -126,7 +146,7 @@ export default function SupervisionDashboard() {
 
   const checkIn = (s: Supervisao) => atualizar.mutate(
     { id: s.id, patch: { status: 'realizada', checked_in_at: new Date().toISOString(), checked_in_by: user?.id ?? null, motivo_nao_realizada: null } },
-    { onSuccess: () => { toast.success(`Check-in feito: ${nomeCliente(s.client_id)}`); setAberta(null) } },
+    { onSuccess: () => { toast.success(`Check-in feito: ${nomeLocal(s)}`); setAberta(null) } },
   )
 
   const registrarNaoFoi = useMutation({
@@ -143,7 +163,8 @@ export default function SupervisionDashboard() {
       // registrada como "não realizada" — é o histórico)
       if (naoFoi.remarcar) {
         const { error: e2 } = await supabase.from('supervision_visits').insert({
-          client_id: sup.client_id, visit_date: naoFoi.nova_data,
+          client_id: sup.client_id, ...(sup.unit_id || sup.unit_name ? { unit_id: sup.unit_id ?? null, unit_name: sup.unit_name ?? null } : {}),
+          visit_date: naoFoi.nova_data,
           supervisor_id: naoFoi.novo_resp || sup.supervisor_id,
           observations: sup.observations, status: 'agendada', remarcada_de: sup.id, created_by: user?.id ?? null,
         })
@@ -158,7 +179,7 @@ export default function SupervisionDashboard() {
   })
 
   const excluir = async (s: Supervisao) => {
-    if (!(await confirmar({ titulo: 'Excluir esta supervisão?', texto: `${nomeCliente(s.client_id)} · ${formatDate(s.visit_date)}`, perigo: true }))) return
+    if (!(await confirmar({ titulo: 'Excluir esta supervisão?', texto: `${nomeLocal(s)} · ${formatDate(s.visit_date)}`, perigo: true }))) return
     const { error } = await supabase.from('supervision_visits').delete().eq('id', s.id)
     if (error) { toast.error(error.message); return }
     toast.success('Supervisão excluída'); setAberta(null); invalidar()
@@ -205,7 +226,7 @@ export default function SupervisionDashboard() {
     return (clientes || []).filter(c => !q || semAcento(c.name || '').includes(q))
   }, [clientes, buscaCliente])
 
-  const abrirNovo = (data?: string) => setNovo({ client_id: '', visit_date: data || hoje, supervisor_id: user?.id || '', observations: '' })
+  const abrirNovo = (data?: string) => setNovo({ client_id: '', unit_id: '', visit_date: data || hoje, supervisor_id: user?.id || '', observations: '' })
 
   // ── Linha de supervisão (lista) ──
   const Linha = ({ s }: { s: Supervisao }) => {
@@ -218,7 +239,7 @@ export default function SupervisionDashboard() {
           {getInitials(nomePessoa(s.supervisor_id))}
         </span>
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-ink-900 truncate">{nomeCliente(s.client_id)}</p>
+          <p className="text-sm font-medium text-ink-900 truncate">{nomeLocal(s)}</p>
           <p className="text-xs text-ink-500 truncate">
             {formatDate(s.visit_date)} · {primeiroNome(s.supervisor_id)}
             {s.remarcada_de && <span className="text-ink-400"> · remarcada</span>}
@@ -293,7 +314,7 @@ export default function SupervisionDashboard() {
               const ehHoje = ds === hoje
               return (
                 <button key={ds} onClick={() => doDia.length === 1 ? setAberta(doDia[0]) : abrirNovo(ds)}
-                  title={doDia.length ? doDia.map(s => `${nomeCliente(s.client_id)} · ${primeiroNome(s.supervisor_id)}`).join('\n') : 'Agendar neste dia'}
+                  title={doDia.length ? doDia.map(s => `${nomeLocal(s)} · ${primeiroNome(s.supervisor_id)}`).join('\n') : 'Agendar neste dia'}
                   className={`min-h-[3.25rem] sm:min-h-[4.5rem] rounded-lg border p-1 text-left align-top transition-colors hover:bg-ink-50 ${ehHoje ? 'border-primary-600' : 'border-ink-100'}`}>
                   <span className={`text-[11px] ${ehHoje ? 'text-primary-700 font-semibold' : 'text-ink-500'}`}>{i + 1}</span>
                   <div className="mt-0.5 space-y-0.5">
@@ -433,10 +454,19 @@ export default function SupervisionDashboard() {
                 <input className="input pl-8" placeholder="Buscar cliente…" value={buscaCliente} onChange={e => setBuscaCliente(e.target.value)} />
               </div>
               <select className="input" size={Math.min(6, Math.max(3, clientesFiltrados.length))} value={novo.client_id}
-                onChange={e => setNovo(p => p ? { ...p, client_id: e.target.value } : p)}>
+                onChange={e => setNovo(p => p ? { ...p, client_id: e.target.value, unit_id: '' } : p)}>
                 {clientesFiltrados.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </div>
+            {novo.client_id && unidadesNovo.length > 0 && (
+              <div>
+                <label className="label">Unidade *</label>
+                <select className="input" value={novo.unit_id} onChange={e => setNovo(p => p ? { ...p, unit_id: e.target.value } : p)}>
+                  <option value="">Escolha a unidade…</option>
+                  {unidadesNovo.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                </select>
+              </div>
+            )}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="label">Dia *</label>
@@ -474,6 +504,7 @@ export default function SupervisionDashboard() {
                 <div className="min-w-0">
                   <p className="text-xs text-ink-400">{formatDate(s.visit_date)}</p>
                   <h3 className="text-lg font-semibold text-ink-900 truncate">{nomeCliente(s.client_id)}</h3>
+                  {s.unit_name && <p className="text-sm text-ink-500 truncate">{s.unit_name}</p>}
                   <p className={`text-xs font-medium flex items-center gap-1.5 mt-0.5 ${info.texto}`}><span className={`dot ${info.dot}`} />{info.rotulo}
                     {s.status === 'realizada' && s.checked_in_by && <span className="text-ink-400 font-normal"> · check-in de {primeiroNome(s.checked_in_by)}{s.checked_in_at ? ` em ${formatDate(s.checked_in_at.slice(0, 10))}` : ''}</span>}
                   </p>
@@ -550,7 +581,7 @@ export default function SupervisionDashboard() {
         <div className="modal-overlay" onClick={() => setNaoFoi(null)}>
           <div className="modal-box max-w-md space-y-4" onClick={e => e.stopPropagation()}>
             <div>
-              <p className="text-xs text-ink-400">{nomeCliente(naoFoi.sup.client_id)} · {formatDate(naoFoi.sup.visit_date)}</p>
+              <p className="text-xs text-ink-400">{nomeLocal(naoFoi.sup)} · {formatDate(naoFoi.sup.visit_date)}</p>
               <h3 className="text-lg font-semibold text-ink-900">Supervisão não realizada</h3>
             </div>
             <div>

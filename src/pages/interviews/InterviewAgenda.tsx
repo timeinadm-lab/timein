@@ -110,11 +110,14 @@ export default function InterviewAgenda() {
   })
 
   const deleteInterview = useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase.from('interviews').delete().eq('id', id)
+    // serie + desde: apaga esta e as próximas reuniões da mesma série (migração 066)
+    mutationFn: async (arg: string | { id: string; serie: string; desde: string }) => {
+      const { error } = typeof arg === 'string'
+        ? await supabase.from('interviews').delete().eq('id', arg)
+        : await supabase.from('interviews').delete().eq('serie_id', arg.serie).gte('scheduled_at', arg.desde)
       if (error) throw error
     },
-    onSuccess: () => { toast.success('Compromisso excluído!'); qc.invalidateQueries({ queryKey: ['interviews'] }) },
+    onSuccess: () => { toast.success('Excluído!'); qc.invalidateQueries({ queryKey: ['interviews'] }) },
     onError: (e: Error) => toast.error(e.message),
   })
 
@@ -359,7 +362,16 @@ export default function InterviewAgenda() {
                   </>
                 )}
                 <button onClick={() => navigate(`/agenda/${i.id}/editar`)} className="btn-ghost p-2"><Edit size={14} /></button>
-                <button onClick={async () => { if (await confirmar({ titulo: 'Excluir compromisso?', perigo: true })) deleteInterview.mutate(i.id) }} className="btn-ghost p-2 text-red-400"><Trash2 size={14} /></button>
+                <button onClick={async () => {
+                  const serie = (i as { serie_id?: string | null }).serie_id
+                  if (serie && i.scheduled_at) {
+                    const doSerie = (interviews || []).filter(x => (x as { serie_id?: string | null }).serie_id === serie && (x.scheduled_at || '') >= i.scheduled_at!).length
+                    if (doSerie > 1 && await confirmar({ titulo: 'Esta reunião se repete', texto: `Excluir também as próximas ${doSerie - 1} da série?`, confirmar: 'Esta e as próximas', cancelar: 'Só esta', perigo: true })) {
+                      deleteInterview.mutate({ id: i.id, serie, desde: i.scheduled_at }); return
+                    }
+                  }
+                  if (await confirmar({ titulo: 'Excluir compromisso?', perigo: true })) deleteInterview.mutate(i.id)
+                }} className="btn-ghost p-2 text-red-400" aria-label="Excluir"><Trash2 size={14} /></button>
               </div>
             </div>
           </div>

@@ -7,9 +7,10 @@ import { formatDate, formatLocalTime, hojeISO } from '../../lib/utils'
 import toast from 'react-hot-toast'
 
 import { format, startOfMonth, endOfMonth, getDaysInMonth, getDay, addMonths, subMonths } from 'date-fns'
+import { ptBR } from 'date-fns/locale'
 import { SignedLink } from '../../components/ui/SignedFile'
 
-type EventKind = 'realizada' | 'planejada' | 'ausencia' | 'reuniao' | 'compromisso'
+type EventKind = 'realizada' | 'planejada' | 'ausencia' | 'troca' | 'supervisao' | 'reuniao' | 'compromisso'
 type Ev = {
   kind: EventKind
   date: string
@@ -30,7 +31,10 @@ type Ev = {
 const KIND_META: Record<EventKind, { label: string; dot: string; chip: string }> = {
   realizada:    { label: 'Visita realizada', dot: 'bg-primary-600',  chip: 'bg-primary-50 text-primary-700 border-primary-200' },
   planejada:    { label: 'Visita planejada', dot: 'bg-amber-400',    chip: 'bg-amber-50 text-amber-800 border-amber-200' },
-  ausencia:     { label: 'Ausência avisada', dot: 'bg-red-400',      chip: 'bg-red-50 text-red-700 border-red-200' },
+  ausencia:     { label: 'Ausência',         dot: 'bg-red-400',      chip: 'bg-red-50 text-red-700 border-red-200' },
+  // Troca de dia NÃO é falta: a pessoa folga num dia e trabalha em outro
+  troca:        { label: 'Troca / feriado',     dot: 'bg-orange-400',   chip: 'bg-orange-50 text-orange-800 border-orange-200' },
+  supervisao:   { label: 'Supervisão',       dot: 'bg-teal-500',     chip: 'bg-teal-50 text-teal-800 border-teal-200' },
   reuniao:      { label: 'Reunião',          dot: 'bg-blue-400',     chip: 'bg-blue-50 text-blue-700 border-blue-200' },
   // Compromisso NAO e reuniao: e qualquer coisa que a equipe precisa saber que
   // vai acontecer (viagem, consulta medica, visita a um cliente sem ser vistoria).
@@ -61,6 +65,8 @@ export default function CalendarPage() {
   // só reuniões e visitas da equipe. Com 12x36 lançando todo dia, o calendário
   // cheio não dá pra ler.
   const [fSoRh, setFSoRh] = useState(false)
+  // Tipos escondidos pela legenda (tocar num tipo esconde/mostra)
+  const [ocultos, setOcultos] = useState<Set<EventKind>>(new Set())
   const [addOpen, setAddOpen] = useState(false)
   const [addForm, setAddForm] = useState(EMPTY_ADD)
 
@@ -73,7 +79,7 @@ export default function CalendarPage() {
     queryKey: ['cal-visits', monthKey],
     queryFn: async () => {
       const { data, error } = await supabase.from('nutritionist_visits')
-        .select('id, visit_date, check_in, check_out, break_start, break_end, unit_name, observations, report_url, is_unavailable, is_holiday, employee_id, employee:employees(full_name), client:clients(name)')
+        .select('id, visit_date, check_in, check_out, break_start, break_end, unit_name, observations, report_url, is_unavailable, is_holiday, employee_id, client_id, employee:employees(full_name), client:clients(name)')
         .gte('visit_date', mStart).lte('visit_date', mEnd)
       if (error) throw error
       return data || []
@@ -85,7 +91,7 @@ export default function CalendarPage() {
     queryKey: ['cal-agenda', monthKey],
     queryFn: async () => {
       const { data, error } = await supabase.from('nutritionist_agenda')
-        .select('id, planned_date, planned_time, notes, hours_expected, employee_id, employee:employees(full_name), client:clients(name), unit:client_units(name)')
+        .select('id, planned_date, planned_time, notes, hours_expected, employee_id, client_id, employee:employees(full_name), client:clients(name), unit:client_units(name)')
         .gte('planned_date', mStart).lte('planned_date', mEnd)
       if (error) throw error
       return data || []
@@ -97,9 +103,20 @@ export default function CalendarPage() {
     queryKey: ['cal-notices', monthKey],
     queryFn: async () => {
       const { data, error } = await supabase.from('schedule_notices')
-        .select('id, notice_date, type, reason, employee_id, employee:employees(full_name), client:clients(name)')
-        .gte('notice_date', mStart).lte('notice_date', mEnd)
+        .select('id, notice_date, swap_work_date, type, reason, employee_id, client_id, employee:employees(full_name), client:clients(name)')
+        .or(`and(notice_date.gte.${mStart},notice_date.lte.${mEnd}),and(swap_work_date.gte.${mStart},swap_work_date.lte.${mEnd})`)
       if (error) { console.warn('schedule_notices:', error.message); return [] }
+      return data || []
+    },
+  })
+
+  // Supervisões da equipe (agenda interna — migração 059)
+  const { data: supervisoes } = useQuery({
+    queryKey: ['cal-supervisoes', monthKey],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('supervision_visits')
+        .select('*').gte('visit_date', mStart).lte('visit_date', mEnd)
+      if (error) { console.warn('supervision_visits:', error.message); return [] }
       return data || []
     },
   })
@@ -370,22 +387,30 @@ export default function CalendarPage() {
     for (const v of visits || []) {
       const emp = (v as { employee?: { full_name: string } }).employee?.full_name || '—'
       out.push({
-        kind: v.is_unavailable ? 'ausencia' : 'realizada',
+        // Feriado registrado não é visita feita nem falta
+        kind: v.is_unavailable ? 'ausencia' : v.is_holiday ? 'troca' : 'realizada',
         date: v.visit_date,
         employee: emp,
         client: (v as { client?: { name: string } }).client?.name,
         unit: v.unit_name || undefined,
         time: v.check_in ? v.check_in.slice(0, 5) : null,
         hours: durH(v.check_in, v.check_out, v.break_start, v.break_end),
-        note: v.is_unavailable ? 'Falta registrada' : v.observations,
+        note: v.is_unavailable ? 'Falta registrada' : v.is_holiday ? 'Feriado' : v.observations,
         reportUrl: v.report_url,
         employeeId: v.employee_id,
       })
     }
-    // planejadas: se já tem visita realizada no mesmo dia+colaborador, não duplica
+    // Falta avisada pelo portal no mesmo dia (por pessoa)
+    const faltaAvisada = new Set((notices || []).filter(n => n.type === 'falta').map(n => `${n.employee_id}|${n.notice_date}`))
+    // Planejada vira o que de fato aconteceu: se no dia já tem registro (trabalhou
+    // OU ausência) ou falta avisada, mostra só isso — antes aparecia "planejada"
+    // e "ausência" juntas, parecendo duas coisas diferentes.
     for (const a of agenda || []) {
       const emp = (a as { employee?: { full_name: string } }).employee?.full_name || '—'
-      const already = (visits || []).some(v => v.visit_date === a.planned_date && v.employee_id === a.employee_id && !v.is_unavailable)
+      const aClient = (a as { client_id?: string }).client_id
+      const already = (visits || []).some(v => v.visit_date === a.planned_date && v.employee_id === a.employee_id
+        && (!aClient || !(v as { client_id?: string }).client_id || (v as { client_id?: string }).client_id === aClient))
+        || faltaAvisada.has(`${a.employee_id}|${a.planned_date}`)
       if (already) continue
       out.push({
         kind: 'planejada',
@@ -400,13 +425,38 @@ export default function CalendarPage() {
       })
     }
     for (const n of notices || []) {
+      const nome = (n as { employee?: { full_name: string } }).employee?.full_name || '—'
+      const cliente = (n as { client?: { name: string } }).client?.name
+      if (n.type === 'falta') {
+        // Falta avisada E registrada no ponto no mesmo dia: mostra uma vez só
+        const jaNoPonto = (visits || []).some(v => v.is_unavailable && v.employee_id === n.employee_id && v.visit_date === n.notice_date)
+        if (jaNoPonto) continue
+        if (n.notice_date >= mStart && n.notice_date <= mEnd) {
+          out.push({ kind: 'ausencia', date: n.notice_date, employee: nome, client: cliente, note: n.reason || 'Falta avisada', employeeId: n.employee_id })
+        }
+      } else {
+        // Troca: folga num dia, trabalha em outro — os dois aparecem
+        const trabalha = (n as { swap_work_date?: string }).swap_work_date
+        if (n.notice_date >= mStart && n.notice_date <= mEnd) {
+          out.push({ kind: 'troca', date: n.notice_date, employee: nome, client: cliente,
+            note: `Folga (troca)${trabalha ? ` — trabalha em ${formatDate(trabalha)}` : ''}${n.reason ? ` · ${n.reason}` : ''}`, employeeId: n.employee_id })
+        }
+        if (trabalha && trabalha >= mStart && trabalha <= mEnd) {
+          out.push({ kind: 'troca', date: trabalha, employee: nome, client: cliente,
+            note: `Trabalha no lugar de ${formatDate(n.notice_date)}`, employeeId: n.employee_id })
+        }
+      }
+    }
+    for (const sv of supervisoes || []) {
+      const st = (sv as { status?: string }).status || 'realizada'
+      const resp = (rhUsers || []).find(u => u.id === (sv as { supervisor_id?: string }).supervisor_id)?.full_name || 'Sem responsável'
       out.push({
-        kind: 'ausencia',
-        date: n.notice_date,
-        employee: (n as { employee?: { full_name: string } }).employee?.full_name || '—',
-        client: (n as { client?: { name: string } }).client?.name,
-        note: n.reason || (n.type === 'falta' ? 'Falta avisada' : 'Troca de dia'),
-        employeeId: n.employee_id,
+        kind: 'supervisao',
+        date: (sv as { visit_date: string }).visit_date,
+        employee: resp,
+        client: (allClients || []).find(c => c.id === (sv as { client_id?: string }).client_id)?.name,
+        note: `Supervisão · ${st === 'agendada' ? 'agendada' : st === 'realizada' ? 'realizada' : 'não realizada'}`,
+        isRh: true,
       })
     }
     for (const ap of appointments || []) {
@@ -430,9 +480,10 @@ export default function CalendarPage() {
       })
     }
     return out
-  }, [visits, agenda, notices, appointments])
+  }, [visits, agenda, notices, appointments, supervisoes, rhUsers, allClients])
 
   const filtered = events.filter(e =>
+    !ocultos.has(e.kind) &&
     (!fSoRh || e.isRh) &&
     (!fEmployee || e.employee === fEmployee) && (!fClient || e.client === fClient))
 
@@ -467,7 +518,7 @@ export default function CalendarPage() {
         </div>
         <div className="flex items-center gap-1.5">
           <button onClick={() => setCursor(subMonths(cursor, 1))} className="btn-secondary p-2"><ChevronLeft size={16} /></button>
-          <span className="font-display font-bold text-ink-900 capitalize min-w-[140px] text-center">{format(cursor, 'MMMM yyyy')}</span>
+          <span className="font-semibold text-ink-900 min-w-[140px] text-center first-letter:uppercase">{format(cursor, "MMMM 'de' yyyy", { locale: ptBR })}</span>
           <button onClick={() => setCursor(addMonths(cursor, 1))} className="btn-secondary p-2"><ChevronRight size={16} /></button>
         </div>
       </div>
@@ -498,7 +549,7 @@ export default function CalendarPage() {
             }`}
             title={fSoRh ? 'Mostrando só compromissos e visitas da equipe de RH' : 'Mostrando tudo, inclusive ponto dos colaboradores'}
           >
-            👥 {fSoRh ? 'Só do RH ✓' : 'Só do RH'}
+            {fSoRh ? 'Só do RH ✓' : 'Só do RH'}
           </button>
           <select className="input w-auto text-xs py-1.5 disabled:opacity-40" disabled={fSoRh}
             value={fEmployee} onChange={e => setFEmployee(e.target.value)}>
@@ -546,9 +597,17 @@ export default function CalendarPage() {
 
         {/* Legenda */}
         <div className="flex items-center gap-3 mt-3 text-[11px] text-ink-500 flex-wrap">
-          {(Object.keys(KIND_META) as EventKind[]).map(k => (
-            <span key={k} className="flex items-center gap-1.5"><span className={`w-2.5 h-2.5 rounded-full ${KIND_META[k].dot}`} /> {KIND_META[k].label}</span>
-          ))}
+          {(Object.keys(KIND_META) as EventKind[]).map(k => {
+            const off = ocultos.has(k)
+            return (
+              <button key={k} type="button" title={off ? 'Mostrar' : 'Esconder'}
+                onClick={() => setOcultos(prev => { const nx = new Set(prev); if (nx.has(k)) nx.delete(k); else nx.add(k); return nx })}
+                className={`flex items-center gap-1.5 px-2 py-1 rounded-md transition-colors hover:bg-ink-100 ${off ? 'opacity-40 line-through' : ''}`}>
+                <span className={`w-2.5 h-2.5 rounded-full ${KIND_META[k].dot}`} /> {KIND_META[k].label}
+              </button>
+            )
+          })}
+          <span className="text-ink-400">Toque num tipo para esconder</span>
         </div>
       </div>
 
@@ -619,7 +678,7 @@ export default function CalendarPage() {
                       <label className="label">O que é? *</label>
                       {/* Botões curtos: 2 colunas cabem bem até no celular */}
                       <div className="grid grid-cols-2 gap-1.5">
-                        {([['planejada', '🟡 Visita'], ['ausencia', '🔴 Ausência'], ['reuniao', '🔵 Reunião'], ['compromisso', '🟣 Compromisso']] as const).map(([k, t]) => (
+                        {([['planejada', 'Visita'], ['ausencia', 'Ausência'], ['reuniao', 'Reunião'], ['compromisso', 'Compromisso']] as const).map(([k, t]) => (
                           <button key={k} onClick={() => setAddForm(p => ({ ...p, manualKind: k }))}
                             className={`py-2 px-1 text-xs font-medium rounded-lg border-2 transition-colors ${addForm.manualKind === k ? 'border-primary-600 bg-white' : 'border-ink-200 bg-white/60 text-ink-500'}`}>{t}</button>
                         ))}

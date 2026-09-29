@@ -423,7 +423,7 @@ export default function PortalHome() {
       return { reportPending, anexosFalhos }
     },
     onSuccess: (result) => {
-      toast.success(editingPontoId ? 'Registro atualizado!' : pontoForm.day_type === 'feriado' ? 'Feriado registrado!' : pontoForm.day_type === 'indisponivel' ? 'Falta registrada!' : 'Registro salvo!')
+      toast.success(editingPontoId ? 'Registro atualizado!' : pontoForm.day_type === 'feriado' ? 'Folga registrada!' : pontoForm.day_type === 'indisponivel' ? 'Falta registrada!' : 'Registro salvo!')
       if (result?.anexosFalhos?.length) {
         toast.error(`O registro foi salvo, mas o ${result.anexosFalhos.join(' e o ')} não foi enviado. Toque no lápis do registro e anexe de novo.`, { duration: 9000 })
       }
@@ -1110,7 +1110,7 @@ export default function PortalHome() {
                         )}
 
                         <div className="flex flex-wrap gap-1.5">
-                          {isHoliday && <span className="badge bg-amber-50 text-amber-700">Feriado</span>}
+                          {isHoliday && <span className="badge bg-amber-50 text-amber-700">Folga</span>}
                           {isUnavailable && <span className="badge bg-red-50 text-red-700">Falta{unavailReason ? ` · ${unavailReason}` : ''}</span>}
                           {(v as { is_extra?: boolean }).is_extra && <span className="badge bg-ink-100 text-ink-700">Dia extra</span>}
                           {(v as { is_swap?: boolean }).is_swap && <span className="badge bg-ink-100 text-ink-700 inline-flex items-center gap-1"><Repeat size={11} /> Troca{(v as { swapped_from?: string }).swapped_from ? ` de ${formatDate((v as { swapped_from?: string }).swapped_from!)}` : ''}</span>}
@@ -1941,7 +1941,7 @@ export default function PortalHome() {
               <div className="grid grid-cols-3 gap-2">
                 {([
                   { value: 'normal', label: 'Trabalhei', color: 'border-green-300 bg-green-50 text-green-800', active: 'border-green-500 bg-green-100' },
-                  { value: 'feriado', label: 'Feriado', color: 'border-amber-300 bg-amber-50 text-amber-800', active: 'border-amber-500 bg-amber-100' },
+                  { value: 'feriado', label: 'Folga', color: 'border-amber-300 bg-amber-50 text-amber-800', active: 'border-amber-500 bg-amber-100' },
                   { value: 'indisponivel', label: 'Faltei', color: 'border-red-300 bg-red-50 text-red-800', active: 'border-red-500 bg-red-100' },
                 ] as const).map(opt => (
                   <button
@@ -2023,7 +2023,7 @@ export default function PortalHome() {
             {/* Feriado: só confirmação */}
             {!isConsultoria && pontoForm.day_type === 'feriado' && (
               <div className="bg-amber-50 rounded-xl px-4 py-3 text-sm text-amber-700">
-                O dia será registrado como feriado — não conta como falta nem como dia trabalhado.
+                O dia será registrado como folga — não conta como falta nem como dia trabalhado.
               </div>
             )}
 

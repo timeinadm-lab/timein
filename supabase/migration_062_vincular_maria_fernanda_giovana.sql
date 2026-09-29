@@ -22,6 +22,20 @@ BEGIN
      WHERE lower(translate(full_name, 'áàâãäéèêëíìîïóòôõöúùûüçÁÀÂÃÄÉÈÊËÍÌÎÏÓÒÔÕÖÚÙÛÜÇ',
                                       'aaaaaeeeeiiiiooooouuuucAAAAAEEEEIIIIOOOOOUUUUC'))
            LIKE v_nome || '%';
+    -- Cadastro repetido: fica o do CPF da planilha; senão, o que está Ativo
+    IF array_length(v_ids, 1) > 1 THEN
+      SELECT array_agg(id) INTO v_ids FROM employees
+       WHERE id = ANY(v_ids)
+         AND regexp_replace(coalesce(cpf, ''), '\D', '', 'g') =
+             CASE v_nome WHEN 'maria fernanda brandao santos' THEN '42706781866' ELSE '-' END;
+      IF coalesce(array_length(v_ids, 1), 0) <> 1 THEN
+        SELECT array_agg(id) INTO v_ids FROM employees
+         WHERE status = 'Ativo'
+           AND lower(translate(full_name, 'áàâãäéèêëíìîïóòôõöúùûüçÁÀÂÃÄÉÈÊËÍÌÎÏÓÒÔÕÖÚÙÛÜÇ',
+                                          'aaaaaeeeeiiiiooooouuuucAAAAAEEEEIIIIOOOOOUUUUC'))
+               LIKE v_nome || '%';
+      END IF;
+    END IF;
     IF coalesce(array_length(v_ids, 1), 0) = 0 THEN
       RAISE EXCEPTION 'Não achei "%" no cadastro. Nada foi gravado.', v_nome;
     ELSIF array_length(v_ids, 1) > 1 THEN

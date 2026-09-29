@@ -103,6 +103,9 @@ const EMPTY_COVERAGE = {
   start_date: '', end_date: '', monthly_amount: '',
   pay_days: ['20'] as string[],
   agenda_mode: '' as '' | 'colaborador' | 'gestor',
+  // Marcar já o 1º dia na agenda? Antes era automático: vincular depois de uma
+  // entrevista criava uma visita planejada que ninguém tinha marcado.
+  marcar_primeiro_dia: false,
   // Exige contrato assinado em mãos? Sem ele, o portal da pessoa não abre.
   contrato: '' as '' | 'sim' | 'nao',
   contrato_horas: '48',
@@ -503,7 +506,7 @@ export default function EmployeeDetail() {
       // sem isto o freela virava só um vínculo sem data e não aparecia em lugar nenhum.
       // Vazio = começa hoje; vincular já é o início
       const inicio = coverageForm.start_date || hojeISO()
-      if (inicio) {
+      if (inicio && coverageForm.marcar_primeiro_dia) {
         const { error: agErr } = await supabase.from('nutritionist_agenda').insert({
           employee_id: id,
           client_id: coverageForm.client_id || null,
@@ -1611,6 +1614,14 @@ export default function EmployeeDetail() {
                 <div>
                   <label className="label">Data início <span className="text-gray-400 font-normal">(vazio = começa hoje)</span></label>
                   <input className="input" type="date" value={coverageForm.start_date} onChange={e => setCoverageForm(p => ({ ...p, start_date: e.target.value }))} />
+                  <label className="flex items-start gap-2 mt-2 text-xs text-ink-700 cursor-pointer select-none">
+                    <input type="checkbox" className="mt-0.5 h-4 w-4 rounded border-ink-300 text-primary-700"
+                      checked={coverageForm.marcar_primeiro_dia}
+                      onChange={e => setCoverageForm(p => ({ ...p, marcar_primeiro_dia: e.target.checked }))} />
+                    <span>Já marcar este dia na agenda dela
+                      <span className="block text-ink-400">Deixe desmarcado se ainda não há dia combinado.</span>
+                    </span>
+                  </label>
                 </div>
                 <div>
                   <label className="label">

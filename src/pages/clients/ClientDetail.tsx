@@ -304,10 +304,12 @@ export default function ClientDetail() {
 
   const addUnit = useMutation({
     mutationFn: async () => {
-      // Unidade é só um local. Tipo (Fixo/Consultoria) e valor são definidos na vaga.
+      // O valor da visita da unidade fica aqui no cliente (pedido de 29/09):
+      // a pessoa é vinculada ao cliente e escolhe a unidade no portal.
       const { error } = await supabase.from('client_units').insert({
         client_id: id,
-        name: newUnit.name,
+        name: newUnit.name.trim(),
+        visit_rate: Number(newUnit.visit_rate) || 0,
       })
       if (error) throw error
     },
@@ -317,6 +319,17 @@ export default function ClientDetail() {
       setNewUnit({ name: '', visit_rate: '', service_type: 'Consultoria' })
       setShowUnitForm(false)
     },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  // Valor da visita da unidade (consultoria por visita). Vínculo com valor
+  // próprio continua valendo o dele; sem valor no vínculo, vale este.
+  const salvarValorUnidade = useMutation({
+    mutationFn: async ({ unitId, valor }: { unitId: string; valor: number }) => {
+      const { error } = await supabase.from('client_units').update({ visit_rate: valor }).eq('id', unitId)
+      if (error) throw error
+    },
+    onSuccess: () => { toast.success('Valor da unidade salvo'); qc.invalidateQueries({ queryKey: ['client-units', id] }) },
     onError: (e: Error) => toast.error(e.message),
   })
 
@@ -803,7 +816,7 @@ export default function ClientDetail() {
           <div className="flex items-center justify-between mb-4">
             <div>
               <h3 className="font-semibold">Unidades do Cliente</h3>
-              <p className="text-xs text-gray-400 mt-0.5">Locais onde o cliente opera. O tipo (Fixo/Consultoria) e o valor são definidos ao abrir a vaga.</p>
+              <p className="text-xs text-gray-400 mt-0.5">A pessoa é vinculada ao cliente e escolhe a unidade no portal. O valor da visita de cada unidade fica aqui.</p>
             </div>
             {canManageClient && (
               <button onClick={() => setShowUnitForm(true)} className="btn-secondary text-xs flex items-center gap-1">
@@ -814,16 +827,28 @@ export default function ClientDetail() {
           {showUnitForm && (
             <div className="flex gap-2 mb-4 p-3 bg-gray-50 rounded-xl flex-wrap">
               <input className="input flex-1 min-w-48" placeholder="Nome da unidade (ex: Unidade Centro)" value={newUnit.name} onChange={e => setNewUnit(p => ({ ...p, name: e.target.value }))} onKeyDown={e => { if (e.key === 'Enter' && newUnit.name) addUnit.mutate() }} />
+              <input className="input w-36 shrink-0 tnum" type="number" min={0} step="0.01" inputMode="decimal" placeholder="R$ por visita" value={newUnit.visit_rate} onChange={e => setNewUnit(p => ({ ...p, visit_rate: e.target.value }))} />
               <button className="btn-primary shrink-0" onClick={() => addUnit.mutate()} disabled={!newUnit.name || addUnit.isPending}>Salvar</button>
               <button className="btn-secondary shrink-0" onClick={() => setShowUnitForm(false)}>×</button>
             </div>
           )}
           <div className="space-y-2">
             {units?.map(u => (
-              <div key={u.id} className="flex items-center justify-between p-3 rounded-lg border border-gray-100 hover:bg-gray-50">
-                <p className="text-sm font-medium">{u.name}</p>
+              <div key={u.id} className="flex items-center justify-between gap-3 p-3 rounded-lg border border-gray-100 hover:bg-gray-50">
+                <p className="text-sm font-medium flex-1 min-w-0 truncate">{u.name}</p>
+                {canManageClient ? (
+                  <label className="flex items-center gap-1.5 text-xs text-gray-500 shrink-0">
+                    R$ por visita
+                    <input key={`${u.id}-${u.visit_rate}`} className="input w-24 py-1 text-sm tnum" type="number" min={0} step="0.01" inputMode="decimal"
+                      defaultValue={Number(u.visit_rate) > 0 ? String(u.visit_rate) : ''} placeholder="0,00"
+                      onBlur={e => { const v = Number(e.target.value) || 0; if (v !== (Number(u.visit_rate) || 0)) salvarValorUnidade.mutate({ unitId: u.id, valor: v }) }}
+                      onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }} />
+                  </label>
+                ) : Number(u.visit_rate) > 0 ? (
+                  <span className="text-sm text-gray-700 tnum shrink-0">{formatCurrency(Number(u.visit_rate))}</span>
+                ) : null}
                 {canManageClient && (
-                  <button onClick={() => deleteUnit.mutate(u.id)} className="text-red-400 hover:text-red-600">
+                  <button onClick={async () => { if (await confirmar({ titulo: `Remover a unidade ${u.name}?`, perigo: true, confirmar: 'Remover' })) deleteUnit.mutate(u.id) }} className="text-red-400 hover:text-red-600" aria-label="Remover unidade">
                     <Trash2 size={14} />
                   </button>
                 )}

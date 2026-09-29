@@ -74,6 +74,10 @@ export default function ClientForm() {
 
   const addUnit = () => {
     if (!unitInput.trim()) return
+    // Nome repetido no mesmo cliente vira duas unidades iguais na lista do portal
+    if (units.some(u => u.trim().toLowerCase() === unitInput.trim().toLowerCase())) {
+      toast.error('Essa unidade já está na lista'); return
+    }
     setUnits(prev => [...prev, unitInput.trim()])
     setUnitInput('')
   }
@@ -102,19 +106,36 @@ export default function ClientForm() {
       if (isEdit) {
         const { error } = await supabase.from('clients').update(payload).eq('id', id)
         if (error) throw error
-        // Replace units: delete all then re-insert
-        await supabase.from('client_units').delete().eq('client_id', id)
       } else {
         const { data, error } = await supabase.from('clients').insert(payload).select('id').single()
         if (error) throw error
         clientId = data.id
       }
 
-      if (units.length > 0) {
-        const { error } = await supabase.from('client_units').insert(
-          units.map(name => ({ client_id: clientId, name }))
-        )
+      // Unidades: só cria as novas e remove as tiradas. Antes apagava todas e
+      // criava de novo — as visitas/agenda/valores perdiam a unidade, e quando o
+      // apagar falhava (unidade em uso) cada edição duplicava a lista inteira.
+      const norm = (n: string) => n.trim().toLowerCase()
+      const { data: atuais, error: errAtuais } = isEdit
+        ? await supabase.from('client_units').select('id,name').eq('client_id', clientId!)
+        : { data: [] as { id: string; name: string }[], error: null }
+      if (errAtuais) throw errAtuais
+      const nomesAtuais = new Set((atuais || []).map(u => norm(u.name)))
+      const novas = Array.from(new Set(units.map(norm)))
+        .map(n => units.find(u => norm(u) === n)!)
+        .filter(n => !nomesAtuais.has(norm(n)))
+      if (novas.length > 0) {
+        const { error } = await supabase.from('client_units').insert(novas.map(name => ({ client_id: clientId, name })))
         if (error) throw error
+      }
+      const tiradas = (atuais || []).filter(u => !units.some(n => norm(n) === norm(u.name)))
+      const naoRemovidas: string[] = []
+      for (const u of tiradas) {
+        const { error } = await supabase.from('client_units').delete().eq('id', u.id)
+        if (error) naoRemovidas.push(u.name)
+      }
+      if (naoRemovidas.length) {
+        toast.error(`Não removi ${naoRemovidas.join(', ')}: já tem visita ou agenda nessa unidade.`, { duration: 8000 })
       }
     },
     onSuccess: () => {

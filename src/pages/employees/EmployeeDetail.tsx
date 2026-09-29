@@ -277,7 +277,7 @@ export default function EmployeeDetail() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('employee_client_links')
-        .select('*,client:clients(id,name),payment_dates:employee_payment_dates(*)')
+        .select('*,client:clients(id,name,client_units(visit_rate)),payment_dates:employee_payment_dates(*)')
         .eq('employee_id', id)
       if (error) throw error
       return (data || []) as (EmployeeClientLink & { payment_dates: EmployeePaymentDate[] })[]
@@ -414,8 +414,8 @@ export default function EmployeeDetail() {
   const { data: coverageClientUnits } = useQuery({
     queryKey: ['coverage-client-units', coverageForm.client_id],
     queryFn: async () => {
-      const { data } = await supabase.from('client_units').select('id,name').eq('client_id', coverageForm.client_id).order('name')
-      return data || []
+      const { data } = await supabase.from('client_units').select('id,name,visit_rate').eq('client_id', coverageForm.client_id).order('name')
+      return (data || []) as { id: string; name: string; visit_rate?: number | null }[]
     },
     enabled: !!coverageForm.client_id,
   })
@@ -1546,7 +1546,10 @@ export default function EmployeeDetail() {
               {/* Unidade — Fixo: select único; Consultoria: lista com valor por unidade */}
               {coverageForm.client_id && coverageClientUnits && coverageClientUnits.length > 0 && (
                 <div>
-                  <label className="label">{coverageForm.coverage_type === 'Fixo' ? 'Unidade *' : 'Unidades e valores *'}</label>
+                  <label className="label">{coverageForm.coverage_type === 'Fixo' ? 'Unidade (opcional)' : 'Valor diferente só para esta pessoa (opcional)'}</label>
+                  {coverageForm.coverage_type !== 'Fixo' && (
+                    <p className="text-xs text-gray-500 mb-1.5">Ela escolhe a unidade no portal e vale o valor cadastrado no cliente. Marque aqui só se esta pessoa recebe um valor diferente.</p>
+                  )}
                   {coverageForm.coverage_type === 'Fixo' ? (
                     <select className="input" value={coverageForm.unit_id}
                       onChange={e => setCoverageForm(p => ({ ...p, unit_id: e.target.value }))}>
@@ -1569,7 +1572,7 @@ export default function EmployeeDetail() {
                                   setCoverageForm(p => ({ ...p, coverage_units: p.coverage_units.filter(x => x.unit_id !== u.id) }))
                                 }
                               }} />
-                            <span className="text-sm text-gray-700 flex-1">{u.name}</span>
+                            <span className="text-sm text-gray-700 flex-1">{u.name}{Number(u.visit_rate) > 0 && <span className="text-gray-400"> · cliente: R$ {Number(u.visit_rate).toFixed(2).replace('.', ',')}</span>}</span>
                             {checked && (
                               <input type="number" step="0.01" placeholder="R$ valor/visita"
                                 className="input py-1 text-sm w-36"
@@ -1795,9 +1798,16 @@ export default function EmployeeDetail() {
                 // Unidade é obrigatória nos dois: no Fixo é o local de trabalho;
                 // na Consultoria é de onde sai o valor da visita (sem ela vale R$ 0).
                 // Salário fixo: basta marcar as unidades (o valor por visita não existe)
+                // Desde 29/09 a pessoa é vinculada ao CLIENTE e escolhe a unidade no
+                // portal; o valor da visita vem do cadastro do cliente. Marcar unidade
+                // aqui é opcional (só para um valor diferente para esta pessoa).
+                // Consultoria por visita só precisa que o cliente tenha unidade com valor.
+                const unidadesCliente = coverageClientUnits || []
                 const faltaUnidade = coverageForm.coverage_type === 'Consultoria'
-                  ? (consultSalario ? coverageForm.coverage_units.length === 0 : !coverageForm.coverage_units.some(u => Number(u.visit_rate) > 0))
-                  : !coverageForm.unit_id
+                  ? (unidadesCliente.length === 0
+                      || (!consultSalario && !unidadesCliente.some(u => Number(u.visit_rate) > 0)
+                          && !coverageForm.coverage_units.some(u => Number(u.visit_rate) > 0)))
+                  : false
                 // Freela sem data fim = por tempo indeterminado. Não bloqueia.
                 const faltaPag = coverageForm.pay_days.length === 0
                 const isConsult = coverageForm.coverage_type === 'Consultoria'
@@ -1830,9 +1840,7 @@ export default function EmployeeDetail() {
                   faltaValor && 'o salário mensal',
                   faltaUnidade && ((coverageClientUnits?.length ?? 0) === 0
                     ? 'cadastrar as unidades deste cliente primeiro (não há nenhuma)'
-                    : coverageForm.coverage_type === 'Consultoria'
-                      ? 'ao menos uma unidade com valor da vistoria (sem isso a visita vale R$ 0)'
-                      : 'a unidade onde ela vai trabalhar'),
+                    : 'o valor da visita nas unidades do cliente (em Clientes → Unidades) — sem isso a visita vale R$ 0'),
                   faltaRegraHoras && 'se a visita tem tempo mínimo',
                   faltaHoras && 'quantas horas tem a visita',
                   faltaEscala && 'a escala de trabalho',
@@ -2020,9 +2028,11 @@ export default function EmployeeDetail() {
               const ehConsult = l.service_type === 'Consultoria'
                 || (l.service_type === 'Volante' && (l as { coverage_type?: string }).coverage_type === 'Consultoria')
               const pendCadastro = encerrado ? [] : ([
-                ehConsult
+                // Valor vem do vínculo ou, sem ele, das unidades do cliente (migração 064)
+                ehConsult && (l as { pay_mode?: string }).pay_mode !== 'salario_fixo'
                   && !(((l as { link_units?: { visit_rate?: number }[] }).link_units) || []).some(u => Number(u.visit_rate) > 0)
-                  && 'sem valor de vistoria — o pagamento sai R$ 0,00',
+                  && !(((l.client as { client_units?: { visit_rate?: number | null }[] } | undefined)?.client_units) || []).some(u => Number(u.visit_rate) > 0)
+                  && 'sem valor da visita (nem no vínculo nem nas unidades do cliente) — o pagamento sai R$ 0,00',
                 // Freela não precisa de escala: os dias dele vêm da agenda
                 !ehConsult && !pagaPorDiaria(l) && !escalaL
                   && 'sem escala definida — a folha estima 22 dias no chute',

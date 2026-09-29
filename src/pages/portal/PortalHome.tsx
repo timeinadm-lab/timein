@@ -572,7 +572,8 @@ export default function PortalHome() {
       return await rpc<string>('portal_add_expense', { p_token: token, p_payload: {
         description: expenseForm.description,
         amount: Number(expenseForm.amount),
-        category: expenseForm.category,
+        // Só reembolso: ajuda de custo e vale-transporte são de CLT, não se aplicam
+        category: 'Reembolso',
         notes: expenseForm.notes || null,
         reference_month: folhaMonth,
       } })
@@ -701,13 +702,21 @@ export default function PortalHome() {
   }
 
   // Unidades do vínculo (link_units) com valor da vistoria; se não configuradas, as do cliente (sem valor)
+  // A pessoa é vinculada ao CLIENTE e escolhe a unidade aqui (pedido de 29/09).
+  // Valor da visita: o combinado no vínculo, se houver; senão o da unidade no
+  // cadastro do cliente. Mesma regra do banco (valor_da_unidade, migração 064).
   const getLinkUnitsForClient = (clientId: string): { id: string; name: string; visit_rate: number | null }[] => {
-    const link = links?.find(l => (l as { client?: { id: string } }).client?.id === clientId)
-    const lu = (link as { link_units?: { unit_id: string; unit_name: string; visit_rate?: number }[] } | undefined)?.link_units
-    if (lu?.length) {
-      return lu.map(u => ({ id: u.unit_id, name: u.unit_name, visit_rate: Number(u.visit_rate) || null }))
-    }
-    return getUnitsForClient(clientId).map(u => ({ id: u.id as string, name: u.name as string, visit_rate: null }))
+    const link = (folhaLinks as FolhaLink[] | undefined)?.find(l => l.client?.id === clientId)
+      || links?.find(l => (l as { client?: { id: string } }).client?.id === clientId)
+    const lu = (link as { link_units?: { unit_id: string; unit_name: string; visit_rate?: number }[] } | undefined)?.link_units || []
+    const valorVinculo = new Map(lu.filter(u => Number(u.visit_rate) > 0).map(u => [u.unit_id, Number(u.visit_rate)]))
+    const doCliente = getUnitsForClient(clientId).map(u => ({
+      id: u.id as string, name: u.name as string,
+      visit_rate: valorVinculo.get(u.id as string) ?? (Number(u.visit_rate) > 0 ? Number(u.visit_rate) : null),
+    }))
+    // Unidade que só existe no vínculo (cadastro antigo) continua aparecendo
+    for (const x of lu) if (!doCliente.some(u => u.id === x.unit_id)) doCliente.push({ id: x.unit_id, name: x.unit_name, visit_rate: Number(x.visit_rate) || null })
+    return doCliente
   }
 
   return (
@@ -1155,12 +1164,12 @@ export default function PortalHome() {
             <div className="space-y-3">
               <div>
                 <h2 className="font-serif text-[1.75rem] leading-tight text-ink-900">Gastos e reembolsos</h2>
-                <p className="text-sm text-ink-500 mt-0.5">Registre o gasto e anexe o comprovante.</p>
+                <p className="text-sm text-ink-500 mt-0.5">Peça o reembolso do que você pagou e anexe o comprovante.</p>
               </div>
               <MesSeletor value={folhaMonth} onChange={setFolhaMonth} />
               {!showExpForm && (
                 <button className="btn-primary text-sm w-full py-3" onClick={() => setShowExpForm(true)}>
-                  <Plus size={16} /> Registrar gasto
+                  <Plus size={16} /> Pedir reembolso
                 </button>
               )}
             </div>
@@ -1177,28 +1186,17 @@ export default function PortalHome() {
             {showExpForm && (
               <div className="card p-4 space-y-3">
                 <div className="flex items-center justify-between">
-                  <h3 className="font-medium text-ink-900">Novo gasto</h3>
+                  <h3 className="font-medium text-ink-900">Pedido de reembolso</h3>
                   <button className="p-1.5 -mr-1.5 text-ink-400" aria-label="Fechar" onClick={() => setShowExpForm(false)}><X size={18} /></button>
                 </div>
                 <div>
                   <label className="label">Descrição</label>
                   <input className="input w-full !text-base" placeholder="Ex.: Uber até o cliente" value={expenseForm.description} onChange={e => setExpenseForm(p => ({ ...p, description: e.target.value }))} />
                 </div>
-                <div className="grid grid-cols-2 gap-3">
+                <div>
                   <div>
                     <label className="label">Valor (R$)</label>
                     <input className="input !text-base tnum" type="number" inputMode="decimal" placeholder="0,00" value={expenseForm.amount} onChange={e => setExpenseForm(p => ({ ...p, amount: e.target.value }))} />
-                  </div>
-                  <div>
-                    <label className="label">Categoria</label>
-                    <select className="input !text-base" value={expenseForm.category} onChange={e => setExpenseForm(p => ({ ...p, category: e.target.value }))}>
-                      <option>Reembolso</option>
-                      <option>Ajuda de Custo</option>
-                      <option>Vale Transporte</option>
-                      <option>Alimentação</option>
-                      <option>Material</option>
-                      <option>Outro</option>
-                    </select>
                   </div>
                 </div>
                 <div>
@@ -1935,7 +1933,7 @@ export default function PortalHome() {
             )}
 
             {/* ── FIXO: tipo do dia ── */}
-            {!isConsultoria && (
+            {modalLink && !isConsultoria && (
             <div>
               <label className="label">O que aconteceu neste dia? *</label>
               <div className="grid grid-cols-3 gap-2">
@@ -1997,7 +1995,7 @@ export default function PortalHome() {
             )}
 
             {/* Normal: entrada / saída / intervalo */}
-            {!isConsultoria && pontoForm.day_type === 'normal' && (
+            {modalLink && !isConsultoria && pontoForm.day_type === 'normal' && (
               <>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
@@ -2021,14 +2019,14 @@ export default function PortalHome() {
             )}
 
             {/* Feriado: só confirmação */}
-            {!isConsultoria && pontoForm.day_type === 'feriado' && (
+            {modalLink && !isConsultoria && pontoForm.day_type === 'feriado' && (
               <div className="bg-amber-50 rounded-xl px-4 py-3 text-sm text-amber-700">
                 O dia será registrado como folga — não conta como falta nem como dia trabalhado.
               </div>
             )}
 
             {/* Volante cobrindo Fixo: relatório do dia é obrigatório também */}
-            {!isConsultoria && pontoForm.day_type === 'normal' && (modalLink?.service_type === 'Volante' || pagaPorDiaria(modalLink)) && (
+            {modalLink && !isConsultoria && pontoForm.day_type === 'normal' && (modalLink?.service_type === 'Volante' || pagaPorDiaria(modalLink)) && (
               <div>
                 <label className="label">Relatório do dia <span className="text-red-500 font-normal">— obrigatório</span></label>
                 <input ref={reportRef} type="file" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" className="hidden"
@@ -2048,7 +2046,7 @@ export default function PortalHome() {
             )}
 
             {/* Falta: motivo + atestado — aparece para o RH cobrar/acompanhar */}
-            {!isConsultoria && pontoForm.day_type === 'indisponivel' && (
+            {modalLink && !isConsultoria && pontoForm.day_type === 'indisponivel' && (
               <div className="space-y-3">
                 <div>
                   <label className="label">Motivo da falta *</label>

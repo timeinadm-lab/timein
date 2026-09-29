@@ -26,7 +26,7 @@ export default function ContractDetail() {
   const { data: visits } = useQuery({
     queryKey: ['supervision-visits', id],
     queryFn: async () => {
-      const { data, error } = await supabase.from('supervision_visits').select('*,supervisor:user_profiles(full_name)').eq('contract_id', id).order('visit_date', { ascending: false })
+      const { data, error } = await supabase.from('supervision_visits').select('*,supervisor:user_profiles!supervisor_id(full_name)').eq('contract_id', id).order('visit_date', { ascending: false })
       if (error) throw error
       return data || []
     },

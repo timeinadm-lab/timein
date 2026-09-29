@@ -96,7 +96,7 @@ export default function CalendarPage() {
     queryKey: ['cal-agenda', monthKey],
     queryFn: async () => {
       const { data, error } = await supabase.from('nutritionist_agenda')
-        .select('*, employee:employees(full_name), client:clients(name), unit:client_units(name)')
+        .select('*, employee:employees(full_name), client:clients!client_id(name), unit:client_units(name)')
         .gte('planned_date', mStart).lte('planned_date', mEnd)
       if (error) throw error
       return data || []
@@ -236,6 +236,33 @@ export default function CalendarPage() {
     },
     enabled: addOpen && !!targetClientId,
   })
+
+  // Trocas feitas no portal e ainda não vistas, de qualquer mês. Sem esta lista
+  // a troca para outro mês ficava escondida até alguém navegar até lá.
+  const { data: trocasPendentes = [] } = useQuery({
+    queryKey: ['cal-trocas-pendentes'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('nutritionist_agenda')
+        .select('id, planned_date, original_date, client_changed_at, change_reason, employee:employees(full_name), client:clients!client_id(name), original_client:clients!original_client_id(name)')
+        .eq('changed_by_portal', true).is('change_seen_at', null)
+        .order('rescheduled_at', { ascending: false, nullsFirst: false })
+      if (error) throw error
+      return (data || []) as unknown as {
+        id: string; planned_date: string; original_date: string | null; client_changed_at: string | null; change_reason: string | null
+        employee?: { full_name: string } | null; client?: { name: string } | null; original_client?: { name: string } | null
+      }[]
+    },
+  })
+
+  const marcarTrocaVista = async (agendaId: string) => {
+    const { error } = await supabase.from('nutritionist_agenda').update({ change_seen_at: new Date().toISOString() }).eq('id', agendaId)
+    if (error) { toast.error(error.message); return }
+    toast.success('Troca marcada como vista')
+    invalidateAll()
+    qc.invalidateQueries({ queryKey: ['cal-trocas-pendentes'] })
+    qc.invalidateQueries({ queryKey: ['avisos-sino'] })
+    qc.invalidateQueries({ queryKey: ['dashboard-fora-do-combinado'] })
+  }
 
   const invalidateAll = () => {
     qc.invalidateQueries({ queryKey: ['cal-visits', monthKey] })
@@ -550,6 +577,32 @@ export default function CalendarPage() {
           <button onClick={() => setCursor(addMonths(cursor, 1))} className="btn-secondary p-2"><ChevronRight size={16} /></button>
         </div>
       </div>
+
+      {trocasPendentes.length > 0 && (
+        <div className="card p-3 border-amber-200 bg-amber-50/60 space-y-2">
+          <p className="text-sm font-semibold text-amber-900">
+            {trocasPendentes.length === 1 ? '1 troca feita no portal' : `${trocasPendentes.length} trocas feitas no portal`} — ainda não vista{trocasPendentes.length > 1 ? 's' : ''}
+          </p>
+          <div className="divide-y divide-amber-100">
+            {trocasPendentes.map(t => {
+              const trocouDia = !!t.original_date && t.original_date !== t.planned_date
+              const trocouCliente = !!t.client_changed_at && !!t.original_client?.name && t.original_client.name !== t.client?.name
+              return (
+                <div key={t.id} className="flex items-center gap-3 py-2 flex-wrap">
+                  <div className="flex-1 min-w-[12rem] text-sm text-ink-800">
+                    <span className="font-medium">{t.employee?.full_name || 'Colaborador'}</span>
+                    {trocouDia ? <> trocou de {formatDate(t.original_date)} para <b>{formatDate(t.planned_date)}</b></> : <> em {formatDate(t.planned_date)}</>}
+                    {trocouCliente ? <> · de {t.original_client!.name} para <b>{t.client?.name}</b></> : t.client?.name ? <> · {t.client.name}</> : null}
+                    {t.change_reason && <span className="block text-xs text-ink-500">Motivo: {t.change_reason}</span>}
+                  </div>
+                  <button className="btn-secondary text-xs py-1" onClick={() => { setCursor(new Date(t.planned_date + 'T12:00:00')); setDayOpen(t.planned_date) }}>Ver no calendário</button>
+                  <button className="btn-primary text-xs py-1" onClick={() => marcarTrocaVista(t.id)}>Ciente</button>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Resumo + filtros */}
       <div className="card p-3 flex gap-2 flex-wrap items-center">
@@ -895,13 +948,7 @@ export default function CalendarPage() {
                     <button onClick={() => navigate(`/colaboradores/${e.employeeId}`)} className="btn-secondary text-xs py-1">Abrir colaborador</button>
                   )}
                   {e.kind === 'alterada' && e.trocaNaoVista && e.agendaId && (
-                    <button className="btn-primary text-xs py-1" onClick={async () => {
-                      const { error } = await supabase.from('nutritionist_agenda').update({ change_seen_at: new Date().toISOString() }).eq('id', e.agendaId!)
-                      if (error) { toast.error(error.message); return }
-                      toast.success('Troca marcada como vista')
-                      invalidateAll()
-                      qc.invalidateQueries({ queryKey: ['avisos-sino'] })
-                    }}>Ciente</button>
+                    <button className="btn-primary text-xs py-1" onClick={() => marcarTrocaVista(e.agendaId!)}>Ciente</button>
                   )}
                 </div>
               </div>

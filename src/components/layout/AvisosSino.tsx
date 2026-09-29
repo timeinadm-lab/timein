@@ -22,7 +22,7 @@ export default function AvisosSino() {
 
   const { data: avisos = [] } = useQuery({
     queryKey: ['avisos-sino', chefe],
-    refetchInterval: 120_000,
+    refetchInterval: 60_000,
     queryFn: async (): Promise<Aviso[]> => {
       const conta = async (q: PromiseLike<{ count: number | null; error: unknown }>) => {
         const { count, error } = await q

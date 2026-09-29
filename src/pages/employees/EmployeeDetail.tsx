@@ -370,7 +370,7 @@ export default function EmployeeDetail() {
       const end = `${agendaMonth}-${String(new Date(aYr, aMo, 0).getDate()).padStart(2, '0')}`
       const { data, error } = await supabase
         .from('nutritionist_agenda')
-        .select('*,client:clients(name),unit:client_units(name)')
+        .select('*,client:clients!client_id(name),unit:client_units(name)')
         .eq('employee_id', id)
         .gte('planned_date', start)
         .lte('planned_date', end)
@@ -3461,7 +3461,7 @@ function VisaoGeral({
     queryFn: async () => {
       const { data, error } = await supabase
         .from('nutritionist_agenda')
-        .select('id, planned_date, planned_time, notes, original_date, rescheduled_at, client:clients(name), unit:client_units(name)')
+        .select('id, planned_date, planned_time, notes, original_date, rescheduled_at, client:clients!client_id(name), unit:client_units(name)')
         .eq('employee_id', employeeId)
         .gte('planned_date', format(new Date(), 'yyyy-MM-dd'))
         .order('planned_date')
@@ -3477,7 +3477,7 @@ function VisaoGeral({
     queryFn: async () => {
       const { data, error } = await supabase
         .from('nutritionist_agenda')
-        .select('id, planned_date, planned_time, notes, client:clients(name), unit:client_units(name)')
+        .select('id, planned_date, planned_time, notes, client:clients!client_id(name), unit:client_units(name)')
         .eq('employee_id', employeeId)
         .gte('planned_date', monthStart)
         .lte('planned_date', monthEnd)

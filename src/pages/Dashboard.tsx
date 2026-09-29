@@ -48,7 +48,8 @@ export default function Dashboard() {
   const [mostrarTodos, setMostrarTodos] = useState(false)
 
   // Consulta que falha deixava o card em zero — visualmente igual a "não tem nada".
-  // Agora todas lançam erro e este observador do cache mostra o que não carregou.
+  // Agora todas lançam erro e este observador do cache mostra o que não carregou,
+  // com a mensagem do erro — sem ela não dá para descobrir a causa pelo print.
   const [failedQueries, setFailedQueries] = useState<string[]>([])
   useEffect(() => {
     const cache = qc.getQueryCache()
@@ -56,8 +57,9 @@ export default function Dashboard() {
       const errs = Array.from(new Set(
         cache.getAll()
           .filter(q => q.state.status === 'error')
-          .map(q => String(Array.isArray(q.queryKey) ? q.queryKey[0] : q.queryKey))
-          .filter(k => k.startsWith('dashboard') || k === 'custom-priorities')
+          .map(q => ({ k: String(Array.isArray(q.queryKey) ? q.queryKey[0] : q.queryKey), e: q.state.error as { message?: string } | null }))
+          .filter(({ k }) => k.startsWith('dashboard') || k === 'custom-priorities')
+          .map(({ k, e }) => `${k.replace(/^dashboard-/, '')}: ${e?.message || 'erro desconhecido'}`)
       )).sort()
       setFailedQueries(prev => (prev.join('|') === errs.join('|') ? prev : errs))
     }
@@ -604,7 +606,7 @@ export default function Dashboard() {
 
       const { data: planejados, error } = await supabase
         .from('nutritionist_agenda')
-        .select('id,planned_date,employee_id,client_id,employee:employees(id,full_name,status),client:clients(name)')
+        .select('id,planned_date,employee_id,client_id,employee:employees(id,full_name,status),client:clients!client_id(name)')
         .gte('planned_date', de).lte('planned_date', ate)
       if (error) throw error
       if (!planejados?.length) return []
@@ -692,12 +694,15 @@ export default function Dashboard() {
       const de = desde.toISOString().slice(0, 10)
       const ate = now.toISOString().slice(0, 10)
 
-      // Trocas: a agenda guarda o dia original quando ela declara a troca
-      const { data: trocadas } = await supabase
+      // Trocas: a agenda guarda o dia/cliente original quando ela declara a troca.
+      // O erro precisa aparecer: engolido, a troca sumia do Dashboard sem aviso.
+      // (A agenda tem duas ligações com clientes desde a migração 060 — por isso o !client_id.)
+      const { data: trocadas, error: errTrocas } = await supabase
         .from('nutritionist_agenda')
-        .select('id,planned_date,original_date,rescheduled_at,employee_id,employee:employees(id,full_name,status),client:clients(name)')
-        .not('rescheduled_at', 'is', null)
+        .select('id,planned_date,original_date,rescheduled_at,client_changed_at,original_client_id,changed_by_portal,change_seen_at,employee_id,employee:employees(id,full_name,status),client:clients!client_id(name),original_client:clients!original_client_id(name)')
+        .or('rescheduled_at.not.is.null,client_changed_at.not.is.null')
         .gte('planned_date', de)
+      if (errTrocas) throw errTrocas
 
       // Visitas registradas em dia que não estava na agenda daquele cliente
       const feitas = await fetchAll<{ id: string; visit_date: string; employee_id: string; client_id: string; employee?: { id: string; full_name: string; status?: string }; client?: { name: string } }>(
@@ -718,7 +723,7 @@ export default function Dashboard() {
       return {
         trocas: (trocadas || []).filter(a =>
           (a as { employee?: { status?: string } }).employee?.status === 'Ativo'
-          && a.original_date && a.original_date !== a.planned_date),
+          && ((a.original_date && a.original_date !== a.planned_date) || !!a.client_changed_at)),
         aMais: feitas.filter(v =>
           (v as { employee?: { status?: string } }).employee?.status === 'Ativo'
           && temCombinado.has(`${v.employee_id}|${v.client_id}`)
@@ -930,16 +935,26 @@ export default function Dashboard() {
     })
   })
 
-  // Trocou o dia combinado
+  // Trocou o dia e/ou o cliente combinado. Feita pelo portal e ainda não vista
+  // no Calendário → vermelho, no topo: foi pedido que a equipe seja avisada.
   ;(fugasDoCombinado?.trocas || []).forEach(a => {
     const nome = (a as { employee?: { full_name: string } }).employee?.full_name || 'Colaborador'
     const empId = (a as { employee?: { id: string } }).employee?.id
     const cli = (a as { client?: { name: string } }).client?.name
-    amberAlerts.push({
-      text: `${nome} trocou a visita de ${formatDate(a.original_date)} para ${formatDate(a.planned_date)}${cli ? ` — ${cli}` : ''}`,
-      path: empId ? `/colaboradores/${empId}?tab=agenda` : '/visitas',
+    const cliAntes = (a as { original_client?: { name: string } }).original_client?.name
+    const trocouDia = !!a.original_date && a.original_date !== a.planned_date
+    const partes = [
+      trocouDia ? `de ${formatDate(a.original_date)} para ${formatDate(a.planned_date)}` : `do dia ${formatDate(a.planned_date)}`,
+      a.client_changed_at && cliAntes && cliAntes !== cli ? `— de ${cliAntes} para ${cli}` : cli ? `— ${cli}` : '',
+    ]
+    const naoVista = !!a.changed_by_portal && !a.change_seen_at
+    const item = {
+      text: `${nome} trocou a visita ${partes.join(' ')}${naoVista ? ' (pelo portal — marque como vista no Calendário)' : ''}`,
+      path: naoVista ? '/calendario' : empId ? `/colaboradores/${empId}?tab=agenda` : '/visitas',
       key: `troca-${a.id}-${a.planned_date}`,
-    })
+    }
+    if (naoVista) redAlerts.unshift(item)
+    else amberAlerts.push(item)
   })
 
   // Fez visita em dia que não estava combinado
@@ -1421,7 +1436,10 @@ export default function Dashboard() {
             <p className="text-sm font-medium text-red-800">
               {failedQueries.length > 1 ? `${failedQueries.length} informações não carregaram` : '1 informação não carregou'}
             </p>
-            <p className="text-xs text-red-600 mt-0.5">Alguns números abaixo podem estar incompletos. Recarregue a página; se continuar, avise o suporte.</p>
+            <p className="text-xs text-red-600 mt-0.5">Alguns números abaixo podem estar incompletos. Recarregue a página; se continuar, mande um print deste aviso.</p>
+            <ul className="mt-1.5 space-y-0.5">
+              {failedQueries.map(f => <li key={f} className="text-[11px] text-red-700 font-mono break-words">{f}</li>)}
+            </ul>
           </div>
           <button onClick={() => qc.refetchQueries()} className="btn-secondary text-xs flex-shrink-0">Tentar de novo</button>
         </div>

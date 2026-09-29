@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { LogOut, Clock, Calendar, Plus, ChevronDown, ChevronUp, CalendarDays, Trash2, CheckCircle2, Download, MessageCircle, Send, Home, CreditCard, TrendingUp, CheckCheck } from 'lucide-react'
+import { LogOut, Clock, Calendar, Plus, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, X, CalendarDays, Trash2, CheckCircle2, Download, MessageCircle, Send, Home, CreditCard, TrendingUp, CheckCheck } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { formatDate, getInitials, hojeISO, tipoDoVinculo, pagaPorDiaria, ehTemporario } from '../../lib/utils'
 import { format, getDaysInMonth, startOfMonth, endOfMonth } from 'date-fns'
@@ -55,6 +55,20 @@ export default function PortalHome() {
   const [agendaForm, setAgendaForm] = useState<{ clientId: string; clientName: string } | null>(null)
   const [agendaEntry, setAgendaEntry] = useState({ planned_date: '', unit_id: '', notes: '' })
   const [reschedAgenda, setReschedAgenda] = useState<{ id: string; date: string } | null>(null)
+  // Calendário único da agenda: dia aberto, filtro por cliente e a troca em andamento
+  const [diaAgenda, setDiaAgenda] = useState<string | null>(null)
+  const [agendaCliente, setAgendaCliente] = useState('')
+  type AgendaItem = {
+    id: string; planned_date: string; planned_time?: string | null; notes?: string | null; hours_expected?: number | null
+    client_id?: string | null; unit_id?: string | null; unit?: { name: string } | null; created_by_admin?: boolean
+    original_date?: string | null; original_client_id?: string | null
+  }
+  type ItemAgenda = {
+    tipo: 'escala' | 'visita' | 'feita' | 'falta' | 'troca'
+    clientId: string; linkId?: string; agenda?: AgendaItem; feita?: boolean; alterada?: boolean; horario?: string
+    aviso?: { id: string; client_id: string; type: 'falta' | 'troca'; notice_date: string; swap_work_date?: string | null; reason?: string | null }
+  }
+  const [troca, setTroca] = useState<{ agenda: AgendaItem; modo: 'cliente' | 'dia'; cliente: string; unidade: string; data: string; motivo: string } | null>(null)
   const [agendaMonth, setAgendaMonth] = useState(format(new Date(), 'yyyy-MM'))
   // Modal do dia clicado no calendário da escala (avisar falta / trocar dia)
   const [dayModal, setDayModal] = useState<{ date: string; linkId: string } | null>(null)
@@ -218,6 +232,28 @@ export default function PortalHome() {
       setReschedAgenda(null)
     },
     onError: (e: Error) => toast.error(e.message),
+  })
+
+  const trocarVisita = useMutation({
+    mutationFn: async () => {
+      if (!troca) return
+      const a = troca.agenda
+      await rpc('portal_trocar_visita', {
+        p_token: token,
+        p_id: a.id,
+        p_nova_data: troca.modo === 'dia' ? troca.data : null,
+        p_novo_cliente: troca.modo === 'cliente' ? troca.cliente : null,
+        p_nova_unidade: troca.modo === 'cliente' ? (troca.unidade || null) : null,
+        p_motivo: troca.motivo.trim() || null,
+      })
+    },
+    onSuccess: () => {
+      toast.success('Troca registrada. A equipe foi avisada.')
+      qc.invalidateQueries({ queryKey: ['portal-base', employeeId] })
+      qc.invalidateQueries({ queryKey: ['portal-agenda-mes', employeeId] })
+      setTroca(null)
+    },
+    onError: (e: Error) => toast.error(/portal_trocar_visita|function/i.test(e.message) ? 'Troca ainda não disponível — avise o RH (migração 060).' : e.message),
   })
 
   const registrarPonto = useMutation({
@@ -1300,278 +1336,326 @@ export default function PortalHome() {
         )}
 
         {/* ─── AGENDA TAB ─── */}
-        {tab === 'agenda' && (
-          <>
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <h2 className="section-title text-lg">Minha Agenda</h2>
-                <p className="text-xs text-ink-400 mt-0.5">Veja sua escala. Toque num dia para avisar falta ou trocar.</p>
-              </div>
-              <input className="input w-32 text-sm shrink-0" type="month" value={agendaMonth} onChange={e => setAgendaMonth(e.target.value)} />
-            </div>
+        {tab === 'agenda' && (() => {
+          // ── UM calendário só (antes eram um por vínculo + a lista de planejadas) ──
+          // Mostra tudo dela no mês: dias de escala, visitas da agenda, o que já
+          // registrou, faltas e trocas. Filtra por cliente. Toque num dia para ver
+          // o cliente, o horário (se tiver) e registrar ou trocar.
+          const monthDate = new Date(agendaMonth + '-15')
+          const daysInMonth = getDaysInMonth(monthDate)
+          const firstDow = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1).getDay()
+          const hojeStr = hojeISO()
+          const nomeMes = monthDate.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
+          const vinculos = (folhaLinks as FolhaLink[] | undefined) || []
+          const clientesDela = Array.from(new Map(vinculos.filter(l => l.client).map(l => [l.client!.id, l.client!.name])).entries())
+          const nomeDoCliente = (id?: string | null) => {
+            if (!id) return ''
+            const l = ((links as FolhaLink[] | undefined) || []).find(x => x.client?.id === id)
+            return l?.client?.name || 'Cliente'
+          }
+          const filtroOk = (clientId?: string | null) => !agendaCliente || clientId === agendaCliente
+          const itensDoDia = (ds: string): ItemAgenda[] => {
+            const out: ItemAgenda[] = []
+            // Escala (fixo com escala cadastrada)
+            for (const l of vinculos) {
+              if (!hasKnownSchedule(l) || effectiveType(l) === 'Consultoria' || !filtroOk(l.client?.id)) continue
+              if ((l.start_date && ds < l.start_date) || (l.contract_end_date && ds > l.contract_end_date)) continue
+              if (!isDayOff(l, ds)) out.push({ tipo: 'escala', clientId: l.client?.id || '', linkId: l.id })
+            }
+            // Visitas da agenda
+            for (const a of (agenda || []) as AgendaItem[]) {
+              if (a.planned_date !== ds || !filtroOk(a.client_id)) continue
+              const feita = (agendaVisits || []).some(v => v.visit_date === ds && v.client_id === a.client_id && v.check_out && !v.is_unavailable)
+              const alterada = !!a.original_client_id || (!!a.original_date && a.original_date !== a.planned_date)
+              out.push({ tipo: 'visita', clientId: a.client_id || '', agenda: a, feita, alterada })
+            }
+            // O que ela registrou (e não está na agenda)
+            for (const v of (agendaVisits || []) as { id: string; visit_date: string; client_id: string; check_in?: string; check_out?: string; is_unavailable?: boolean }[]) {
+              if (v.visit_date !== ds || !filtroOk(v.client_id)) continue
+              if (v.is_unavailable) { out.push({ tipo: 'falta', clientId: v.client_id }); continue }
+              if (!v.check_out) continue
+              if (out.some(i => i.tipo === 'visita' && i.clientId === v.client_id)) continue
+              out.push({ tipo: 'feita', clientId: v.client_id, horario: `${v.check_in?.slice(0, 5) || ''}–${v.check_out?.slice(0, 5) || ''}` })
+            }
+            // Avisos: falta e troca de dia da escala
+            for (const n of (notices as Notice[] | undefined) || []) {
+              if (!filtroOk(n.client_id)) continue
+              if (n.type === 'falta' && n.notice_date === ds && !out.some(i => i.tipo === 'falta' && i.clientId === n.client_id)) out.push({ tipo: 'falta', clientId: n.client_id, aviso: n })
+              if (n.type === 'troca' && (n.notice_date === ds || n.swap_work_date === ds)) out.push({ tipo: 'troca', clientId: n.client_id, aviso: n })
+            }
+            return out
+          }
+          const corDoItem = (i: ItemAgenda) =>
+            i.tipo === 'visita' ? (i.feita ? 'bg-green-600' : i.alterada ? 'bg-pink-500' : 'bg-amber-500')
+            : i.tipo === 'feita' ? 'bg-green-600'
+            : i.tipo === 'falta' ? 'bg-red-500'
+            : i.tipo === 'troca' ? 'bg-orange-400'
+            : 'bg-sky-500'
+          const podeAgendar = vinculos.some(l => effectiveType(l) === 'Consultoria' && (l as { agenda_mode?: string }).agenda_mode !== 'gestor')
 
-            {/* Legenda */}
-            <div className="card px-3.5 py-2.5 flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-ink-500">
-              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-blue-500 inline-block" /> Trabalho</span>
-              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-ink-200 inline-block" /> Folga</span>
-              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-primary-500 inline-block" /> Registrado</span>
-              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-red-400 inline-block" /> Falta</span>
-              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-amber-400 inline-block" /> Troca</span>
-            </div>
-
-            {/* Calendário de escala — por vínculo Fixo com escala conhecida */}
-            {(folhaLinks as FolhaLink[] | undefined)?.filter(l => hasKnownSchedule(l)).map(link => {
-              const client = link.client!
-              const monthDate = new Date(agendaMonth + '-15')
-              const daysInMonth = getDaysInMonth(monthDate)
-              const firstDow = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1).getDay()
-              const todayStr = hojeISO()
-              const clientVisits = (agendaVisits || []).filter(v => v.client_id === client.id)
-              const filledSet = new Set(clientVisits.map(v => v.visit_date))
-              const clientNotices = (notices as Notice[] | undefined)?.filter(n => n.client_id === client.id) ?? []
-              const faltaSet = new Set(clientNotices.filter(n => n.type === 'falta').map(n => n.notice_date))
-              const trocaFolgaSet = new Set(clientNotices.filter(n => n.type === 'troca').map(n => n.notice_date))
-              const trocaTrabSet = new Set(clientNotices.filter(n => n.type === 'troca').map(n => n.swap_work_date).filter(Boolean) as string[])
-              const DOW = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S']
-              return (
-                <div key={link.id} className="card p-4 space-y-3">
-                  <div className="flex items-center gap-2">
-                    <p className="font-semibold text-sm">{client.name}</p>
-                    <span className="badge bg-blue-100 text-blue-700 text-xs">{link.work_schedule || link.work_schedule_type || 'Fixo'}</span>
-                  </div>
-                  <div className="grid grid-cols-7 gap-1">
-                    {DOW.map((d, i) => <div key={i} className="text-center text-xs text-gray-400 font-medium py-1">{d}</div>)}
-                    {Array.from({ length: firstDow }).map((_, i) => <div key={`b${i}`} />)}
-                    {Array.from({ length: daysInMonth }).map((_, i) => {
-                      const day = i + 1
-                      const ds = `${agendaMonth}-${String(day).padStart(2, '0')}`
-                      const off = isDayOff(link, ds)
-                      const filled = filledSet.has(ds)
-                      const isFalta = faltaSet.has(ds)
-                      const isTrocaFolga = trocaFolgaSet.has(ds)
-                      const isTrocaTrab = trocaTrabSet.has(ds)
-                      const isToday = ds === todayStr
-                      const isPast = ds < todayStr
-                      let cls = 'text-gray-500 bg-gray-100'
-                      if (filled) cls = 'bg-green-500 text-white'
-                      else if (isFalta) cls = 'bg-red-400 text-white'
-                      else if (isTrocaFolga) cls = 'bg-amber-400 text-white line-through'
-                      else if (isTrocaTrab) cls = 'bg-amber-400 text-white'
-                      else if (!off) cls = 'bg-blue-500 text-white'
-                      else cls = 'bg-gray-200 text-gray-400'
-                      return (
-                        <button
-                          key={day}
-                          disabled={isPast && !filled && !isFalta && !isTrocaFolga && !isTrocaTrab}
-                          onClick={() => { setDayModal({ date: ds, linkId: link.id }); setNoticeAction(''); setNoticeForm({ reason: '', otherDate: '' }) }}
-                          className={`aspect-square flex items-center justify-center rounded-lg text-xs font-medium transition-all relative ${cls} ${isToday ? 'ring-2 ring-primary-500' : ''} ${isPast && !filled ? 'opacity-50' : 'hover:scale-105'}`}
-                        >
-                          {day}
-                        </button>
-                      )
-                    })}
-                  </div>
+          return (
+            <>
+              <div className="flex items-end justify-between gap-3">
+                <div>
+                  <h2 className="section-title text-lg">Minha agenda</h2>
+                  <p className="text-xs text-ink-400 mt-0.5">Toque num dia para ver o cliente, registrar ou trocar.</p>
                 </div>
-              )
-            })}
-
-            {/* Avisos ativos (faltas e trocas combinadas) */}
-            {(notices as Notice[] | undefined)?.filter(n => n.notice_date >= agendaMonth + '-01' && n.notice_date <= agendaMonth + '-31').length ? (
-              <div className="card p-4 space-y-2">
-                <h3 className="font-semibold text-sm">Avisos do mês</h3>
-                {(notices as Notice[]).filter(n => n.notice_date >= agendaMonth + '-01' && n.notice_date <= agendaMonth + '-31').map(n => {
-                  const cName = (folhaLinks as FolhaLink[] | undefined)?.find(l => l.client?.id === n.client_id)?.client?.name
-                  return (
-                    <div key={n.id} className={`flex items-center gap-3 p-2.5 rounded-lg ${n.type === 'falta' ? 'bg-red-50' : 'bg-amber-50'}`}>
-                      <span className="text-lg">{n.type === 'falta' ? '🚫' : '🔁'}</span>
-                      <div className="flex-1 min-w-0">
-                        {n.type === 'falta' ? (
-                          <p className="text-sm font-medium text-red-800">Falta avisada — {formatDate(n.notice_date)}</p>
-                        ) : (
-                          <p className="text-sm font-medium text-amber-800">Troca: folga {formatDate(n.notice_date)} → trabalha {n.swap_work_date ? formatDate(n.swap_work_date) : '?'}</p>
-                        )}
-                        <p className="text-xs text-gray-400">{cName}{n.reason ? ` · ${n.reason}` : ''}</p>
-                      </div>
-                      <button onClick={() => deleteNotice.mutate(n.id)} className="text-gray-300 hover:text-red-500 p-1"><Trash2 size={14} /></button>
-                    </div>
-                  )
-                })}
-              </div>
-            ) : null}
-
-            {/* Dias combinados com o RH (agenda). Antes só aparecia para consultoria:
-                freela — que trabalha exatamente nos dias da agenda — não via os dias
-                marcados para ele. Agora vale para consultoria, freela e qualquer
-                vínculo com dia marcado no mês (fixo com escala já tem o calendário acima). */}
-            {(folhaLinks as FolhaLink[] | undefined)?.filter(l =>
-              effectiveType(l) === 'Consultoria'
-              || l.service_type === 'Volante' || ehTemporario(l) || pagaPorDiaria(l)
-              || (!hasKnownSchedule(l) && (agenda || []).some(a => (a as { client_id?: string }).client_id === l.client?.id))
-            ).map(link => {
-              const client = link.client!
-              const monthDate = new Date(agendaMonth + '-15')
-              const daysInMonth = getDaysInMonth(monthDate)
-              const firstDow = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1).getDay()
-              const todayStr2 = hojeISO()
-              const DOW2 = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S']
-              const clientAgenda = (agenda || []).filter(a => (a as { client_id?: string }).client_id === client.id)
-              const plannedSet = new Set(clientAgenda.map(a => a.planned_date))
-              const doneSet = new Set(
-                (agendaVisits || []).filter(v => v.client_id === client.id && v.check_out).map(v => v.visit_date)
-              )
-              return (
-                <div key={`cal-consult-${link.id}`} className="card p-4 space-y-3">
-                  <div className="flex items-center gap-2">
-                    <p className="font-semibold text-sm">{client.name}</p>
-                    <span className="badge bg-orange-100 text-orange-700 text-xs">{pagaPorDiaria(link) ? 'Fixo · por diária' : effectiveType(link)}</span>
-                  </div>
-                  <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-ink-500">
-                    <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-orange-400 inline-block" /> Planejado</span>
-                    <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-green-500 inline-block" /> Realizado</span>
-                    <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-gray-200 inline-block" /> Livre</span>
-                  </div>
-                  <div className="grid grid-cols-7 gap-1">
-                    {DOW2.map((d, i) => <div key={i} className="text-center text-xs text-gray-400 font-medium py-1">{d}</div>)}
-                    {Array.from({ length: firstDow }).map((_, i) => <div key={`b${i}`} />)}
-                    {Array.from({ length: daysInMonth }).map((_, i) => {
-                      const day = i + 1
-                      const ds = `${agendaMonth}-${String(day).padStart(2,'0')}`
-                      const done = doneSet.has(ds)
-                      const planned = plannedSet.has(ds)
-                      const isToday2 = ds === todayStr2
-                      let cls = 'bg-gray-100 text-gray-400'
-                      if (done) cls = 'bg-green-500 text-white'
-                      else if (planned) cls = 'bg-orange-400 text-white'
-                      return (
-                        <div key={day} className={`aspect-square flex items-center justify-center rounded-lg text-xs font-medium relative ${cls} ${isToday2 ? 'ring-2 ring-primary-500' : ''}`}>
-                          {day}
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-              )
-            })}
-
-            {/* Consultoria: planejamento de visitas (mantém o agendar livre) */}
-            {(folhaLinks as FolhaLink[] | undefined)?.some(l => effectiveType(l) === 'Consultoria') && (
-              <div className="card p-4 space-y-3">
-                <div className="flex items-center justify-between gap-2">
-                  <div>
-                    <h3 className="section-title text-base">Visitas planejadas</h3>
-                    <p className="text-xs text-ink-400">Organize suas próximas visitas.</p>
-                  </div>
-                {(() => {
-                  const selfLinks = ((folhaLinks as FolhaLink[] | undefined) || []).filter(l => effectiveType(l) === 'Consultoria' && (l as { agenda_mode?: string }).agenda_mode !== 'gestor')
-                  if (selfLinks.length === 0) return null
-                  return (
-                    <button
-                      onClick={() => {
-                        const client = (selfLinks[0] as { client?: { id: string; name: string } }).client
-                        if (client) setAgendaForm({ clientId: client.id, clientName: client.name })
-                      }}
-                      className="btn-primary text-sm shrink-0"
-                    >
-                      <Plus size={16} /> Agendar
-                    </button>
-                  )
-                })()}
-                </div>
-                {((folhaLinks as FolhaLink[] | undefined) || []).some(l => effectiveType(l) === 'Consultoria' && (l as { agenda_mode?: string }).agenda_mode === 'gestor') && (
-                  <p className="text-xs text-ink-500 bg-orange-50 rounded-lg px-3 py-2">Alguns clientes têm a agenda montada pelo RH — esses dias aparecem aqui e não podem ser alterados por você.</p>
+                {podeAgendar && (
+                  <button className="btn-primary text-sm shrink-0" onClick={() => {
+                    const l = vinculos.find(x => effectiveType(x) === 'Consultoria' && (x as { agenda_mode?: string }).agenda_mode !== 'gestor')
+                    if (l?.client) { setAgendaForm({ clientId: l.client.id, clientName: l.client.name }); setAgendaEntry(p => ({ ...p, planned_date: '' })) }
+                  }}><Plus size={16} /> Agendar</button>
                 )}
-                <p className="text-xs text-ink-500 bg-ink-50 rounded-lg px-3 py-2">No dia da visita, toque em <strong className="text-primary-700">Registrar</strong> para confirmar e lançar a hora de entrada e saída.</p>
-                {agenda?.length === 0 && (
-                  <div className="text-center py-6">
-                    <CalendarDays size={26} className="mx-auto mb-1.5 text-ink-200" />
-                    <p className="text-sm text-ink-400">Nenhuma visita planejada.</p>
-                  </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1 card p-1 shrink-0">
+                  <button className="p-2 rounded-lg active:bg-ink-100" aria-label="Mês anterior"
+                    onClick={() => setAgendaMonth(format(new Date(monthDate.getFullYear(), monthDate.getMonth() - 1, 15), 'yyyy-MM'))}><ChevronLeft size={18} /></button>
+                  <span className="text-sm font-medium text-ink-800 min-w-[7.5rem] text-center first-letter:uppercase">{nomeMes}</span>
+                  <button className="p-2 rounded-lg active:bg-ink-100" aria-label="Próximo mês"
+                    onClick={() => setAgendaMonth(format(new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 15), 'yyyy-MM'))}><ChevronRight size={18} /></button>
+                </div>
+                {clientesDela.length > 1 && (
+                  <select className="input text-sm flex-1 min-w-0" value={agendaCliente} onChange={e => setAgendaCliente(e.target.value)}>
+                    <option value="">Todos os clientes</option>
+                    {clientesDela.map(([id, nome]) => <option key={id} value={id}>{nome}</option>)}
+                  </select>
                 )}
-                <div className="space-y-2">
-                  {agenda?.map(a => {
-                    const unitName = (a as { unit?: { name: string } }).unit?.name || a.notes
-                    const clientName = (a as { client?: { name: string } }).client?.name
-                    const aClientId = (a as { client_id?: string }).client_id || ''
-                    const done = (agendaVisits || []).some(v => v.visit_date === a.planned_date && v.client_id === aClientId && v.check_out)
-                    const isFuture = a.planned_date > hojeISO()
-                    const original = (a as { original_date?: string }).original_date
-                    const wasRescheduled = original && original !== a.planned_date
-                    const editing = reschedAgenda?.id === a.id
-                    const isFixed = (a as { created_by_admin?: boolean }).created_by_admin === true
-                    const hoursExp = (a as { hours_expected?: number }).hours_expected
+              </div>
+
+              <div className="card p-3">
+                <div className="grid grid-cols-7 gap-1 mb-1">
+                  {['D', 'S', 'T', 'Q', 'Q', 'S', 'S'].map((d, i) => <div key={i} className="text-center text-[11px] text-ink-400 font-medium">{d}</div>)}
+                </div>
+                <div className="grid grid-cols-7 gap-1">
+                  {Array.from({ length: firstDow }).map((_, i) => <div key={`b${i}`} />)}
+                  {Array.from({ length: daysInMonth }).map((_, i) => {
+                    const ds = `${agendaMonth}-${String(i + 1).padStart(2, '0')}`
+                    const itens = itensDoDia(ds)
+                    const ehHoje = ds === hojeStr
                     return (
-                      <div key={a.id} className={`flex items-center gap-3 p-2.5 rounded-xl border ${done ? 'bg-primary-50/50 border-primary-100' : isFixed ? 'bg-blue-50/40 border-blue-100' : 'bg-white border-ink-100'}`}>
-                        <div className={`w-11 h-11 rounded-xl flex flex-col items-center justify-center flex-shrink-0 ${isFixed ? 'bg-blue-100' : 'bg-orange-50'}`}>
-                          <span className={`text-sm font-display font-bold leading-none ${isFixed ? 'text-blue-700' : 'text-orange-700'}`}>{new Date(a.planned_date + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit' })}</span>
-                          <span className={`text-[10px] uppercase mt-0.5 ${isFixed ? 'text-blue-500' : 'text-orange-500'}`}>{new Date(a.planned_date + 'T12:00:00').toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '')}</span>
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <p className="text-sm font-semibold text-ink-900 truncate">{unitName || clientName}</p>
-                            {isFixed && <span className="text-[10px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded font-medium">🔒 RH</span>}
-                            {hoursExp && <span className="text-[10px] bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded">{hoursExp}h</span>}
-                          </div>
-                          <p className="text-xs text-ink-400 truncate">{clientName}{a.notes && a.notes !== unitName ? ` · ${a.notes}` : ''}</p>
-                          {wasRescheduled && <p className="text-xs text-amber-600">🔁 remarcada (era {formatDate(original!)})</p>}
-                          {editing && (
-                            <div className="flex items-center gap-1.5 mt-1">
-                              <input className="input text-xs py-1 w-36" type="date" value={reschedAgenda!.date}
-                                onChange={e => setReschedAgenda({ id: a.id, date: e.target.value })} />
-                              <button className="text-xs bg-primary-600 text-white px-2 py-1 rounded" disabled={!reschedAgenda!.date || rescheduleAgenda.isPending}
-                                onClick={() => rescheduleAgenda.mutate({ id: a.id, newDate: reschedAgenda!.date, currentDate: a.planned_date, originalDate: original || null })}>OK</button>
-                              <button className="text-xs text-gray-400 px-1" onClick={() => setReschedAgenda(null)}>×</button>
-                            </div>
-                          )}
-                        </div>
-                        {done ? (
-                          <span className="badge bg-primary-100 text-primary-700 flex items-center gap-1"><CheckCircle2 size={13} /> registrada</span>
-                        ) : (
-                          <>
-                            {!editing && !isFixed && (
-                              <button onClick={() => setReschedAgenda({ id: a.id, date: a.planned_date })} className="text-ink-400 hover:text-amber-600 p-1.5" title="Remarcar data"><CalendarDays size={15} /></button>
-                            )}
-                            <button
-                              onClick={() => {
-                                setEditingPontoId(null)
-                                setPontoForm({
-                                  ...EMPTY_PONTO,
-                                  visit_date: a.planned_date,
-                                  client_id: aClientId,
-                                  unit_id: (a as { unit_id?: string }).unit_id || '',
-                                  unit_name: (a as { unit?: { name: string } }).unit?.name || '',
-                                })
-                                setAtestadoFile(null); setReportFile(null)
-                                setShowPontoModal(true)
-                              }}
-                              className={`text-xs px-3.5 py-2 rounded-xl font-semibold transition-all active:scale-95 ${isFuture ? 'bg-ink-100 text-ink-400' : 'bg-primary-600 text-white hover:bg-primary-700 shadow-soft'}`}
-                              disabled={isFuture}
-                              title={isFuture ? 'Disponível no dia da visita' : 'Registrar visita'}
-                            >
-                              Registrar
-                            </button>
-                          </>
+                      <button key={ds} onClick={() => setDiaAgenda(ds)}
+                        className={`aspect-square rounded-lg border flex flex-col items-center justify-center gap-1 active:scale-95 transition-all ${ehHoje ? 'border-primary-600 bg-primary-50' : itens.length ? 'border-ink-200 bg-white' : 'border-ink-100 bg-ink-50/40'}`}>
+                        <span className={`text-xs ${ehHoje ? 'font-bold text-primary-700' : itens.length ? 'font-semibold text-ink-800' : 'text-ink-400'}`}>{i + 1}</span>
+                        {itens.length > 0 && (
+                          <span className="flex gap-0.5">
+                            {itens.slice(0, 3).map((it, k) => <span key={k} className={`w-1.5 h-1.5 rounded-full ${corDoItem(it)}`} />)}
+                          </span>
                         )}
-                        {!isFixed && (
-                          <button onClick={() => deleteAgenda.mutate(a.id)} className="text-ink-300 hover:text-red-500 p-1.5">
-                            <Trash2 size={14} />
-                          </button>
-                        )}
-                      </div>
+                      </button>
                     )
                   })}
                 </div>
+                <div className="flex flex-wrap gap-x-3 gap-y-1 mt-3 text-[11px] text-ink-500">
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-500" />Visita marcada</span>
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-600" />Feita</span>
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-pink-500" />Trocada</span>
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-sky-500" />Dia de escala</span>
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500" />Falta</span>
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-orange-400" />Troca de folga</span>
+                </div>
               </div>
-            )}
 
-            {!(folhaLinks as FolhaLink[] | undefined)?.some(l => hasKnownSchedule(l) || effectiveType(l) === 'Consultoria') && (
-              <div className="card p-8 text-center">
-                <CalendarDays size={28} className="mx-auto mb-2 text-ink-200" />
-                <p className="text-ink-400 text-sm font-medium">Sua escala ainda não foi configurada pelo RH.</p>
-              </div>
-            )}
-          </>
-        )}
+              {vinculos.length === 0 && (
+                <div className="card p-8 text-center">
+                  <CalendarDays size={28} className="mx-auto mb-2 text-ink-200" />
+                  <p className="text-ink-400 text-sm font-medium">Você ainda não tem agenda. O RH vai montar os seus dias.</p>
+                </div>
+              )}
+
+              {/* Dia aberto */}
+              {diaAgenda && (() => {
+                const ds = diaAgenda
+                const itens = itensDoDia(ds)
+                const futuro = ds > hojeStr
+                const abrirRegistro = (clientId: string, a?: AgendaItem) => {
+                  setEditingPontoId(null)
+                  setPontoForm({ ...EMPTY_PONTO, visit_date: ds, client_id: clientId, unit_id: a?.unit_id || '', unit_name: a?.unit?.name || '' })
+                  setAtestadoFile(null); setReportFile(null)
+                  setDiaAgenda(null)
+                  setShowPontoModal(true)
+                }
+                return (
+                  <div className="modal-overlay" onClick={() => setDiaAgenda(null)}>
+                    <div className="modal-box max-w-sm space-y-3" onClick={e => e.stopPropagation()}>
+                      <div className="flex items-center justify-between">
+                        <h3 className="font-semibold text-ink-900 first-letter:uppercase">
+                          {new Date(ds + 'T12:00:00').toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}
+                        </h3>
+                        <button onClick={() => setDiaAgenda(null)} className="p-1.5 rounded-lg text-ink-400" aria-label="Fechar"><X size={18} /></button>
+                      </div>
+                      {itens.length === 0 && <p className="text-sm text-ink-400">Nada neste dia.</p>}
+                      <div className="space-y-2">
+                        {itens.map((it, k) => {
+                          const nome = nomeDoCliente(it.clientId)
+                          if (it.tipo === 'visita' && it.agenda) {
+                            const a = it.agenda
+                            return (
+                              <div key={k} className={`rounded-xl border p-3 space-y-2 ${it.alterada ? 'border-pink-200 bg-pink-50/50' : 'border-ink-200'}`}>
+                                <div className="flex items-start gap-2">
+                                  <span className={`mt-1.5 w-2 h-2 rounded-full shrink-0 ${corDoItem(it)}`} />
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-semibold text-ink-900">{nome}</p>
+                                    <p className="text-xs text-ink-500">
+                                      {[a.unit?.name, a.planned_time ? `às ${a.planned_time.slice(0, 5)}` : null, a.hours_expected ? `${a.hours_expected}h` : null].filter(Boolean).join(' · ') || 'Sem horário definido'}
+                                    </p>
+                                    {a.notes && a.notes !== a.unit?.name && <p className="text-xs text-ink-500">{a.notes}</p>}
+                                    {it.alterada && (
+                                      <p className="text-xs text-pink-700 mt-0.5">
+                                        Trocada{a.original_client_id ? ` — antes: ${nomeDoCliente(a.original_client_id)}` : ''}
+                                        {a.original_date && a.original_date !== a.planned_date ? ` — era ${formatDate(a.original_date)}` : ''}
+                                      </p>
+                                    )}
+                                    {it.feita && <p className="text-xs text-green-700 font-medium mt-0.5">Registrada</p>}
+                                  </div>
+                                </div>
+                                {!it.feita && (
+                                  <div className="flex gap-2">
+                                    <button className="btn-primary text-xs py-2 flex-1" disabled={futuro}
+                                      title={futuro ? 'Disponível no dia da visita' : undefined}
+                                      onClick={() => abrirRegistro(a.client_id || '', a)}>Registrar</button>
+                                    <button className="btn-secondary text-xs py-2 flex-1" onClick={() => {
+                                      setDiaAgenda(null)
+                                      setTroca({ agenda: a, modo: 'cliente', cliente: '', unidade: '', data: a.planned_date, motivo: '' })
+                                    }}>Trocar</button>
+                                    {!a.created_by_admin && (
+                                      <button className="btn-ghost text-xs py-2 px-2 text-red-600" aria-label="Excluir"
+                                        onClick={async () => { if (await confirmar({ titulo: 'Tirar esta visita da agenda?', perigo: true, confirmar: 'Tirar' })) deleteAgenda.mutate(a.id) }}>
+                                        <Trash2 size={14} />
+                                      </button>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            )
+                          }
+                          if (it.tipo === 'escala') {
+                            return (
+                              <div key={k} className="rounded-xl border border-ink-200 p-3 space-y-2">
+                                <div className="flex items-start gap-2">
+                                  <span className="mt-1.5 w-2 h-2 rounded-full shrink-0 bg-sky-500" />
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-semibold text-ink-900">{nome}</p>
+                                    <p className="text-xs text-ink-500">Dia de trabalho pela escala</p>
+                                  </div>
+                                </div>
+                                <div className="flex gap-2">
+                                  <button className="btn-primary text-xs py-2 flex-1" disabled={futuro} onClick={() => abrirRegistro(it.clientId)}>Registrar</button>
+                                  <button className="btn-secondary text-xs py-2 flex-1" onClick={() => {
+                                    setDiaAgenda(null)
+                                    setDayModal({ date: ds, linkId: it.linkId! }); setNoticeAction(''); setNoticeForm({ reason: '', otherDate: '' })
+                                  }}>Avisar falta ou trocar</button>
+                                </div>
+                              </div>
+                            )
+                          }
+                          return (
+                            <div key={k} className="rounded-xl border border-ink-100 bg-ink-50/50 px-3 py-2.5 flex items-start gap-2">
+                              <span className={`mt-1.5 w-2 h-2 rounded-full shrink-0 ${corDoItem(it)}`} />
+                              <div className="min-w-0">
+                                <p className="text-sm font-medium text-ink-900">{nome}</p>
+                                <p className="text-xs text-ink-500">
+                                  {it.tipo === 'feita' ? `Registrado ${it.horario || ''}`
+                                    : it.tipo === 'falta' ? `Falta${it.aviso?.reason ? ` — ${it.aviso.reason}` : ''}`
+                                    : it.aviso?.notice_date === ds ? `Folga por troca — trabalha em ${it.aviso?.swap_work_date ? formatDate(it.aviso.swap_work_date) : '?'}`
+                                    : `Trabalha no lugar de ${it.aviso ? formatDate(it.aviso.notice_date) : ''}`}
+                                </p>
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                      {podeAgendar && ds >= hojeStr && (
+                        <button className="btn-ghost text-sm w-full" onClick={() => {
+                          const l = vinculos.find(x => effectiveType(x) === 'Consultoria' && (x as { agenda_mode?: string }).agenda_mode !== 'gestor')
+                          if (l?.client) { setAgendaForm({ clientId: l.client.id, clientName: l.client.name }); setAgendaEntry(p => ({ ...p, planned_date: ds })); setDiaAgenda(null) }
+                        }}><Plus size={15} /> Agendar visita neste dia</button>
+                      )}
+                    </div>
+                  </div>
+                )
+              })()}
+            </>
+          )
+        })()}
       </div>
+
+      {/* ── Trocar visita (cliente/unidade ou dia) — só para vínculos dela ── */}
+      {troca && (() => {
+        const a = troca.agenda
+        const vinculosNoDia = ((folhaLinks as FolhaLink[] | undefined) || []).filter(l => l.client
+          && (!l.start_date || troca.data >= l.start_date) && (!l.contract_end_date || troca.data <= l.contract_end_date))
+        const clientesTroca = Array.from(new Map(vinculosNoDia.map(l => [l.client!.id, l.client!.name])).entries())
+        const clienteAlvo = troca.modo === 'cliente' ? troca.cliente : (a.client_id || '')
+        const unidades = clienteAlvo ? getLinkUnitsForClient(clienteAlvo) : []
+        const nomeAtual = ((links as FolhaLink[] | undefined) || []).find(l => l.client?.id === a.client_id)?.client?.name || 'Cliente'
+        const valido = troca.modo === 'cliente'
+          ? !!troca.cliente && (troca.cliente !== a.client_id || (!!troca.unidade && troca.unidade !== a.unit_id))
+          : !!troca.data && troca.data !== a.planned_date
+        return (
+          <div className="modal-overlay" onClick={() => setTroca(null)}>
+            <div className="modal-box max-w-sm space-y-4" onClick={e => e.stopPropagation()}>
+              <div>
+                <h3 className="text-lg font-semibold text-ink-900">Trocar visita</h3>
+                <p className="text-xs text-ink-500">{nomeAtual}{a.unit?.name ? ` · ${a.unit.name}` : ''} · {formatDate(a.planned_date)}</p>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                {([['cliente', 'Outro cliente', 'no mesmo dia'], ['dia', 'Outro dia', 'mesmo cliente']] as const).map(([m, t, d]) => (
+                  <button key={m} type="button" onClick={() => setTroca(p => p ? { ...p, modo: m, data: m === 'cliente' ? a.planned_date : p.data } : p)}
+                    className={`text-left p-2.5 rounded-lg border-2 transition-colors ${troca.modo === m ? 'border-primary-600 bg-primary-50' : 'border-ink-200'}`}>
+                    <p className="text-sm font-medium text-ink-900">{t}</p>
+                    <p className="text-[11px] text-ink-500">{d}</p>
+                  </button>
+                ))}
+              </div>
+
+              {troca.modo === 'cliente' ? (
+                <>
+                  <div>
+                    <label className="label">Vai para qual cliente? *</label>
+                    <select className="input" value={troca.cliente} onChange={e => setTroca(p => p ? { ...p, cliente: e.target.value, unidade: '' } : p)}>
+                      <option value="">Escolha…</option>
+                      {clientesTroca.map(([id, nome]) => <option key={id} value={id}>{nome}{id === a.client_id ? ' (mesmo cliente, outra unidade)' : ''}</option>)}
+                    </select>
+                    <p className="text-[11px] text-ink-400 mt-1">Só aparecem os clientes em que você atua.</p>
+                  </div>
+                  {troca.cliente && unidades.length > 0 && (
+                    <div>
+                      <label className="label">Unidade{troca.cliente === a.client_id ? ' *' : ''}</label>
+                      <select className="input" value={troca.unidade} onChange={e => setTroca(p => p ? { ...p, unidade: e.target.value } : p)}>
+                        <option value="">{troca.cliente === a.client_id ? 'Escolha…' : 'Qualquer unidade'}</option>
+                        {unidades.filter(u => troca.cliente !== a.client_id || u.id !== a.unit_id).map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                      </select>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div>
+                  <label className="label">Novo dia *</label>
+                  <input type="date" className="input" min={hojeISO()} value={troca.data} onChange={e => setTroca(p => p ? { ...p, data: e.target.value } : p)} />
+                </div>
+              )}
+
+              <div>
+                <label className="label">Motivo</label>
+                <textarea className="input" rows={2} placeholder="Opcional" value={troca.motivo} onChange={e => setTroca(p => p ? { ...p, motivo: e.target.value } : p)} />
+              </div>
+
+              <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-900">
+                Essa troca será notificada aos responsáveis no sistema.
+              </div>
+
+              <div className="flex flex-col-reverse sm:flex-row gap-2">
+                <button className="btn-secondary flex-1" onClick={() => setTroca(null)}>Cancelar</button>
+                <button className="btn-primary flex-1" disabled={!valido || trocarVisita.isPending} onClick={() => trocarVisita.mutate()}>
+                  {trocarVisita.isPending ? 'Salvando…' : 'Confirmar troca'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* ─── AGENDA ADD MODAL ─── */}
       {agendaForm && (

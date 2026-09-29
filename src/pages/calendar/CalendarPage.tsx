@@ -10,7 +10,7 @@ import { format, startOfMonth, endOfMonth, getDaysInMonth, getDay, addMonths, su
 import { ptBR } from 'date-fns/locale'
 import { SignedLink } from '../../components/ui/SignedFile'
 
-type EventKind = 'realizada' | 'planejada' | 'ausencia' | 'troca' | 'supervisao' | 'reuniao' | 'compromisso'
+type EventKind = 'realizada' | 'planejada' | 'alterada' | 'ausencia' | 'troca' | 'supervisao' | 'reuniao' | 'compromisso'
 type Ev = {
   kind: EventKind
   date: string
@@ -26,11 +26,16 @@ type Ev = {
   // ou participantes). Serve pro filtro "Só do RH": sem ele o calendário
   // afoga em ponto de 12x36 lançado todo dia.
   isRh?: boolean
+  // Visita da agenda trocada pela pessoa no portal (cliente/unidade ou dia)
+  agendaId?: string
+  trocaNaoVista?: boolean
 }
 
 const KIND_META: Record<EventKind, { label: string; dot: string; chip: string }> = {
   realizada:    { label: 'Visita realizada', dot: 'bg-primary-600',  chip: 'bg-primary-50 text-primary-700 border-primary-200' },
   planejada:    { label: 'Visita planejada', dot: 'bg-amber-400',    chip: 'bg-amber-50 text-amber-800 border-amber-200' },
+  // Cor que nenhum outro tipo usa: chama atenção para a visita que foi trocada
+  alterada:     { label: 'Visita trocada',   dot: 'bg-pink-500',     chip: 'bg-pink-50 text-pink-800 border-pink-200' },
   ausencia:     { label: 'Ausência',         dot: 'bg-red-400',      chip: 'bg-red-50 text-red-700 border-red-200' },
   // Troca de dia NÃO é falta: a pessoa folga num dia e trabalha em outro
   troca:        { label: 'Troca / feriado',     dot: 'bg-orange-400',   chip: 'bg-orange-50 text-orange-800 border-orange-200' },
@@ -91,7 +96,7 @@ export default function CalendarPage() {
     queryKey: ['cal-agenda', monthKey],
     queryFn: async () => {
       const { data, error } = await supabase.from('nutritionist_agenda')
-        .select('id, planned_date, planned_time, notes, hours_expected, employee_id, client_id, employee:employees(full_name), client:clients(name), unit:client_units(name)')
+        .select('*, employee:employees(full_name), client:clients(name), unit:client_units(name)')
         .gte('planned_date', mStart).lte('planned_date', mEnd)
       if (error) throw error
       return data || []
@@ -411,6 +416,29 @@ export default function CalendarPage() {
       const already = (visits || []).some(v => v.visit_date === a.planned_date && v.employee_id === a.employee_id
         && (!aClient || !(v as { client_id?: string }).client_id || (v as { client_id?: string }).client_id === aClient))
         || faltaAvisada.has(`${a.employee_id}|${a.planned_date}`)
+      const ag = a as { id: string; original_client_id?: string | null; original_date?: string | null; change_reason?: string | null; changed_by_portal?: boolean; change_seen_at?: string | null }
+      const trocada = !!ag.original_client_id || (!!ag.original_date && ag.original_date !== a.planned_date)
+      // Visita trocada aparece sempre (mesmo já feita), em rosa, com o que mudou
+      if (trocada) {
+        const antes = [
+          ag.original_client_id ? `antes: ${(allClients || []).find(c => c.id === ag.original_client_id)?.name || 'outro cliente'}` : null,
+          ag.original_date && ag.original_date !== a.planned_date ? `era ${formatDate(ag.original_date)}` : null,
+        ].filter(Boolean).join(' · ')
+        out.push({
+          kind: 'alterada',
+          date: a.planned_date,
+          employee: emp,
+          client: (a as { client?: { name: string } }).client?.name,
+          unit: (a as { unit?: { name: string } }).unit?.name,
+          time: a.planned_time ? a.planned_time.slice(0, 5) : null,
+          hours: a.hours_expected ?? null,
+          note: `Trocada ${ag.changed_by_portal ? 'pela pessoa no portal' : ''} — ${antes}${ag.change_reason ? ` · motivo: ${ag.change_reason}` : ''}${already ? ' · já registrada' : ''}`,
+          employeeId: a.employee_id,
+          agendaId: ag.id,
+          trocaNaoVista: !!ag.changed_by_portal && !ag.change_seen_at,
+        })
+        continue
+      }
       if (already) continue
       out.push({
         kind: 'planejada',
@@ -865,6 +893,15 @@ export default function CalendarPage() {
                   )}
                   {e.employeeId && (
                     <button onClick={() => navigate(`/colaboradores/${e.employeeId}`)} className="btn-secondary text-xs py-1">Abrir colaborador</button>
+                  )}
+                  {e.kind === 'alterada' && e.trocaNaoVista && e.agendaId && (
+                    <button className="btn-primary text-xs py-1" onClick={async () => {
+                      const { error } = await supabase.from('nutritionist_agenda').update({ change_seen_at: new Date().toISOString() }).eq('id', e.agendaId!)
+                      if (error) { toast.error(error.message); return }
+                      toast.success('Troca marcada como vista')
+                      invalidateAll()
+                      qc.invalidateQueries({ queryKey: ['avisos-sino'] })
+                    }}>Ciente</button>
                   )}
                 </div>
               </div>

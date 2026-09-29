@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { Plus, Download, Check, RefreshCw, AlertTriangle, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, BarChart3, Trash2, FileSpreadsheet, X, Paperclip, Search, MoreHorizontal, Pencil, Wallet, ExternalLink, FileCheck2, FileX2 } from 'lucide-react'
 import { supabase, fetchAll } from '../../lib/supabase'
-import { formatDate, formatCurrency, hojeISO, semAcento, tipoDoVinculo, pagaPorDiaria, ehTemporario } from '../../lib/utils'
+import { formatDate, formatCurrency, hojeISO, semAcento, tipoDoVinculo, pagaPorDiaria, ehTemporario, salarioConsultoria } from '../../lib/utils'
 import { exportToCSV } from '../../lib/exportUtils'
 import { SkeletonRows } from '../../components/ui/Skeleton'
 import { SignedLink } from '../../components/ui/SignedFile'
@@ -254,7 +254,7 @@ export default function PaymentList() {
       // saía da folha e os últimos dias nunca eram pagos. Agora fica até o
       // ciclo que contém o último dia (quem não tem dia no ciclo é tirado abaixo).
       const fimMin = format(addDays(new Date(monthStart + 'T12:00:00'), -31), 'yyyy-MM-dd')
-      const ehFixo = (l: { service_type?: string; coverage_type?: string; pay_mode?: string }) => tipoDoVinculo(l) === 'Fixo' && !pagaPorDiaria(l)
+      const ehFixo = (l: { service_type?: string; coverage_type?: string; pay_mode?: string }) => (tipoDoVinculo(l) === 'Fixo' && !pagaPorDiaria(l)) || salarioConsultoria(l)
       const activeLinks = (rawLinks || []).filter(l => {
         if ((l as { employee?: { status?: string } }).employee?.status !== 'Ativo') return false
         const fim = (l as { contract_end_date?: string }).contract_end_date
@@ -408,10 +408,31 @@ export default function PaymentList() {
         }
       }
 
+      const hojeFolha = hojeISO()
+      const progConsultoria = new Map<string, { mes: number; ateHoje: number; realizadas: number }>()
+      for (const l of links || []) {
+        if (!salarioConsultoria(l)) continue
+        const empId = (l as { employee?: { id: string } }).employee?.id
+        if (!empId || progConsultoria.has(empId)) continue
+        const clientesDela = new Set((links || [])
+          .filter(o => salarioConsultoria(o) && (o as { employee?: { id: string } }).employee?.id === empId)
+          .map(o => (o as { client?: { id: string } }).client?.id))
+        const doMes = (monthAgenda || []).filter(a => a.employee_id === empId && clientesDela.has(a.client_id))
+        progConsultoria.set(empId, {
+          mes: doMes.length,
+          ateHoje: doMes.filter(a => a.planned_date <= hojeFolha).length,
+          realizadas: (visits || []).filter(v => v.employee_id === empId && clientesDela.has(v.client_id)
+            && v.check_out && !v.is_unavailable).length,
+        })
+      }
+
       return (links || []).map(l => {
         const emp = (l as { employee?: { id: string; full_name: string } }).employee
         const client = (l as { client?: { id: string; name: string } }).client
-        const isConsultoria = l.service_type === 'Consultoria'
+        // Consultoria com SALÁRIO FIXO é paga como fixo (salário do mês); o que
+        // ela faz são consultorias, acompanhadas como programadas × realizadas
+        const salarioConsult = salarioConsultoria(l)
+        const isConsultoria = l.service_type === 'Consultoria' && !salarioConsult
         // "isFreela" = pago por DIÁRIA (dias trabalhados × diária): o Fixo por diária
         // de agora e o antigo freela de cobertura. freelaConsultoria = antigo freela
         // de auditoria ainda não convertido pela migração 058 (paga por visita).
@@ -524,6 +545,8 @@ export default function PaymentList() {
               (l as { days_off?: number[] }).days_off || null,
               (l as { schedule_anchor_date?: string }).schedule_anchor_date || null,
             ))
+          : salarioConsult
+            ? (monthAgenda || []).filter(a => a.employee_id === emp?.id && a.client_id === client?.id).length
           : !isConsultoria
             ? (l.expected_days_month
               || expectedDays((l as { work_schedule_type?: string }).work_schedule_type || l.work_schedule, filterMonth))
@@ -673,7 +696,7 @@ export default function PaymentList() {
         // venceu (expDaysToDate já respeita mês futuro e a tolerância de 4 dias).
         // "Pagar inteiro" marcado significa exatamente isso: não desconta.
         const diasCobraveis = Math.min(expDays, expDaysToDate)
-        const faltas = !isConsultoria && !isFreela && !payFullSalary
+        const faltas = !isConsultoria && !isFreela && !payFullSalary && !salarioConsult
           ? (rescisao ? rescisao.faltas : Math.max(0, diasCobraveis - actualDays))
           : 0
 
@@ -696,6 +719,8 @@ export default function PaymentList() {
           service_type: l.service_type,
           isFreela,
           freelaConsultoria,
+          salarioConsult,
+          progConsultoria: salarioConsult && emp?.id ? (progConsultoria.get(emp.id) || null) : null,
           is_temporary: !!(l as { is_temporary?: boolean }).is_temporary,
           pay_mode: (l as { pay_mode?: string }).pay_mode || null,
           dailyRate,
@@ -797,6 +822,7 @@ export default function PaymentList() {
     visits: { visit_date: string; visit_rate?: number | null }[]
     multaEncerramento?: number
     isFreela?: boolean
+    salarioConsult?: boolean
     rescisao?: { fim: string } | null
     encerradoPor?: string | null
   }
@@ -844,7 +870,7 @@ export default function PaymentList() {
       const who = `${row.employee.full_name}${row.client ? ` (${row.client.name})` : ''}`
       const extras = empExpensesTotal(row.linkId) + row.cost_assistance + row.extrasAprovados + (row.multaEncerramento || 0)
 
-      if (row.service_type === 'Consultoria') {
+      if (row.service_type === 'Consultoria' && !row.salarioConsult) {
         // Consultoria: SÓ dia 20 (visitas da 1ª quinzena) e dia 8 do mês seguinte (2ª quinzena)
         const q1 = row.visits.filter(v => Number(v.visit_date.slice(8, 10)) <= 15).reduce((s, v) => s + (Number(v.visit_rate) || 0), 0)
         const q2 = row.visits.filter(v => Number(v.visit_date.slice(8, 10)) > 15).reduce((s, v) => s + (Number(v.visit_rate) || 0), 0)
@@ -1014,8 +1040,8 @@ export default function PaymentList() {
   // acontece quando o cliente libera. Somar uma "estimativa" deles inflava a
   // folha com dinheiro que talvez nem seja devido. Para esses vale o realizado;
   // previsão só existe para quem tem salário ou diária combinada.
-  const porTrabalho = (r: { service_type: string; freelaConsultoria: boolean }) =>
-    r.service_type === 'Consultoria' || r.freelaConsultoria
+  const porTrabalho = (r: { service_type: string; freelaConsultoria: boolean; salarioConsult?: boolean }) =>
+    (r.service_type === 'Consultoria' && !r.salarioConsult) || r.freelaConsultoria
   const valorPrevisto = (r: typeof folhaData extends (infer U)[] | undefined ? U : never) =>
     porTrabalho(r) ? (r.actualAmount || 0) : (r.adjusted_amount ?? r.monthly_amount)
   const totalEstimativa = (folhaData ?? []).reduce((s, r) => s + valorPrevisto(r) + r.cost_assistance + (r.extrasAprovados || 0), 0)
@@ -1564,7 +1590,7 @@ export default function PaymentList() {
                         const isFreela = !!row.isFreela
                         const isConsultoria = porTrabalho(row)
                         const diff = isConsultoria ? 0 : row.actualDays - row.expDaysToDate
-                        const isShort = !isConsultoria && row.actualDays < row.expDaysToDate
+                        const isShort = !isConsultoria && !row.salarioConsult && row.actualDays < row.expDaysToDate
                         const nome = row.employee?.full_name || '—'
                         const contaVisivel = contaAberta === row.linkId
 
@@ -1665,12 +1691,26 @@ export default function PaymentList() {
                               ) : (
                                 <>
                                   <span className="text-ink-600">Salário {formatCurrency(row.monthly_amount)}</span>
+                                  {row.salarioConsult && row.progConsultoria && (() => {
+                                    const p = row.progConsultoria
+                                    const faltando = Math.max(0, p.ateHoje - p.realizadas)
+                                    return (
+                                      <span className={faltando > 0 ? 'text-red-600 font-medium' : 'text-ink-500'}
+                                        title="Todas as consultorias dela no mês, em todos os clientes com salário fixo">
+                                        Consultorias: {p.realizadas} de {p.ateHoje} programadas até hoje
+                                        {faltando > 0 ? ` — ${faltando} não realizada${faltando > 1 ? 's' : ''}` : ''}
+                                        {p.mes > p.ateHoje ? ` · ${p.mes - p.ateHoje} ainda no mês` : ''}
+                                      </span>
+                                    )
+                                  })()}
+                                  {!row.salarioConsult && <>
                                   <span className={row.faltas > 0 ? 'text-red-600 font-medium' : 'text-ink-500'}>
                                     {row.faltas > 0
                                       ? `${row.faltas} falta${row.faltas > 1 ? 's' : ''} · −${formatCurrency(row.faltas * row.valorDia)}`
                                       : row.payFullSalary ? 'Sem desconto' : row.presencaCompleta ? 'Foi todos os dias' : 'Escala OK'}
                                   </span>
                                   <span className="text-ink-400">{row.actualDays}/{row.faltas > 0 ? row.diasCobraveis : row.expDays} dias{row.faltas > 0 ? ' até hoje' : ''}</span>
+                                  </>}
                                 </>
                               )}
                               {row.ausencias.length > 0 && (

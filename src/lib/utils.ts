@@ -227,6 +227,11 @@ export function pagaPorDiaria(l?: VinculoTipo | null): boolean {
   return tipoDoVinculo(l) === 'Fixo' && l.pay_mode === 'diaria'
 }
 
+/** Consultoria paga por SALÁRIO FIXO mensal (não por visita) — migração 060 */
+export function salarioConsultoria(l?: VinculoTipo | null): boolean {
+  return !!l && tipoDoVinculo(l) === 'Consultoria' && l.pay_mode === 'salario_fixo'
+}
+
 /** Vínculo que nasceu para acabar (cobertura, auditoria avulsa) */
 export function ehTemporario(l?: VinculoTipo | null): boolean {
   return !!l && (l.service_type === 'Volante' || !!l.is_temporary)
@@ -235,6 +240,7 @@ export function ehTemporario(l?: VinculoTipo | null): boolean {
 /** Rótulo curto do vínculo para as telas */
 export function rotuloDoVinculo(l?: VinculoTipo | null): string {
   const t = tipoDoVinculo(l)
+  if (salarioConsultoria(l)) return 'Consultoria · salário fixo'
   return t === 'Fixo' && pagaPorDiaria(l) ? 'Fixo · por diária' : t
 }
 

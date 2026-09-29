@@ -86,10 +86,10 @@ function diasDaEscala(link: LinkEscala, mes: string): string[] {
 //               'temporario' = freela/cobertura com data de fim (service_type Volante)
 // monthly_amount: no Fixo o RH informa o MENSAL; a diária sai de mensal ÷ 30.
 // Grupo do vínculo na tela de edição: Fixo (mensal), Diaria (fixo por diária) ou Consultoria
-const NOME_GRUPO: Record<string, string> = { Fixo: 'Fixo / Plantão', Diaria: 'Fixo · por diária', Consultoria: 'Consultoria' }
+const NOME_GRUPO: Record<string, string> = { Fixo: 'Fixo / Plantão', Diaria: 'Fixo · por diária', Consultoria: 'Consultoria', ConsultoriaSalario: 'Consultoria · salário fixo' }
 function grupoDoVinculo(l: { service_type?: string | null; coverage_type?: string | null; pay_mode?: string | null }): string {
   if (l.service_type === 'Volante') return l.coverage_type === 'Consultoria' ? 'Consultoria' : 'Diaria'
-  if (l.service_type === 'Consultoria') return 'Consultoria'
+  if (l.service_type === 'Consultoria') return l.pay_mode === 'salario_fixo' ? 'ConsultoriaSalario' : 'Consultoria'
   return l.pay_mode === 'diaria' ? 'Diaria' : 'Fixo'
 }
 
@@ -101,6 +101,8 @@ const EMPTY_COVERAGE = {
   unit_id: '', work_schedule_type: '', daily_hours: '', days_off: [] as number[], schedule_anchor_date: '',
   // Consultoria
   coverage_units: [] as CoverageUnit[],
+  // Consultoria paga por SALÁRIO FIXO mensal (não por visita) — migração 060
+  consult_salario: false,
   visit_frequency: 'Avulso' as 'Semanal' | 'Quinzenal' | 'Mensal' | 'Avulso',
   // 'sim' = a visita tem tempo mínimo e o pagamento é proporcional às horas;
   // 'nao' = paga o valor cheio da unidade independente da duração.
@@ -454,6 +456,11 @@ export default function EmployeeDetail() {
       if (isFixo) {
         const unit = (coverageClientUnits || []).find(u => u.id === coverageForm.unit_id)
         if (unit) linkUnits = [{ unit_id: unit.id, unit_name: unit.name }]
+      } else if (coverageForm.consult_salario) {
+        // Salário fixo: todas as unidades marcadas (valor por visita não se aplica)
+        linkUnits = coverageForm.coverage_units.length > 0
+          ? coverageForm.coverage_units.map(u => ({ unit_id: u.unit_id, unit_name: u.unit_name, ...(Number(u.visit_rate) > 0 ? { visit_rate: Number(u.visit_rate) } : {}) }))
+          : null
       } else {
         const active = coverageForm.coverage_units.filter(u => u.visit_rate)
         linkUnits = active.length > 0 ? active.map(u => ({ unit_id: u.unit_id, unit_name: u.unit_name, visit_rate: Number(u.visit_rate) })) : null
@@ -480,7 +487,7 @@ export default function EmployeeDetail() {
         service_type: coverageForm.coverage_type,
         coverage_type: coverageForm.coverage_type,
         is_temporary: isTemporario,
-        pay_mode: isTemporario && isFixo ? 'diaria' : 'mensal',
+        pay_mode: !isFixo && coverageForm.consult_salario ? 'salario_fixo' : isTemporario && isFixo ? 'diaria' : 'mensal',
         agenda_mode: coverageForm.agenda_mode || 'colaborador',
         // Veio da contratação por vaga: guarda a origem pra vaga contar as posições
         vacancy_id: vincularVagaId || null,
@@ -491,7 +498,7 @@ export default function EmployeeDetail() {
         daily_rate: diaria,
         start_date: coverageForm.start_date || hojeISO(),
         contract_end_date: isTemporario ? (coverageForm.end_date || null) : (coverageForm.end_date || null),
-        monthly_amount: isFixo ? mensal : null,
+        monthly_amount: isFixo || coverageForm.consult_salario ? mensal : null,
         link_units: linkUnits,
         ...(isFixo ? {
           work_schedule_type: coverageForm.work_schedule_type || null,
@@ -505,6 +512,7 @@ export default function EmployeeDetail() {
         }),
       }
       let { data: newLink, error } = await supabase.from('employee_client_links').insert(registroVinculo).select('id').single()
+      if (error && coverageForm.consult_salario && /pay_mode|check/i.test(error.message)) throw new Error('Falta rodar a migração 060 no Supabase para usar consultoria com salário fixo.')
       // Migração 058 ainda não rodada: grava no formato antigo (Volante)
       if (error && /pay_mode|is_temporary/i.test(error.message)) {
         const { pay_mode: _p, is_temporary: _t, ...antigo } = registroVinculo
@@ -929,7 +937,8 @@ export default function EmployeeDetail() {
       // Quem é pago POR VISITA: consultoria e freela de auditoria. Os dois
       // guardam o valor da vistoria por unidade. Amarrar isso só a "Consultoria"
       // fazia a troca de grupo zerar os valores do freela.
-      const isConsult = vals.serviceType === 'Consultoria'
+      const consultSalario = vals.serviceType === 'ConsultoriaSalario'
+      const isConsult = vals.serviceType === 'Consultoria' || consultSalario
         || (vals.serviceType === 'Volante' && vals.units.some(u => Number(u.visit_rate) > 0))
       let monthly: number | null = null
       let linkUnits: unknown = null
@@ -945,7 +954,9 @@ export default function EmployeeDetail() {
         const activeUnits = vals.units.filter(u => u.visit_rate && (validUnitIds.size === 0 || validUnitIds.has(u.unit_id)))
         linkUnits = activeUnits.map(u => ({ unit_id: u.unit_id, unit_name: u.unit_name, visit_rate: Number(u.visit_rate) }))
         const avgRate = activeUnits.length ? activeUnits.reduce((s, u) => s + Number(u.visit_rate), 0) / activeUnits.length : 0
-        monthly = avgRate > 0 && freqMultiplier > 0 ? Math.round(avgRate * freqMultiplier * 100) / 100 : null
+        monthly = consultSalario
+          ? (vals.monthly_amount ? Number(vals.monthly_amount) : null)
+          : avgRate > 0 && freqMultiplier > 0 ? Math.round(avgRate * freqMultiplier * 100) / 100 : null
       } else {
         monthly = vals.monthly_amount ? Number(vals.monthly_amount) : null
       }
@@ -959,7 +970,7 @@ export default function EmployeeDetail() {
       const atualizacao: Record<string, unknown> = {
         service_type: tipoFinal,
         coverage_type: null,
-        pay_mode: ehDiaria ? 'diaria' : 'mensal',
+        pay_mode: consultSalario ? 'salario_fixo' : ehDiaria ? 'diaria' : 'mensal',
         daily_rate: mensalParaDiaria,
         monthly_amount: monthly,
         cost_assistance: vals.cost_assistance ? Number(vals.cost_assistance) : 0,
@@ -984,6 +995,7 @@ export default function EmployeeDetail() {
       }
       let { error } = await supabase.from('employee_client_links').update(atualizacao).eq('id', vals.linkId)
       // Migração 058 ainda não rodada: diária volta a ser gravada como Volante
+      if (error && consultSalario && /pay_mode|check/i.test(error.message)) throw new Error('Falta rodar a migração 060 no Supabase para usar consultoria com salário fixo.')
       if (error && /pay_mode/i.test(error.message)) {
         const { pay_mode: _p, ...antigo } = atualizacao
         ;({ error } = await supabase.from('employee_client_links').update(
@@ -993,7 +1005,8 @@ export default function EmployeeDetail() {
       if (error) throw error
 
       // Consultoria sempre dia 8 e 20; Fixo só aceita 8, 15 ou 20
-      const allowedDays = isConsult ? [8, 20] : vals.payDays.map(d => Number(d)).filter(d => [8, 15, 20].includes(d))
+      // Consultoria por visita: dia 8 e 20. Salário (fixo ou consultoria): 8, 15 ou 20
+      const allowedDays = isConsult && !consultSalario ? [8, 20] : vals.payDays.map(d => Number(d)).filter(d => [8, 15, 20].includes(d))
       const cleanDays = [...new Set(isConsult ? allowedDays : allowedDays)]
       await supabase.from('employee_payment_dates').delete().eq('link_id', vals.linkId)
       if (cleanDays.length) {
@@ -1465,6 +1478,24 @@ export default function EmployeeDetail() {
                     </button>
                   ))}
                 </div>
+                {coverageForm.coverage_type === 'Consultoria' && (
+                  <div className="mt-2">
+                    <label className="label">Como ela recebe? *</label>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {([
+                        [false, 'Por visita', 'Cada visita tem um valor (por unidade).'],
+                        [true, 'Salário fixo mensal', 'Faz consultorias da agenda e recebe um salário por mês.'],
+                      ] as const).map(([v, t, d]) => (
+                        <button key={String(v)} type="button"
+                          onClick={() => setCoverageForm(p => ({ ...p, consult_salario: v }))}
+                          className={`text-left p-2.5 rounded-lg border-2 transition-colors ${coverageForm.consult_salario === v ? 'border-orange-500 bg-orange-50' : 'border-gray-200 hover:border-gray-300'}`}>
+                          <p className="text-sm font-medium text-ink-900">{t}</p>
+                          <p className="text-xs text-ink-500">{d}</p>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Cliente */}
@@ -1666,8 +1697,8 @@ export default function EmployeeDetail() {
                   diária (mensal ÷ 30), a mesma conta usada em dia extra.
                   Na Consultoria o valor já foi definido por unidade lá em cima —
                   pedir uma diária também só confundia. */}
-              <div className={`grid grid-cols-1 gap-3 ${coverageForm.coverage_type === 'Fixo' ? 'sm:grid-cols-2' : ''}`}>
-                {coverageForm.coverage_type === 'Fixo' && (
+              <div className={`grid grid-cols-1 gap-3 ${coverageForm.coverage_type === 'Fixo' || coverageForm.consult_salario ? 'sm:grid-cols-2' : ''}`}>
+                {(coverageForm.coverage_type === 'Fixo' || (coverageForm.coverage_type === 'Consultoria' && coverageForm.consult_salario)) && (
                   <div>
                     <label className="label">Salário mensal (R$) *</label>
                     <input className="input" type="number" step="0.01" placeholder="Ex: 3000.00"
@@ -1743,16 +1774,18 @@ export default function EmployeeDetail() {
 
               {(() => {
                 // Fixo cobra o mensal; consultoria se paga pelo valor por unidade.
-                const faltaValor = coverageForm.coverage_type === 'Fixo' && !coverageForm.monthly_amount
+                const consultSalario = coverageForm.coverage_type === 'Consultoria' && coverageForm.consult_salario
+                const faltaValor = (coverageForm.coverage_type === 'Fixo' || consultSalario) && !coverageForm.monthly_amount
                 // Unidade é obrigatória nos dois: no Fixo é o local de trabalho;
                 // na Consultoria é de onde sai o valor da visita (sem ela vale R$ 0).
+                // Salário fixo: basta marcar as unidades (o valor por visita não existe)
                 const faltaUnidade = coverageForm.coverage_type === 'Consultoria'
-                  ? !coverageForm.coverage_units.some(u => Number(u.visit_rate) > 0)
+                  ? (consultSalario ? coverageForm.coverage_units.length === 0 : !coverageForm.coverage_units.some(u => Number(u.visit_rate) > 0))
                   : !coverageForm.unit_id
                 // Freela sem data fim = por tempo indeterminado. Não bloqueia.
                 const faltaPag = coverageForm.pay_days.length === 0
                 const isConsult = coverageForm.coverage_type === 'Consultoria'
-                const faltaRegraHoras = isConsult && !coverageForm.horas_obrigatorias
+                const faltaRegraHoras = isConsult && !consultSalario && !coverageForm.horas_obrigatorias
                 // Escolheu "tem tempo certo" mas não disse quanto: o pagamento
                 // proporcional ficaria sem base de cálculo.
                 const faltaHoras = isConsult && coverageForm.horas_obrigatorias === 'sim'
@@ -2110,7 +2143,8 @@ export default function EmployeeDetail() {
                         // Freela é auditoria: pago por visita, igual consultoria.
                         // Mesma tela para os dois, como o Gabriel pediu — antes o
                         // freela caía no formulário de salário, que não é o caso dele.
-                        const isConsult = editLinkValues.serviceType === 'Consultoria'
+                        const isConsult = editLinkValues.serviceType === 'Consultoria' || editLinkValues.serviceType === 'ConsultoriaSalario'
+                        const consultSalario = editLinkValues.serviceType === 'ConsultoriaSalario'
                         // Descarta unidades "fantasma" que não existem mais na lista atual do cliente
                         const validUnitIds = new Set((editClientUnits || []).map(u => u.id))
                         const ratedUnits = isConsult ? editLinkValues.units.filter(u => u.visit_rate && (validUnitIds.size === 0 || validUnitIds.has(u.unit_id))) : []
@@ -2142,6 +2176,7 @@ export default function EmployeeDetail() {
                                   ['Fixo', 'Fixo / Plantão', 'Salário mensal.'],
                                   ['Diaria', 'Fixo · por diária', 'Paga os dias trabalhados × diária (salário ÷ 30).'],
                                   ['Consultoria', 'Consultoria', 'Paga por visita.'],
+                                  ['ConsultoriaSalario', 'Consultoria · salário fixo', 'Faz consultorias da agenda e recebe salário mensal.'],
                                 ] as const).map(([v, t, d]) => (
                                   <button key={v} type="button" title={d}
                                     onClick={() => setEditLinkValues(p => p ? { ...p, serviceType: v } : p)}
@@ -2164,6 +2199,14 @@ export default function EmployeeDetail() {
 
                             {isConsult ? (
                               <>
+                                {consultSalario && (
+                                  <div>
+                                    <label className="label text-xs">Salário mensal (R$) *</label>
+                                    <input className="input text-sm" type="number" step="0.01" value={editLinkValues.monthly_amount}
+                                      onChange={e => setEditLinkValues(p => p ? { ...p, monthly_amount: e.target.value } : p)} />
+                                    <p className="text-[11px] text-ink-500 mt-1">As consultorias vêm da agenda. A folha mostra programadas × realizadas; o valor por unidade abaixo é opcional.</p>
+                                  </div>
+                                )}
                                 {/* Frequência + Horas por visita */}
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                   <div>
@@ -2378,7 +2421,7 @@ export default function EmployeeDetail() {
                                   ) : null
                                 })()}
                               </div>
-                              {isConsult ? (
+                              {isConsult && !consultSalario ? (
                                 <div className="bg-orange-50 rounded-lg px-3 py-2 text-xs text-orange-700">
                                   Consultoria: pagamento quinzenal nos dias <strong>8</strong> e <strong>20</strong> (automático).
                                 </div>

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Bell, Receipt, Clock3, FileWarning, FileSignature, MessageSquare, AlertTriangle, ChevronRight, ShieldAlert } from 'lucide-react'
+import { Bell, Receipt, Clock3, FileWarning, FileSignature, MessageSquare, AlertTriangle, ChevronRight, ShieldAlert, Repeat } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
@@ -28,7 +28,7 @@ export default function AvisosSino() {
         const { count, error } = await q
         return error ? 0 : count ?? 0
       }
-      const [reembolsos, extras, atrasados, docs, perguntas, contratos, supervisoes] = await Promise.all([
+      const [reembolsos, extras, atrasados, docs, perguntas, contratos, supervisoes, trocas] = await Promise.all([
         chefe ? conta(supabase.from('employee_expenses').select('id', { count: 'exact', head: true }).eq('status', 'pendente')) : 0,
         chefe ? conta(supabase.from('nutritionist_visits').select('id', { count: 'exact', head: true }).eq('extra_approval', 'pendente')) : 0,
         chefe ? conta(supabase.from('payments').select('id', { count: 'exact', head: true }).eq('status', 'Pendente').lt('due_date', hojeISO())) : 0,
@@ -45,11 +45,14 @@ export default function AvisosSino() {
         })(),
         // Supervisão agendada cujo dia passou sem check-in (migração 059)
         conta(supabase.from('supervision_visits').select('id', { count: 'exact', head: true }).eq('status', 'agendada').lt('visit_date', hojeISO())),
+        // Visita da agenda trocada pela pessoa no portal e ainda não vista (migração 060)
+        conta(supabase.from('nutritionist_agenda').select('id', { count: 'exact', head: true }).eq('changed_by_portal', true).is('change_seen_at', null)),
       ])
       return ([
         { chave: 'atrasados', rotulo: 'Pagamentos atrasados', n: atrasados, caminho: '/pagamentos', icone: AlertTriangle, urgente: true },
         { chave: 'reembolsos', rotulo: 'Reembolsos para analisar', n: reembolsos, caminho: '/pagamentos', icone: Receipt },
         { chave: 'extras', rotulo: 'Extras para aprovar', n: extras, caminho: '/visitas', icone: Clock3 },
+        { chave: 'trocas', rotulo: 'Visitas trocadas no portal', n: trocas, caminho: '/calendario', icone: Repeat },
         { chave: 'supervisoes', rotulo: 'Supervisões sem check-in', n: supervisoes, caminho: '/supervisao', icone: ShieldAlert },
         { chave: 'perguntas', rotulo: 'Perguntas no chat', n: perguntas, caminho: '/chat', icone: MessageSquare },
         { chave: 'docs', rotulo: 'Documentos pendentes', n: docs, caminho: '/colaboradores', icone: FileWarning },

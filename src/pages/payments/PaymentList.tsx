@@ -904,6 +904,24 @@ export default function PaymentList() {
     reference_month: filterMonth,
   })
 
+  // Lança só a 2ª quinzena da consultoria (quando a 1ª já foi lançada antes)
+  const lancarSegundaQuinzena = useMutation({
+    mutationFn: async ({ row, valor, vence }: { row: GenRow; valor: number; vence: string }) => {
+      if (!row.employee) throw new Error('Sem colaborador')
+      const monthLabel = new Date(filterMonth + '-15').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
+      const who = `${row.employee.full_name}${row.client ? ` (${row.client.name})` : ''}`
+      await insertPayment({
+        ...baseRecord(row),
+        type: 'Estimativa',
+        description: `Honorários – ${who} – 2ª quinzena ${monthLabel}`,
+        amount: valor,
+        due_date: vence,
+      })
+    },
+    onSuccess: () => { toast.success('2ª quinzena lançada'); qc.invalidateQueries({ queryKey: ['payments'] }) },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
   const autoGeneratePayment = useMutation({
     mutationFn: async (row: GenRow) => {
       if (!row.employee) throw new Error('Sem colaborador')
@@ -1195,12 +1213,22 @@ export default function PaymentList() {
       : conta.total
     // Lançado ≠ o que daria hoje (visita registrada depois, falta, gasto novo…)
     const lancado = r2(et.somaPaga + et.somaPendente)
-    const divergente = (et.etapa === 'pagar' || et.etapa === 'pago') && Math.abs(lancado - conta.fechamento) >= 1
+    // Consultoria: a 2ª quinzena (visitas do dia 16 em diante, paga dia 8 do mês
+    // seguinte) pode não ter sido lançada — ex.: lançaram no dia 15 e a 1ª já foi
+    // paga. Sem isto a linha ficava "paga" e não havia botão para lançar o resto.
+    const [anoRef, mesRef] = filterMonth.split('-').map(Number)
+    const mesSeguinte = mesRef === 12 ? `${anoRef + 1}-01` : `${anoRef}-${String(mesRef + 1).padStart(2, '0')}`
+    const q2 = porTrabalho(row) && !row.salarioConsult
+      ? r2(row.visits.filter(v => Number(v.visit_date.slice(8, 10)) > 15).reduce((s, v) => s + (Number(v.visit_rate) || 0), 0))
+      : 0
+    const q2Lancada = lancamentosDaLinha(row).some(p => (p.due_date || '').slice(0, 7) === mesSeguinte || /2ª quinzena/.test(p.description || ''))
+    const faltaQ2 = et.etapa !== 'lancar' && q2 > 0 && !q2Lancada ? q2 : 0
+    const divergente = !faltaQ2 && (et.etapa === 'pagar' || et.etapa === 'pago') && Math.abs(lancado - conta.fechamento) >= 1
     // Vínculo que terminou neste mês (ou antes). Freela tem fim por natureza,
     // então só marcamos como "encerrado" quem não é freela.
     const fim = row.freelaEnd
     const encerradoEm = !ehTemporario(row) && fim && fim <= monthEnd ? fim : null
-    return { row, conta, et, aberto, lancado, divergente, encerradoEm }
+    return { row, conta, et, aberto: aberto + faltaQ2, lancado, divergente, encerradoEm, faltaQ2, mesSeguinte }
   })
     // Vínculo que acabou e não deixou nada a pagar (nenhum registro, nenhum
     // lançamento, valor zero) sai da folha. Antes ficava ali com R$ 0,00 e um
@@ -1627,7 +1655,7 @@ export default function PaymentList() {
                       </div>
                     </div>
                     <div className="divide-y divide-ink-100">
-                      {visiveis.map(({ row, conta, et, lancado, divergente, encerradoEm }) => {
+                      {visiveis.map(({ row, conta, et, lancado, divergente, encerradoEm, faltaQ2, mesSeguinte }) => {
                         const isFreela = !!row.isFreela
                         const isConsultoria = porTrabalho(row)
                         const diff = isConsultoria ? 0 : row.actualDays - row.expDaysToDate
@@ -1834,6 +1862,20 @@ export default function PaymentList() {
                                   {row.rescisao.semSaida > 0 && <> {row.rescisao.semSaida} registro(s) sem horário de saída.</>}
                                   {folhaIncompleta && <> <strong>O acerto só fecha com a folha ponto completa</strong> — peça para ela preencher os dias que faltam.</>}
                                 </span>
+                              </div>
+                            )}
+
+                            {/* 2ª quinzena da consultoria ainda sem lançamento */}
+                            {faltaQ2 > 0 && (
+                              <div className="flex items-center justify-between gap-3 flex-wrap rounded-xl bg-amber-50 border border-amber-200 px-3 py-2">
+                                <span className="text-xs text-amber-900 flex items-center gap-1.5">
+                                  <AlertTriangle size={13} className="text-amber-600 shrink-0" />
+                                  <span><strong>Visitas do dia 16 em diante ainda não lançadas</strong> · {formatCurrency(faltaQ2)} · vence 08/{mesSeguinte.slice(5, 7)}</span>
+                                </span>
+                                <button className="btn-secondary text-xs py-1" disabled={lancarSegundaQuinzena.isPending}
+                                  onClick={() => lancarSegundaQuinzena.mutate({ row, valor: faltaQ2, vence: `${mesSeguinte}-08` })}>
+                                  Lançar 2ª quinzena
+                                </button>
                               </div>
                             )}
 

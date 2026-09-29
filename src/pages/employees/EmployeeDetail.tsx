@@ -671,6 +671,21 @@ export default function EmployeeDetail() {
 
   const addAgendaItem = useMutation({
     mutationFn: async () => {
+      if (!agendaForm.client_id) throw new Error('Escolha o cliente')
+      if (!agendaForm.planned_date) throw new Error('Escolha o dia')
+      // Só marca dia em que o vínculo vale. Depois de desvincular, a visita
+      // marcada ficava no portal da pessoa (caso Vídeo: fim 23/09, visita 28/09).
+      const fimDo = (l: object) => (l as { contract_end_date?: string | null }).contract_end_date || null
+      const doCliente = (links || []).filter(l => l.client_id === agendaForm.client_id)
+      const dia = agendaForm.planned_date
+      if (!doCliente.some(l => (!l.start_date || dia >= l.start_date) && (!fimDo(l) || dia <= fimDo(l)!))) {
+        const fim = doCliente.map(fimDo).filter(Boolean).sort().pop()
+        const ini = doCliente.map(l => l.start_date).filter(Boolean).sort()[0]
+        throw new Error(fim && dia > fim
+          ? `O vínculo com este cliente terminou em ${formatDate(fim)}. Não dá para marcar dia depois disso.`
+          : ini && dia < ini ? `O vínculo com este cliente começa em ${formatDate(ini)}.`
+          : 'Esta pessoa não tem vínculo com este cliente nesse dia.')
+      }
       const dados = {
         employee_id: id,
         client_id: agendaForm.client_id,
@@ -690,6 +705,7 @@ export default function EmployeeDetail() {
     onSuccess: (foiEdicao) => {
       toast.success(foiEdicao ? 'Data alterada!' : 'Data agendada!')
       qc.invalidateQueries({ queryKey: ['employee-agenda', id, agendaMonth] })
+      qc.invalidateQueries({ queryKey: ['cal-agenda'] })
       setShowAgendaForm(false)
       setEditAgendaId(null)
       setAgendaForm({ client_id: '', unit_id: '', planned_date: '', planned_time: '', notes: '', hours_expected: '' })
@@ -2832,8 +2848,10 @@ export default function EmployeeDetail() {
                     // Consultoria/Freela deixava de fora o Fixo em 12x36 e
                     // plantão, que é justamente quem precisa ter os dias
                     // marcados um a um — foi o caso do Guilherme.
+                    // Vínculo encerrado não entra: não se marca dia onde ela já saiu.
                     const clientesAgenda = Array.from(new Map(
                       (links || [])
+                        .filter(l => { const fim = (l as { contract_end_date?: string | null }).contract_end_date; return !fim || fim >= hojeISO() })
                         .map(l => l.client as { id: string; name: string })
                         .filter(c => c?.id)
                         .map(c => [c.id, c] as const)

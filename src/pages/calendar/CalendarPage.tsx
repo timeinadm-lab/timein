@@ -352,7 +352,13 @@ export default function CalendarPage() {
         if (!addForm.client_id) throw new Error('Escolha o cliente')
         if (!empId) throw new Error('Escolha o colaborador')
         // Mesma regra da aba Vincular: sem vínculo, a visita não vira pagamento
-        if (!(vagaLinks || []).some(l => l.employee_id === empId && l.client_id === addForm.client_id)) {
+        // Vínculo encerrado antes do dia: não se marca visita depois do fim
+        const doCliente = (vagaLinks || []).filter(l => l.employee_id === empId && l.client_id === addForm.client_id)
+        if (doCliente.length && !doCliente.some(l => !l.contract_end_date || dayOpen <= l.contract_end_date)) {
+          const fim = doCliente.map(l => l.contract_end_date as string).sort().pop()!
+          throw new Error(`O vínculo desta pessoa com este cliente terminou em ${formatDate(fim)}. Não dá para marcar visita depois disso.`)
+        }
+        if (!doCliente.length) {
           throw new Error(
             'Esta pessoa não tem vínculo com este cliente. Sem vínculo ela trabalha e não recebe. ' +
             'Vincule primeiro em Colaboradores → Vínculos → + Vincular.'

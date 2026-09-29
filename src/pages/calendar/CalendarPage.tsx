@@ -130,11 +130,21 @@ export default function CalendarPage() {
   const { data: appointments } = useQuery({
     queryKey: ['cal-appointments', monthKey],
     queryFn: async () => {
-      const { data, error } = await supabase.from('interviews')
-        .select('id, title, scheduled_at, modality, status, category, recruiter_id, participant_ids, employee:employees(full_name), candidate:candidates(full_name), vacancy:vacancies(title), recruiter:user_profiles(full_name), client:clients(name)')
-        .gte('scheduled_at', mStart).lte('scheduled_at', mEnd + 'T23:59:59')
+      // Inclui o que começou antes mas tem "Até" dentro do mês (reunião diária,
+      // férias): antes só aparecia no primeiro dia.
+      const cols = 'id, title, scheduled_at, end_date, modality, status, category, recruiter_id, participant_ids, employee:employees(full_name), candidate:candidates(full_name), vacancy:vacancies(title), recruiter:user_profiles(full_name), client:clients(name)'
+      const buscar = (c: string) => supabase.from('interviews').select(c)
+        .lte('scheduled_at', mEnd + 'T23:59:59')
+        .or(`scheduled_at.gte.${mStart},end_date.gte.${mStart}`)
+      let { data, error } = await buscar(cols + ', employee_ids')
+      if (error && /employee_ids/i.test(error.message)) ({ data, error } = await buscar(cols))  // sem a migração 066
       if (error) { console.warn('interviews:', error.message); return [] }
-      return data || []
+      return (data || []) as unknown as {
+        id: string; title: string | null; scheduled_at: string; end_date?: string | null; modality?: string; status?: string; category?: string
+        recruiter_id?: string | null; participant_ids?: string[]; employee_ids?: string[]
+        employee?: { full_name: string } | null; candidate?: { full_name: string } | null; vacancy?: { title: string } | null
+        recruiter?: { full_name: string } | null; client?: { name: string } | null
+      }[]
     },
   })
 
@@ -177,7 +187,7 @@ export default function CalendarPage() {
       if (error) throw error
       return data || []
     },
-    enabled: addOpen,
+    // Também dá nome aos vários colaboradores de uma reunião (migração 066)
   })
 
   // Vínculos por vaga — pra saber quais nutricionistas estão naquela vaga
@@ -522,12 +532,20 @@ export default function CalendarPage() {
       })
     }
     for (const ap of appointments || []) {
+      const ini = (ap.scheduled_at || '').slice(0, 10)
+      const fim = ap.end_date && ap.end_date.slice(0, 10) > ini ? ap.end_date.slice(0, 10) : ini
+      const nomesColab = (ap.employee_ids || [])
+        .map(eid => (allEmployees || []).find(e => e.id === eid)?.full_name).filter(Boolean).join(', ')
+      // Um evento por dia do período que cai neste mês
+      for (let d = new Date((ini < mStart ? mStart : ini) + 'T12:00:00'); ; d.setDate(d.getDate() + 1)) {
+        const dia = format(d, 'yyyy-MM-dd')
+        if (dia > fim || dia > mEnd) break
       out.push({
         // Compromisso tem cor própria; o resto (Reunião, Visita, Treinamento…)
         // entra como reunião, que é a cara desses eventos no calendário.
         kind: (ap as { category?: string }).category === 'Compromisso' ? 'compromisso' : 'reuniao',
-        date: (ap.scheduled_at || '').slice(0, 10),
-        employee: (ap as { employee?: { full_name: string } }).employee?.full_name
+        date: dia,
+        employee: nomesColab || (ap as { employee?: { full_name: string } }).employee?.full_name
           || (ap as { candidate?: { full_name: string } }).candidate?.full_name
           || (ap as { recruiter?: { full_name: string } }).recruiter?.full_name || '—',
         client: (ap as { client?: { name: string } }).client?.name,
@@ -540,14 +558,15 @@ export default function CalendarPage() {
           || !!(ap as { recruiter_id?: string }).recruiter_id
           || ((ap as { participant_ids?: string[] }).participant_ids?.length || 0) > 0,
       })
+      }
     }
     return out
-  }, [visits, agenda, notices, appointments, supervisoes, rhUsers, allClients])
+  }, [visits, agenda, notices, appointments, supervisoes, rhUsers, allClients, allEmployees, mStart, mEnd])
 
   const filtered = events.filter(e =>
     !ocultos.has(e.kind) &&
     (!fSoRh || e.isRh) &&
-    (!fEmployee || e.employee === fEmployee) && (!fClient || e.client === fClient))
+    (!fEmployee || e.employee === fEmployee || e.employee.split(', ').includes(fEmployee)) && (!fClient || e.client === fClient))
 
   const byDay = useMemo(() => {
     const m: Record<string, Ev[]> = {}

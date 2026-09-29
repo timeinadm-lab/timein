@@ -36,6 +36,18 @@ export function parseLocal(date?: string | null): Date | null {
   const d = parseISO(clean)
   return isValid(d) ? d : null
 }
+/**
+ * Compromisso com período ("Até", ex.: reunião diária até 16/10, férias): vale
+ * em todos os dias do início ao fim. Sem "Até", só no dia do início.
+ */
+export function compromissoNoDia(scheduledAt: string | null | undefined, endDate: string | null | undefined, dia: string): boolean {
+  const ini = parseLocal(scheduledAt)
+  if (!ini) return false
+  const diaIni = format(ini, 'yyyy-MM-dd')
+  const diaFim = endDate && endDate.slice(0, 10) > diaIni ? endDate.slice(0, 10) : diaIni
+  return dia >= diaIni && dia <= diaFim
+}
+
 export function formatLocalDateTime(date?: string | null): string {
   const d = parseLocal(date)
   return d ? format(d, 'dd/MM/yyyy HH:mm', { locale: ptBR }) : '-'

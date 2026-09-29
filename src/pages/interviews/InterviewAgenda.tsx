@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { Plus, Calendar, List, Edit, Trash2, CalendarClock, Check, Video, MapPin } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
-import { formatDate, formatLocalDateTime, parseLocal, isMeetingLink, mapsUrl } from '../../lib/utils'
+import { formatDate, formatLocalDateTime, parseLocal, isMeetingLink, mapsUrl, compromissoNoDia } from '../../lib/utils'
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, addMonths, subMonths } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import toast from 'react-hot-toast'
@@ -58,6 +58,15 @@ export default function InterviewAgenda() {
     },
   })
   const profileName = (pid: string) => allProfiles?.find(p => p.id === pid)?.full_name || '?'
+
+  const { data: colaboradores } = useQuery({
+    queryKey: ['agenda-colaboradores'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('employees').select('id,full_name')
+      if (error) throw error
+      return (data || []) as { id: string; full_name: string }[]
+    },
+  })
 
   const { data: interviews } = useQuery({
     queryKey: ['interviews', filterStatus, filterMine, profile?.id, aba],
@@ -123,10 +132,15 @@ export default function InterviewAgenda() {
   const pending = (interviews || []).filter(i => !i.scheduled_at && i.status === 'Agendada')
 
   const monthDays = eachDayOfInterval({ start: startOfMonth(currentMonth), end: endOfMonth(currentMonth) })
-  const dayInterviews = (day: Date) => interviews?.filter(i => { const d = parseLocal(i.scheduled_at); return d && isSameDay(d, day) }) ?? []
+  // Com "Até" o compromisso aparece em todos os dias do período (reunião diária, férias)
+  const noDia = (i: { scheduled_at: string | null; end_date?: string | null }, day: Date) =>
+    compromissoNoDia(i.scheduled_at, i.end_date, format(day, 'yyyy-MM-dd'))
+  const dayInterviews = (day: Date) => interviews?.filter(i => noDia(i, day)) ?? []
 
   const dated = interviews?.filter(i => i.scheduled_at)
-  const displayInterviews = selectedDay ? dated?.filter(i => { const d = parseLocal(i.scheduled_at); return d && isSameDay(d, selectedDay) }) : dated
+  const displayInterviews = selectedDay ? dated?.filter(i => noDia(i, selectedDay)) : dated
+  // Vários colaboradores por compromisso (migração 066)
+  const nomeColab = (eid: string) => (colaboradores || []).find(c => c.id === eid)?.full_name
 
   return (
     <div className="space-y-4">
@@ -257,7 +271,7 @@ export default function InterviewAgenda() {
         )}
         {displayInterviews?.map(i => {
           const d = parseLocal(i.scheduled_at)
-          const isHoje = d && d.toDateString() === new Date().toDateString()
+          const isHoje = d && (d.toDateString() === new Date().toDateString() || noDia(i, new Date()))
           const emp = (i as { employee?: { id: string; full_name: string } }).employee
           const cand = (i as { candidate?: { id: string; full_name: string } }).candidate
           const vaga = (i as { vacancy?: { title: string } }).vacancy
@@ -265,7 +279,10 @@ export default function InterviewAgenda() {
           const cat = (i as { category?: string }).category
           // Detalhes secundários juntos numa linha só, em vez de 5 linhas empilhadas
           const detalhes = [
-            emp?.full_name && { label: 'Colaborador', value: emp.full_name, path: emp.id ? `/colaboradores/${emp.id}` : null },
+            ...(((i as { employee_ids?: string[] }).employee_ids?.length
+              ? (i as { employee_ids: string[] }).employee_ids.map(eid => ({ id: eid, full_name: nomeColab(eid) || (eid === emp?.id ? emp?.full_name : undefined) }))
+              : emp ? [emp] : []
+            ).filter(c => c.full_name).map(c => ({ label: 'Colaborador', value: c.full_name!, path: c.id ? `/colaboradores/${c.id}` : null }))),
             cand?.full_name && { label: 'Candidato', value: cand.full_name, path: cand.id ? `/candidatos/${cand.id}` : null },
             vaga?.title && { label: 'Vaga', value: vaga.title, path: null },
           ].filter(Boolean) as { label: string; value: string; path: string | null }[]

@@ -8,8 +8,8 @@ import {
 import toast from 'react-hot-toast'
 import { supabase, fetchAll } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
-import { formatDate, formatCurrency, formatLocalTime, parseLocal, isMeetingLink, mapsUrl, hojeISO, tipoDoVinculo, pagaPorDiaria, ehTemporario } from '../lib/utils'
-import { addDays, startOfMonth, endOfMonth, isBefore, parseISO, isAfter, differenceInDays, subMonths } from 'date-fns'
+import { formatDate, formatCurrency, formatLocalTime, parseLocal, isMeetingLink, mapsUrl, hojeISO, tipoDoVinculo, pagaPorDiaria, ehTemporario, compromissoNoDia } from '../lib/utils'
+import { addDays, startOfMonth, endOfMonth, isBefore, parseISO, isAfter, differenceInDays, subMonths, format } from 'date-fns'
 
 const BACKUP_TABLES = [
   'user_profiles', 'clients', 'client_locations', 'client_units', 'client_contracts',
@@ -399,7 +399,8 @@ export default function Dashboard() {
     queryFn: async () => {
       const { data, error } = await supabase.from('interviews')
         .select('*,candidate:candidates(full_name),vacancy:vacancies(title),employee:employees(full_name)')
-        .gte('scheduled_at', now.toISOString())
+        // Com "Até" (reunião diária, férias) continua aparecendo durante o período
+        .or(`scheduled_at.gte.${now.toISOString()},end_date.gte.${now.toISOString().slice(0, 10)}`)
         .order('scheduled_at', { ascending: true }).limit(8)
       if (error) throw error
       return data || []
@@ -446,7 +447,8 @@ export default function Dashboard() {
       const { data, error } = await supabase.from('interviews')
         .select('id,title,category,scheduled_at,status,client:clients(name)')
         .not('scheduled_at', 'is', null)
-        .gte('scheduled_at', weekStart.toISOString()).lt('scheduled_at', weekEnd.toISOString())
+        .lt('scheduled_at', weekEnd.toISOString())
+        .or(`scheduled_at.gte.${weekStart.toISOString()},end_date.gte.${weekStart.toISOString().slice(0, 10)}`)
         .neq('status', 'Cancelada')
         .order('scheduled_at', { ascending: true })
       if (error) throw error
@@ -1350,10 +1352,8 @@ export default function Dashboard() {
   const atencaoVisivel = mostrarTodos ? atencao : atencao.slice(0, 7)
 
   // Agenda: o que tem hoje e o resumo da semana
-  const hojeEventos = (interviews || []).filter((i: { scheduled_at: string }) => {
-    const d = parseLocal(i.scheduled_at) ?? new Date(i.scheduled_at)
-    return d.toDateString() === now.toDateString()
-  })
+  const hojeEventos = (interviews || []).filter((i: { scheduled_at: string; end_date?: string | null }) =>
+    compromissoNoDia(i.scheduled_at, i.end_date, format(now, 'yyyy-MM-dd')))
   const proximosEventos = hojeEventos.length ? hojeEventos : (interviews || []).slice(0, 3)
   const eventosSemana = (weekEvents || []).length
 

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, FormEvent } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, X } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { isMeetingLink } from '../../lib/utils'
@@ -23,6 +23,8 @@ export default function InterviewForm() {
   const [dataLoaded, setDataLoaded] = useState(!id)
   const [targetMonth, setTargetMonth] = useState(new Date().toISOString().slice(0, 7)) // YYYY-MM
   const [participantIds, setParticipantIds] = useState<string[]>(profile?.id ? [profile.id] : [])
+  // Colaboradores vinculados (migração 066): antes só dava um
+  const [employeeIds, setEmployeeIds] = useState<string[]>([])
   const toggleParticipant = (pid: string) =>
     setParticipantIds(p => p.includes(pid) ? p.filter(x => x !== pid) : [...p, pid])
 
@@ -105,6 +107,8 @@ export default function InterviewForm() {
     })
     const existingParticipants = (data as { participant_ids?: string[] }).participant_ids
     setParticipantIds(existingParticipants?.length ? existingParticipants : (data.recruiter_id ? [data.recruiter_id] : []))
+    const idsSalvos = (data as { employee_ids?: string[] }).employee_ids
+    setEmployeeIds(idsSalvos?.length ? idsSalvos : (data.employee_id ? [data.employee_id] : []))
     setNoDate(!data.scheduled_at)
     if (data.target_month) setTargetMonth(String(data.target_month).slice(0, 7))
     setDataLoaded(true)
@@ -112,9 +116,16 @@ export default function InterviewForm() {
 
   const mutation = useMutation({
     mutationFn: async (payload: Record<string, unknown>) => {
-      const { error } = isEdit
-        ? await supabase.from('interviews').update(payload).eq('id', id)
-        : await supabase.from('interviews').insert(payload)
+      const gravar = (p: Record<string, unknown>) => isEdit
+        ? supabase.from('interviews').update(p).eq('id', id)
+        : supabase.from('interviews').insert(p)
+      let { error } = await gravar(payload)
+      // Sem a migração 066 não existe a lista: grava só o primeiro colaborador
+      if (error && /employee_ids/i.test(error.message)) {
+        const { employee_ids: ids, ...semLista } = payload as { employee_ids?: string[] } & Record<string, unknown>
+        if ((ids?.length || 0) > 1) toast('Só o primeiro colaborador foi salvo — falta rodar a migração 066.', { duration: 7000 })
+        ;({ error } = await gravar(semLista))
+      }
       if (error) throw error
 
       if (!isEdit && payload.candidate_id) {
@@ -147,13 +158,17 @@ export default function InterviewForm() {
     if (form.category === 'Visita' && !form.client_id) { toast.error('Escolha o cliente da visita'); return }
     if (ehCompromisso && !form.title.trim()) { toast.error('Escreva o que é o compromisso'); return }
     if (ehCompromisso && !form.employee_id && !participantIds.length) { toast.error('Escolha de quem é o compromisso'); return }
+    if (form.end_date && form.scheduled_at && form.end_date < form.scheduled_at.slice(0, 10)) { toast.error('A data "Até" é antes do início'); return }
+    // Compromisso: o colaborador vem do "Quem?"; nos outros tipos, da lista
+    const colaboradores = ehCompromisso ? (form.employee_id ? [form.employee_id] : []) : employeeIds
     mutation.mutate({
       title: form.title || null,
       category: form.category || null,
       client_id: form.client_id || null,
       candidate_id: form.candidate_id || null,
       vacancy_id: form.vacancy_id || null,
-      employee_id: form.employee_id || null,
+      employee_id: colaboradores[0] || null,
+      employee_ids: colaboradores,
       recruiter_id: participantIds[0] || null,
       participant_ids: participantIds,
       scheduled_at: noDate ? null : form.scheduled_at,
@@ -167,7 +182,7 @@ export default function InterviewForm() {
     })
   }
 
-  const hasLinks = !!(form.employee_id || form.candidate_id || form.vacancy_id)
+  const hasLinks = !!(employeeIds.length || form.candidate_id || form.vacancy_id)
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">
@@ -311,11 +326,22 @@ export default function InterviewForm() {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-3">
             {/* No compromisso o colaborador já é escolhido em "Quem?" acima */}
             {!ehCompromisso && (
-              <div>
-                <label className="label">Colaborador <span className="text-gray-400 font-normal">(férias, licença)</span></label>
-                <select className="input" value={form.employee_id} onChange={e => set('employee_id', e.target.value)}>
-                  <option value="">Nenhum</option>
-                  {employees?.map(emp => <option key={emp.id} value={emp.id}>{emp.full_name}</option>)}
+              <div className="sm:col-span-3">
+                <label className="label">Colaboradores <span className="text-gray-400 font-normal">(pode vincular mais de um)</span></label>
+                {employeeIds.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mb-2">
+                    {employeeIds.map(eid => (
+                      <span key={eid} className="inline-flex items-center gap-1 text-xs bg-primary-50 text-primary-800 border border-primary-200 rounded-full pl-2.5 pr-1 py-1">
+                        {employees?.find(e => e.id === eid)?.full_name || 'Colaborador'}
+                        <button type="button" className="p-0.5 rounded-full hover:bg-primary-100" aria-label="Tirar"
+                          onClick={() => setEmployeeIds(p => p.filter(x => x !== eid))}><X size={12} /></button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <select className="input" value="" onChange={e => { const v = e.target.value; if (v) setEmployeeIds(p => p.includes(v) ? p : [...p, v]) }}>
+                  <option value="">{employeeIds.length ? 'Adicionar outro colaborador…' : 'Adicionar colaborador…'}</option>
+                  {employees?.filter(emp => !employeeIds.includes(emp.id)).map(emp => <option key={emp.id} value={emp.id}>{emp.full_name}</option>)}
                 </select>
               </div>
             )}

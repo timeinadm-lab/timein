@@ -958,7 +958,7 @@ export default function PortalHome() {
                           )}
                           <p className="text-xs text-ink-400 mt-1.5">
                             {[weeklyQuota ? `Até ${fmtHoras(weeklyQuota * 60)} por visita` : null,
-                              (link as { visit_frequency?: string }).visit_frequency === 'Avulso' ? 'visitas avulsas, sem meta no mês'
+                              (link as { visit_frequency?: string }).visit_frequency === 'Avulso' ? 'avulso'
                                 : (link as { visit_frequency?: string }).visit_frequency ? `frequência ${(link as { visit_frequency?: string }).visit_frequency!.toLowerCase()}` : null,
                             ].filter(Boolean).join(' · ')}
                           </p>

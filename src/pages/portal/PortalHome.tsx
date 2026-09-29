@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { LogOut, Clock, Calendar, Plus, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, X, CalendarDays, Trash2, CheckCircle2, Download, MessageCircle, Send, Home, CreditCard, TrendingUp, CheckCheck } from 'lucide-react'
+import { LogOut, Clock, Calendar, Plus, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, X, CalendarDays, Trash2, CheckCircle2, Download, MessageCircle, Send, Home, CreditCard, TrendingUp, CheckCheck, AlertTriangle, Hourglass, Pencil, Repeat, Check, FileText, Paperclip } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
-import { formatDate, getInitials, hojeISO, tipoDoVinculo, pagaPorDiaria, ehTemporario } from '../../lib/utils'
+import { formatDate, formatCurrency, getInitials, corDoAvatar, hojeISO, tipoDoVinculo, pagaPorDiaria, ehTemporario } from '../../lib/utils'
 import { format, getDaysInMonth, startOfMonth, endOfMonth } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import toast from 'react-hot-toast'
@@ -321,7 +321,7 @@ export default function PortalHome() {
 
       // Fixo: um registro por dia — duplicado infla horas e dias trabalhados (Consultoria pode ter 2+ visitas/dia)
       if (!isConsultoria && !editingPontoId && sameMonthVisits.some(v => v.visit_date === pontoForm.visit_date)) {
-        throw new Error(`Já existe um registro em ${formatDate(pontoForm.visit_date)} — toque no ✏️ do registro para editá-lo.`)
+        throw new Error(`Já existe um registro em ${formatDate(pontoForm.visit_date)} — toque no lápis do registro para editar.`)
       }
 
       // Consultoria: valor da visita pela fórmula unidade × (horas ÷ semana cheia)
@@ -415,10 +415,10 @@ export default function PortalHome() {
     onSuccess: (result) => {
       toast.success(editingPontoId ? 'Registro atualizado!' : pontoForm.day_type === 'feriado' ? 'Feriado registrado!' : pontoForm.day_type === 'indisponivel' ? 'Falta registrada!' : 'Registro salvo!')
       if (result?.anexosFalhos?.length) {
-        toast.error(`O registro foi salvo, mas o ${result.anexosFalhos.join(' e o ')} não foi enviado. Toque no ✏️ do registro e anexe de novo.`, { duration: 9000 })
+        toast.error(`O registro foi salvo, mas o ${result.anexosFalhos.join(' e o ')} não foi enviado. Toque no lápis do registro e anexe de novo.`, { duration: 9000 })
       }
       if (result?.reportPending) {
-        toast('📄 Relatório pendente — anexe depois tocando no ✏️ do registro.', { icon: '⚠️', duration: 7000 })
+        toast('Relatório pendente. Anexe depois tocando no lápis do registro.', { duration: 7000 })
       }
       qc.invalidateQueries({ queryKey: ['portal-month', employeeId] })
       setShowPontoModal(false)
@@ -701,29 +701,47 @@ export default function PortalHome() {
   }
 
   return (
-    <div className="min-h-screen overflow-x-hidden pb-8" style={{ paddingBottom: 'max(2rem, env(safe-area-inset-bottom))' }}>
-      {/* Header com faixa de marca */}
-      <div className="bg-gradient-to-br from-primary-600 to-primary-700 text-white px-4 pt-5 pb-4" style={{ paddingTop: 'max(1.25rem, env(safe-area-inset-top))' }}>
-        <div className="max-w-lg mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="w-11 h-11 rounded-2xl bg-white/15 backdrop-blur flex items-center justify-center text-white font-display font-bold ring-1 ring-white/25 shrink-0">
+    <div className="min-h-screen overflow-x-hidden" style={{ paddingBottom: 'calc(5.5rem + env(safe-area-inset-bottom))' }}>
+      {/* Topo verde da marca com a saudação em serifa (visual aprovado em 23/09) */}
+      <div className="bg-primary-900 text-white px-4 pb-5" style={{ paddingTop: 'max(0.875rem, env(safe-area-inset-top))', paddingBottom: tab === 'home' ? undefined : '0.875rem' }}>
+        <div className="max-w-lg mx-auto">
+          <div className="flex items-center justify-between">
+            {tab === 'home' ? (
+              <div className="flex items-center gap-2">
+                <img src="/logo.svg" alt="" className="w-6 h-6 rounded-md" />
+                <span className="text-xs text-white/60">Portal do Nutricionista</span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center font-semibold text-xs shrink-0 ${corDoAvatar(employeeName)}`}>{getInitials(employeeName)}</div>
+                <span className="text-sm font-medium truncate">{employeeName}</span>
+              </div>
+            )}
+            <button onClick={logout} aria-label="Sair"
+              className="flex items-center gap-1.5 text-xs text-white/70 hover:text-white px-2 py-1.5 -mr-2 rounded-lg hover:bg-white/10 active:scale-95 transition-all">
+              <LogOut size={15} /> Sair
+            </button>
+          </div>
+          {tab === 'home' && <div className="flex items-center gap-3 mt-4">
+            <div className={`w-11 h-11 rounded-full flex items-center justify-center font-semibold text-sm shrink-0 ${corDoAvatar(employeeName)}`}>
               {getInitials(employeeName)}
             </div>
             <div className="min-w-0">
-              <p className="font-display font-bold text-base leading-tight truncate">{employeeName}</p>
-              <p className="text-xs text-white/70">TIN · Portal do Nutricionista</p>
+              <p className="text-xs text-white/60 first-letter:uppercase">
+                {new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}
+              </p>
+              <h1 className="font-serif text-[1.75rem] leading-tight truncate !text-white">
+                {saudacao()}, <span className="italic">{employeeName.split(' ')[0] || ''}</span>
+              </h1>
             </div>
-          </div>
-          <button onClick={logout} className="flex items-center gap-1.5 text-sm text-white/80 hover:text-white px-2.5 py-1.5 rounded-xl hover:bg-white/10 active:scale-95 transition-all shrink-0">
-            <LogOut size={16} />
-            <span className="hidden sm:inline">Sair</span>
-          </button>
+          </div>}
         </div>
       </div>
 
-      {/* Tabs — 5 abas compactas */}
-      <div className="sticky top-0 z-20 bg-[#f6f7f6]/90 backdrop-blur border-b border-ink-100">
-        <div className="max-w-lg mx-auto flex gap-1 px-4 py-2">
+      {/* Barra de abas embaixo, onde o polegar alcança (respeita a área do iPhone) */}
+      <nav className="fixed bottom-0 inset-x-0 z-30 bg-white/95 backdrop-blur border-t border-ink-100"
+        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
+        <div className="max-w-lg mx-auto flex">
           {([
             ['home',    Home,          'Início',   null],
             ['folha',   Clock,         'Ponto',    null],
@@ -736,129 +754,124 @@ export default function PortalHome() {
               onClick={() => {
                 setTab(key as Tab)
                 if (key === 'duvidas') markChatSeen()
+                window.scrollTo({ top: 0 })
               }}
-              className={`flex-1 py-2 px-1 text-xs font-semibold flex flex-col items-center gap-0.5 rounded-xl transition-all active:scale-[0.97] relative ${tab === key ? 'bg-white text-primary-700 shadow-soft' : 'text-ink-500 hover:bg-white/60'}`}
+              className={`flex-1 pt-2.5 pb-2 flex flex-col items-center gap-1 text-[11px] font-medium relative transition-colors ${tab === key ? 'text-primary-700' : 'text-ink-400 active:text-ink-600'}`}
             >
-              <Icon size={17} />
+              {tab === key && <span className="absolute top-0 inset-x-5 h-0.5 rounded-full bg-primary-700" />}
+              <Icon size={20} strokeWidth={tab === key ? 2 : 1.75} />
               <span className="leading-none">{label}</span>
               {(badge ?? 0) > 0 && (
-                <span className="absolute top-1 right-2 min-w-[16px] h-4 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center px-0.5">
+                <span className="absolute top-1.5 left-1/2 ml-2 min-w-[16px] h-4 bg-red-600 text-white text-[10px] font-semibold rounded-full flex items-center justify-center px-1 tnum">
                   {badge}
                 </span>
               )}
             </button>
           ))}
         </div>
-      </div>
+      </nav>
 
       <div className="max-w-lg mx-auto p-4 space-y-4">
 
         {/* ─── HOME TAB ─── */}
         {tab === 'home' && (() => {
           const todayStr = hojeISO()
-          const currentMonth = format(new Date(), 'yyyy-MM')
           const allVisits = (monthFolha?.visits as { client_id?: string; check_out?: string; is_unavailable?: boolean; visit_date?: string }[] | undefined) || []
           const daysWorkedTotal = allVisits.filter(v => v.check_out && !v.is_unavailable).length
           const pendingAll = (folhaLinks as FolhaLink[] | undefined)?.flatMap(l => getPendingDays(l)) ?? []
-          const monthLabel = new Date(currentMonth + '-15').toLocaleDateString('pt-BR', { month: 'long' })
+          const monthLabel = new Date(folhaMonth + '-15').toLocaleDateString('pt-BR', { month: 'long' })
+          // Minigráfico: um traço por dia do mês — registrado, falta, pendente ou nada
+          const dim = getDaysInMonth(new Date(folhaMonth + '-15'))
+          const pendSet = new Set(pendingAll)
+          const diasMes = Array.from({ length: dim }, (_, i) => {
+            const ds = `${folhaMonth}-${String(i + 1).padStart(2, '0')}`
+            const doDia = allVisits.filter(v => v.visit_date === ds)
+            const estado = doDia.some(v => v.check_out && !v.is_unavailable) ? 'feito'
+              : doDia.some(v => v.is_unavailable) ? 'falta'
+              : pendSet.has(ds) ? 'pendente'
+              : 'vazio'
+            return { ds, estado }
+          })
+          const next = (agenda as { planned_date?: string; planned_time?: string; client?: { name: string }; notes?: string }[] | undefined)
+            ?.filter(a => (a.planned_date || '') >= todayStr)
+            .sort((a, b) => (a.planned_date || '').localeCompare(b.planned_date || ''))[0]
+          const avisos: { chave: string; icone: typeof Clock; titulo: string; sub: string; cor: string; acao: () => void }[] = []
+          if (unreadChats > 0) avisos.push({
+            chave: 'chat', icone: MessageCircle, cor: 'text-primary-700',
+            titulo: unreadChats === 1 ? 'Nova mensagem do RH' : `${unreadChats} mensagens do RH`, sub: 'Toque para ler',
+            acao: () => { setTab('duvidas'); markChatSeen() },
+          })
+          if (pendingAll.length > 0) avisos.push({
+            chave: 'pend', icone: AlertTriangle, cor: 'text-amber-600',
+            titulo: `${pendingAll.length} dia${pendingAll.length > 1 ? 's' : ''} sem registro`, sub: `O mais antigo: ${formatDate(pendingAll[0])}`,
+            acao: () => setTab('folha'),
+          })
+          if (next) avisos.push({
+            chave: 'next', icone: CalendarDays, cor: 'text-ink-500',
+            titulo: 'Próxima visita',
+            sub: `${next.planned_date === todayStr ? 'Hoje' : new Date(next.planned_date + 'T12:00:00').toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' })}${next.planned_time ? ` às ${next.planned_time.slice(0, 5)}` : ''} · ${next.client?.name || next.notes || ''}`,
+            acao: () => setTab('agenda'),
+          })
           return (
             <div className="space-y-4">
-              <div className="bg-white rounded-2xl p-4 shadow-soft border border-ink-100">
-                <p className="text-xs text-ink-400 mb-1">Olá,</p>
-                <h2 className="text-xl font-display font-bold text-ink-900 leading-tight">{employeeName.split(' ')[0] || 'Olá'} 👋</h2>
-                <p className="text-xs text-ink-400 mt-0.5">{new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}</p>
-              </div>
+              <button onClick={() => { setEditingPontoId(null); setPontoForm(EMPTY_PONTO); setAtestadoFile(null); setReportFile(null); setShowPontoModal(true) }}
+                className="btn-primary w-full py-3.5 text-base">
+                <Plus size={18} /> Registrar hoje
+              </button>
 
-              {/* Stats do mês */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="bg-blue-50 rounded-2xl p-4 border border-blue-100">
-                  <p className="text-3xl font-display font-bold text-blue-700 leading-none">{daysWorkedTotal}</p>
-                  <p className="text-xs text-blue-500 mt-1 font-medium">dias registrados</p>
-                  <p className="text-[10px] text-blue-400 capitalize">{monthLabel}</p>
+              {/* Seu mês: números + minigráfico dos dias */}
+              <div className="card p-4">
+                <div className="flex items-baseline justify-between">
+                  <p className="text-sm font-medium text-ink-800">Seu mês <span className="text-ink-400 font-normal">· {monthLabel}</span></p>
+                  <button onClick={() => setTab('folha')} className="text-xs text-primary-700 font-medium">Ver folha</button>
                 </div>
-                <div className={`rounded-2xl p-4 border ${pendingAll.length > 0 ? 'bg-amber-50 border-amber-200' : 'bg-green-50 border-green-100'}`}>
-                  {pendingAll.length > 0 ? (
-                    <>
-                      <p className="text-3xl font-display font-bold text-amber-600 leading-none">{pendingAll.length}</p>
-                      <p className="text-xs text-amber-500 mt-1 font-medium">dias pendentes</p>
-                      <p className="text-[10px] text-amber-400">preencha a folha</p>
-                    </>
-                  ) : (
-                    <>
-                      <div className="text-green-500 mb-1"><CheckCheck size={22} /></div>
-                      <p className="text-xs text-green-700 font-semibold">Folha em dia!</p>
-                      <p className="text-[10px] text-green-400">nenhum dia pendente</p>
-                    </>
-                  )}
+                <div className="grid grid-cols-2 mt-3 divide-x divide-ink-100">
+                  <div>
+                    <p className="text-3xl font-semibold text-ink-900 tnum leading-none">{daysWorkedTotal}</p>
+                    <p className="text-xs text-ink-500 mt-1.5">dia{daysWorkedTotal !== 1 ? 's' : ''} registrado{daysWorkedTotal !== 1 ? 's' : ''}</p>
+                  </div>
+                  <div className="pl-4">
+                    <p className={`text-3xl font-semibold tnum leading-none ${pendingAll.length ? 'text-amber-600' : 'text-ink-900'}`}>{pendingAll.length}</p>
+                    <p className="text-xs text-ink-500 mt-1.5">{pendingAll.length ? `pendente${pendingAll.length > 1 ? 's' : ''}` : 'pendências'}</p>
+                  </div>
+                </div>
+                <div className="flex items-end gap-[3px] h-6 mt-4" aria-hidden="true">
+                  {diasMes.map(d => (
+                    <span key={d.ds} className={`flex-1 rounded-sm ${
+                      d.estado === 'feito' ? 'h-full bg-primary-600'
+                      : d.estado === 'falta' ? 'h-full bg-red-500'
+                      : d.estado === 'pendente' ? 'h-full bg-amber-400'
+                      : d.ds === todayStr ? 'h-2/3 bg-ink-300'
+                      : 'h-1/3 bg-ink-200'}`} />
+                  ))}
+                </div>
+                <div className="flex gap-3 mt-2 text-[11px] text-ink-400">
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-primary-600" />registrado</span>
+                  {pendingAll.length > 0 && <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-amber-400" />pendente</span>}
+                  {diasMes.some(d => d.estado === 'falta') && <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-red-500" />falta</span>}
                 </div>
               </div>
 
-              {/* Alertas rápidos */}
-              {unreadChats > 0 && (
-                <button
-                  onClick={() => { setTab('duvidas'); markChatSeen() }}
-                  className="w-full flex items-center gap-3 bg-primary-50 border border-primary-200 rounded-2xl p-4 text-left active:scale-[0.99] transition-all"
-                >
-                  <div className="w-10 h-10 rounded-full bg-primary-600 flex items-center justify-center text-white flex-shrink-0">
-                    <MessageCircle size={18} />
-                  </div>
-                  <div className="flex-1">
-                    <p className="text-sm font-semibold text-primary-800">
-                      {unreadChats === 1 ? 'O RH te enviou uma mensagem' : `${unreadChats} mensagens do RH`}
-                    </p>
-                    <p className="text-xs text-primary-500">Toque para ver</p>
-                  </div>
-                  <span className="w-5 h-5 bg-red-500 text-white text-[11px] font-bold rounded-full flex items-center justify-center">{unreadChats}</span>
-                </button>
+              {avisos.length > 0 ? (
+                <div className="card divide-y divide-ink-100 overflow-hidden">
+                  {avisos.map(a => (
+                    <button key={a.chave} onClick={a.acao} className="w-full flex items-center gap-3 px-4 py-3.5 text-left active:bg-ink-50 transition-colors">
+                      <a.icone size={18} className={`shrink-0 ${a.cor}`} strokeWidth={1.75} />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-ink-900">{a.titulo}</p>
+                        <p className="text-xs text-ink-500 truncate">{a.sub}</p>
+                      </div>
+                      {a.chave === 'chat' && <span className="min-w-[20px] h-5 px-1 bg-red-600 text-white text-[11px] font-semibold rounded-full flex items-center justify-center tnum">{unreadChats}</span>}
+                      <ChevronRight size={16} className="text-ink-300 shrink-0" />
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="card px-4 py-3.5 flex items-center gap-3">
+                  <CheckCheck size={18} className="text-primary-600 shrink-0" />
+                  <p className="text-sm text-ink-700">Tudo em dia. Nenhuma pendência.</p>
+                </div>
               )}
-
-              {pendingAll.length > 0 && (
-                <button
-                  onClick={() => setTab('folha')}
-                  className="w-full flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-2xl p-4 text-left active:scale-[0.99] transition-all"
-                >
-                  <div className="w-10 h-10 rounded-full bg-amber-500 flex items-center justify-center text-white flex-shrink-0">
-                    <Clock size={18} />
-                  </div>
-                  <div className="flex-1">
-                    <p className="text-sm font-semibold text-amber-800">{pendingAll.length} dia{pendingAll.length > 1 ? 's' : ''} sem preenchimento</p>
-                    <p className="text-xs text-amber-500">Próximo: {formatDate(pendingAll[0])}</p>
-                  </div>
-                </button>
-              )}
-
-              {/* Próxima visita agendada */}
-              {(() => {
-                const next = (agenda as { planned_date?: string; client?: { name: string }; notes?: string }[] | undefined)
-                  ?.filter(a => (a.planned_date || '') >= todayStr)
-                  .sort((a, b) => (a.planned_date || '').localeCompare(b.planned_date || ''))[0]
-                if (!next) return null
-                return (
-                  <button onClick={() => setTab('agenda')} className="w-full flex items-center gap-3 bg-orange-50 border border-orange-200 rounded-2xl p-4 text-left active:scale-[0.99] transition-all">
-                    <div className="w-10 h-10 rounded-full bg-orange-500 flex items-center justify-center text-white flex-shrink-0">
-                      <CalendarDays size={18} />
-                    </div>
-                    <div className="flex-1">
-                      <p className="text-sm font-semibold text-orange-800">Próxima visita planejada</p>
-                      <p className="text-xs text-orange-500">{formatDate(next.planned_date || '')} · {next.notes || next.client?.name}</p>
-                    </div>
-                  </button>
-                )
-              })()}
-
-              {/* Ações rápidas */}
-              <div className="grid grid-cols-2 gap-3">
-                <button onClick={() => { setEditingPontoId(null); setPontoForm(EMPTY_PONTO); setAtestadoFile(null); setReportFile(null); setShowPontoModal(true) }}
-                  className="btn-primary py-3 flex-col h-auto gap-1 rounded-2xl">
-                  <Plus size={20} />
-                  <span className="text-sm">Registrar dia</span>
-                </button>
-                <button onClick={() => setTab('agenda')}
-                  className="btn-secondary py-3 flex-col h-auto gap-1 rounded-2xl">
-                  <CalendarDays size={20} />
-                  <span className="text-sm">Ver agenda</span>
-                </button>
-              </div>
             </div>
           )
         })()}
@@ -867,189 +880,143 @@ export default function PortalHome() {
         {tab === 'folha' && (
           <>
             <div className="space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <h2 className="section-title text-lg">Folha de Ponto</h2>
-                  <p className="text-xs text-ink-400 mt-0.5">Seus registros de ponto do mês.</p>
-                </div>
-                <input className="input w-36 text-sm shrink-0" type="month" value={folhaMonth} onChange={e => setFolhaMonth(e.target.value)} />
-              </div>
+              <h2 className="font-serif text-[1.75rem] leading-tight text-ink-900">Folha de ponto</h2>
               <div className="flex items-center gap-2">
-                <button onClick={() => setShowPontoModal(true)} className="btn-primary text-sm flex-1">
-                  <Plus size={16} /> Registrar dia
-                </button>
-                <button onClick={downloadFolha} className="btn-secondary text-sm">
-                  <Download size={16} />PDF
+                <MesSeletor value={folhaMonth} onChange={setFolhaMonth} />
+                <button onClick={downloadFolha} className="btn-secondary text-sm px-3 shrink-0" aria-label="Baixar PDF">
+                  <Download size={16} /> PDF
                 </button>
               </div>
+              <button onClick={() => { setEditingPontoId(null); setPontoForm(EMPTY_PONTO); setAtestadoFile(null); setReportFile(null); setShowPontoModal(true) }}
+                className="btn-primary text-sm w-full py-3">
+                <Plus size={16} /> Registrar dia
+              </button>
             </div>
 
-            {/* Summary */}
+            {/* Resumo por cliente — o portal não mostra valores (decisão de 23/09) */}
             {(folhaLinks as FolhaLink[] | undefined)?.map(link => {
               const client = link.client
               const clientVisits = folhaVisits?.filter(v => v.client_id === client?.id) ?? []
               const daysWorked = clientVisits.filter(v => v.check_out && !(v as { is_unavailable?: boolean }).is_unavailable).length
               const isConsultoria = effectiveType(link) === 'Consultoria'
-              const earnings = isConsultoria ? clientVisits.reduce((s, v) => s + (Number(v.visit_rate) || 0), 0) : null
               const pendingDays = !isConsultoria ? getPendingDays(link) : []
               const extraDays = !isConsultoria ? clientVisits.filter(v => (v as { is_extra?: boolean }).is_extra) : []
-              const extraTotal = extraDays.reduce((s, v) => s + (Number((v as { extra_amount?: number }).extra_amount) || 0), 0)
               const faltas = clientVisits.filter(v => (v as { is_unavailable?: boolean }).is_unavailable)
               const monthlyQuota = Number(link.monthly_hours_quota) || null
               const weeklyQuota = Number(link.weekly_hours_quota) || null
               const weeklyCapMins = weeklyQuota ? weeklyQuota * 60 : Infinity
-
+              const liquido = (v: { check_in?: string; check_out?: string }) => {
+                const raw = calcDurationMin(v.check_in!.slice(0, 5), v.check_out!.slice(0, 5))
+                const bs = (v as { break_start?: string }).break_start, be = (v as { break_end?: string }).break_end
+                const brk = bs && be ? calcDurationMin(bs.slice(0, 5), be.slice(0, 5)) : 0
+                return Math.max(0, raw - brk)
+              }
+              const validas = clientVisits.filter(v => v.check_in && v.check_out && !(v as { is_unavailable?: boolean }).is_unavailable)
               // Consultoria: cada visita conta no máximo a cota semanal (excesso vai para aprovação)
-              const totalMins = clientVisits.reduce((s, v) => {
-                if (!v.check_in || !v.check_out || (v as { is_unavailable?: boolean }).is_unavailable) return s
-                const raw = calcDurationMin(v.check_in.slice(0,5), v.check_out.slice(0,5))
-                const bs = (v as { break_start?: string }).break_start, be = (v as { break_end?: string }).break_end
-                const brk = bs && be ? calcDurationMin(bs.slice(0,5), be.slice(0,5)) : 0
-                const net = Math.max(0, raw - brk)
-                return s + (isConsultoria ? Math.min(net, weeklyCapMins) : net)
-              }, 0)
-              const excessMins = isConsultoria ? clientVisits.reduce((s, v) => {
-                if (!v.check_in || !v.check_out || (v as { is_unavailable?: boolean }).is_unavailable) return s
-                const raw = calcDurationMin(v.check_in.slice(0,5), v.check_out.slice(0,5))
-                const bs = (v as { break_start?: string }).break_start, be = (v as { break_end?: string }).break_end
-                const brk = bs && be ? calcDurationMin(bs.slice(0,5), be.slice(0,5)) : 0
-                const net = Math.max(0, raw - brk)
-                return s + Math.max(0, net - weeklyCapMins)
-              }, 0) : 0
+              const totalMins = validas.reduce((s, v) => s + (isConsultoria ? Math.min(liquido(v), weeklyCapMins) : liquido(v)), 0)
+              const excessMins = isConsultoria ? validas.reduce((s, v) => s + Math.max(0, liquido(v) - weeklyCapMins), 0) : 0
               const monthHours = totalMins / 60
-              const fmtH = (h: number) => `${Math.floor(h)}h${Math.round((h % 1) * 60) > 0 ? Math.round((h % 1) * 60) + 'min' : ''}`
-              const linkUnits = isConsultoria && client ? getLinkUnitsForClient(client.id).filter(u => u.visit_rate) : []
-
-              // Fixo: horas extras = horas trabalhadas além da jornada diária. Valor/hora = salário ÷ dias trabalhados ÷ jornada diária.
+              const unidades = isConsultoria && client ? getLinkUnitsForClient(client.id) : []
+              // Fixo: horas além da jornada diária
               const dailyHours = !isConsultoria ? (Number(link.daily_hours) || null) : null
-              let extraHours = 0
-              if (dailyHours) {
-                for (const v of clientVisits) {
-                  if ((v as { is_unavailable?: boolean }).is_unavailable || (v as { is_extra?: boolean }).is_extra) continue
-                  if (!v.check_in || !v.check_out) continue
-                  const raw = calcDurationMin(v.check_in.slice(0,5), v.check_out.slice(0,5))
-                  const bs = (v as { break_start?: string }).break_start, be = (v as { break_end?: string }).break_end
-                  const brk = bs && be ? calcDurationMin(bs.slice(0,5), be.slice(0,5)) : 0
-                  const net = Math.max(0, raw - brk) / 60
-                  if (net > dailyHours) extraHours += net - dailyHours
-                }
-              }
-              // Dias de trabalho do mês pela escala (não pelos registros — senão o valor-hora infla no começo do mês)
-              let scheduledDays: number | null = null
-              if (!isConsultoria && hasKnownSchedule(link)) {
-                const dim = getDaysInMonth(new Date(folhaMonth + '-15'))
-                scheduledDays = 0
-                for (let i = 1; i <= dim; i++) {
-                  if (!isDayOff(link, `${folhaMonth}-${String(i).padStart(2, '0')}`)) scheduledDays++
-                }
-              }
-              const baseDays = scheduledDays || daysWorked
-              const hourlyRate = (!isConsultoria && Number(link.monthly_amount) && baseDays && dailyHours)
-                ? Number(link.monthly_amount) / baseDays / dailyHours : null
-              const extraHoursValue = hourlyRate ? Math.round(extraHours * hourlyRate * 100) / 100 : null
+              const extraHours = dailyHours
+                ? validas.filter(v => !(v as { is_extra?: boolean }).is_extra)
+                    .reduce((s, v) => s + Math.max(0, liquido(v) / 60 - dailyHours), 0)
+                : 0
+              const escala = (link as { work_schedule_type?: string }).work_schedule_type
 
               return (
                 <div key={link.id} className="card overflow-hidden">
-                  {/* Cabeçalho do cliente */}
-                  <div className={`px-4 py-3.5 flex items-center justify-between ${isConsultoria ? 'bg-orange-50/60' : 'bg-blue-50/60'} border-b ${isConsultoria ? 'border-orange-100' : 'border-blue-100'}`}>
+                  <div className="px-4 pt-4 pb-3 flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <p className="font-display font-bold text-ink-900 truncate">{client?.name}</p>
-                      <div className="flex items-center gap-1.5 mt-1">
-                        <span className={`badge text-[10px] ${isConsultoria ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'}`}>{effectiveType(link)}{pagaPorDiaria(link) ? ' · por diária' : ''}</span>
-                        {(link as { work_schedule?: string }).work_schedule && <span className="badge bg-white text-ink-500 text-[10px]">{(link as { work_schedule?: string }).work_schedule}</span>}
-                      </div>
+                      <p className="font-semibold text-ink-900 leading-snug">{client?.name}</p>
+                      <p className="text-xs text-ink-500 mt-0.5">
+                        {[effectiveType(link), pagaPorDiaria(link) ? 'por diária' : null, !isConsultoria ? escala : null].filter(Boolean).join(' · ')}
+                      </p>
                     </div>
-                    <div className="text-right shrink-0 pl-3">
-                      <p className={`text-3xl font-display font-bold leading-none tnum ${isConsultoria ? 'text-orange-600' : 'text-blue-600'}`}>{isConsultoria ? clientVisits.length : daysWorked}</p>
-                      <p className="text-[11px] text-ink-400 mt-1">{isConsultoria ? 'visitas' : 'dias'}</p>
+                    <div className="text-right shrink-0">
+                      <p className="text-3xl font-semibold leading-none text-ink-900 tnum">{isConsultoria ? validas.length : daysWorked}</p>
+                      <p className="text-[11px] text-ink-400 mt-1">{isConsultoria ? (validas.length === 1 ? 'visita' : 'visitas') : (daysWorked === 1 ? 'dia' : 'dias')}</p>
                     </div>
                   </div>
 
-                  <div className="p-4 space-y-2.5">
-                  {!isConsultoria && (
-                    <>
-                      <div className="rounded-xl bg-ink-50 px-3.5 py-2.5 flex items-center justify-between">
-                        <span className="text-sm text-ink-500 font-medium">Total de horas</span>
-                        <span className="font-display font-bold text-ink-900 tnum">{Math.floor(totalMins/60)}h{totalMins%60>0?totalMins%60+'min':''}</span>
-                      </div>
-                      {extraDays.length > 0 && (
-                        <div className="rounded-xl bg-primary-50 px-3.5 py-2.5 flex items-center justify-between">
-                          <span className="text-sm text-primary-700 font-medium">⭐ {extraDays.length} dia(s) extra{extraDays.length > 1 ? 's' : ''}</span>
-                          <span className="font-bold text-primary-700 tnum">+ R$ {extraTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
-                        </div>
-                      )}
-                      {extraHours > 0.05 && (
-                        <div className="rounded-xl bg-primary-50 px-3.5 py-2.5 flex items-center justify-between">
-                          <span className="text-sm text-primary-700 font-medium">⏱ {fmtH(extraHours)} de hora extra{hourlyRate ? ` · R$ ${hourlyRate.toFixed(2)}/h` : ''}</span>
-                          {extraHoursValue ? <span className="font-bold text-primary-700 tnum">+ R$ {extraHoursValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span> : null}
-                        </div>
-                      )}
-                      {faltas.length > 0 && (
-                        <div className="rounded-xl bg-red-50 px-3.5 py-2.5 flex items-center justify-between">
-                          <span className="text-sm text-red-600 font-medium">Faltas justificadas</span>
-                          <span className="font-bold text-red-700 tnum">{faltas.length}</span>
-                        </div>
-                      )}
-                      {pendingDays.length > 0 && (
-                        <div className="rounded-xl bg-amber-50 border border-amber-200 px-3.5 py-2.5">
-                          <p className="text-amber-700 font-semibold text-sm">⚠ {pendingDays.length} dia(s) da escala sem preenchimento</p>
-                          <p className="text-xs text-amber-600 mt-1 leading-relaxed">
-                            {pendingDays.slice(0, 6).map(d => formatDate(d)).join(', ')}{pendingDays.length > 6 ? '…' : ''} — preencha ou registre a falta com o motivo.
-                          </p>
-                        </div>
-                      )}
-                    </>
-                  )}
-                  {isConsultoria && (
-                    <>
-                      <div className="rounded-xl bg-orange-50 px-3.5 py-3 space-y-2">
-                        <div className="flex items-end justify-between">
-                          <span className="text-sm text-orange-700 font-medium">Horas este mês</span>
-                          <span className="font-display font-bold text-orange-800 text-lg leading-none tnum">{fmtH(monthHours)}{monthlyQuota ? <span className="text-sm font-semibold text-orange-500"> / {monthlyQuota}h</span> : null}</span>
-                        </div>
-                        {monthlyQuota && (
-                          <div className="h-2 bg-orange-200/70 rounded-full overflow-hidden">
-                            <div className="h-full bg-gradient-to-r from-orange-400 to-orange-600 rounded-full transition-all" style={{ width: `${Math.min(100, (monthHours / monthlyQuota) * 100)}%` }} />
+                  <div className="px-4 pb-4 space-y-3">
+                    {isConsultoria ? (
+                      <>
+                        <div>
+                          <div className="flex items-baseline justify-between text-sm">
+                            <span className="text-ink-500">Horas no mês</span>
+                            <span className="font-semibold text-ink-900 tnum">
+                              {fmtHoras(totalMins)}{monthlyQuota ? <span className="font-normal text-ink-400"> de {fmtHoras(monthlyQuota * 60)}</span> : null}
+                            </span>
                           </div>
-                        )}
-                        <div className="flex flex-wrap gap-x-3 gap-y-0.5">
-                          {weeklyQuota ? <p className="text-[11px] text-orange-500">Por visita: até {weeklyQuota}h</p> : null}
-                          {monthlyQuota ? <p className="text-[11px] text-orange-500">No mês: {monthlyQuota}h combinado</p> : null}
+                          {monthlyQuota && (
+                            <div className="h-1.5 bg-ink-100 rounded-full overflow-hidden mt-2">
+                              <div className="h-full bg-primary-600 rounded-full transition-all" style={{ width: `${Math.min(100, (monthHours / monthlyQuota) * 100)}%` }} />
+                            </div>
+                          )}
+                          {weeklyQuota ? <p className="text-xs text-ink-400 mt-1.5">Até {fmtHoras(weeklyQuota * 60)} por visita</p> : null}
                         </div>
                         {excessMins > 0 && (
-                          <p className="text-xs text-amber-700 font-medium bg-amber-100/70 rounded-lg px-2 py-1.5">
-                            ⚠ {fmtH(excessMins / 60)} acima do combinado por visita — aguardando aprovação do gestor
+                          <p className="flex items-start gap-2 text-xs text-amber-800 bg-amber-50 rounded-lg px-3 py-2">
+                            <Hourglass size={14} className="shrink-0 mt-px" />
+                            {fmtHoras(excessMins)} acima do combinado por visita, aguardando aprovação do gestor
                           </p>
                         )}
+                        {unidades.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5">
+                            {unidades.map(u => (
+                              <span key={u.id} className="text-xs text-ink-600 bg-ink-50 border border-ink-100 px-2.5 py-1 rounded-full">{u.name}</span>
+                            ))}
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <div className="divide-y divide-ink-100 text-sm">
+                        <div className="flex justify-between py-2 first:pt-0">
+                          <span className="text-ink-500">Horas no mês</span>
+                          <span className="font-semibold text-ink-900 tnum">{fmtHoras(totalMins)}</span>
+                        </div>
+                        {extraDays.length > 0 && (
+                          <div className="flex justify-between py-2">
+                            <span className="text-ink-500">Dias extras</span>
+                            <span className="font-semibold text-ink-900 tnum">{extraDays.length}</span>
+                          </div>
+                        )}
+                        {extraHours > 0.05 && (
+                          <div className="flex justify-between py-2">
+                            <span className="text-ink-500">Hora extra</span>
+                            <span className="font-semibold text-ink-900 tnum">{fmtHoras(extraHours * 60)}</span>
+                          </div>
+                        )}
+                        {faltas.length > 0 && (
+                          <div className="flex justify-between py-2">
+                            <span className="text-ink-500">Faltas justificadas</span>
+                            <span className="font-semibold text-red-600 tnum">{faltas.length}</span>
+                          </div>
+                        )}
                       </div>
-                      {earnings !== null && earnings > 0 && (
-                        <div className="rounded-xl bg-gradient-to-br from-primary-500 to-primary-600 px-3.5 py-3 flex items-center justify-between text-white shadow-glow">
-                          <span className="text-sm font-medium text-white/90">💰 A receber este mês</span>
-                          <span className="font-display font-bold text-lg tnum">R$ {earnings.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
-                        </div>
-                      )}
-                      {linkUnits.length > 0 ? (
-                        <div className="flex flex-wrap gap-1.5">
-                          {linkUnits.map(u => (
-                            <span key={u.id} className="text-xs bg-white border border-orange-200 text-orange-700 px-2.5 py-1 rounded-full font-medium tnum">
-                              {u.name} · R$ {u.visit_rate!.toFixed(2)}
-                            </span>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="text-xs text-amber-600 bg-amber-50 rounded-lg px-3 py-2">⚠ Valores das unidades ainda não definidos pelo RH — as visitas ficam registradas e o valor é calculado depois.</p>
-                      )}
-                    </>
-                  )}
+                    )}
+                    {pendingDays.length > 0 && (
+                      <div className="rounded-lg bg-amber-50 px-3 py-2.5">
+                        <p className="flex items-center gap-2 text-sm font-medium text-amber-800">
+                          <AlertTriangle size={14} className="shrink-0" /> {pendingDays.length} dia{pendingDays.length > 1 ? 's' : ''} da escala sem registro
+                        </p>
+                        <p className="text-xs text-amber-700 mt-1 leading-relaxed">
+                          {pendingDays.slice(0, 6).map(d => formatDate(d)).join(', ')}{pendingDays.length > 6 ? '…' : ''}. Registre o dia ou a falta com o motivo.
+                        </p>
+                      </div>
+                    )}
                   </div>
                 </div>
               )
             })}
 
-            {/* Detailed list — vertical cards */}
+            {/* Registros do mês */}
             {folhaVisits && folhaVisits.length > 0 && (
               <div className="space-y-2">
-                <p className="text-xs font-semibold text-ink-400 uppercase tracking-wide px-1">Registros detalhados</p>
+                <p className="text-sm font-medium text-ink-800 px-1 pt-2">Registros</p>
+                <div className="card divide-y divide-ink-100 overflow-hidden">
                 {folhaVisits.map(v => {
                   const isHoliday = (v as { is_holiday?: boolean }).is_holiday
                   const isUnavailable = (v as { is_unavailable?: boolean }).is_unavailable
@@ -1061,92 +1028,96 @@ export default function PortalHome() {
                   const breakDur = breakStart && breakEnd ? calcDurationMin(breakStart.slice(0,5), breakEnd.slice(0,5)) : 0
                   const dur = Math.max(0, rawDur - breakDur)
                   const extraApproval = (v as { extra_approval?: string }).extra_approval
+                  const abrirEdicao = () => {
+                    setEditingPontoId(v.id)
+                    setPontoForm({
+                      visit_date: v.visit_date,
+                      client_id: v.client_id,
+                      day_type: isHoliday ? 'feriado' : isUnavailable ? 'indisponivel' : 'normal',
+                      check_in: v.check_in?.slice(0,5) || '',
+                      check_out: v.check_out?.slice(0,5) || '',
+                      break_start: breakStart?.slice(0,5) || '',
+                      break_end: breakEnd?.slice(0,5) || '',
+                      unavailability_reason: unavailReason || '',
+                      observations: (v as { observations?: string }).observations || '',
+                      unit_id: (v as { unit_id?: string }).unit_id || '',
+                      unit_name: v.unit_name || '',
+                      is_extra: !!(v as { is_extra?: boolean }).is_extra,
+                      is_swap: !!(v as { is_swap?: boolean }).is_swap,
+                      swapped_from: (v as { swapped_from?: string }).swapped_from || '',
+                    })
+                    setAtestadoFile(null); setReportFile(null); setShowPontoModal(true)
+                  }
+                  // Relatório pendente: consultoria sempre; cobertura por diária também
+                  const relatorioPendente = (() => {
+                    if ((v as { report_url?: string }).report_url || isHoliday || isUnavailable || !v.check_in) return false
+                    const vlink = getLinkForClient(v.client_id, v.visit_date)
+                    return !!vlink && (vlink.service_type === 'Volante' || pagaPorDiaria(vlink) || effectiveType(vlink) === 'Consultoria')
+                  })()
+                  const dia = new Date(v.visit_date + 'T12:00:00')
                   return (
-                    <div key={v.id} className={`card p-3.5 space-y-2.5 ${isHoliday ? 'border-amber-200 bg-amber-50/40' : isUnavailable ? 'border-red-200 bg-red-50/40' : ''}`}>
-                      {/* Row 1: date + client + actions */}
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <p className="text-sm font-bold text-ink-900">{formatDate(v.visit_date)}</p>
-                          <p className="text-xs text-ink-400">{(v as { client?: { name: string } }).client?.name}</p>
-                        </div>
-                        <div className="flex items-center gap-1 shrink-0">
-                          <button className="text-ink-300 hover:text-primary-600 p-1.5 rounded-lg hover:bg-primary-50 transition-colors"
-                            title="Editar" onClick={() => {
-                              setEditingPontoId(v.id)
-                              setPontoForm({
-                                visit_date: v.visit_date,
-                                client_id: v.client_id,
-                                day_type: isHoliday ? 'feriado' : isUnavailable ? 'indisponivel' : 'normal',
-                                check_in: v.check_in?.slice(0,5) || '',
-                                check_out: v.check_out?.slice(0,5) || '',
-                                break_start: breakStart?.slice(0,5) || '',
-                                break_end: breakEnd?.slice(0,5) || '',
-                                unavailability_reason: unavailReason || '',
-                                observations: (v as { observations?: string }).observations || '',
-                                unit_id: (v as { unit_id?: string }).unit_id || '',
-                                unit_name: v.unit_name || '',
-                                is_extra: !!(v as { is_extra?: boolean }).is_extra,
-                                is_swap: !!(v as { is_swap?: boolean }).is_swap,
-                                swapped_from: (v as { swapped_from?: string }).swapped_from || '',
-                              })
-                              setAtestadoFile(null); setReportFile(null); setShowPontoModal(true)
-                            }}>✏️</button>
-                          <button className="text-ink-300 hover:text-red-500 p-1.5 rounded-lg hover:bg-red-50 transition-colors"
-                            title="Excluir" onClick={async () => { if (await confirmar({ titulo: `Excluir o registro de ${formatDate(v.visit_date)}?`, texto: 'O RH deixa de ver esse dia.', perigo: true })) deletePonto.mutate(v.id) }}>
-                            <Trash2 size={14} />
-                          </button>
-                        </div>
+                    <div key={v.id} className="px-4 py-3.5 flex gap-3">
+                      {/* Data em bloco */}
+                      <div className="w-10 shrink-0 text-center pt-0.5">
+                        <p className="text-[11px] text-ink-400 uppercase leading-none">{dia.toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', '')}</p>
+                        <p className="text-xl font-semibold text-ink-900 tnum leading-tight">{dia.getDate()}</p>
                       </div>
+                      <div className="flex-1 min-w-0 space-y-1.5">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-ink-900 truncate">{(v as { client?: { name: string } }).client?.name}</p>
+                            {v.unit_name && <p className="text-xs text-ink-500 truncate">{v.unit_name}</p>}
+                          </div>
+                          <div className="flex items-center -mr-1.5 -mt-1 shrink-0">
+                            <button className="text-ink-400 hover:text-ink-800 p-2 rounded-lg active:bg-ink-100" aria-label="Editar" onClick={abrirEdicao}>
+                              <Pencil size={15} />
+                            </button>
+                            <button className="text-ink-300 hover:text-red-600 p-2 rounded-lg active:bg-red-50" aria-label="Excluir"
+                              onClick={async () => { if (await confirmar({ titulo: `Excluir o registro de ${formatDate(v.visit_date)}?`, texto: 'O RH deixa de ver esse dia.', perigo: true })) deletePonto.mutate(v.id) }}>
+                              <Trash2 size={15} />
+                            </button>
+                          </div>
+                        </div>
 
-                      {/* Row 2: tags */}
-                      <div className="flex flex-wrap gap-1.5">
-                        {isHoliday && <span className="badge bg-amber-100 text-amber-700">Feriado</span>}
-                        {isUnavailable && <span className="badge bg-red-100 text-red-700">Falta</span>}
-                        {(v as { is_extra?: boolean }).is_extra && <span className="badge bg-green-100 text-green-700">⭐ Dia extra</span>}
-                        {(v as { is_swap?: boolean }).is_swap && <span className="badge bg-blue-100 text-blue-700">🔁 Troca{(v as { swapped_from?: string }).swapped_from ? ` ← ${formatDate((v as { swapped_from?: string }).swapped_from!)}` : ''}</span>}
-                        {v.unit_name && <span className="badge bg-orange-100 text-orange-700">{v.unit_name}</span>}
-                        {extraApproval === 'pendente' && <span className="badge bg-amber-100 text-amber-700">⏳ Aguardando gestor</span>}
-                        {extraApproval === 'aprovada' && <span className="badge bg-green-100 text-green-700">✓ Extra aprovada</span>}
-                        {extraApproval === 'negada' && <span className="badge bg-gray-100 text-gray-500">Extra não remunerada</span>}
-                        {atestadoUrl && <span className="badge bg-green-50 text-green-600">✓ Atestado</span>}
-                        {(v as { report_url?: string }).report_url && <span className="badge bg-green-50 text-green-600">✓ Relatório</span>}
-                        {(() => {
-                          // Relatório pendente: consultoria sempre; Volante em qualquer cobertura
-                          if ((v as { report_url?: string }).report_url || isHoliday || isUnavailable || !v.check_in) return null
-                          const vlink = getLinkForClient(v.client_id, v.visit_date)
-                          const precisa = vlink && (vlink.service_type === 'Volante' || pagaPorDiaria(vlink) || effectiveType(vlink) === 'Consultoria')
-                          return precisa ? <span className="badge bg-red-100 text-red-700">📄 Relatório pendente — toque no ✏️ para anexar</span> : null
-                        })()}
-                      </div>
+                        {v.check_in && !isHoliday && !isUnavailable && (
+                          <p className="text-sm text-ink-700 tnum">
+                            {v.check_in.slice(0,5)} – {v.check_out?.slice(0,5) || '…'}
+                            {dur > 0 && <span className="text-ink-400"> · {fmtHoras(dur)}</span>}
+                            {breakStart && breakEnd && <span className="text-ink-400"> · intervalo {breakStart.slice(0,5)}–{breakEnd.slice(0,5)}</span>}
+                          </p>
+                        )}
 
-                      {/* Row 3: horários + duração + valor */}
-                      {(v.check_in || dur > 0 || v.visit_rate || (v as { extra_amount?: number }).extra_amount) && (
-                        <div className="flex items-center gap-3 bg-ink-50 rounded-xl px-3 py-2 text-sm">
-                          {v.check_in && !isHoliday && (
-                            <span className="text-ink-600 font-medium tnum">{v.check_in.slice(0,5)} → {v.check_out?.slice(0,5) || '...'}</span>
+                        <div className="flex flex-wrap gap-1.5">
+                          {isHoliday && <span className="badge bg-amber-50 text-amber-700">Feriado</span>}
+                          {isUnavailable && <span className="badge bg-red-50 text-red-700">Falta{unavailReason ? ` · ${unavailReason}` : ''}</span>}
+                          {(v as { is_extra?: boolean }).is_extra && <span className="badge bg-ink-100 text-ink-700">Dia extra</span>}
+                          {(v as { is_swap?: boolean }).is_swap && <span className="badge bg-ink-100 text-ink-700 inline-flex items-center gap-1"><Repeat size={11} /> Troca{(v as { swapped_from?: string }).swapped_from ? ` de ${formatDate((v as { swapped_from?: string }).swapped_from!)}` : ''}</span>}
+                          {extraApproval === 'pendente' && <span className="badge bg-amber-50 text-amber-700">Aguardando gestor</span>}
+                          {extraApproval === 'aprovada' && <span className="badge bg-primary-50 text-primary-700">Extra aprovada</span>}
+                          {extraApproval === 'negada' && <span className="badge bg-ink-100 text-ink-500">Extra não remunerada</span>}
+                          {atestadoUrl && <span className="badge bg-primary-50 text-primary-700 inline-flex items-center gap-1"><Check size={11} /> Atestado</span>}
+                          {(v as { report_url?: string }).report_url && <span className="badge bg-primary-50 text-primary-700 inline-flex items-center gap-1"><Check size={11} /> Relatório</span>}
+                          {relatorioPendente && (
+                            <button onClick={abrirEdicao} className="badge bg-red-50 text-red-700 inline-flex items-center gap-1 active:bg-red-100">
+                              <FileText size={11} /> Relatório pendente · anexar
+                            </button>
                           )}
-                          {dur > 0 && <span className="text-ink-500 font-semibold tnum">{Math.floor(dur/60)}h{dur%60>0?String(dur%60).padStart(2,'0')+'m':''}</span>}
-                          {breakStart && breakEnd && <span className="text-xs text-ink-400">intervalo {breakStart.slice(0,5)}–{breakEnd.slice(0,5)}</span>}
-                          <div className="flex-1" />
-                          {v.visit_rate && <span className="font-bold text-green-700 tnum">R$ {Number(v.visit_rate).toFixed(2)}</span>}
-                          {(v as { extra_amount?: number }).extra_amount ? <span className="font-bold text-green-700 tnum">+R$ {Number((v as { extra_amount?: number }).extra_amount).toFixed(2)}</span> : null}
                         </div>
-                      )}
 
-                      {/* Row 4: motivo/observação */}
-                      {isUnavailable && unavailReason && <p className="text-xs text-red-600">Motivo: {unavailReason}</p>}
-                      {(v as { observations?: string }).observations && <p className="text-xs text-blue-600 italic">"{(v as { observations?: string }).observations}"</p>}
+                        {(v as { observations?: string }).observations && <p className="text-xs text-ink-500">{(v as { observations?: string }).observations}</p>}
+                      </div>
                     </div>
                   )
                 })}
+                </div>
               </div>
             )}
 
             {folhaVisits?.length === 0 && (
               <div className="card p-8 text-center">
-                <Clock size={28} className="mx-auto mb-2 text-ink-200" />
-                <p className="text-ink-400 text-sm font-medium">Nenhum registro de ponto neste mês.</p>
-                <p className="text-ink-300 text-xs mt-0.5">Toque em "Registrar dia" para começar.</p>
+                <Clock size={26} className="mx-auto mb-2 text-ink-300" strokeWidth={1.5} />
+                <p className="text-ink-600 text-sm font-medium">Nenhum registro neste mês</p>
+                <p className="text-ink-400 text-xs mt-0.5">Toque em Registrar dia para começar.</p>
               </div>
             )}
 
@@ -1157,16 +1128,16 @@ export default function PortalHome() {
         {tab === 'gastos' && (
           <>
             <div className="space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <h2 className="section-title text-lg">Gastos & Reembolsos</h2>
-                  <p className="text-xs text-ink-400 mt-0.5">Envie comprovantes para reembolso.</p>
-                </div>
-                <input className="input w-36 text-sm shrink-0" type="month" value={folhaMonth} onChange={e => setFolhaMonth(e.target.value)} />
+              <div>
+                <h2 className="font-serif text-[1.75rem] leading-tight text-ink-900">Gastos e reembolsos</h2>
+                <p className="text-sm text-ink-500 mt-0.5">Registre o gasto e anexe o comprovante.</p>
               </div>
-              <button className="btn-primary text-sm w-full" onClick={() => setShowExpForm(p => !p)}>
-                <Plus size={16} /> Registrar novo gasto
-              </button>
+              <MesSeletor value={folhaMonth} onChange={setFolhaMonth} />
+              {!showExpForm && (
+                <button className="btn-primary text-sm w-full py-3" onClick={() => setShowExpForm(true)}>
+                  <Plus size={16} /> Registrar gasto
+                </button>
+              )}
             </div>
 
             {/* Hidden file input for receipt upload */}
@@ -1180,16 +1151,22 @@ export default function PortalHome() {
 
             {showExpForm && (
               <div className="card p-4 space-y-3">
-                <h3 className="font-semibold text-sm text-ink-800">Novo gasto</h3>
-                <input className="input w-full" placeholder="Descrição *" value={expenseForm.description} onChange={e => setExpenseForm(p => ({ ...p, description: e.target.value }))} />
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-medium text-ink-900">Novo gasto</h3>
+                  <button className="p-1.5 -mr-1.5 text-ink-400" aria-label="Fechar" onClick={() => setShowExpForm(false)}><X size={18} /></button>
+                </div>
+                <div>
+                  <label className="label">Descrição</label>
+                  <input className="input w-full !text-base" placeholder="Ex.: Uber até o cliente" value={expenseForm.description} onChange={e => setExpenseForm(p => ({ ...p, description: e.target.value }))} />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="label">Valor (R$) *</label>
-                    <input className="input" type="number" placeholder="0,00" value={expenseForm.amount} onChange={e => setExpenseForm(p => ({ ...p, amount: e.target.value }))} />
+                    <label className="label">Valor (R$)</label>
+                    <input className="input !text-base tnum" type="number" inputMode="decimal" placeholder="0,00" value={expenseForm.amount} onChange={e => setExpenseForm(p => ({ ...p, amount: e.target.value }))} />
                   </div>
                   <div>
                     <label className="label">Categoria</label>
-                    <select className="input" value={expenseForm.category} onChange={e => setExpenseForm(p => ({ ...p, category: e.target.value }))}>
+                    <select className="input !text-base" value={expenseForm.category} onChange={e => setExpenseForm(p => ({ ...p, category: e.target.value }))}>
                       <option>Reembolso</option>
                       <option>Ajuda de Custo</option>
                       <option>Vale Transporte</option>
@@ -1199,51 +1176,48 @@ export default function PortalHome() {
                     </select>
                   </div>
                 </div>
-                <input className="input w-full" placeholder="Observação (opcional)" value={expenseForm.notes} onChange={e => setExpenseForm(p => ({ ...p, notes: e.target.value }))} />
-                <div className="flex gap-2">
-                  <button className="btn-primary flex-1" onClick={() => submitExpense.mutate()}
-                    disabled={submitExpense.isPending || !expenseForm.description || !expenseForm.amount}>
-                    {submitExpense.isPending ? 'Enviando...' : 'Registrar'}
-                  </button>
-                  <button className="btn-ghost px-4" onClick={() => setShowExpForm(false)}>Cancelar</button>
+                <div>
+                  <label className="label">Observação (opcional)</label>
+                  <input className="input w-full !text-base" value={expenseForm.notes} onChange={e => setExpenseForm(p => ({ ...p, notes: e.target.value }))} />
                 </div>
+                <button className="btn-primary w-full py-3" onClick={() => submitExpense.mutate()}
+                  disabled={submitExpense.isPending || !expenseForm.description || !expenseForm.amount}>
+                  {submitExpense.isPending ? 'Enviando…' : 'Registrar'}
+                </button>
               </div>
             )}
 
             {myExpenses && myExpenses.length > 0 ? (
-              <div className="space-y-2">
+              <div className="card divide-y divide-ink-100 overflow-hidden">
                 {myExpenses.map(e => (
-                  <div key={e.id} className="card p-4 flex items-center justify-between gap-3">
+                  <div key={e.id} className="px-4 py-3.5 flex items-center gap-3">
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-ink-900 truncate">{e.description}</p>
-                      <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                        <span className="badge bg-orange-100 text-orange-700">{e.category}</span>
-                        {e.notes && <span className="text-xs text-ink-400">{e.notes}</span>}
-                      </div>
+                      <p className="text-sm font-medium text-ink-900 truncate">{e.description}</p>
+                      <p className="text-xs text-ink-500 truncate">{[e.category, e.notes].filter(Boolean).join(' · ')}</p>
                     </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <span className="font-bold text-orange-700 tnum">R$ {Number(e.amount).toFixed(2)}</span>
+                    <div className="flex flex-col items-end gap-1 shrink-0">
+                      <span className="text-sm font-semibold text-ink-900 tnum">{formatCurrency(Number(e.amount))}</span>
                       {(e as { receipt_url?: string }).receipt_url ? (
-                        <span className="badge bg-green-100 text-green-700">✓ enviado</span>
+                        <span className="text-[11px] text-primary-700 inline-flex items-center gap-1"><Check size={11} /> comprovante</span>
                       ) : (
-                        <button className="btn-secondary text-xs py-1 px-2"
+                        <button className="text-[11px] font-medium text-red-700 inline-flex items-center gap-1 active:opacity-70"
                           disabled={uploadingExpId === e.id}
                           onClick={() => { setPendingExpenseUpload(e.id); expReceiptRef.current?.click() }}>
-                          {uploadingExpId === e.id ? '...' : '📎'}
+                          <Paperclip size={11} /> {uploadingExpId === e.id ? 'Enviando…' : 'Anexar comprovante'}
                         </button>
                       )}
                     </div>
                   </div>
                 ))}
-                <div className="flex justify-between items-center bg-orange-50 border border-orange-200 rounded-xl px-4 py-3">
-                  <span className="text-sm text-orange-700 font-medium">Total do mês</span>
-                  <span className="font-display font-bold text-orange-800 tnum">R$ {myExpenses.reduce((s, e) => s + Number(e.amount), 0).toFixed(2)}</span>
+                <div className="px-4 py-3 flex justify-between items-center bg-ink-50/60">
+                  <span className="text-sm text-ink-500">Total do mês</span>
+                  <span className="text-sm font-semibold text-ink-900 tnum">{formatCurrency(myExpenses.reduce((s, e) => s + Number(e.amount), 0))}</span>
                 </div>
               </div>
-            ) : (
+            ) : !showExpForm && (
               <div className="card p-8 text-center">
-                <CreditCard size={28} className="mx-auto mb-2 text-ink-200" />
-                <p className="text-ink-400 text-sm font-medium">Nenhum gasto registrado este mês.</p>
+                <CreditCard size={26} className="mx-auto mb-2 text-ink-300" strokeWidth={1.5} />
+                <p className="text-ink-600 text-sm font-medium">Nenhum gasto neste mês</p>
               </div>
             )}
           </>
@@ -1253,8 +1227,8 @@ export default function PortalHome() {
         {tab === 'duvidas' && (
           <>
             <div>
-              <h2 className="section-title text-lg">Chat com o RH</h2>
-              <p className="text-xs text-ink-400 mt-0.5">As respostas do RH aparecem aqui em tempo real.</p>
+              <h2 className="font-serif text-[1.75rem] leading-tight text-ink-900">Chat com o RH</h2>
+              <p className="text-sm text-ink-500 mt-0.5">As respostas aparecem aqui.</p>
             </div>
 
             {/* Histórico de mensagens — bolhas estilo chat */}
@@ -1314,22 +1288,22 @@ export default function PortalHome() {
             )}
 
             {/* Caixa de envio — fixada embaixo visualmente */}
-            <div className="sticky bottom-4 bg-white/95 backdrop-blur border border-ink-100 rounded-2xl shadow-lg p-3 space-y-2">
+            <div className="sticky bg-white border border-ink-200 rounded-2xl shadow-lift p-2 flex items-end gap-2" style={{ bottom: "calc(4.75rem + env(safe-area-inset-bottom))" }}>
               <textarea
-                className="input w-full resize-none text-sm"
-                rows={2}
-                placeholder="Escreva sua mensagem para o RH..."
+                className="input flex-1 resize-none !text-base border-0 focus:ring-0 shadow-none"
+                rows={1}
+                placeholder="Mensagem para o RH"
                 value={duvidaText}
                 onChange={e => setDuvidaText(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && duvidaText.trim()) { e.preventDefault(); enviarDuvida.mutate(duvidaText.trim()) } }}
               />
               <button
-                className="btn-primary w-full text-sm"
+                className="btn-primary h-11 w-11 p-0 shrink-0 rounded-xl"
+                aria-label="Enviar"
                 disabled={!duvidaText.trim() || enviarDuvida.isPending}
                 onClick={() => { if (duvidaText.trim()) enviarDuvida.mutate(duvidaText.trim()) }}
               >
-                <Send size={14} />
-                {enviarDuvida.isPending ? 'Enviando...' : 'Enviar'}
+                <Send size={17} />
               </button>
             </div>
           </>
@@ -1345,7 +1319,6 @@ export default function PortalHome() {
           const daysInMonth = getDaysInMonth(monthDate)
           const firstDow = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1).getDay()
           const hojeStr = hojeISO()
-          const nomeMes = monthDate.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
           const vinculos = (folhaLinks as FolhaLink[] | undefined) || []
           const clientesDela = Array.from(new Map(vinculos.filter(l => l.client).map(l => [l.client!.id, l.client!.name])).entries())
           const nomeDoCliente = (id?: string | null) => {
@@ -1397,8 +1370,8 @@ export default function PortalHome() {
             <>
               <div className="flex items-end justify-between gap-3">
                 <div>
-                  <h2 className="section-title text-lg">Minha agenda</h2>
-                  <p className="text-xs text-ink-400 mt-0.5">Toque num dia para ver o cliente, registrar ou trocar.</p>
+                  <h2 className="font-serif text-[1.75rem] leading-tight text-ink-900">Minha agenda</h2>
+                  <p className="text-sm text-ink-500 mt-0.5">Toque num dia para registrar ou trocar.</p>
                 </div>
                 {podeAgendar && (
                   <button className="btn-primary text-sm shrink-0" onClick={() => {
@@ -1408,16 +1381,10 @@ export default function PortalHome() {
                 )}
               </div>
 
-              <div className="flex items-center gap-2">
-                <div className="flex items-center gap-1 card p-1 shrink-0">
-                  <button className="p-2 rounded-lg active:bg-ink-100" aria-label="Mês anterior"
-                    onClick={() => setAgendaMonth(format(new Date(monthDate.getFullYear(), monthDate.getMonth() - 1, 15), 'yyyy-MM'))}><ChevronLeft size={18} /></button>
-                  <span className="text-sm font-medium text-ink-800 min-w-[7.5rem] text-center first-letter:uppercase">{nomeMes}</span>
-                  <button className="p-2 rounded-lg active:bg-ink-100" aria-label="Próximo mês"
-                    onClick={() => setAgendaMonth(format(new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 15), 'yyyy-MM'))}><ChevronRight size={18} /></button>
-                </div>
+              <div className="space-y-2">
+                <MesSeletor value={agendaMonth} onChange={setAgendaMonth} />
                 {clientesDela.length > 1 && (
-                  <select className="input text-sm flex-1 min-w-0" value={agendaCliente} onChange={e => setAgendaCliente(e.target.value)}>
+                  <select className="input !text-base w-full" value={agendaCliente} onChange={e => setAgendaCliente(e.target.value)}>
                     <option value="">Todos os clientes</option>
                     {clientesDela.map(([id, nome]) => <option key={id} value={id}>{nome}</option>)}
                   </select>
@@ -1749,12 +1716,12 @@ export default function PortalHome() {
                     <>
                       <button className="w-full text-left px-4 py-3 rounded-xl border-2 border-red-200 bg-red-50 text-red-800 text-sm font-medium hover:border-red-400 transition-colors"
                         onClick={() => setNoticeAction('falta')}>
-                        🚫 Vou faltar neste dia
+                        Vou faltar neste dia
                         <span className="block text-xs font-normal text-red-500">Avisa o RH com antecedência</span>
                       </button>
                       <button className="w-full text-left px-4 py-3 rounded-xl border-2 border-amber-200 bg-amber-50 text-amber-800 text-sm font-medium hover:border-amber-400 transition-colors"
                         onClick={() => setNoticeAction('troca-folgar')}>
-                        🔁 Quero trocar este dia
+                        Quero trocar este dia
                         <span className="block text-xs font-normal text-amber-600">Folgo aqui e trabalho em outro dia no lugar</span>
                       </button>
                     </>
@@ -1762,7 +1729,7 @@ export default function PortalHome() {
                   {off && (
                     <button className="w-full text-left px-4 py-3 rounded-xl border-2 border-amber-200 bg-amber-50 text-amber-800 text-sm font-medium hover:border-amber-400 transition-colors"
                       onClick={() => setNoticeAction('troca-trabalhar')}>
-                      🔁 Vou trabalhar nesta folga
+                      Vou trabalhar nesta folga
                       <span className="block text-xs font-normal text-amber-600">No lugar de um dia de trabalho da escala</span>
                     </button>
                   )}
@@ -1974,13 +1941,13 @@ export default function PortalHome() {
                 <label className={`flex items-center gap-2 text-sm cursor-pointer rounded-lg px-2 py-1.5 ${pontoForm.is_extra ? 'bg-green-100 text-green-800 font-medium' : 'text-green-700'}`}>
                   <input type="radio" name="folga-opt" checked={pontoForm.is_extra}
                     onChange={() => setPontoForm(p => ({ ...p, is_extra: true, is_swap: false, swapped_from: '' }))} />
-                  ⭐ Foi um <strong>dia extra</strong>
+                  Foi um <strong>dia extra</strong>
                   <span className="text-xs text-gray-500">(valor definido pelo gestor)</span>
                 </label>
                 <label className={`flex items-center gap-2 text-sm cursor-pointer rounded-lg px-2 py-1.5 ${pontoForm.is_swap ? 'bg-blue-100 text-blue-800 font-medium' : 'text-green-700'}`}>
                   <input type="radio" name="folga-opt" checked={pontoForm.is_swap}
                     onChange={() => setPontoForm(p => ({ ...p, is_swap: true, is_extra: false }))} />
-                  🔁 <strong>Troquei o dia</strong> — trabalhei hoje no lugar de outro dia da escala
+                  <strong>Troquei o dia</strong> — trabalhei hoje no lugar de outro dia da escala
                 </label>
                 {pontoForm.is_swap && (
                   <div className="pl-6">
@@ -1990,7 +1957,7 @@ export default function PortalHome() {
                     <p className="text-xs text-blue-600 mt-1">O dia trocado não fica pendente na sua folha. Troca de dia não gera pagamento extra.</p>
                   </div>
                 )}
-                {pontoForm.is_extra && <p className="text-xs text-amber-600">⏳ Dia extra registrado — o gestor será notificado e vai definir o valor a receber.</p>}
+                {pontoForm.is_extra && <p className="text-xs text-amber-600">Dia extra registrado — o gestor será notificado e vai definir o valor a receber.</p>}
                 {!pontoForm.is_extra && !pontoForm.is_swap && <p className="text-xs text-gray-500">Sem escolher, o dia é registrado como trabalho normal.</p>}
               </div>
             )}
@@ -1999,7 +1966,7 @@ export default function PortalHome() {
               <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer bg-gray-50 rounded-xl px-4 py-3">
                 <input type="checkbox" className="rounded" checked={pontoForm.is_extra}
                   onChange={e => setPontoForm(p => ({ ...p, is_extra: e.target.checked }))} />
-                ⭐ Dia extra — trabalhei fora da minha escala
+                Dia extra — trabalhei fora da minha escala
                 {pontoForm.is_extra && extraDayValue ? <span className="font-bold text-green-700">+ R$ {extraDayValue.toFixed(2)}</span> : null}
               </label>
             )}
@@ -2111,6 +2078,36 @@ export default function PortalHome() {
         </div>
         )
       })()}
+    </div>
+  )
+}
+
+// ── Peças visuais do portal ────────────────────────────────────────────────
+
+function saudacao() {
+  const h = new Date().getHours()
+  return h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite'
+}
+
+// Minutos → "4h30", "2h", "0h" (antes aparecia "2.5h" e "4h30min")
+function fmtHoras(mins: number) {
+  const m = Math.round(mins)
+  const h = Math.floor(m / 60), r = m % 60
+  return r ? `${h}h${String(r).padStart(2, '0')}` : `${h}h`
+}
+
+// Troca de mês com setas. O <input type="month"> do iPhone empurrava o título
+// e saía da tela.
+function MesSeletor({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const d = new Date(value + '-15')
+  const mover = (n: number) => onChange(format(new Date(d.getFullYear(), d.getMonth() + n, 15), 'yyyy-MM'))
+  return (
+    <div className="flex items-center flex-1 min-w-0 bg-white border border-ink-200 rounded-xl">
+      <button type="button" className="p-2.5 text-ink-500 active:bg-ink-50 rounded-l-xl" aria-label="Mês anterior" onClick={() => mover(-1)}><ChevronLeft size={18} /></button>
+      <span className="flex-1 text-center text-sm font-medium text-ink-800 first-letter:uppercase truncate">
+        {d.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
+      </span>
+      <button type="button" className="p-2.5 text-ink-500 active:bg-ink-50 rounded-r-xl" aria-label="Próximo mês" onClick={() => mover(1)}><ChevronRight size={18} /></button>
     </div>
   )
 }

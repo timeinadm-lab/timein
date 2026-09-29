@@ -18,6 +18,7 @@ export type VinculoParaEncerrar = {
   employee_id?: string
   client_id?: string
   service_type?: string
+  pay_mode?: string | null
   start_date?: string | null
   contract_end_date?: string | null
   ended_at?: string | null
@@ -76,7 +77,8 @@ export default function EncerrarVinculoModal({ vinculo, employeeId, nome, onClos
   })
   const trabalhados = (registros || []).filter(r => r.check_out && !r.is_unavailable && !r.is_holiday).length
   const semSaida = (registros || []).filter(r => !r.check_out && !r.is_unavailable && !r.is_holiday).length
-  const porTrabalho = vinculo.service_type === 'Consultoria'
+  // Consultoria com salário fixo acerta como fixo (dias corridos × salário ÷ 30), igual à folha
+  const porTrabalho = vinculo.service_type === 'Consultoria' && vinculo.pay_mode !== 'salario_fixo'
 
   const salvar = async () => {
     if (!fim) { toast.error('Informe o último dia trabalhado'); return }

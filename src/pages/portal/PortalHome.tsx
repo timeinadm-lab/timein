@@ -123,15 +123,25 @@ export default function PortalHome() {
     },
     enabled: !!token,
   })
+  // Vínculo que vale no dia: começou e não terminou. Desvinculou/encerrou =
+  // contract_end_date no último dia. Depois disso o cliente some do portal
+  // (agenda e avisos inclusive); o histórico fica só no sistema do RH.
+  const vinculoValeNoDia = (clientId: string | null | undefined, dia: string) =>
+    !!clientId && (links || []).some((l: { client_id?: string; client?: { id: string }; start_date?: string | null; contract_end_date?: string | null }) =>
+      (l.client_id || l.client?.id) === clientId
+      && (!l.start_date || dia >= l.start_date)
+      && (!l.contract_end_date || dia <= l.contract_end_date))
   const agenda = (() => {
     const futura = (base?.agenda as any[] | undefined) || []
     const doMes = agendaDoMes || []
     if (!base && !agendaDoMes) return undefined
     const vistos = new Set(futura.map(a => a.id))
     return [...doMes.filter(a => !vistos.has(a.id)), ...futura]
+      .filter(a => vinculoValeNoDia(a.client_id, String(a.planned_date)))
       .sort((a, b) => String(a.planned_date).localeCompare(String(b.planned_date)))
   })()
-  const notices = base?.notices as any[] | undefined
+  const notices = (base?.notices as any[] | undefined)
+    ?.filter(n => vinculoValeNoDia(n.client_id, String(n.notice_date)))
   const myDuvidas = base?.questions as any[] | undefined
 
   type Notice = { id: string; client_id: string; type: 'falta' | 'troca'; notice_date: string; swap_work_date?: string | null; reason?: string | null }

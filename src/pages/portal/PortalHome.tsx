@@ -893,7 +893,8 @@ export default function PortalHome() {
               </button>
             </div>
 
-            {/* Resumo por cliente — o portal não mostra valores (decisão de 23/09) */}
+            {/* Resumo por cliente. Mostra o valor da visita por unidade (pedido em 29/09),
+                mas não a soma "a receber" do mês (decisão de 23/09). */}
             {(folhaLinks as FolhaLink[] | undefined)?.map(link => {
               const client = link.client
               const clientVisits = folhaVisits?.filter(v => v.client_id === client?.id) ?? []
@@ -955,7 +956,12 @@ export default function PortalHome() {
                               <div className="h-full bg-primary-600 rounded-full transition-all" style={{ width: `${Math.min(100, (monthHours / monthlyQuota) * 100)}%` }} />
                             </div>
                           )}
-                          {weeklyQuota ? <p className="text-xs text-ink-400 mt-1.5">Até {fmtHoras(weeklyQuota * 60)} por visita</p> : null}
+                          <p className="text-xs text-ink-400 mt-1.5">
+                            {[weeklyQuota ? `Até ${fmtHoras(weeklyQuota * 60)} por visita` : null,
+                              (link as { visit_frequency?: string }).visit_frequency === 'Avulso' ? 'visitas avulsas, sem meta no mês'
+                                : (link as { visit_frequency?: string }).visit_frequency ? `frequência ${(link as { visit_frequency?: string }).visit_frequency!.toLowerCase()}` : null,
+                            ].filter(Boolean).join(' · ')}
+                          </p>
                         </div>
                         {excessMins > 0 && (
                           <p className="flex items-start gap-2 text-xs text-amber-800 bg-amber-50 rounded-lg px-3 py-2">
@@ -966,7 +972,9 @@ export default function PortalHome() {
                         {unidades.length > 0 && (
                           <div className="flex flex-wrap gap-1.5">
                             {unidades.map(u => (
-                              <span key={u.id} className="text-xs text-ink-600 bg-ink-50 border border-ink-100 px-2.5 py-1 rounded-full">{u.name}</span>
+                              <span key={u.id} className="text-xs text-ink-600 bg-ink-50 border border-ink-100 px-2.5 py-1 rounded-full">
+                                {u.name}{u.visit_rate ? <span className="text-ink-900 font-medium tnum"> · {formatCurrency(u.visit_rate)}</span> : null}
+                              </span>
                             ))}
                           </div>
                         )}
@@ -1080,11 +1088,15 @@ export default function PortalHome() {
                         </div>
 
                         {v.check_in && !isHoliday && !isUnavailable && (
+                          <div className="flex items-baseline justify-between gap-2">
                           <p className="text-sm text-ink-700 tnum">
                             {v.check_in.slice(0,5)} – {v.check_out?.slice(0,5) || '…'}
                             {dur > 0 && <span className="text-ink-400"> · {fmtHoras(dur)}</span>}
                             {breakStart && breakEnd && <span className="text-ink-400"> · intervalo {breakStart.slice(0,5)}–{breakEnd.slice(0,5)}</span>}
                           </p>
+                          {/* Valor da visita (já é o valor final gravado; o portal não recalcula) */}
+                          {Number(v.visit_rate) > 0 && <span className="text-sm font-semibold text-ink-900 tnum shrink-0">{formatCurrency(Number(v.visit_rate))}</span>}
+                          </div>
                         )}
 
                         <div className="flex flex-wrap gap-1.5">

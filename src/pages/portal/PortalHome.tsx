@@ -273,12 +273,15 @@ export default function PortalHome() {
       const link = getLinkForClient(pontoForm.client_id, pontoForm.visit_date)
       const isConsultoria = effectiveType(link) === 'Consultoria'
 
-      if ((isConsultoria || pontoForm.day_type === 'normal') && (!pontoForm.check_in || !pontoForm.check_out))
+      // Trabalhei / Folga / Faltei vale para Fixo e Consultoria (pedido de 29/09).
+      // Folga e falta não têm horário, unidade nem valor.
+      const isNormal = pontoForm.day_type === 'normal'
+      if (isNormal && (!pontoForm.check_in || !pontoForm.check_out))
         throw new Error('Informe os horários de entrada e saída')
-      if (!isConsultoria && pontoForm.day_type === 'indisponivel' && !pontoForm.unavailability_reason)
+      if (pontoForm.day_type === 'indisponivel' && !pontoForm.unavailability_reason)
         throw new Error('Informe o motivo da falta')
-
-      const isNormal = isConsultoria || pontoForm.day_type === 'normal'
+      if (isConsultoria && isNormal && !pontoForm.unit_id && getLinkUnitsForClient(pontoForm.client_id).length > 0)
+        throw new Error('Escolha a unidade')
 
       // Registrou num dia que NÃO estava combinado, tendo dia em aberto no mesmo
       // cliente? Pergunta o que aconteceu. Sem isso o combinado ficava pendente
@@ -338,7 +341,7 @@ export default function PortalHome() {
       let visitAmount: number | null = null
       let extraApproval: string | null = null
       let proposedAmount: number | null = null
-      if (isConsultoria) {
+      if (isConsultoria && isNormal) {
         const unit = getLinkUnitsForClient(pontoForm.client_id).find(u => u.id === pontoForm.unit_id)
         visitAmount = calcVisitAmount(unit?.visit_rate ?? null, pontoForm.check_in, pontoForm.check_out, Number(link?.weekly_hours_quota) || null)
 
@@ -383,13 +386,13 @@ export default function PortalHome() {
         check_out: isNormal ? pontoForm.check_out : null,
         break_start: isNormal && !isConsultoria ? (pontoForm.break_start || null) : null,
         break_end: isNormal && !isConsultoria ? (pontoForm.break_end || null) : null,
-        is_holiday: !isConsultoria && pontoForm.day_type === 'feriado',
-        is_unavailable: !isConsultoria && pontoForm.day_type === 'indisponivel',
-        unavailability_reason: !isConsultoria && pontoForm.day_type === 'indisponivel' ? pontoForm.unavailability_reason : null,
+        is_holiday: pontoForm.day_type === 'feriado',
+        is_unavailable: pontoForm.day_type === 'indisponivel',
+        unavailability_reason: pontoForm.day_type === 'indisponivel' ? pontoForm.unavailability_reason : null,
         observations: pontoForm.observations || null,
-        unit_id: isConsultoria ? (pontoForm.unit_id || null) : null,
-        unit_name: isConsultoria ? (pontoForm.unit_name || null) : null,
-        visit_rate: isConsultoria ? visitAmount : null,
+        unit_id: isConsultoria && isNormal ? (pontoForm.unit_id || null) : null,
+        unit_name: isConsultoria && isNormal ? (pontoForm.unit_name || null) : null,
+        visit_rate: isConsultoria && isNormal ? visitAmount : null,
         extra_approval: isConsultoria ? extraApproval : (isExtra ? 'pendente' : null),
         proposed_amount: isConsultoria ? proposedAmount : fixoProposedAmount,
         is_extra: isExtra,
@@ -1842,8 +1845,31 @@ export default function PortalHome() {
               <input className="input" type="date" value={pontoForm.visit_date} onChange={e => setPontoForm(p => ({ ...p, visit_date: e.target.value }))} />
             </div>
 
-            {/* ── CONSULTORIA: unidade + horários + valor + relatório ── */}
-            {isConsultoria && (
+            {/* ── Tipo do dia (Fixo e Consultoria) ── */}
+            {modalLink && (
+            <div>
+              <label className="label">O que aconteceu neste dia? *</label>
+              <div className="grid grid-cols-3 gap-2">
+                {([
+                  { value: 'normal', label: 'Trabalhei', color: 'border-green-300 bg-green-50 text-green-800', active: 'border-green-500 bg-green-100' },
+                  { value: 'feriado', label: 'Folga', color: 'border-amber-300 bg-amber-50 text-amber-800', active: 'border-amber-500 bg-amber-100' },
+                  { value: 'indisponivel', label: 'Faltei', color: 'border-red-300 bg-red-50 text-red-800', active: 'border-red-500 bg-red-100' },
+                ] as const).map(opt => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setPontoForm(p => ({ ...p, day_type: opt.value, is_extra: opt.value === 'normal' ? p.is_extra : false }))}
+                    className={`border-2 rounded-xl p-3 text-sm font-medium transition-all ${pontoForm.day_type === opt.value ? opt.active + ' border-2' : opt.color + ' border'}`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            )}
+
+            {/* ── CONSULTORIA: unidade + horários + valor + relatório (só quando trabalhou) ── */}
+            {isConsultoria && pontoForm.day_type === 'normal' && (
               <>
                 {getLinkUnitsForClient(pontoForm.client_id).length > 0 && (
                   <div>
@@ -1932,29 +1958,6 @@ export default function PortalHome() {
               </>
             )}
 
-            {/* ── FIXO: tipo do dia ── */}
-            {modalLink && !isConsultoria && (
-            <div>
-              <label className="label">O que aconteceu neste dia? *</label>
-              <div className="grid grid-cols-3 gap-2">
-                {([
-                  { value: 'normal', label: 'Trabalhei', color: 'border-green-300 bg-green-50 text-green-800', active: 'border-green-500 bg-green-100' },
-                  { value: 'feriado', label: 'Folga', color: 'border-amber-300 bg-amber-50 text-amber-800', active: 'border-amber-500 bg-amber-100' },
-                  { value: 'indisponivel', label: 'Faltei', color: 'border-red-300 bg-red-50 text-red-800', active: 'border-red-500 bg-red-100' },
-                ] as const).map(opt => (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    onClick={() => setPontoForm(p => ({ ...p, day_type: opt.value, is_extra: opt.value === 'normal' ? p.is_extra : false }))}
-                    className={`border-2 rounded-xl p-3 text-sm font-medium transition-all ${pontoForm.day_type === opt.value ? opt.active + ' border-2' : opt.color + ' border'}`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-            )}
-
             {/* ── FIXO: folga da escala detectada → dia extra OU troca de dia ── */}
             {dayIsOff && (
               <div className="bg-green-50 border border-green-300 rounded-xl px-4 py-3 space-y-2">
@@ -2019,7 +2022,7 @@ export default function PortalHome() {
             )}
 
             {/* Feriado: só confirmação */}
-            {modalLink && !isConsultoria && pontoForm.day_type === 'feriado' && (
+            {modalLink && pontoForm.day_type === 'feriado' && (
               <div className="bg-amber-50 rounded-xl px-4 py-3 text-sm text-amber-700">
                 O dia será registrado como folga — não conta como falta nem como dia trabalhado.
               </div>
@@ -2046,7 +2049,7 @@ export default function PortalHome() {
             )}
 
             {/* Falta: motivo + atestado — aparece para o RH cobrar/acompanhar */}
-            {modalLink && !isConsultoria && pontoForm.day_type === 'indisponivel' && (
+            {modalLink && pontoForm.day_type === 'indisponivel' && (
               <div className="space-y-3">
                 <div>
                   <label className="label">Motivo da falta *</label>

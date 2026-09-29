@@ -526,7 +526,9 @@ export default function PaymentList() {
               && !(v as { is_unavailable?: boolean }).is_unavailable
               && !(v as { is_extra?: boolean }).is_extra).length
           : 0
-        const actualVisits = (isConsultoria || freelaConsultoria) ? empVisits.length : 0
+        // Falta/folga de consultoria (sem horário) não é visita
+        const actualVisits = (isConsultoria || freelaConsultoria)
+          ? empVisits.filter(v => v.check_in && !(v as { is_unavailable?: boolean }).is_unavailable && !(v as { is_holiday?: boolean }).is_holiday).length : 0
         // Consultoria: visit_rate JÁ é o valor final da visita (o portal grava
         // proporcional às horas combinadas) — aqui só soma, sem recalcular.
         // Freela cobrindo consultoria segue a mesma regra.

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { LogOut, Clock, Calendar, Plus, ChevronDown, ChevronUp, CalendarDays, Trash2, CheckCircle2, Download, MessageCircle, Send, Home, CreditCard, TrendingUp, CheckCheck } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
-import { formatDate, getInitials, hojeISO } from '../../lib/utils'
+import { formatDate, getInitials, hojeISO, tipoDoVinculo, pagaPorDiaria, ehTemporario } from '../../lib/utils'
 import { format, getDaysInMonth, startOfMonth, endOfMonth } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import toast from 'react-hot-toast'
@@ -269,7 +269,8 @@ export default function PortalHome() {
       // Relatório: consultoria sempre; Volante em qualquer cobertura (consultoria ou fixo).
       // NÃO bloqueia o check-in — sem anexo o registro fica com pendência visível
       // no portal, na ficha do colaborador e na tela de pagamento.
-      const isVolante = link?.service_type === 'Volante'
+      // Cobertura por diária (antigo freela) também entrega relatório
+      const isVolante = link?.service_type === 'Volante' || pagaPorDiaria(link)
       let reportPending = false
       if (isNormal && (isConsultoria || isVolante) && !reportFile) {
         const existing = editingPontoId
@@ -369,7 +370,7 @@ export default function PortalHome() {
         }
       }
       if (atestadoFile && recordId) await enviar(atestadoFile, 'atestados', 'atestado_url', 'atestado')
-      if (reportFile && recordId && (isConsultoria || link?.service_type === 'Volante')) {
+      if (reportFile && recordId && (isConsultoria || link?.service_type === 'Volante' || pagaPorDiaria(link))) {
         await enviar(reportFile, 'relatorios', 'report_url', 'relatório')
       }
 
@@ -436,12 +437,12 @@ export default function PortalHome() {
   const folhaLinks = links?.filter((l: Record<string, unknown>) => {
     const end = (l.contract_end_date as string) || ''
     if (end && end < _today) return false
-    if (l.service_type !== 'Volante') return true
+    if (!ehTemporario(l)) return true
     const start = (l.start_date as string) || ''
     return !start || start <= _today
   })
 
-  type FolhaLink = { id: string; service_type: string; coverage_type?: string; start_date?: string; contract_end_date?: string; monthly_amount?: number; work_schedule?: string; work_schedule_type?: string; daily_hours?: number; days_off?: number[]; schedule_anchor_date?: string; weekly_hours_quota?: number; monthly_hours_quota?: number; visits_per_week?: number; link_units?: { unit_id: string; unit_name: string; visit_rate?: number }[]; client?: { id: string; name: string } }
+  type FolhaLink = { id: string; service_type: string; coverage_type?: string; pay_mode?: string; is_temporary?: boolean; start_date?: string; contract_end_date?: string; monthly_amount?: number; work_schedule?: string; work_schedule_type?: string; daily_hours?: number; days_off?: number[]; schedule_anchor_date?: string; weekly_hours_quota?: number; monthly_hours_quota?: number; visits_per_week?: number; link_units?: { unit_id: string; unit_name: string; visit_rate?: number }[]; client?: { id: string; name: string } }
 
   // Pode haver mais de um vínculo no mesmo cliente (ex: consultoria fixa +
   // freela de cobertura). Nesse caso o dia manda: se a data cai dentro do
@@ -452,15 +453,14 @@ export default function PortalHome() {
     if (doCliente.length <= 1) return doCliente[0]
     const dia = dateStr || hojeISO()
     const freelaDoDia = doCliente.find(l =>
-      l.service_type === 'Volante' &&
+      ehTemporario(l) &&
       (!l.start_date || dia >= l.start_date) &&
       (!l.contract_end_date || dia <= l.contract_end_date))
-    return freelaDoDia || doCliente.find(l => l.service_type !== 'Volante') || doCliente[0]
+    return freelaDoDia || doCliente.find(l => !ehTemporario(l)) || doCliente[0]
   }
 
   // Volante: o comportamento do portal segue coverage_type (Fixo ou Consultoria), não service_type
-  const effectiveType = (link: FolhaLink | undefined) =>
-    link?.service_type === 'Volante' ? (link.coverage_type || 'Fixo') : (link?.service_type || 'Fixo')
+  const effectiveType = (link: FolhaLink | undefined) => tipoDoVinculo(link)
 
   // Dia de folga pela escala: 5x2/6x1 = dias fixos da semana; 12x36 = alterna a partir da âncora (dia sim, dia não)
   const isDayOff = (link: FolhaLink | undefined, dateStr: string) => {
@@ -919,7 +919,7 @@ export default function PortalHome() {
                     <div className="min-w-0">
                       <p className="font-display font-bold text-ink-900 truncate">{client?.name}</p>
                       <div className="flex items-center gap-1.5 mt-1">
-                        <span className={`badge text-[10px] ${isConsultoria ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'}`}>{effectiveType(link)}{link.service_type === 'Volante' ? ' (Volante)' : ''}</span>
+                        <span className={`badge text-[10px] ${isConsultoria ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'}`}>{effectiveType(link)}{pagaPorDiaria(link) ? ' · por diária' : ''}</span>
                         {(link as { work_schedule?: string }).work_schedule && <span className="badge bg-white text-ink-500 text-[10px]">{(link as { work_schedule?: string }).work_schedule}</span>}
                       </div>
                     </div>
@@ -1078,7 +1078,7 @@ export default function PortalHome() {
                           // Relatório pendente: consultoria sempre; Volante em qualquer cobertura
                           if ((v as { report_url?: string }).report_url || isHoliday || isUnavailable || !v.check_in) return null
                           const vlink = getLinkForClient(v.client_id, v.visit_date)
-                          const precisa = vlink && (vlink.service_type === 'Volante' || effectiveType(vlink) === 'Consultoria')
+                          const precisa = vlink && (vlink.service_type === 'Volante' || pagaPorDiaria(vlink) || effectiveType(vlink) === 'Consultoria')
                           return precisa ? <span className="badge bg-red-100 text-red-700">📄 Relatório pendente — toque no ✏️ para anexar</span> : null
                         })()}
                       </div>
@@ -1405,7 +1405,7 @@ export default function PortalHome() {
                 vínculo com dia marcado no mês (fixo com escala já tem o calendário acima). */}
             {(folhaLinks as FolhaLink[] | undefined)?.filter(l =>
               effectiveType(l) === 'Consultoria'
-              || l.service_type === 'Volante'
+              || l.service_type === 'Volante' || ehTemporario(l) || pagaPorDiaria(l)
               || (!hasKnownSchedule(l) && (agenda || []).some(a => (a as { client_id?: string }).client_id === l.client?.id))
             ).map(link => {
               const client = link.client!
@@ -1423,7 +1423,7 @@ export default function PortalHome() {
                 <div key={`cal-consult-${link.id}`} className="card p-4 space-y-3">
                   <div className="flex items-center gap-2">
                     <p className="font-semibold text-sm">{client.name}</p>
-                    <span className="badge bg-orange-100 text-orange-700 text-xs">{link.service_type === 'Volante' ? 'Freela' : effectiveType(link)}</span>
+                    <span className="badge bg-orange-100 text-orange-700 text-xs">{pagaPorDiaria(link) ? 'Fixo · por diária' : effectiveType(link)}</span>
                   </div>
                   <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-ink-500">
                     <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-orange-400 inline-block" /> Planejado</span>
@@ -1952,9 +1952,9 @@ export default function PortalHome() {
             )}
 
             {/* Volante cobrindo Fixo: relatório do dia é obrigatório também */}
-            {!isConsultoria && pontoForm.day_type === 'normal' && modalLink?.service_type === 'Volante' && (
+            {!isConsultoria && pontoForm.day_type === 'normal' && (modalLink?.service_type === 'Volante' || pagaPorDiaria(modalLink)) && (
               <div>
-                <label className="label">Relatório do dia <span className="text-red-500 font-normal">— obrigatório (freela)</span></label>
+                <label className="label">Relatório do dia <span className="text-red-500 font-normal">— obrigatório</span></label>
                 <input ref={reportRef} type="file" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" className="hidden"
                   onChange={e => setReportFile(e.target.files?.[0] || null)} />
                 <button

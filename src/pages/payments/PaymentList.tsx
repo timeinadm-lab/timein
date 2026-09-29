@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { Plus, Download, Check, RefreshCw, AlertTriangle, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, BarChart3, Trash2, FileSpreadsheet, X, Paperclip, Search, MoreHorizontal, Pencil, Wallet, ExternalLink, FileCheck2, FileX2 } from 'lucide-react'
 import { supabase, fetchAll } from '../../lib/supabase'
-import { formatDate, formatCurrency, hojeISO, semAcento } from '../../lib/utils'
+import { formatDate, formatCurrency, hojeISO, semAcento, tipoDoVinculo, pagaPorDiaria, ehTemporario } from '../../lib/utils'
 import { exportToCSV } from '../../lib/exportUtils'
 import { SkeletonRows } from '../../components/ui/Skeleton'
 import { SignedLink } from '../../components/ui/SignedFile'
@@ -16,12 +16,11 @@ import {
 } from 'recharts'
 
 type Tab = 'folha' | 'pagos'
-type WorkerGroup = 'consultoria' | 'fixo_plantao' | 'freela'
+type WorkerGroup = 'consultoria' | 'fixo_plantao'
 
-function workerGroup(serviceType: string | null): WorkerGroup {
-  if (serviceType === 'Volante') return 'freela'
-  if (serviceType === 'Consultoria') return 'consultoria'
-  return 'fixo_plantao'
+// Freela acabou (migração 058): Consultoria ou Fixo (mensal ou por diária)
+function workerGroup(l: { service_type?: string | null; coverage_type?: string | null }): WorkerGroup {
+  return tipoDoVinculo(l) === 'Consultoria' ? 'consultoria' : 'fixo_plantao'
 }
 
 // Freela: dias previstos de trabalho no mês, dentro do período [start, end] do lançamento,
@@ -255,7 +254,7 @@ export default function PaymentList() {
       // saía da folha e os últimos dias nunca eram pagos. Agora fica até o
       // ciclo que contém o último dia (quem não tem dia no ciclo é tirado abaixo).
       const fimMin = format(addDays(new Date(monthStart + 'T12:00:00'), -31), 'yyyy-MM-dd')
-      const ehFixo = (l: { service_type?: string }) => l.service_type !== 'Consultoria' && l.service_type !== 'Volante'
+      const ehFixo = (l: { service_type?: string; coverage_type?: string; pay_mode?: string }) => tipoDoVinculo(l) === 'Fixo' && !pagaPorDiaria(l)
       const activeLinks = (rawLinks || []).filter(l => {
         if ((l as { employee?: { status?: string } }).employee?.status !== 'Ativo') return false
         const fim = (l as { contract_end_date?: string }).contract_end_date
@@ -413,9 +412,11 @@ export default function PaymentList() {
         const emp = (l as { employee?: { id: string; full_name: string } }).employee
         const client = (l as { client?: { id: string; name: string } }).client
         const isConsultoria = l.service_type === 'Consultoria'
-        // Freela (Volante): trabalho avulso pago por diária (cobertura fixa) ou por visita (consultoria)
-        const isFreela = l.service_type === 'Volante'
-        const freelaConsultoria = isFreela && (l as { coverage_type?: string }).coverage_type === 'Consultoria'
+        // "isFreela" = pago por DIÁRIA (dias trabalhados × diária): o Fixo por diária
+        // de agora e o antigo freela de cobertura. freelaConsultoria = antigo freela
+        // de auditoria ainda não convertido pela migração 058 (paga por visita).
+        const freelaConsultoria = l.service_type === 'Volante' && (l as { coverage_type?: string }).coverage_type === 'Consultoria'
+        const isFreela = pagaPorDiaria(l) || freelaConsultoria
         const dailyRate = Number((l as { daily_rate?: number }).daily_rate) || 0
 
         // A visita não guarda o vínculo que a originou — casa por colaborador +
@@ -432,7 +433,7 @@ export default function PaymentList() {
           de: (o as { start_date?: string }).start_date || '',
           ate: (o as { contract_end_date?: string }).contract_end_date || '9999-12-31',
         })
-        const freelasIrmaos = irmaos.filter(o => o.service_type === 'Volante').map(janela)
+        const freelasIrmaos = irmaos.filter(o => ehTemporario(o)).map(janela)
         const dentroDaJanela = (d: string, j: { de: string; ate: string }) => (!j.de || d >= j.de) && d <= j.ate
         // Dono único de cada dia. Numa RENOVAÇÃO o fim de um freela e o início
         // do outro caem no mesmo dia (13/09 → 13/09): as duas janelas continham
@@ -447,7 +448,7 @@ export default function PaymentList() {
             if (irmaos.length <= 1) return true
             const dono = donoFreela(v.visit_date)
             // Freela só fica com os dias em que ele é o dono
-            if (isFreela) return dono === l.id
+            if (ehTemporario(l)) return dono === l.id
             // Vínculo fixo abre mão do que pertence a algum freela
             return !dono
           })
@@ -493,7 +494,7 @@ export default function PaymentList() {
           (v as { extra_approval?: string }).extra_approval === 'pendente')
 
         // Relatório exigido: Consultoria sempre; Volante em qualquer cobertura. Fixo puro não.
-        const reportRequired = l.service_type === 'Consultoria' || l.service_type === 'Volante'
+        const reportRequired = l.service_type === 'Consultoria' || l.service_type === 'Volante' || pagaPorDiaria(l)
         const visitasTrabalhadas = empVisits.filter(v =>
           v.check_in && !(v as { is_unavailable?: boolean }).is_unavailable && !(v as { is_holiday?: boolean }).is_holiday)
         const semRelatorio = reportRequired
@@ -547,7 +548,7 @@ export default function PaymentList() {
           ? Math.round(costAssistanceCheia * Math.min(1, Number(fimNoMes.slice(8, 10)) / 30) * 100) / 100
           : costAssistanceCheia
         const multaEncerramento = Number((l as { end_fine_amount?: number }).end_fine_amount) || 0
-        const group = workerGroup(l.service_type)
+        const group = workerGroup(l)
         const payDates = ((l as { payment_dates?: { day_of_month: number }[] }).payment_dates ?? [])
           .slice().sort((a, b) => a.day_of_month - b.day_of_month)
         // Fixo: um pagamento por mês (dia 8, 15 ou 20). Consultoria: sempre 8 e 20.
@@ -695,6 +696,8 @@ export default function PaymentList() {
           service_type: l.service_type,
           isFreela,
           freelaConsultoria,
+          is_temporary: !!(l as { is_temporary?: boolean }).is_temporary,
+          pay_mode: (l as { pay_mode?: string }).pay_mode || null,
           dailyRate,
           freelaStart: (l as { start_date?: string }).start_date || null,
           freelaEnd: (l as { contract_end_date?: string }).contract_end_date || null,
@@ -793,6 +796,7 @@ export default function PaymentList() {
     payDaysAll?: number[]
     visits: { visit_date: string; visit_rate?: number | null }[]
     multaEncerramento?: number
+    isFreela?: boolean
     rescisao?: { fim: string } | null
     encerradoPor?: string | null
   }
@@ -871,13 +875,13 @@ export default function PaymentList() {
         // Fixo/Plantão/12x36 e Freela: um pagamento por mês no dia do contrato.
         // Se o vínculo tiver DOIS dias marcados, o valor é dividido entre eles
         // (quinzena) — o 2º dia cai no mês seguinte quando é menor que o 1º.
-        const isFreela = row.service_type === 'Volante'
+        const isFreela = !!row.isFreela
         // Adiantamento maior que o devido não vira pagamento negativo
         const amount = Math.max(0, Math.round((row.adjusted_amount + extras) * 100) / 100)
-        if (isFreela && amount <= 0) throw new Error('Freela sem valor previsto neste mês — nada a lançar.')
+        if (isFreela && amount <= 0) throw new Error('Sem dias na agenda neste mês — nada a lançar. Marque os dias ou feche pelo realizado.')
 
         const dias = (row.payDaysAll || []).slice().sort((a, b) => a - b)
-        const label = isFreela ? 'Freela' : 'Honorários'
+        const label = isFreela ? 'Diárias' : 'Honorários'
 
         if (dias.length >= 2) {
           const metade = Math.round((amount / 2) * 100) / 100
@@ -935,7 +939,7 @@ export default function PaymentList() {
         type: 'Real',
         description: row.rescisao
           ? `Rescisão – ${row.employee.full_name}${row.client ? ` (${row.client.name})` : ''} – até ${formatDate(row.rescisao.fim)}${jaPago > 0 ? ` (já pago ${formatCurrency(jaPago)})` : ''}`
-          : `[REAL] ${row.service_type === 'Volante' ? 'Freela' : 'Honorários'} – ${row.employee.full_name}${row.client ? ` (${row.client.name})` : ''} – ${monthLabel}${jaPago > 0 ? ` (já pago ${formatCurrency(jaPago)})` : ''}`,
+          : `[REAL] ${row.isFreela ? 'Diárias' : 'Honorários'} – ${row.employee.full_name}${row.client ? ` (${row.client.name})` : ''} – ${monthLabel}${jaPago > 0 ? ` (já pago ${formatCurrency(jaPago)})` : ''}`,
         amount: Math.max(0, Math.round((row.realAmt + extras - jaPago) * 100) / 100),
         due_date: `${dueDate.getFullYear()}-${String(dueDate.getMonth() + 1).padStart(2, '0')}-${String(dueDate.getDate()).padStart(2, '0')}`,
       })
@@ -1043,7 +1047,7 @@ export default function PaymentList() {
   // Antes a tela mostrava o salário CHEIO do Fixo mesmo com faltas, enquanto
   // o botão Real descontava: dois números diferentes para a mesma pessoa.
   const contaDaLinha = (row: LinhaFolha) => {
-    const isFreela = row.service_type === 'Volante'
+    const isFreela = !!row.isFreela
     const itens: { rotulo: string; valor: number; nota?: string }[] = []
     let baseFechamento: number
     if (porTrabalho(row)) {
@@ -1128,7 +1132,7 @@ export default function PaymentList() {
     // Vínculo que terminou neste mês (ou antes). Freela tem fim por natureza,
     // então só marcamos como "encerrado" quem não é freela.
     const fim = row.freelaEnd
-    const encerradoEm = row.service_type !== 'Volante' && fim && fim <= monthEnd ? fim : null
+    const encerradoEm = !ehTemporario(row) && fim && fim <= monthEnd ? fim : null
     return { row, conta, et, aberto, lancado, divergente, encerradoEm }
   })
     // Vínculo que acabou e não deixou nada a pagar (nenhum registro, nenhum
@@ -1467,7 +1471,6 @@ export default function PaymentList() {
                 const groupTotals = [
                   { name: 'Consultoria', value: (folhaData ?? []).filter(r => r.group === 'consultoria').reduce((s, r) => s + valorPrevisto(r), 0), color: '#f97316' },
                   { name: 'Fixo / Plantão', value: (folhaData ?? []).filter(r => r.group === 'fixo_plantao').reduce((s, r) => s + valorPrevisto(r), 0), color: '#3b82f6' },
-                  { name: 'Freelas', value: (folhaData ?? []).filter(r => r.group === 'freela').reduce((s, r) => s + valorPrevisto(r), 0), color: '#a855f7' },
                 ].filter(g => g.value > 0)
                 const byEmployee = (folhaData ?? []).map(r => ({
                   name: r.employee?.full_name?.split(' ').slice(0, 2).join(' ') || '-',
@@ -1538,7 +1541,6 @@ export default function PaymentList() {
               {([
                 { key: 'consultoria' as WorkerGroup, label: 'Consultoria' },
                 { key: 'fixo_plantao' as WorkerGroup, label: 'Fixos e plantão' },
-                { key: 'freela' as WorkerGroup, label: 'Freelas' },
               ]).map(({ key, label }) => {
                 const doGrupo = linhas.filter(l => l.row.group === key)
                 const visiveis = doGrupo.filter(passaFiltro)
@@ -1559,7 +1561,7 @@ export default function PaymentList() {
                     </div>
                     <div className="divide-y divide-ink-100">
                       {visiveis.map(({ row, conta, et, lancado, divergente, encerradoEm }) => {
-                        const isFreela = row.service_type === 'Volante'
+                        const isFreela = !!row.isFreela
                         const isConsultoria = porTrabalho(row)
                         const diff = isConsultoria ? 0 : row.actualDays - row.expDaysToDate
                         const isShort = !isConsultoria && row.actualDays < row.expDaysToDate
@@ -1629,7 +1631,7 @@ export default function PaymentList() {
                                 <div className="flex items-center gap-1.5 flex-wrap mt-1 text-xs text-ink-500">
                                   {row.client?.name && <span className="font-medium text-ink-600">{row.client.name}</span>}
                                   {row.work_schedule && <span className="text-ink-400">· {row.work_schedule}</span>}
-                                  {isFreela && <span className="text-ink-500">Freela{row.freelaConsultoria ? ' · consultoria' : ''}</span>}
+                                  {isFreela && !row.freelaConsultoria && <span className="text-ink-500">· por diária</span>}
                                   {isFreela && row.startDate
                                     ? <span className="text-ink-400">{formatDate(row.startDate)}{row.freelaEnd ? ` → ${formatDate(row.freelaEnd)}` : ''}</span>
                                     : row.startDate && <span className="text-ink-400">desde {formatDate(row.startDate)}</span>}

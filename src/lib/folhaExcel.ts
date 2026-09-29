@@ -81,7 +81,7 @@ export type PagamentoExcel = {
 
 const tipoDoVinculo = (r: FolhaExcelRow) =>
   r.isFreela
-    ? (r.freelaConsultoria ? 'Freela (consultoria)' : 'Freela (diária)')
+    ? (r.freelaConsultoria ? 'Consultoria' : 'Fixo · por diária')
     : r.service_type === 'Consultoria' ? 'Consultoria' : 'Fixo'
 
 const hhmm = (t?: string | null) => (t ? String(t).slice(0, 5) : '')

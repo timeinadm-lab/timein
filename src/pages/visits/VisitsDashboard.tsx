@@ -9,7 +9,7 @@ import {
 } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
-import { formatDate } from '../../lib/utils'
+import { formatDate, tipoDoVinculo } from '../../lib/utils'
 import { SignedLink } from '../../components/ui/SignedFile'
 import toast from 'react-hot-toast'
 
@@ -52,7 +52,7 @@ export default function VisitsDashboard() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('employee_client_links')
-        .select('id, employee_id, client_id, service_type, monthly_amount, daily_rate, link_units, monthly_hours_quota, weekly_hours_quota, work_schedule_type, days_off, schedule_anchor_date, start_date, contract_end_date, client:clients(id, name)')
+        .select('*, client:clients(id, name)')
       if (error) throw error
       return data || []
     },
@@ -159,16 +159,16 @@ export default function VisitsDashboard() {
   })
 
   // Split employees by service type (based on links, not employee_type)
-  const freelaEmpIds = new Set(
-    (links || []).filter(l => l.service_type === 'Volante').map(l => l.employee_id)
-  )
+  // Freela acabou (migração 058): cada vínculo é Consultoria ou Fixo (mensal
+  // ou por diária). Quem ainda estiver como 'Volante' cai no tipo equivalente.
+  const freelaEmpIds = new Set<string>()
   const freelaEmps = (employees || []).filter(e => freelaEmpIds.has(e.id))
 
   const consultoriaEmpIds = new Set(
-    (links || []).filter(l => l.service_type === 'Consultoria' || l.service_type === 'Ambos').map(l => l.employee_id).filter(eid => !freelaEmpIds.has(eid))
+    (links || []).filter(l => l.service_type === 'Ambos' || tipoDoVinculo(l) === 'Consultoria').map(l => l.employee_id)
   )
   const fixoEmpIds = new Set(
-    (links || []).filter(l => l.service_type !== 'Consultoria' && l.service_type !== 'Volante').map(l => l.employee_id).filter(eid => !freelaEmpIds.has(eid))
+    (links || []).filter(l => l.service_type !== 'Ambos' && tipoDoVinculo(l) === 'Fixo').map(l => l.employee_id)
   )
   const consultoriaEmps = (employees || []).filter(e => consultoriaEmpIds.has(e.id))
   const fixoEmps = (employees || []).filter(e => fixoEmpIds.has(e.id))
@@ -758,7 +758,6 @@ export default function VisitsDashboard() {
         {([
           { key: 'consultoria', label: 'Consultoria', count: consultoriaEmps.length },
           { key: 'fixos', label: 'Fixos', count: fixoEmps.length },
-          { key: 'freelas', label: 'Freelas', count: freelaEmps.length },
           { key: 'duvidas', label: 'Dúvidas', count: pendingDuvidas },
         ] as const).map(t => (
           <button

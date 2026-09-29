@@ -8,7 +8,7 @@ import {
 import toast from 'react-hot-toast'
 import { supabase, fetchAll } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
-import { formatDate, formatCurrency, formatLocalTime, parseLocal, isMeetingLink, mapsUrl, hojeISO } from '../lib/utils'
+import { formatDate, formatCurrency, formatLocalTime, parseLocal, isMeetingLink, mapsUrl, hojeISO, tipoDoVinculo, pagaPorDiaria, ehTemporario } from '../lib/utils'
 import { addDays, startOfMonth, endOfMonth, isBefore, parseISO, isAfter, differenceInDays, subMonths } from 'date-fns'
 
 const BACKUP_TABLES = [
@@ -342,12 +342,13 @@ export default function Dashboard() {
     queryKey: ['dashboard-volantes-expiring'],
     queryFn: async () => {
       const { data, error } = await supabase.from('employee_client_links')
-        .select('id,contract_end_date,employee:employees(full_name),client:clients(name)')
-        .eq('service_type', 'Volante')
+        .select('*,employee:employees(full_name),client:clients(name)')
         .not('contract_end_date', 'is', null)
         .gte('contract_end_date', now.toISOString().slice(0, 10))
         .lte('contract_end_date', in15.toISOString().slice(0, 10))
       if (error) throw error
+      // Só os temporários (cobertura/avulso) — vale antes e depois da migração 058
+      return (data || []).filter(l => ehTemporario(l))
       return data || []
     },
   })
@@ -372,9 +373,8 @@ export default function Dashboard() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('employee_client_links')
-        .select('id,contract_file_url,service_type,employee:employees(status)')
-        .neq('service_type', 'Volante')
-      return (data || []).filter((l: { employee?: { status?: string } }) => l.employee?.status === 'Ativo')
+        .select('*,employee:employees(status)')
+      return (data || []).filter((l: { employee?: { status?: string } }) => l.employee?.status === 'Ativo' && !ehTemporario(l))
     },
   })
 
@@ -571,7 +571,7 @@ export default function Dashboard() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('employee_client_links')
-        .select('service_type,employee:employees(status)')
+        .select('*,employee:employees(status)')
       return (data || []).filter((l: { employee?: { status?: string } }) => l.employee?.status === 'Ativo')
     },
     enabled: role === 'chefe',
@@ -762,10 +762,9 @@ export default function Dashboard() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('employee_client_links')
-        .select('employee_id,contract_end_date')
-        .eq('service_type', 'Volante')
+        .select('*')
       if (error) throw error
-      return data || []
+      return (data || []).filter(l => ehTemporario(l))
     },
     enabled: role === 'chefe',
   })
@@ -829,8 +828,8 @@ export default function Dashboard() {
   // Colaboradores ativos por tipo de vínculo
   const colaboradoresPie = [
     { name: 'Consultoria', value: allLinks?.filter(l => l.service_type === 'Consultoria').length ?? 0, color: '#f97316' },
-    { name: 'Fixo', value: allLinks?.filter(l => l.service_type !== 'Consultoria' && l.service_type !== 'Volante').length ?? 0, color: '#3b82f6' },
-    { name: 'Freela', value: allLinks?.filter(l => l.service_type === 'Volante').length ?? 0, color: '#a855f7' },
+    { name: 'Fixo', value: allLinks?.filter(l => tipoDoVinculo(l) === 'Fixo' && !pagaPorDiaria(l)).length ?? 0, color: '#3b82f6' },
+    { name: 'Por diária', value: allLinks?.filter(l => pagaPorDiaria(l)).length ?? 0, color: '#a855f7' },
   ].filter(d => d.value > 0)
   const colaboradoresTotal = colaboradoresPie.reduce((s, d) => s + d.value, 0)
 
@@ -1109,7 +1108,7 @@ export default function Dashboard() {
     const name = (l as { employee?: { full_name: string } }).employee?.full_name || 'Colaborador'
     const client = (l as { client?: { name: string } }).client?.name || ''
     const when = days === 0 ? 'vence hoje!' : `faltam ${days}d`
-    amberAlerts.push({ text: `Freela: ${name}${client ? ' – ' + client : ''} — ${when}`, path: '/colaboradores' })
+    amberAlerts.push({ text: `Vínculo temporário: ${name}${client ? ' – ' + client : ''} — ${when}`, path: '/colaboradores' })
   })
 
   // Aniversários dos colaboradores — só hoje e amanhã (avisa 1 dia antes) 
@@ -1661,7 +1660,7 @@ export default function Dashboard() {
             {role === 'chefe' && colaboradoresTotal > 0 && (
               <p className="text-xs text-ink-400 pt-1 border-t border-ink-100">
                 Vínculos: {colaboradoresPie.map(c => `${c.value} ${c.name.toLowerCase()}`).join(' · ')}
-                {freelasTotal > 0 && <> · {freelaAtuando} freela{freelaAtuando !== 1 ? 's' : ''} atuando, {favoritosDisp} favorito{favoritosDisp !== 1 ? 's' : ''} livre{favoritosDisp !== 1 ? 's' : ''}</>}
+                {freelasTotal > 0 && <> · {freelaAtuando} em cobertura temporária, {favoritosDisp} favorito{favoritosDisp !== 1 ? 's' : ''} livre{favoritosDisp !== 1 ? 's' : ''}</>}
               </p>
             )}
           </div>

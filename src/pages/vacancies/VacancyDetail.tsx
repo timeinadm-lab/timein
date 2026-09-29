@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Edit, MessageCircle, ChevronDown, ChevronUp, FileText, CheckCircle, Clock, Zap, Trash2, CalendarPlus } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
-import { formatDate, formatWhatsApp, formatCurrency, BRAZIL_STATES, DEFAULT_DOCUMENTS, serviceTypeLabel, hojeISO } from '../../lib/utils'
+import { formatDate, formatWhatsApp, formatCurrency, BRAZIL_STATES, DEFAULT_DOCUMENTS, serviceTypeLabel, hojeISO, ehTemporario } from '../../lib/utils'
 import { getCityRegion } from '../../lib/geoRegions'
 import { SignedLink } from '../../components/ui/SignedFile'
 import { SkeletonDetail } from '../../components/ui/Skeleton'
@@ -216,11 +216,13 @@ export default function VacancyDetail() {
       const units = (clientLocations || []).map(u => ({ unit_id: u.id, unit_name: u.name, visit_rate: Number(escalarForm.value) }))
       if (units.length === 0) throw new Error('O cliente desta vaga não tem nenhuma unidade. Adicione uma unidade ao cliente antes de escalar.')
       // 1) vínculo avulso de 1 dia — consultoria (paga por visita) sem cota (valor cheio)
-      const { data: newLink, error } = await supabase.from('employee_client_links').insert({
+      // Freela acabou (migração 058): escalar = consultoria temporária, paga por visita
+      const registroEscala: Record<string, unknown> = {
         employee_id: escalarForm.employee_id,
         client_id: vacancy.client_id,
         vacancy_id: id,
-        service_type: 'Volante',
+        service_type: 'Consultoria',
+        is_temporary: true,
         coverage_type: 'Consultoria',
         visit_frequency: 'Avulso',
         link_units: units,
@@ -228,7 +230,13 @@ export default function VacancyDetail() {
         contract_end_date: escalarForm.date,
         agenda_mode: 'gestor',
         monthly_amount: null,
-      }).select('id').single()
+      }
+      let { data: newLink, error } = await supabase.from('employee_client_links').insert(registroEscala).select('id').single()
+      // Migração 058 ainda não rodada: grava no formato antigo
+      if (error && /is_temporary/i.test(error.message)) {
+        const { is_temporary: _t, ...antigo } = registroEscala
+        ;({ data: newLink, error } = await supabase.from('employee_client_links').insert({ ...antigo, service_type: 'Volante' }).select('id').single())
+      }
       if (error) throw error
       if (newLink?.id) {
         await supabase.from('employee_payment_dates').insert({ link_id: newLink.id, day_of_month: Number(escalarForm.pay_day) })
@@ -538,11 +546,11 @@ export default function VacancyDetail() {
         // Guarda o service_type antes de deletar para decidir se reconta capacidade
         const { data: linkData } = await supabase
           .from('employee_client_links')
-          .select('service_type')
+          .select('*')
           .eq('employee_id', empId)
           .eq('client_id', vacancy?.client_id)
-          .maybeSingle()
-        isVolanteLink = linkData?.service_type === 'Volante'
+          .limit(1).maybeSingle()
+        isVolanteLink = ehTemporario(linkData)
 
         // ENCERRA o vínculo, não apaga. Apagar levava junto os dias de pagamento
         // (cascade) e deixava os lançamentos já feitos apontando pra um link_id
@@ -671,7 +679,7 @@ export default function VacancyDetail() {
       const ids = hired.map(i => (i as { employee_id?: string }).employee_id!)
       const { data: emps } = await supabase.from('employees').select('id, full_name, status, role, admission_date').in('id', ids)
       const { data: empLinks } = vacancy?.client_id
-        ? await supabase.from('employee_client_links').select('employee_id, contract_end_date, service_type, monthly_amount').in('employee_id', ids).eq('client_id', vacancy.client_id)
+        ? await supabase.from('employee_client_links').select('*').in('employee_id', ids).eq('client_id', vacancy.client_id)
         : { data: [] as { employee_id: string; contract_end_date?: string; service_type?: string; monthly_amount?: number }[] }
       return hired.map(i => {
         const empId = (i as { employee_id?: string }).employee_id
@@ -691,7 +699,7 @@ export default function VacancyDetail() {
   useEffect(() => {
     if (!vacancy || hiredEmps === undefined || vacancy.status === 'Fechada') return
     const activeCount = hiredEmps
-      .filter(h => h.link?.service_type !== 'Volante' && h.emp?.status === 'Ativo').length
+      .filter(h => !ehTemporario(h.link) && h.emp?.status === 'Ativo').length
     if (activeCount === (vacancy.hired_count ?? 0)) return
     const positions = vacancy.positions_count || 1
     const expectedStatus = activeCount === 0 ? 'Aberta'
@@ -779,7 +787,7 @@ export default function VacancyDetail() {
 
   // Só conta colaboradores Ativos e não-Volante para capacidade
   const contractedCount = hiredEmps !== undefined
-    ? hiredEmps.filter(h => h.link?.service_type !== 'Volante' && h.emp?.status === 'Ativo').length
+    ? hiredEmps.filter(h => !ehTemporario(h.link) && h.emp?.status === 'Ativo').length
     : (interests?.filter(i => i.status === 'Contratado').length ?? 0)
   const totalPositions = vacancy.positions_count || 1
   const activeHired = (hiredEmps || []).filter(h => h.emp?.status === 'Ativo')

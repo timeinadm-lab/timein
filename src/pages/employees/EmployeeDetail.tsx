@@ -3,7 +3,7 @@ import { useParams, useNavigate, useLocation, useSearchParams } from 'react-rout
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Edit, Plus, Trash2, CheckCircle, Clock, XCircle, Download, Upload, ExternalLink, AlertTriangle, Star, X, FileText } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
-import { formatDate, formatCurrency, getInitials, serviceTypeLabel, hojeISO, corDoAvatar } from '../../lib/utils'
+import { formatDate, formatCurrency, getInitials, serviceTypeLabel, hojeISO, corDoAvatar, pagaPorDiaria, ehTemporario, rotuloDoVinculo } from '../../lib/utils'
 import { exportEmployeeToPDF } from '../../lib/exportUtils'
 import { SignedLink, SignedImage } from '../../components/ui/SignedFile'
 import DeletePinModal from '../../components/ui/DeletePinModal'
@@ -85,6 +85,14 @@ function diasDaEscala(link: LinkEscala, mes: string): string[] {
 // vinculo_tipo: 'permanente' = fica no cliente até desligar (service_type real)
 //               'temporario' = freela/cobertura com data de fim (service_type Volante)
 // monthly_amount: no Fixo o RH informa o MENSAL; a diária sai de mensal ÷ 30.
+// Grupo do vínculo na tela de edição: Fixo (mensal), Diaria (fixo por diária) ou Consultoria
+const NOME_GRUPO: Record<string, string> = { Fixo: 'Fixo / Plantão', Diaria: 'Fixo · por diária', Consultoria: 'Consultoria' }
+function grupoDoVinculo(l: { service_type?: string | null; coverage_type?: string | null; pay_mode?: string | null }): string {
+  if (l.service_type === 'Volante') return l.coverage_type === 'Consultoria' ? 'Consultoria' : 'Diaria'
+  if (l.service_type === 'Consultoria') return 'Consultoria'
+  return l.pay_mode === 'diaria' ? 'Diaria' : 'Fixo'
+}
+
 const EMPTY_COVERAGE = {
   client_id: '',
   vinculo_tipo: '' as '' | 'permanente' | 'temporario',
@@ -430,7 +438,7 @@ export default function EmployeeDetail() {
         if (l.client_id !== coverageForm.client_id) return false
         const fim = (l as { contract_end_date?: string }).contract_end_date
         if (fim && fim < hoje) return false            // já encerrado, não conflita
-        const existenteEhPermanente = l.service_type !== 'Volante'
+        const existenteEhPermanente = !ehTemporario(l)
         return novoEhPermanente && existenteEhPermanente
       })
       if (conflito) {
@@ -438,7 +446,7 @@ export default function EmployeeDetail() {
         throw new Error(
           `${employee?.full_name?.split(' ')[0] || 'Esta pessoa'} já tem vínculo fixo com ${nome} (${conflito.service_type}). ` +
           `Edite o vínculo existente — dois vínculos fixos no mesmo cliente geram pagamento em dobro. ` +
-          `Para dias avulsos por cima, escolha "Freela / cobertura".`
+          `Para dias avulsos por cima, escolha "Temporário / cobertura".`
         )
       }
       let linkUnits: { unit_id: string; unit_name: string; visit_rate?: number }[] | null = null
@@ -464,11 +472,15 @@ export default function EmployeeDetail() {
       // na unidade (link_units.visit_rate), então fica nulo mesmo.
       const diaria = isFixo ? diariaFromMensal(coverageForm.monthly_amount) : null
 
-      const { data: newLink, error } = await supabase.from('employee_client_links').insert({
+      // Freela acabou (migração 058): temporário é Fixo (pago por diária) ou
+      // Consultoria (pago por visita), marcado como temporário
+      const registroVinculo: Record<string, unknown> = {
         employee_id: id,
         client_id: coverageForm.client_id || null,
-        service_type: isTemporario ? 'Volante' : coverageForm.coverage_type,
+        service_type: coverageForm.coverage_type,
         coverage_type: coverageForm.coverage_type,
+        is_temporary: isTemporario,
+        pay_mode: isTemporario && isFixo ? 'diaria' : 'mensal',
         agenda_mode: coverageForm.agenda_mode || 'colaborador',
         // Veio da contratação por vaga: guarda a origem pra vaga contar as posições
         vacancy_id: vincularVagaId || null,
@@ -491,7 +503,14 @@ export default function EmployeeDetail() {
           weekly_hours_quota: Number(coverageForm.weekly_hours_quota) || null,
           monthly_hours_quota: monthlyHours,
         }),
-      }).select('id').single()
+      }
+      let { data: newLink, error } = await supabase.from('employee_client_links').insert(registroVinculo).select('id').single()
+      // Migração 058 ainda não rodada: grava no formato antigo (Volante)
+      if (error && /pay_mode|is_temporary/i.test(error.message)) {
+        const { pay_mode: _p, is_temporary: _t, ...antigo } = registroVinculo
+        ;({ data: newLink, error } = await supabase.from('employee_client_links')
+          .insert({ ...antigo, service_type: isTemporario ? 'Volante' : coverageForm.coverage_type }).select('id').single())
+      }
       if (error) throw error
       // Dias de pagamento. Dois dias = quinzena: o que a pessoa fizer do dia 20 ao
       // dia 7 cai no pagamento do dia 8; do dia 8 ao 19 cai no do dia 20.
@@ -515,17 +534,17 @@ export default function EmployeeDetail() {
           hours_expected: isFixo
             ? (coverageForm.daily_hours ? Number(coverageForm.daily_hours) : null)
             : (Number(coverageForm.weekly_hours_quota) || null),
-          notes: isTemporario ? 'Freela avulso' : 'Primeiro dia no cliente',
+          notes: isTemporario ? 'Cobertura temporária' : 'Primeiro dia no cliente',
           // Se o RH monta a agenda, o dia fica travado pra ela. Se ela monta,
           // esse primeiro dia é dela e pode ser remarcado no portal.
           created_by_admin: coverageForm.agenda_mode === 'gestor',
         })
         // Vínculo já foi criado; se a agenda falhar não quebra o cadastro.
-        if (agErr) console.warn('agenda do freela:', agErr.message)
+        if (agErr) console.warn('agenda do primeiro dia:', agErr.message)
       }
     },
     onSuccess: () => {
-      toast.success(coverageForm.vinculo_tipo === 'temporario' ? 'Freela adicionado!' : 'Colaborador vinculado ao cliente!')
+      toast.success(coverageForm.vinculo_tipo === 'temporario' ? 'Vínculo temporário adicionado!' : 'Colaborador vinculado ao cliente!')
       qc.invalidateQueries({ queryKey: ['employee-links', id] })
       setShowCoverageForm(false)
       setCoverageForm(EMPTY_COVERAGE)
@@ -541,7 +560,7 @@ export default function EmployeeDetail() {
       if (error) throw error
     },
     onSuccess: () => {
-      toast.success('Freela estendido!')
+      toast.success('Data de fim estendida!')
       qc.invalidateQueries({ queryKey: ['employee-links', id] })
       setExtendLinkId(null)
       setNewEndDate('')
@@ -875,8 +894,8 @@ export default function EmployeeDetail() {
       const l = (links || []).find(x => x.id === linkId) as { service_type?: string } | undefined
       const ok = await confirmar({
         titulo: 'Desfazer o encerramento?',
-        texto: l?.service_type === 'Volante'
-          ? 'O vínculo volta a valer sem data de fim. Confira depois a data de fim do freela.'
+        texto: ehTemporario(l as { service_type?: string; is_temporary?: boolean })
+          ? 'O vínculo volta a valer sem data de fim. Confira depois a data de fim dele.'
           : 'O vínculo volta a valer, sem data de fim. O motivo e o distrato registrados são apagados do vínculo.',
         confirmar: 'Desfazer',
       })
@@ -932,12 +951,16 @@ export default function EmployeeDetail() {
       }
       // Grupo da folha. Freela guarda em coverage_type se é por visita
       // (consultoria) ou por diária — é o que decide como ele é pago.
-      const ehFreela = vals.serviceType === 'Volante'
-      const coberturaFreela = linkUnits && (linkUnits as unknown[]).length > 0 ? 'Consultoria' : 'Fixo'
+      // Freela acabou (migração 058): 'Diaria' = Fixo pago por diária
+      const ehDiaria = vals.serviceType === 'Diaria' || (vals.serviceType === 'Volante' && !isConsult)
+      const tipoFinal = isConsult ? 'Consultoria' : 'Fixo'
+      const mensalParaDiaria = !isConsult && monthly ? Math.round((monthly / 30) * 100) / 100 : undefined
 
-      const { error } = await supabase.from('employee_client_links').update({
-        service_type: vals.serviceType,
-        coverage_type: ehFreela ? coberturaFreela : null,
+      const atualizacao: Record<string, unknown> = {
+        service_type: tipoFinal,
+        coverage_type: null,
+        pay_mode: ehDiaria ? 'diaria' : 'mensal',
+        daily_rate: mensalParaDiaria,
         monthly_amount: monthly,
         cost_assistance: vals.cost_assistance ? Number(vals.cost_assistance) : 0,
         link_units: linkUnits,
@@ -958,7 +981,15 @@ export default function EmployeeDetail() {
         start_date: !isConsult ? (vals.start_date || null) : undefined,
         pay_full_salary: !isConsult ? vals.pay_full_salary : undefined,
         expected_days_month: !isConsult ? (vals.expected_days_month ? Number(vals.expected_days_month) : null) : undefined,
-      }).eq('id', vals.linkId)
+      }
+      let { error } = await supabase.from('employee_client_links').update(atualizacao).eq('id', vals.linkId)
+      // Migração 058 ainda não rodada: diária volta a ser gravada como Volante
+      if (error && /pay_mode/i.test(error.message)) {
+        const { pay_mode: _p, ...antigo } = atualizacao
+        ;({ error } = await supabase.from('employee_client_links').update(
+          ehDiaria ? { ...antigo, service_type: 'Volante', coverage_type: 'Fixo' } : antigo
+        ).eq('id', vals.linkId))
+      }
       if (error) throw error
 
       // Consultoria sempre dia 8 e 20; Fixo só aceita 8, 15 ou 20
@@ -1172,8 +1203,8 @@ export default function EmployeeDetail() {
                 )}
               </div>
               {employee.crn_number && <span className="badge bg-blue-50 text-blue-700">CRN {[employee.crn_number, employee.crn_region].filter(Boolean).join('/')}</span>}
-              {[...new Set((links || []).map(l => l.service_type))].map(st => (
-                <span key={st} className={`badge ${st === 'Volante' ? 'bg-orange-100 text-orange-700' : st === 'Consultoria' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'}`}>{st === 'Volante' ? '⚡ Freela' : st}</span>
+              {[...new Set((links || []).map(l => rotuloDoVinculo(l)))].map(st => (
+                <span key={st} className={`badge ${st === 'Consultoria' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'}`}>{st}</span>
               ))}
             </div>
           </div>
@@ -1387,8 +1418,8 @@ export default function EmployeeDetail() {
                 <label className="label !text-orange-800">Esse vínculo é o quê? *</label>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {([
-                    { v: 'permanente', t: '📌 Fica no cliente', d: 'Ela atende esse cliente daqui pra frente. Aparece sempre no portal dela.' },
-                    { v: 'temporario', t: '⚡ Freela / cobertura', d: 'Trabalho avulso, pago por diária. Com data de fim, some do portal quando o período acaba.' },
+                    { v: 'permanente', t: 'Fica no cliente', d: 'Ela atende esse cliente daqui pra frente. Aparece sempre no portal dela.' },
+                    { v: 'temporario', t: 'Temporário / cobertura', d: 'Com data para acabar. Fixo paga os dias trabalhados × diária; consultoria paga por visita.' },
                   ] as const).map(o => (
                     <button key={o.v} type="button" onClick={() => setCoverageForm(p => ({ ...p, vinculo_tipo: o.v }))}
                       className={`text-left p-2.5 rounded-lg border-2 transition-colors ${coverageForm.vinculo_tipo === o.v ? 'border-orange-500 bg-orange-50' : 'border-gray-200 hover:border-gray-300'}`}>
@@ -1778,11 +1809,11 @@ export default function EmployeeDetail() {
             </div>
           )}
 
-          {(links || []).filter(l => l.service_type === 'Volante').length === 0 && !showCoverageForm && (
+          {(links || []).filter(l => ehTemporario(l)).length === 0 && !showCoverageForm && (
             <p className="text-sm text-gray-400 text-center py-4">
               {(links || []).length > 0
-                ? <>Sem freela no momento. Os vínculos fixos aparecem em <strong>Clientes Vinculados</strong>, abaixo.</>
-                : <>Ainda não está em nenhum cliente. Use <strong>+ Vincular</strong> — fixo (fica) ou freela (temporário).</>}
+                ? <>Nenhum vínculo temporário no momento. Os permanentes aparecem em <strong>Clientes Vinculados</strong>, abaixo.</>
+                : <>Ainda não está em nenhum cliente. Use <strong>+ Vincular</strong> — permanente ou temporário.</>}
             </p>
           )}
 
@@ -1791,7 +1822,7 @@ export default function EmployeeDetail() {
               ele o portal fica bloqueado — a pessoa ficava travada sem nenhum lugar
               para resolver. O input de arquivo é o mesmo, declarado logo abaixo. */}
           <div className="space-y-3">
-            {(links || []).filter(l => l.service_type === 'Volante').map(l => {
+            {(links || []).filter(l => ehTemporario(l)).map(l => {
               const startDate = (l as { start_date?: string }).start_date
               const endDate = (l as { contract_end_date?: string }).contract_end_date
               const dailyRate = (l as { daily_rate?: number }).daily_rate
@@ -1899,7 +1930,7 @@ export default function EmployeeDetail() {
           />
 
           <div className="space-y-3">
-            {links?.filter(l => l.service_type !== 'Volante')
+            {links?.filter(l => !ehTemporario(l))
               // Encerrado vai pro fim da lista: quem está ativo é o que importa
               .slice()
               .sort((a, b) => {
@@ -1944,12 +1975,12 @@ export default function EmployeeDetail() {
                   && !(((l as { link_units?: { visit_rate?: number }[] }).link_units) || []).some(u => Number(u.visit_rate) > 0)
                   && 'sem valor de vistoria — o pagamento sai R$ 0,00',
                 // Freela não precisa de escala: os dias dele vêm da agenda
-                !ehConsult && l.service_type !== 'Volante' && !escalaL
+                !ehConsult && !pagaPorDiaria(l) && !escalaL
                   && 'sem escala definida — a folha estima 22 dias no chute',
-                !ehConsult && l.service_type !== 'Volante' && ['5x2', '6x1'].includes(escalaL || '')
+                !ehConsult && !pagaPorDiaria(l) && ['5x2', '6x1'].includes(escalaL || '')
                   && !((l as { days_off?: number[] }).days_off || []).length
                   && 'sem dias de folga — ela não vê os dias no portal',
-                !ehConsult && l.service_type !== 'Volante' && escalaL === '12x36'
+                !ehConsult && !pagaPorDiaria(l) && escalaL === '12x36'
                   && !(l as { schedule_anchor_date?: string }).schedule_anchor_date
                   && 'sem a data do primeiro plantão — ela não vê os dias no portal',
               ].filter(Boolean) as string[])
@@ -2000,7 +2031,7 @@ export default function EmployeeDetail() {
                     <div className={`flex-1 min-w-0 ${encerrado ? 'opacity-70' : ''}`}>
                       <p className="font-medium">{(l as { client?: { name: string } }).client?.name}</p>
                       <div className="flex gap-2 mt-1 flex-wrap items-center">
-                        <span className={`badge ${l.service_type === 'Consultoria' ? 'bg-orange-100 text-orange-700' : l.service_type === 'Volante' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'}`}>{serviceTypeLabel(l.service_type)}</span>
+                        <span className={`badge ${l.service_type === 'Consultoria' ? 'bg-orange-100 text-orange-700' : l.service_type === 'Volante' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'}`}>{rotuloDoVinculo(l)}</span>
                         {/* Consultoria/Freela: o valor real vem da folha de ponto — marcado como
                             estimativa em âmbar pra não ser lido como combinado (cinza). */}
                         {l.monthly_amount && role === 'chefe' && (
@@ -2051,7 +2082,7 @@ export default function EmployeeDetail() {
                             const clientId = (l as { client?: { id: string } }).client?.id || ''
                             setEditLinkValues({
                               linkId: l.id,
-                              serviceType: l.service_type,
+                              serviceType: grupoDoVinculo(l),
                               clientId,
                               monthly_amount: String(l.monthly_amount || ''),
                               cost_assistance: String((l as { cost_assistance?: number }).cost_assistance || ''),
@@ -2080,7 +2111,6 @@ export default function EmployeeDetail() {
                         // Mesma tela para os dois, como o Gabriel pediu — antes o
                         // freela caía no formulário de salário, que não é o caso dele.
                         const isConsult = editLinkValues.serviceType === 'Consultoria'
-                          || editLinkValues.serviceType === 'Volante'
                         // Descarta unidades "fantasma" que não existem mais na lista atual do cliente
                         const validUnitIds = new Set((editClientUnits || []).map(u => u.id))
                         const ratedUnits = isConsult ? editLinkValues.units.filter(u => u.visit_rate && (validUnitIds.size === 0 || validUnitIds.has(u.unit_id))) : []
@@ -2109,9 +2139,9 @@ export default function EmployeeDetail() {
                               <label className="label text-xs">Grupo na folha de pagamento</label>
                               <div className="flex gap-1.5 flex-wrap">
                                 {([
-                                  ['Fixo', '📅 Fixo / Plantão', 'Fica no cliente. Salário mensal.'],
-                                  ['Consultoria', '🔍 Consultoria', 'Visitas periódicas. Paga por visita.'],
-                                  ['Volante', '⚡ Freela', 'Avulso. Paga pelos dias feitos.'],
+                                  ['Fixo', 'Fixo / Plantão', 'Salário mensal.'],
+                                  ['Diaria', 'Fixo · por diária', 'Paga os dias trabalhados × diária (salário ÷ 30).'],
+                                  ['Consultoria', 'Consultoria', 'Paga por visita.'],
                                 ] as const).map(([v, t, d]) => (
                                   <button key={v} type="button" title={d}
                                     onClick={() => setEditLinkValues(p => p ? { ...p, serviceType: v } : p)}
@@ -2123,9 +2153,9 @@ export default function EmployeeDetail() {
                                   </button>
                                 ))}
                               </div>
-                              {editLinkValues.serviceType !== l.service_type && (
+                              {editLinkValues.serviceType !== grupoDoVinculo(l) && (
                                 <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5 mt-1.5">
-                                  Mudando de <strong>{serviceTypeLabel(l.service_type)}</strong> para <strong>{serviceTypeLabel(editLinkValues.serviceType)}</strong>.
+                                  Mudando de <strong>{NOME_GRUPO[grupoDoVinculo(l)]}</strong> para <strong>{NOME_GRUPO[editLinkValues.serviceType] || editLinkValues.serviceType}</strong>.
                                   Muda como esta pessoa é paga e em qual grupo ela aparece na folha.
                                   O histórico de visitas e pagamentos é preservado.
                                 </p>
@@ -2641,16 +2671,16 @@ export default function EmployeeDetail() {
 
           {/* Permissão de agenda — consultoria e freela (freela é onde mais importa:
               se ela monta os próprios dias, recebe pelos dias que ela escolheu) */}
-          {(links || []).filter(l => l.service_type === 'Consultoria' || l.service_type === 'Volante').length > 0 && (
+          {(links || []).filter(l => l.service_type === 'Consultoria' || l.service_type === 'Volante' || pagaPorDiaria(l)).length > 0 && (
             <div className="rounded-xl border border-gray-100 divide-y divide-gray-50">
-              {(links || []).filter(l => l.service_type === 'Consultoria' || l.service_type === 'Volante').map(l => {
+              {(links || []).filter(l => l.service_type === 'Consultoria' || l.service_type === 'Volante' || pagaPorDiaria(l)).map(l => {
                 const mode = (l as { agenda_mode?: string }).agenda_mode || 'colaborador'
                 return (
                   <div key={l.id} className="flex items-center justify-between gap-3 px-3 py-2.5 flex-wrap">
                     <div className="min-w-0">
                       <p className="text-sm font-medium text-gray-800">
                         {(l.client as { name?: string })?.name || '—'}
-                        {l.service_type === 'Volante' && <span className="ml-1.5 badge bg-orange-100 text-orange-700 text-[10px]">⚡ Freela</span>}
+                        {pagaPorDiaria(l) && <span className="ml-1.5 badge bg-ink-100 text-ink-600 text-[10px]">por diária</span>}
                       </p>
                       <p className="text-xs text-gray-400">{mode === 'gestor' ? 'O RH monta a agenda (ela só vê)' : 'O colaborador monta a própria agenda'}</p>
                     </div>
@@ -2880,7 +2910,7 @@ export default function EmployeeDetail() {
         // Relatório exigido: vínculo Consultoria sempre; Volante em qualquer cobertura. Fixo puro não exige.
         const reportRequired = (v: { client_id?: string }) => {
           const lk = (links || []).find(l => (l as { client_id?: string }).client_id === v.client_id)
-          return !!lk && (lk.service_type === 'Consultoria' || lk.service_type === 'Volante')
+          return !!lk && (lk.service_type === 'Consultoria' || lk.service_type === 'Volante' || pagaPorDiaria(lk))
         }
         const semRelatorio = realized.filter(v => !v.report_url && reportRequired(v)).length
 

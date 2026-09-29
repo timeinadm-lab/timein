@@ -200,7 +200,42 @@ export const PIPELINE_COLORS: Record<string, string> = {
  */
 export function serviceTypeLabel(serviceType?: string | null): string {
   if (!serviceType) return '—'
-  return serviceType === 'Volante' ? '⚡ Freela' : serviceType
+  // Freela deixou de existir (migração 058): o que ainda vier como 'Volante'
+  // é mostrado como Fixo — é o que ele vira na conversão
+  return serviceType === 'Volante' ? 'Fixo' : serviceType
+}
+
+// ── Tipos de vínculo (depois do fim do Freela) ──────────────────────────────
+// Sobram dois tipos: Fixo e Consultoria. O Fixo pode ser pago por mês
+// (salário) ou por diária (dias trabalhados × diária). Qualquer vínculo pode
+// ser temporário (nasceu para acabar: cobertura, auditoria avulsa).
+// Estas funções aceitam também o formato antigo ('Volante' + coverage_type),
+// então funcionam antes e depois da migração 058.
+type VinculoTipo = { service_type?: string | null; coverage_type?: string | null; pay_mode?: string | null; is_temporary?: boolean | null }
+
+/** 'Consultoria' ou 'Fixo' — o tipo que vale para pagamento e portal */
+export function tipoDoVinculo(l?: VinculoTipo | null): 'Consultoria' | 'Fixo' {
+  if (!l) return 'Fixo'
+  if (l.service_type === 'Volante') return l.coverage_type === 'Consultoria' ? 'Consultoria' : 'Fixo'
+  return l.service_type === 'Consultoria' ? 'Consultoria' : 'Fixo'
+}
+
+/** Fixo pago pelos dias trabalhados × diária (antigo freela de cobertura) */
+export function pagaPorDiaria(l?: VinculoTipo | null): boolean {
+  if (!l) return false
+  if (l.service_type === 'Volante') return l.coverage_type !== 'Consultoria'
+  return tipoDoVinculo(l) === 'Fixo' && l.pay_mode === 'diaria'
+}
+
+/** Vínculo que nasceu para acabar (cobertura, auditoria avulsa) */
+export function ehTemporario(l?: VinculoTipo | null): boolean {
+  return !!l && (l.service_type === 'Volante' || !!l.is_temporary)
+}
+
+/** Rótulo curto do vínculo para as telas */
+export function rotuloDoVinculo(l?: VinculoTipo | null): string {
+  const t = tipoDoVinculo(l)
+  return t === 'Fixo' && pagaPorDiaria(l) ? 'Fixo · por diária' : t
 }
 
 /** O campo link_or_address guarda ora um link de reunião, ora um endereço. */

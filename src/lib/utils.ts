@@ -260,6 +260,18 @@ export function ehTemporario(l?: VinculoTipo | null): boolean {
   return !!l && (l.service_type === 'Volante' || !!l.is_temporary)
 }
 
+/**
+ * Vínculo que deve ter contrato anexado. Desde a migração 042 (19/08/2026) o RH
+ * marca "exige contrato" ao vincular; vínculo marcado "não" não é pendência.
+ * Os mais antigos não tinham essa opção, então continuam contando.
+ */
+export const INICIO_CONTRATO_EXIGIDO = '2026-08-19'
+export function precisaContrato(l?: { contract_required?: boolean | null; created_at?: string | null } | null): boolean {
+  if (!l) return false
+  if (l.contract_required) return true
+  return !!l.created_at && l.created_at.slice(0, 10) < INICIO_CONTRATO_EXIGIDO
+}
+
 /** Rótulo curto do vínculo para as telas */
 export function rotuloDoVinculo(l?: VinculoTipo | null): string {
   const t = tipoDoVinculo(l)

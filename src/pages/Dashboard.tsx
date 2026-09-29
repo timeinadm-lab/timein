@@ -8,7 +8,7 @@ import {
 import toast from 'react-hot-toast'
 import { supabase, fetchAll } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
-import { formatDate, formatCurrency, formatLocalTime, parseLocal, isMeetingLink, mapsUrl, hojeISO, tipoDoVinculo, pagaPorDiaria, ehTemporario, compromissoNoDia } from '../lib/utils'
+import { formatDate, formatCurrency, formatLocalTime, parseLocal, isMeetingLink, mapsUrl, hojeISO, tipoDoVinculo, pagaPorDiaria, ehTemporario, precisaContrato, compromissoNoDia } from '../lib/utils'
 import { addDays, startOfMonth, endOfMonth, isBefore, parseISO, isAfter, differenceInDays, subMonths, format } from 'date-fns'
 
 const BACKUP_TABLES = [
@@ -361,10 +361,12 @@ export default function Dashboard() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('employee_client_links')
-        .select('id,created_at,service_type,employee_id,employee:employees(id,full_name,status),client:clients(name)')
+        .select('id,created_at,contract_required,service_type,employee_id,employee:employees(id,full_name,status),client:clients(name)')
         .in('service_type', ['Fixo', 'Consultoria'])
         .is('contract_file_url', null)
-      return (data || []).filter((l: { employee?: { status?: string } }) => l.employee?.status === 'Ativo')
+      // Vínculo marcado "não exige contrato" não é pendência
+      return (data || []).filter((l: { employee?: { status?: string }; contract_required?: boolean; created_at?: string }) =>
+        l.employee?.status === 'Ativo' && precisaContrato(l))
     },
   })
 
@@ -376,7 +378,7 @@ export default function Dashboard() {
       const { data, error } = await supabase
         .from('employee_client_links')
         .select('*,employee:employees(status)')
-      return (data || []).filter((l: { employee?: { status?: string } }) => l.employee?.status === 'Ativo' && !ehTemporario(l))
+      return (data || []).filter((l: { employee?: { status?: string } }) => l.employee?.status === 'Ativo' && !ehTemporario(l) && precisaContrato(l))
     },
   })
 

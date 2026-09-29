@@ -5,7 +5,7 @@ import { Bell, Receipt, Clock3, FileWarning, FileSignature, MessageSquare, Alert
 import type { LucideIcon } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
-import { hojeISO } from '../../lib/utils'
+import { hojeISO, precisaContrato } from '../../lib/utils'
 
 type Aviso = { chave: string; rotulo: string; n: number; caminho: string; icone: LucideIcon; urgente?: boolean }
 
@@ -37,11 +37,12 @@ export default function AvisosSino() {
         // Contrato faltando só conta para quem está ativo
         (async () => {
           const { data } = await supabase.from('employee_client_links')
-            .select('id, employee:employees(status)')
+            .select('id, contract_required, created_at, employee:employees(status)')
             .in('service_type', ['Fixo', 'Consultoria'])
             .is('contract_file_url', null)
-          return ((data || []) as { employee?: { status?: string } | { status?: string }[] }[])
-            .filter(l => (Array.isArray(l.employee) ? l.employee[0] : l.employee)?.status === 'Ativo').length
+          // Vínculo marcado "não exige contrato" não é pendência
+          return ((data || []) as { contract_required?: boolean; created_at?: string; employee?: { status?: string } | { status?: string }[] }[])
+            .filter(l => precisaContrato(l) && (Array.isArray(l.employee) ? l.employee[0] : l.employee)?.status === 'Ativo').length
         })(),
         // Supervisão agendada cujo dia passou sem check-in (migração 059)
         conta(supabase.from('supervision_visits').select('id', { count: 'exact', head: true }).eq('status', 'agendada').lt('visit_date', hojeISO())),

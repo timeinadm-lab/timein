@@ -650,7 +650,7 @@ export default function PortalHome() {
       return id
     },
     onSuccess: () => {
-      toast.success(expenseFile ? 'Reembolso pedido com comprovante! O RH vai analisar.' : 'Reembolso pedido! Anexe o comprovante na lista.')
+      toast.success(expenseFile ? 'Reembolso solicitado!' : 'Reembolso solicitado! Anexe o comprovante na lista.')
       qc.invalidateQueries({ queryKey: ['portal-month', employeeId] })
       setExpenseForm({ description: '', amount: '', category: 'Reembolso', notes: '' })
       setExpenseFile(null)
@@ -1424,14 +1424,8 @@ export default function PortalHome() {
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-ink-900 truncate">{e.description}</p>
                       <p className="text-xs text-ink-500 truncate">{[e.notes].filter(Boolean).join(' · ') || e.category}</p>
-                      {(() => {
-                        // Situação do pedido: o RH aprova ou não em Pagamentos
-                        const st = (e as { status?: string }).status
-                        return st === 'aprovado' ? <span className="text-[11px] font-medium text-primary-700">Aprovado</span>
-                          : st === 'negado' ? <span className="text-[11px] font-medium text-red-700">Não aprovado</span>
-                          : st === 'pendente' ? <span className="text-[11px] font-medium text-amber-700">Aguardando o RH</span>
-                          : null
-                      })()}
+                      {/* Ela não vê se foi aprovado ou não — só que pediu (pedido do Gabriel) */}
+                      <span className="text-[11px] font-medium text-ink-500">Reembolso solicitado</span>
                     </div>
                     <div className="flex flex-col items-end gap-1 shrink-0">
                       <span className="text-sm font-semibold text-ink-900 tnum">{formatCurrency(Number(e.amount))}</span>
@@ -1449,7 +1443,7 @@ export default function PortalHome() {
                 ))}
                 <div className="px-4 py-3 flex justify-between items-center bg-ink-50/60">
                   <span className="text-sm text-ink-500">Total do mês</span>
-                  <span className="text-sm font-semibold text-ink-900 tnum">{formatCurrency(myExpenses.filter(e => (e as { status?: string }).status !== 'negado').reduce((s, e) => s + Number(e.amount), 0))}</span>
+                  <span className="text-sm font-semibold text-ink-900 tnum">{formatCurrency(myExpenses.reduce((s, e) => s + Number(e.amount), 0))}</span>
                 </div>
               </div>
             ) : !showExpForm && (

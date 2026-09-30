@@ -916,12 +916,56 @@ export default function EmployeeDetail() {
     const valor = Number(saindo?.monthly_amount) || 0
     const fica = grupoFixo.filter(l => l.id !== linkId)
       .sort((a, b) => (Number(b.monthly_amount) || 0) - (Number(a.monthly_amount) || 0))[0]
-    if (!saindo || !valor || !fica) return
-    const { error: e1 } = await supabase.from('employee_client_links').update({ monthly_amount: (Number(fica.monthly_amount) || 0) + valor }).eq('id', fica.id)
+    const ajuda = Number((saindo as { cost_assistance?: number } | undefined)?.cost_assistance) || 0
+    if (!saindo || (!valor && !ajuda) || !fica) return
+    const { error: e1 } = await supabase.from('employee_client_links').update({
+      monthly_amount: (Number(fica.monthly_amount) || 0) + valor || null,
+      cost_assistance: (Number((fica as { cost_assistance?: number }).cost_assistance) || 0) + ajuda,
+    }).eq('id', fica.id)
     if (e1) throw e1
-    const { error: e2 } = await supabase.from('employee_client_links').update({ monthly_amount: null }).eq('id', saindo.id)
+    const { error: e2 } = await supabase.from('employee_client_links').update({ monthly_amount: null, cost_assistance: 0 }).eq('id', saindo.id)
     if (e2) throw e2
   }
+
+  // Ajuda de custo do consultor fixo: um valor por mês, no mesmo registro do
+  // salário (a folha lê dele e soma no pagamento, igual ao Fixo)
+  const ajudaDoFixo = grupoFixo.reduce((s, l) => s + (Number((l as { cost_assistance?: number }).cost_assistance) || 0), 0)
+  const [editandoAjudaFixo, setEditandoAjudaFixo] = useState<string | null>(null)
+  const salvarAjudaDoFixo = useMutation({
+    mutationFn: async (valor: number) => {
+      if (!principalDoFixo) return
+      const { error } = await supabase.from('employee_client_links').update({ cost_assistance: valor > 0 ? valor : 0 }).eq('id', principalDoFixo.id)
+      if (error) throw error
+      const outros = grupoFixo.filter(l => l.id !== principalDoFixo.id && Number((l as { cost_assistance?: number }).cost_assistance) > 0).map(l => l.id)
+      if (outros.length) {
+        const { error: e2 } = await supabase.from('employee_client_links').update({ cost_assistance: 0 }).in('id', outros)
+        if (e2) throw e2
+      }
+    },
+    onSuccess: () => {
+      toast.success('Ajuda de custo atualizada')
+      setEditandoAjudaFixo(null)
+      qc.invalidateQueries({ queryKey: ['employee-links', id] })
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  // Início do contrato de consultor fixo (a planilha gravou a data do cadastro)
+  const inicioDoFixo = grupoFixo.map(l => (l as { start_date?: string | null }).start_date || '').filter(Boolean).sort()[0] || ''
+  const [editandoInicioFixo, setEditandoInicioFixo] = useState<string | null>(null)
+  const salvarInicioDoFixo = useMutation({
+    mutationFn: async (data: string) => {
+      if (!data) throw new Error('Informe a data')
+      const { error } = await supabase.from('employee_client_links').update({ start_date: data }).in('id', grupoFixo.map(l => l.id))
+      if (error) throw error
+    },
+    onSuccess: () => {
+      toast.success('Início do contrato atualizado')
+      setEditandoInicioFixo(null)
+      qc.invalidateQueries({ queryKey: ['employee-links', id] })
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
 
   const salvarSalarioDoFixo = useMutation({
     mutationFn: async (valor: number) => {
@@ -2884,6 +2928,43 @@ export default function EmployeeDetail() {
                             )}
                           </div>
                         )}
+
+                        {role === 'chefe' && (
+                          <div className="px-3 py-2.5 flex items-center justify-between gap-2 flex-wrap">
+                            <span className="text-xs text-ink-500">Ajuda de custo</span>
+                            {editandoAjudaFixo !== null ? (
+                              <div className="flex items-center gap-1.5">
+                                <input className="input text-sm w-28 py-1" type="number" step="0.01" autoFocus value={editandoAjudaFixo}
+                                  onChange={e => setEditandoAjudaFixo(e.target.value)} placeholder="R$ 0,00" />
+                                <button className="btn-primary text-xs py-1" disabled={salvarAjudaDoFixo.isPending}
+                                  onClick={() => salvarAjudaDoFixo.mutate(Number(editandoAjudaFixo) || 0)}>Salvar</button>
+                                <button className="text-xs text-ink-500 px-1" onClick={() => setEditandoAjudaFixo(null)}>✕</button>
+                              </div>
+                            ) : (
+                              <button className="flex items-baseline gap-2" onClick={() => setEditandoAjudaFixo(ajudaDoFixo > 0 ? String(ajudaDoFixo) : '')}>
+                                <span className="text-sm font-medium text-ink-900 tnum">{ajudaDoFixo > 0 ? `${formatCurrency(ajudaDoFixo)}/mês` : 'Não tem'}</span>
+                                <span className="text-xs text-primary-700">editar</span>
+                              </button>
+                            )}
+                          </div>
+                        )}
+
+                        <div className="px-3 py-2.5 flex items-center justify-between gap-2 flex-wrap">
+                          <span className="text-xs text-ink-500">Início do contrato</span>
+                          {editandoInicioFixo !== null ? (
+                            <div className="flex items-center gap-1.5">
+                              <input className="input text-sm py-1" type="date" value={editandoInicioFixo} onChange={e => setEditandoInicioFixo(e.target.value)} />
+                              <button className="btn-primary text-xs py-1" disabled={salvarInicioDoFixo.isPending}
+                                onClick={() => salvarInicioDoFixo.mutate(editandoInicioFixo)}>Salvar</button>
+                              <button className="text-xs text-ink-500 px-1" onClick={() => setEditandoInicioFixo(null)}>✕</button>
+                            </div>
+                          ) : (
+                            <button className="flex items-baseline gap-2" onClick={() => setEditandoInicioFixo(inicioDoFixo)}>
+                              <span className="text-sm font-medium text-ink-900 tnum">{inicioDoFixo ? formatDate(inicioDoFixo) : '—'}</span>
+                              <span className="text-xs text-primary-700">editar</span>
+                            </button>
+                          )}
+                        </div>
 
                         <div className="px-3 py-2.5 flex items-center justify-between gap-2">
                           <span className="text-xs text-ink-500">Pagamento</span>

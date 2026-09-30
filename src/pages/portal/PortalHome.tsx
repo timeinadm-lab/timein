@@ -2092,12 +2092,9 @@ export default function PortalHome() {
                     <p className="text-xs font-medium text-ink-500 mb-2">Onde</p>
                     {lista.length === 0 ? (
                       <p className="text-sm text-ink-500 bg-white border border-ink-100 rounded-xl px-3.5 py-3">Nenhum cliente com vínculo valendo nesse dia.</p>
-                    ) : lista.length <= 3 ? (
-                      <div className="flex flex-wrap gap-1.5">
-                        {lista.map(c => <Chip key={c.id} ativo={pontoForm.client_id === c.id} onClick={() => escolher(c.id)}>{c.name}</Chip>)}
-                      </div>
                     ) : (
-                      // Muitos clientes (tem gente com 18): campo que abre a lista com busca
+                      // Campo que abre a lista dos clientes (com busca): ocupa uma
+                      // linha só, tenha ela 1 ou 18 clientes
                       <CampoBusca titulo="Cliente" vazio="Escolha o cliente" valor={pontoForm.client_id}
                         itens={lista.map(c => ({ id: c.id, nome: c.name }))} onEscolher={escolher} />
                     )}
@@ -2188,26 +2185,16 @@ export default function PortalHome() {
               {precisaUnidade && (
                 <div>
                   <p className="text-xs font-medium text-ink-500 mb-2">Unidade</p>
-                  {unidades.length <= 3 ? (
-                    <div className="flex flex-wrap gap-1.5">
-                      {unidades.map(u => (
-                        <Chip key={u.id} ativo={pontoForm.unit_id === u.id} onClick={() => setPontoForm(p => ({ ...p, unit_id: u.id, unit_name: u.name }))}>
-                          {u.name}{u.visit_rate ? <span className="opacity-70 tnum"> · {formatCurrency(u.visit_rate)}</span> : null}
-                        </Chip>
-                      ))}
-                    </div>
-                  ) : (
-                    <CampoBusca titulo="Unidade" vazio="Escolha a unidade" valor={pontoForm.unit_id}
-                      itens={unidades.map(u => ({ id: u.id, nome: u.name, detalhe: u.visit_rate ? formatCurrency(u.visit_rate) : undefined }))}
-                      onEscolher={id => { const u = unidades.find(x => x.id === id); setPontoForm(p => ({ ...p, unit_id: id, unit_name: u?.name || '' })) }} />
-                  )}
+                  <CampoBusca titulo="Unidade" vazio="Escolha a unidade" valor={pontoForm.unit_id}
+                    itens={unidades.map(u => ({ id: u.id, nome: u.name, detalhe: u.visit_rate ? formatCurrency(u.visit_rate) : undefined }))}
+                    onEscolher={id => { const u = unidades.find(x => x.id === id); setPontoForm(p => ({ ...p, unit_id: id, unit_name: u?.name || '' })) }} />
                 </div>
               )}
 
               {/* Horários */}
               {modalLink && trabalho && (
                 <div>
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="flex gap-2">
                     <CampoHora rotulo={isConsultoria ? 'Início' : 'Entrada'} valor={pontoForm.check_in} onChange={v => setPontoForm(p => ({ ...p, check_in: v }))} />
                     <CampoHora rotulo={isConsultoria ? 'Fim' : 'Saída'} valor={pontoForm.check_out} onChange={v => setPontoForm(p => ({ ...p, check_out: v }))} />
                   </div>
@@ -2325,11 +2312,11 @@ function Chip({ ativo, pequeno, onClick, children }: { ativo?: boolean; pequeno?
 // atual como se já estivesse preenchido). O seletor nativo fica por cima, invisível.
 function CampoHora({ rotulo, valor, onChange }: { rotulo: string; valor: string; onChange: (v: string) => void }) {
   return (
-    <label className={`relative block rounded-xl border bg-white px-4 py-3 cursor-pointer transition-colors ${valor ? 'border-ink-200' : 'border-dashed border-ink-300'}`}>
+    <label className={`relative flex-1 min-w-0 overflow-hidden block rounded-xl border bg-white px-4 py-3 cursor-pointer transition-colors ${valor ? 'border-ink-200' : 'border-dashed border-ink-300'}`}>
       <span className="block text-xs text-ink-500">{rotulo}</span>
       <span className={`block text-[1.75rem] leading-tight font-semibold tnum ${valor ? 'text-ink-900' : 'text-ink-300'}`}>{valor || '--:--'}</span>
       <input type="time" value={valor} onChange={e => onChange(e.target.value)} aria-label={rotulo}
-        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer text-[16px]" />
+        className="absolute inset-0 w-full h-full min-w-0 appearance-none opacity-0 cursor-pointer text-[16px]" />
     </label>
   )
 }

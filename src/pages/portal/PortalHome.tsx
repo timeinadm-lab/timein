@@ -3,13 +3,13 @@ import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { LogOut, Clock, Calendar, Plus, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, X, CalendarDays, Trash2, CheckCircle2, Download, MessageCircle, Send, Home, CreditCard, TrendingUp, CheckCheck, AlertTriangle, Hourglass, Pencil, Repeat, Check, FileText, Paperclip } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
-import { formatDate, formatCurrency, getInitials, corDoAvatar, hojeISO, tipoDoVinculo, pagaPorDiaria, ehTemporario, recebeMensal } from '../../lib/utils'
+import { formatDate, formatCurrency, getInitials, corDoAvatar, hojeISO, tipoDoVinculo, pagaPorDiaria, ehTemporario, recebeMensal, salarioConsultoria } from '../../lib/utils'
 import { format, getDaysInMonth, startOfMonth, endOfMonth } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import toast from 'react-hot-toast'
 import { confirmar } from '../../components/ui/ConfirmDialog'
 import JornadaAviso from './JornadaAviso'
-import { jornadaDoVinculo, desvioDoDia, textoDoDesvio, TOLERANCIA_MIN } from '../../lib/jornada'
+import { jornadaDoVinculo, desvioDoDia, textoDoDesvio, TOLERANCIA_MIN, minutosLiquidos } from '../../lib/jornada'
 import type { VinculoJornada } from '../../lib/jornada'
 
 // Ela desistiu num diálogo de confirmação: não é erro, não mostra aviso
@@ -124,6 +124,17 @@ export default function PortalHome() {
     queryKey: ['portal-agenda-mes', employeeId, agendaMonth],
     queryFn: async () => {
       const { data, error } = await supabase.rpc('portal_agenda', { p_token: token, p_month: agendaMonth })
+      if (error) { console.warn('portal_agenda:', error.message); return [] }
+      return (data || []) as any[]
+    },
+    enabled: !!token,
+  })
+  // Agenda do mês que está na FOLHA (pode ser outro mês que o da aba Agenda):
+  // o fixo de consultoria vê "consultorias realizadas × programadas"
+  const { data: agendaDaFolha } = useQuery({
+    queryKey: ['portal-agenda-mes', employeeId, folhaMonth],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc('portal_agenda', { p_token: token, p_month: folhaMonth })
       if (error) { console.warn('portal_agenda:', error.message); return [] }
       return (data || []) as any[]
     },
@@ -309,6 +320,7 @@ export default function PortalHome() {
       // cliente? Pergunta o que aconteceu. Sem isso o combinado ficava pendente
       // pra sempre e o painel acusava "não apareceu" sem saber que ela foi noutro dia.
       // Só Consultoria: o fixo trabalha pela escala, não troca dia de visita
+      let trocarAgendaId: string | null = null
       if (isConsultoria && isNormal && !editingPontoId) {
         const doDia = (agenda || []).some(a =>
           a.planned_date === pontoForm.visit_date && (a as { client_id?: string }).client_id === pontoForm.client_id)
@@ -329,11 +341,9 @@ export default function PortalHome() {
               confirmar: 'Troquei o dia',
               cancelar: 'É uma visita a mais',
             })
-            if (trocar) {
-              await rpc('portal_trocar_dia_agenda', {
-                p_token: token, p_id: maisProximo.id, p_nova_data: pontoForm.visit_date,
-              })
-            }
+            // A troca só é gravada DEPOIS que o registro salvar (antes, se o registro
+            // desse erro, a agenda já tinha sido mexida)
+            if (trocar) trocarAgendaId = maisProximo.id
           }
         }
       }
@@ -427,6 +437,13 @@ export default function PortalHome() {
 
       const recordId = await rpc<string>('portal_save_visit', { p_token: token, p_payload: payload })
 
+      // Visita salva: agora sim move a visita combinada para este dia
+      let trocaFalhou = false
+      if (trocarAgendaId) {
+        const { error: eTroca } = await supabase.rpc('portal_trocar_dia_agenda', { p_token: token, p_id: trocarAgendaId, p_nova_data: pontoForm.visit_date })
+        if (eTroca) trocaFalhou = true
+      }
+
       // Upload atestado (falta) ou relatório (consultoria) — o arquivo vai pro storage e a URL é gravada via função.
       // Se o envio falhar o registro já está salvo; antes a falha era engolida
       // e a pessoa achava que o atestado tinha ido.
@@ -447,17 +464,22 @@ export default function PortalHome() {
         await enviar(reportFile, 'relatorios', 'report_url', 'relatório')
       }
 
-      return { reportPending, anexosFalhos }
+      return { reportPending, anexosFalhos, trocaFalhou }
     },
     onSuccess: (result) => {
       toast.success(editingPontoId ? 'Registro atualizado!' : pontoForm.day_type === 'feriado' ? 'Folga registrada!' : pontoForm.day_type === 'indisponivel' ? 'Falta registrada!' : 'Registro salvo!')
       if (result?.anexosFalhos?.length) {
         toast.error(`O registro foi salvo, mas o ${result.anexosFalhos.join(' e o ')} não foi enviado. Toque no lápis do registro e anexe de novo.`, { duration: 9000 })
       }
+      if (result?.trocaFalhou) {
+        toast('A visita foi salva, mas a troca de dia não foi registrada na agenda. Avise o RH.', { duration: 8000 })
+      }
       if (result?.reportPending) {
         toast('Relatório pendente. Anexe depois tocando no lápis do registro.', { duration: 7000 })
       }
       qc.invalidateQueries({ queryKey: ['portal-month', employeeId] })
+      qc.invalidateQueries({ queryKey: ['portal-base', employeeId] })
+      qc.invalidateQueries({ queryKey: ['portal-agenda-mes', employeeId] })
       setShowPontoModal(false)
       setPontoForm(EMPTY_PONTO)
       setAtestadoFile(null)
@@ -641,21 +663,36 @@ export default function PortalHome() {
 
   const downloadFolha = () => {
     const monthLabel = new Date(folhaMonth + '-15').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
-    const totalDias = (folhaVisits || []).filter(v => v.check_out).length
-    const totalMins = (folhaVisits || []).reduce((s, v) => s + (v.check_in && v.check_out ? calcDurationMin(v.check_in.slice(0,5), v.check_out.slice(0,5)) : 0), 0)
+    const esc = (t: unknown) => String(t ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!))
+    const regs = (folhaVisits || []) as { visit_date: string; client_id: string; check_in?: string; check_out?: string; break_start?: string; break_end?: string
+      is_unavailable?: boolean; is_holiday?: boolean; is_extra?: boolean; is_swap?: boolean; unavailability_reason?: string; observations?: string; unit_name?: string; client?: { name: string } }[]
+    // Horas líquidas: desconta o intervalo do dia ou, sem ele, o do contrato
+    const minDoDia = (v: typeof regs[number]) => minutosLiquidos(v, getLinkForClient(v.client_id, v.visit_date)?.break_minutes)
+    const trabalhados = regs.filter(v => v.check_out && !v.is_unavailable && !v.is_holiday)
+    const totalDias = trabalhados.length
+    const totalMins = trabalhados.reduce((s, v) => s + minDoDia(v), 0)
     const totalH = Math.floor(totalMins / 60)
     const totalM = totalMins % 60
+    const nFolgas = regs.filter(v => v.is_holiday && !v.is_unavailable).length
+    const nFaltas = regs.filter(v => v.is_unavailable).length
+    const tipo = (v: typeof regs[number]) => v.is_unavailable ? 'Falta' : v.is_holiday ? 'Folga' : v.is_extra ? 'Dia extra' : v.is_swap ? 'Troca' : 'Trabalho'
 
-    const rows = (folhaVisits || []).map(v => `
+    const rows = regs.map(v => {
+      const m = minDoDia(v)
+      const intervalo = v.break_start && v.break_end ? `${v.break_start.slice(0, 5)}–${v.break_end.slice(0, 5)}`
+        : v.check_in && Number(getLinkForClient(v.client_id, v.visit_date)?.break_minutes) > 0 ? `${getLinkForClient(v.client_id, v.visit_date)?.break_minutes} min` : '-'
+      return `
       <tr>
         <td>${formatDate(v.visit_date)}</td>
+        <td>${esc(v.client?.name || '-')}${v.unit_name ? `<br/><span class="muted">${esc(v.unit_name)}</span>` : ''}</td>
+        <td>${tipo(v)}</td>
         <td>${v.check_in?.slice(0,5) || '-'}</td>
         <td>${v.check_out?.slice(0,5) || '-'}</td>
-        <td>${v.check_in && v.check_out ? `${Math.floor(calcDurationMin(v.check_in.slice(0,5), v.check_out.slice(0,5))/60)}h${calcDurationMin(v.check_in.slice(0,5), v.check_out.slice(0,5))%60>0?calcDurationMin(v.check_in.slice(0,5), v.check_out.slice(0,5))%60+'min':''}` : '-'}</td>
-        <td>${(v as { client?: { name: string } }).client?.name || '-'}</td>
-        <td>${v.observations || ''}</td>
-      </tr>
-    `).join('')
+        <td>${intervalo}</td>
+        <td>${m > 0 ? fmtHoras(m) : '-'}</td>
+        <td>${esc([v.unavailability_reason, v.observations].filter(Boolean).join(' · '))}</td>
+      </tr>`
+    }).join('')
 
     const html = `
       <!DOCTYPE html><html><head><meta charset="utf-8">
@@ -666,7 +703,8 @@ export default function PortalHome() {
         .sub { color: #666; font-size: 14px; margin-bottom: 24px; }
         table { width: 100%; border-collapse: collapse; }
         th { background: #f3f4f6; text-align: left; padding: 8px 12px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 2px solid #e5e7eb; }
-        td { padding: 8px 12px; border-bottom: 1px solid #f3f4f6; font-size: 13px; }
+        td { padding: 8px 12px; border-bottom: 1px solid #f3f4f6; font-size: 13px; vertical-align: top; }
+        .muted { color: #6b7280; font-size: 11px; }
         tr:last-child td { border-bottom: none; }
         .totals { margin-top: 20px; padding: 16px; background: #f9fafb; border-radius: 8px; display: flex; gap: 40px; }
         .total-item { }
@@ -676,15 +714,17 @@ export default function PortalHome() {
         .assinatura { border-top: 1px solid #d1d5db; padding-top: 8px; width: 200px; text-align: center; }
       </style>
       </head><body>
-      <h1>Folha de Ponto — ${employeeName}</h1>
+      <h1>Folha de Ponto — ${esc(employeeName)}</h1>
       <div class="sub">${monthLabel}</div>
       <table>
-        <thead><tr><th>Data</th><th>Entrada</th><th>Saída</th><th>Duração</th><th>Local</th><th>Observações</th></tr></thead>
-        <tbody>${rows || '<tr><td colspan="6" style="color:#9ca3af">Nenhum registro</td></tr>'}</tbody>
+        <thead><tr><th>Data</th><th>Local</th><th>Tipo</th><th>Entrada</th><th>Saída</th><th>Intervalo</th><th>Horas</th><th>Motivo / observação</th></tr></thead>
+        <tbody>${rows || '<tr><td colspan="8" style="color:#9ca3af">Nenhum registro</td></tr>'}</tbody>
       </table>
       <div class="totals">
-        <div class="total-item"><div class="total-label">Dias Trabalhados</div><div class="total-value">${totalDias}</div></div>
-        <div class="total-item"><div class="total-label">Horas Totais</div><div class="total-value">${totalH}h${totalM > 0 ? totalM + 'min' : ''}</div></div>
+        <div class="total-item"><div class="total-label">Dias trabalhados</div><div class="total-value">${totalDias}</div></div>
+        <div class="total-item"><div class="total-label">Horas trabalhadas</div><div class="total-value">${totalH}h${totalM > 0 ? String(totalM).padStart(2, '0') : ''}</div></div>
+        ${nFolgas ? `<div class="total-item"><div class="total-label">Folgas</div><div class="total-value">${nFolgas}</div></div>` : ''}
+        ${nFaltas ? `<div class="total-item"><div class="total-label">Faltas</div><div class="total-value">${nFaltas}</div></div>` : ''}
       </div>
       <div class="footer">
         <div class="assinatura">_____________________<br/>Colaborador</div>
@@ -736,14 +776,54 @@ export default function PortalHome() {
     const link = (folhaLinks as FolhaLink[] | undefined)?.find(l => l.client?.id === clientId)
       || links?.find(l => (l as { client?: { id: string } }).client?.id === clientId)
     const lu = (link as { link_units?: { unit_id: string; unit_name: string; visit_rate?: number }[] } | undefined)?.link_units || []
+    // Fixo de consultoria recebe salário: não existe valor por visita para ela ver
+    const semValor = salarioConsultoria(link as FolhaLink | undefined)
     const valorVinculo = new Map(lu.filter(u => Number(u.visit_rate) > 0).map(u => [u.unit_id, Number(u.visit_rate)]))
     const doCliente = getUnitsForClient(clientId).map(u => ({
       id: u.id as string, name: u.name as string,
-      visit_rate: valorVinculo.get(u.id as string) ?? (Number(u.visit_rate) > 0 ? Number(u.visit_rate) : null),
+      visit_rate: semValor ? null : valorVinculo.get(u.id as string) ?? (Number(u.visit_rate) > 0 ? Number(u.visit_rate) : null),
     }))
     // Unidade que só existe no vínculo (cadastro antigo) continua aparecendo
-    for (const x of lu) if (!doCliente.some(u => u.id === x.unit_id)) doCliente.push({ id: x.unit_id, name: x.unit_name, visit_rate: Number(x.visit_rate) || null })
+    for (const x of lu) if (!doCliente.some(u => u.id === x.unit_id)) doCliente.push({ id: x.unit_id, name: x.unit_name, visit_rate: semValor ? null : Number(x.visit_rate) || null })
     return doCliente
+  }
+
+  // ── Registro já preenchido ────────────────────────────────────────────
+  // Clientes em que ela pode registrar num dia: vínculo em vigor e já começado
+  const clientesDoDia = (dia: string) => {
+    const vistos = new Map<string, string>()
+    for (const l of (folhaLinks as FolhaLink[] | undefined) || []) {
+      if (!l.client || (l.start_date && dia < l.start_date) || (l.contract_end_date && dia > l.contract_end_date)) continue
+      vistos.set(l.client.id, l.client.name)
+    }
+    return Array.from(vistos, ([id, name]) => ({ id, name }))
+  }
+  // Horário do contrato (quando o vínculo tem horário definido) — ela só ajusta se foi diferente
+  const horarioDoContrato = (clientId: string, dia: string) => {
+    const l = getLinkForClient(clientId, dia)
+    return l?.work_start && l?.work_end ? { check_in: l.work_start.slice(0, 5), check_out: l.work_end.slice(0, 5) } : {}
+  }
+  // O que o dia pede: visita marcada na agenda, dia de escala do Fixo ou o único cliente dela
+  const sugestaoDoDia = (dia: string): Partial<typeof EMPTY_PONTO> => {
+    const validos = clientesDoDia(dia)
+    const jaRegistrado = (cid: string) => (folhaVisits || []).some(v => v.client_id === cid && v.visit_date === dia)
+    const ag = ((agenda || []) as AgendaItem[]).find(a => a.planned_date === dia && !!a.client_id
+      && !jaRegistrado(a.client_id) && validos.some(c => c.id === a.client_id))
+    if (ag?.client_id) {
+      return { client_id: ag.client_id, unit_id: ag.unit_id || '', unit_name: ag.unit?.name || '',
+        ...horarioDoContrato(ag.client_id, dia), ...(ag.planned_time ? { check_in: ag.planned_time.slice(0, 5) } : {}) }
+    }
+    const escala = ((folhaLinks as FolhaLink[] | undefined) || []).find(l => l.client && validos.some(c => c.id === l.client!.id)
+      && effectiveType(l) === 'Fixo' && hasKnownSchedule(l) && !isDayOff(l, dia) && !jaRegistrado(l.client.id))
+    if (escala?.client) return { client_id: escala.client.id, ...horarioDoContrato(escala.client.id, dia) }
+    if (validos.length === 1) return { client_id: validos[0].id, ...horarioDoContrato(validos[0].id, dia) }
+    return {}
+  }
+  const abrirRegistro = (dia: string = hojeISO()) => {
+    setEditingPontoId(null)
+    setPontoForm({ ...EMPTY_PONTO, visit_date: dia, ...sugestaoDoDia(dia) })
+    setAtestadoFile(null); setReportFile(null)
+    setShowPontoModal(true)
   }
 
   return (
@@ -860,7 +940,7 @@ export default function PortalHome() {
           })
           return (
             <div className="space-y-4">
-              <button onClick={() => { setEditingPontoId(null); setPontoForm(EMPTY_PONTO); setAtestadoFile(null); setReportFile(null); setShowPontoModal(true) }}
+              <button onClick={() => abrirRegistro()}
                 className="btn-primary w-full py-3.5 text-base">
                 <Plus size={18} /> Registrar hoje
               </button>
@@ -933,7 +1013,7 @@ export default function PortalHome() {
                   <Download size={16} /> PDF
                 </button>
               </div>
-              <button onClick={() => { setEditingPontoId(null); setPontoForm(EMPTY_PONTO); setAtestadoFile(null); setReportFile(null); setShowPontoModal(true) }}
+              <button onClick={() => abrirRegistro()}
                 className="btn-primary text-sm w-full py-3">
                 <Plus size={16} /> Registrar dia
               </button>
@@ -952,16 +1032,27 @@ export default function PortalHome() {
               const monthlyQuota = Number(link.monthly_hours_quota) || null
               const weeklyQuota = Number(link.weekly_hours_quota) || null
               const weeklyCapMins = weeklyQuota ? weeklyQuota * 60 : Infinity
-              const liquido = (v: { check_in?: string; check_out?: string }) => {
-                const raw = calcDurationMin(v.check_in!.slice(0, 5), v.check_out!.slice(0, 5))
-                const bs = (v as { break_start?: string }).break_start, be = (v as { break_end?: string }).break_end
-                const brk = bs && be ? calcDurationMin(bs.slice(0, 5), be.slice(0, 5)) : 0
-                return Math.max(0, raw - brk)
-              }
+              // Horas do dia descontando o intervalo (o do dia ou, sem ele, o do contrato)
+              const liquido = (v: { check_in?: string; check_out?: string; break_start?: string; break_end?: string }) =>
+                minutosLiquidos(v, link.break_minutes)
               const validas = clientVisits.filter(v => v.check_in && v.check_out && !(v as { is_unavailable?: boolean }).is_unavailable)
+              const mensal = recebeMensal(link)
+              const salario = salarioConsultoria(link)
+              const folgas = clientVisits.filter(v => (v as { is_holiday?: boolean }).is_holiday && !(v as { is_unavailable?: boolean }).is_unavailable)
+              // Fixo de consultoria: quantas consultorias a agenda do RH programou no mês
+              const programadas = salario
+                ? ((agendaDaFolha || []) as { client_id?: string; planned_date: string }[])
+                    .filter(a => a.client_id === client?.id && vinculoValeNoDia(a.client_id, String(a.planned_date))).length
+                : 0
               // Consultoria: cada visita conta no máximo a cota semanal (excesso vai para aprovação)
               const totalMins = validas.reduce((s, v) => s + (isConsultoria ? Math.min(liquido(v), weeklyCapMins) : liquido(v)), 0)
-              const excessMins = isConsultoria ? validas.reduce((s, v) => s + Math.max(0, liquido(v) - weeklyCapMins), 0) : 0
+              // Horas a mais que ainda esperam o RH (migração 062). Depois que o RH
+              // decide (paga ou não), o aviso sai daqui — antes ficava para sempre.
+              const temDecisao = validas.some(v => 'excesso_status' in (v as object))
+              const excessMins = isConsultoria && !salario
+                ? validas.filter(v => !temDecisao || (v as { excesso_status?: string | null }).excesso_status === 'pendente')
+                    .reduce((s, v) => s + Math.max(0, liquido(v) - weeklyCapMins), 0)
+                : 0
               const monthHours = totalMins / 60
               const unidades = isConsultoria && client ? getLinkUnitsForClient(client.id) : []
               // Fixo: horas além da jornada diária
@@ -978,7 +1069,7 @@ export default function PortalHome() {
                     <div className="min-w-0">
                       <p className="font-semibold text-ink-900 leading-snug">{client?.name}</p>
                       <p className="text-xs text-ink-500 mt-0.5">
-                        {[effectiveType(link), pagaPorDiaria(link) ? 'por diária' : null, !isConsultoria ? escala : null].filter(Boolean).join(' · ')}
+                        {[salario ? 'Consultoria · salário mensal' : effectiveType(link), pagaPorDiaria(link) ? 'por diária' : null, !isConsultoria ? escala : null].filter(Boolean).join(' · ')}
                       </p>
                     </div>
                     <div className="text-right shrink-0">
@@ -988,7 +1079,47 @@ export default function PortalHome() {
                   </div>
 
                   <div className="px-4 pb-4 space-y-3">
-                    {isConsultoria ? (
+                    {salario ? (
+                      // Fixo de consultoria: acompanha o programado × realizado; não há valor por visita
+                      <div className="divide-y divide-ink-100 text-sm">
+                        <div className="py-2 first:pt-0">
+                          <div className="flex items-baseline justify-between">
+                            <span className="text-ink-500">Consultorias no mês</span>
+                            <span className="font-semibold text-ink-900 tnum">
+                              {validas.length}{programadas > 0 ? <span className="font-normal text-ink-400"> de {programadas} programadas</span> : null}
+                            </span>
+                          </div>
+                          {programadas > 0 && (
+                            <div className="h-1.5 bg-ink-100 rounded-full overflow-hidden mt-2">
+                              <div className="h-full bg-primary-600 rounded-full transition-all" style={{ width: `${Math.min(100, (validas.length / programadas) * 100)}%` }} />
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex justify-between py-2">
+                          <span className="text-ink-500">Horas no mês</span>
+                          <span className="font-semibold text-ink-900 tnum">{fmtHoras(validas.reduce((s, v) => s + liquido(v), 0))}</span>
+                        </div>
+                        {folgas.length > 0 && (
+                          <div className="flex justify-between py-2">
+                            <span className="text-ink-500">Folgas</span>
+                            <span className="font-semibold text-ink-900 tnum">{folgas.length}</span>
+                          </div>
+                        )}
+                        {faltas.length > 0 && (
+                          <div className="flex justify-between py-2">
+                            <span className="text-ink-500">Faltas</span>
+                            <span className="font-semibold text-red-600 tnum">{faltas.length}</span>
+                          </div>
+                        )}
+                        {unidades.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5 pt-2.5">
+                            {unidades.map(u => (
+                              <span key={u.id} className="text-xs text-ink-600 bg-ink-50 border border-ink-100 px-2.5 py-1 rounded-full">{u.name}</span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ) : isConsultoria ? (
                       <>
                         <div>
                           <div className="flex items-baseline justify-between text-sm">
@@ -1043,9 +1174,15 @@ export default function PortalHome() {
                             <span className="font-semibold text-ink-900 tnum">{fmtHoras(extraHours * 60)}</span>
                           </div>
                         )}
+                        {mensal && folgas.length > 0 && (
+                          <div className="flex justify-between py-2">
+                            <span className="text-ink-500">Folgas</span>
+                            <span className="font-semibold text-ink-900 tnum">{folgas.length}</span>
+                          </div>
+                        )}
                         {faltas.length > 0 && (
                           <div className="flex justify-between py-2">
-                            <span className="text-ink-500">Faltas justificadas</span>
+                            <span className="text-ink-500">Faltas</span>
                             <span className="font-semibold text-red-600 tnum">{faltas.length}</span>
                           </div>
                         )}
@@ -1078,9 +1215,8 @@ export default function PortalHome() {
                   const atestadoUrl = (v as { atestado_url?: string }).atestado_url
                   const breakStart = (v as { break_start?: string }).break_start
                   const breakEnd = (v as { break_end?: string }).break_end
-                  const rawDur = v.check_in && v.check_out ? calcDurationMin(v.check_in.slice(0,5), v.check_out.slice(0,5)) : 0
-                  const breakDur = breakStart && breakEnd ? calcDurationMin(breakStart.slice(0,5), breakEnd.slice(0,5)) : 0
-                  const dur = Math.max(0, rawDur - breakDur)
+                  // Líquido: desconta o intervalo do dia ou, sem ele, o do contrato
+                  const dur = minutosLiquidos(v, getLinkForClient(v.client_id, v.visit_date)?.break_minutes)
                   const extraApproval = (v as { extra_approval?: string }).extra_approval
                   const abrirEdicao = () => {
                     setEditingPontoId(v.id)
@@ -1489,9 +1625,10 @@ export default function PortalHome() {
                 const ds = diaAgenda
                 const itens = itensDoDia(ds)
                 const futuro = ds > hojeStr
-                const abrirRegistro = (clientId: string, a?: AgendaItem) => {
+                const registrarNoDia = (clientId: string, a?: AgendaItem) => {
                   setEditingPontoId(null)
-                  setPontoForm({ ...EMPTY_PONTO, visit_date: ds, client_id: clientId, unit_id: a?.unit_id || '', unit_name: a?.unit?.name || '' })
+                  setPontoForm({ ...EMPTY_PONTO, visit_date: ds, client_id: clientId, unit_id: a?.unit_id || '', unit_name: a?.unit?.name || '',
+                    ...horarioDoContrato(clientId, ds), ...(a?.planned_time ? { check_in: a.planned_time.slice(0, 5) } : {}) })
                   setAtestadoFile(null); setReportFile(null)
                   setDiaAgenda(null)
                   setShowPontoModal(true)
@@ -1534,7 +1671,7 @@ export default function PortalHome() {
                                   <div className="flex gap-2">
                                     <button className="btn-primary text-xs py-2 flex-1" disabled={futuro}
                                       title={futuro ? 'Disponível no dia da visita' : undefined}
-                                      onClick={() => abrirRegistro(a.client_id || '', a)}>Registrar</button>
+                                      onClick={() => registrarNoDia(a.client_id || '', a)}>Registrar</button>
                                     <button className="btn-secondary text-xs py-2 flex-1" onClick={() => {
                                       setDiaAgenda(null)
                                       setTroca({ agenda: a, modo: 'cliente', cliente: '', unidade: '', data: a.planned_date, motivo: '' })
@@ -1561,7 +1698,7 @@ export default function PortalHome() {
                                   </div>
                                 </div>
                                 <div className="flex gap-2">
-                                  <button className="btn-primary text-xs py-2 flex-1" disabled={futuro} onClick={() => abrirRegistro(it.clientId)}>Registrar</button>
+                                  <button className="btn-primary text-xs py-2 flex-1" disabled={futuro} onClick={() => registrarNoDia(it.clientId)}>Registrar</button>
                                   <button className="btn-secondary text-xs py-2 flex-1" onClick={() => {
                                     setDiaAgenda(null)
                                     setDayModal({ date: ds, linkId: it.linkId! }); setNoticeAction(''); setNoticeForm({ reason: '', otherDate: '' })
@@ -1850,28 +1987,72 @@ export default function PortalHome() {
           <div className="modal-box max-w-md space-y-4">
             <h3 className="font-bold text-lg">{editingPontoId ? 'Editar registro' : 'Registrar dia'}</h3>
 
-            {/* Cliente */}
+            {/* Quando: a data vem primeiro — ela define em quais clientes dá para registrar */}
             <div>
-              <label className="label">Cliente *</label>
-              <select className="input" value={pontoForm.client_id} onChange={e => setPontoForm(p => ({ ...p, client_id: e.target.value, unit_id: '', unit_name: '', is_extra: false, day_type: 'normal', unavailability_reason: '' }))}>
-                <option value="">Selecionar...</option>
-                {folhaLinks?.map(l => {
-                  const c = (l as { client?: { id: string; name: string } }).client
-                  return c ? <option key={c.id} value={c.id}>{c.name}</option> : null
-                })}
-              </select>
-              {modalLink && (
-                <p className="text-xs text-gray-400 mt-1">
-                  {isConsultoria ? 'Consultoria — registre a visita com a unidade' : `Fixo${modalLink.work_schedule_type ? ` · escala ${modalLink.work_schedule_type}` : ''}${Number(modalLink.daily_hours) > 0 ? ` · jornada de ${modalLink.daily_hours}h por dia` : ''}${modalLink.work_start && modalLink.work_end ? ` · das ${modalLink.work_start.slice(0, 5)} às ${modalLink.work_end.slice(0, 5)}` : ''}${Number(modalLink.break_minutes) > 0 ? ` · ${modalLink.break_minutes}min de intervalo` : ''}`}
-                </p>
-              )}
+              <label className="label">Dia *</label>
+              <div className="flex gap-2">
+                {(() => {
+                  const hoje = hojeISO()
+                  const d = new Date(hoje + 'T12:00:00'); d.setDate(d.getDate() - 1)
+                  const ontem = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+                  return ([[hoje, 'Hoje'], [ontem, 'Ontem']] as const).map(([dia, rotulo]) => (
+                    <button key={dia} type="button"
+                      onClick={() => setPontoForm(p => p.visit_date === dia ? p : ({ ...p, visit_date: dia }))}
+                      className={`px-3.5 rounded-xl border text-sm font-medium shrink-0 transition-colors ${pontoForm.visit_date === dia ? 'border-primary-600 bg-primary-50 text-primary-800' : 'border-ink-200 text-ink-600 active:bg-ink-50'}`}>
+                      {rotulo}
+                    </button>
+                  ))
+                })()}
+                <input className="input flex-1 min-w-0" type="date" value={pontoForm.visit_date} onChange={e => setPontoForm(p => ({ ...p, visit_date: e.target.value }))} />
+              </div>
             </div>
 
-            {/* Data */}
-            <div>
-              <label className="label">Data *</label>
-              <input className="input" type="date" value={pontoForm.visit_date} onChange={e => setPontoForm(p => ({ ...p, visit_date: e.target.value }))} />
-            </div>
+            {/* Onde: só os clientes com vínculo valendo no dia. Poucos = botões grandes. */}
+            {(() => {
+              const opcoes = clientesDoDia(pontoForm.visit_date)
+              // O registro em edição pode ser de um cliente que já não está na lista
+              const lista = pontoForm.client_id && !opcoes.some(c => c.id === pontoForm.client_id)
+                ? [...opcoes, { id: pontoForm.client_id, name: ((links as FolhaLink[] | undefined) || []).find(l => l.client?.id === pontoForm.client_id)?.client?.name || 'Cliente' }]
+                : opcoes
+              const escolher = (cid: string) => setPontoForm(p => {
+                if (p.client_id === cid) return p
+                // Sugere o horário do contrato só quando ela ainda não digitou nada
+                const horario = !p.check_in && !p.check_out ? horarioDoContrato(cid, p.visit_date) : {}
+                const ag = ((agenda || []) as AgendaItem[]).find(a => a.client_id === cid && a.planned_date === p.visit_date)
+                return { ...p, client_id: cid, unit_id: ag?.unit_id || '', unit_name: ag?.unit?.name || '', is_extra: false, is_swap: false, swapped_from: '',
+                  day_type: 'normal', unavailability_reason: '', ...horario,
+                  ...(ag?.planned_time && !p.check_in ? { check_in: ag.planned_time.slice(0, 5) } : {}) }
+              })
+              return (
+                <div>
+                  <label className="label">Cliente *</label>
+                  {lista.length === 0 ? (
+                    <p className="text-sm text-ink-500 bg-ink-50 rounded-xl px-3 py-2.5">Nenhum cliente com vínculo valendo nesse dia.</p>
+                  ) : lista.length <= 4 ? (
+                    <div className="grid grid-cols-1 gap-1.5">
+                      {lista.map(c => (
+                        <button key={c.id} type="button" onClick={() => escolher(c.id)}
+                          className={`text-left px-3.5 py-3 rounded-xl border text-sm transition-colors ${pontoForm.client_id === c.id ? 'border-primary-600 bg-primary-50 text-primary-900 font-medium' : 'border-ink-200 text-ink-700 active:bg-ink-50'}`}>
+                          {c.name}
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <select className="input" value={pontoForm.client_id} onChange={e => escolher(e.target.value)}>
+                      <option value="">Selecionar...</option>
+                      {lista.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </select>
+                  )}
+                  {modalLink && (
+                    <p className="text-xs text-ink-400 mt-1.5">
+                      {isConsultoria
+                        ? (salarioConsultoria(modalLink) ? 'Consultoria (salário mensal) — registre a consultoria com a unidade' : 'Consultoria — registre a visita com a unidade')
+                        : `Fixo${modalLink.work_schedule_type ? ` · escala ${modalLink.work_schedule_type}` : ''}${Number(modalLink.daily_hours) > 0 ? ` · jornada de ${modalLink.daily_hours}h por dia` : ''}${modalLink.work_start && modalLink.work_end ? ` · das ${modalLink.work_start.slice(0, 5)} às ${modalLink.work_end.slice(0, 5)}` : ''}${Number(modalLink.break_minutes) > 0 ? ` · ${modalLink.break_minutes}min de intervalo` : ''}`}
+                    </p>
+                  )}
+                </div>
+              )
+            })()}
 
             {/* ── Tipo do dia: só para quem recebe mensal (Fixo mensal e consultoria com salário) ── */}
             {modalLink && mensal && (
@@ -2042,10 +2223,12 @@ export default function PortalHome() {
                 {pontoForm.check_in && pontoForm.check_out && (() => {
                   const raw = calcDurationMin(pontoForm.check_in, pontoForm.check_out)
                   if (raw <= 0) return null
+                  const intervalo = Number(modalLink.break_minutes) || 0
+                  const liquido = minutosLiquidos({ check_in: pontoForm.check_in, check_out: pontoForm.check_out }, intervalo)
                   return (
                     <div className="space-y-0.5">
-                      <p className="text-xs text-blue-600 font-medium">
-                        Total: {Math.floor(raw/60)}h{raw%60>0?String(raw%60).padStart(2,'0')+'min':''}
+                      <p className="text-xs text-ink-600 font-medium tnum">
+                        Total: {fmtHoras(liquido)}{intervalo > 0 && <span className="font-normal text-ink-400"> (já descontado {fmtHoras(intervalo)} de intervalo)</span>}
                       </p>
                       <JornadaAviso vinculo={modalLink} entrada={pontoForm.check_in} saida={pontoForm.check_out} />
                     </div>

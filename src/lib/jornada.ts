@@ -35,6 +35,21 @@ const duracao = (a?: string | null, b?: string | null) => {
   return y >= x ? y - x : y + 1440 - x // passou da meia-noite (plantão)
 }
 
+/**
+ * Minutos trabalhados no dia: entrada→saída menos o intervalo. O portal não
+ * pede intervalo; sem intervalo registrado, vale o do vínculo (break_minutes).
+ * É a mesma conta do aviso de jornada — assim o total do portal, o PDF e o
+ * sistema nunca discordam (antes quem tinha 1h de almoço aparecia com 1h extra/dia).
+ */
+export function minutosLiquidos(
+  v: { check_in?: string | null; check_out?: string | null; break_start?: string | null; break_end?: string | null },
+  intervaloVinculoMin?: number | null,
+): number {
+  if (!v.check_in || !v.check_out) return 0
+  const intervalo = v.break_start && v.break_end ? duracao(v.break_start, v.break_end) : Math.max(0, Number(intervaloVinculoMin) || 0)
+  return Math.max(0, duracao(v.check_in, v.check_out) - intervalo)
+}
+
 export const horaMin = (m: number) => m < 60 ? `${m}min` : `${Math.floor(m / 60)}h${m % 60 ? String(m % 60).padStart(2, '0') : ''}`
 
 export const rotuloIntervalo = (m: number) => m ? `${horaMin(m)} de intervalo` : 'sem intervalo'

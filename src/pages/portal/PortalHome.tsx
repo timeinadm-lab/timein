@@ -9,6 +9,11 @@ import { ptBR } from 'date-fns/locale'
 import toast from 'react-hot-toast'
 import { confirmar } from '../../components/ui/ConfirmDialog'
 import JornadaAviso from './JornadaAviso'
+import { jornadaDoVinculo, desvioDoDia, textoDoDesvio, TOLERANCIA_MIN } from '../../lib/jornada'
+import type { VinculoJornada } from '../../lib/jornada'
+
+// Ela desistiu num diálogo de confirmação: não é erro, não mostra aviso
+const CANCELADO = '__cancelado__'
 
 type Tab = 'home' | 'folha' | 'agenda' | 'gastos' | 'duvidas'
 
@@ -285,6 +290,21 @@ export default function PortalHome() {
       if (isConsultoria && isNormal && !pontoForm.unit_id && getLinkUnitsForClient(pontoForm.client_id).length > 0)
         throw new Error('Escolha a unidade')
 
+      // Trabalhou menos que a jornada do vínculo? Ela confirma sabendo que o RH é informado
+      if (isNormal) {
+        const j = jornadaDoVinculo(link as VinculoJornada)
+        const d = j ? desvioDoDia({ check_in: pontoForm.check_in, check_out: pontoForm.check_out }, j) : null
+        if (j && d && (d.difMin < -TOLERANCIA_MIN || d.atrasoMin > TOLERANCIA_MIN || d.saidaCedoMin > TOLERANCIA_MIN)) {
+          const ok = await confirmar({
+            titulo: 'Você trabalhou menos que a jornada',
+            texto: `${textoDoDesvio(d, j)}.\n\nAo confirmar, o RH será informado de que você trabalhou menos neste dia.`,
+            confirmar: 'Confirmar e informar o RH',
+            cancelar: 'Corrigir horário',
+          })
+          if (!ok) throw new Error(CANCELADO)
+        }
+      }
+
       // Registrou num dia que NÃO estava combinado, tendo dia em aberto no mesmo
       // cliente? Pergunta o que aconteceu. Sem isso o combinado ficava pendente
       // pra sempre e o painel acusava "não apareceu" sem saber que ela foi noutro dia.
@@ -444,7 +464,7 @@ export default function PortalHome() {
       setReportFile(null)
       setEditingPontoId(null)
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => { if (e.message !== CANCELADO) toast.error(e.message) },
   })
 
   const deletePonto = useMutation({

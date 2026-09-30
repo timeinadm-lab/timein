@@ -9,6 +9,7 @@ import toast from 'react-hot-toast'
 import { supabase, fetchAll } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { formatDate, formatCurrency, formatLocalTime, parseLocal, isMeetingLink, mapsUrl, hojeISO, tipoDoVinculo, pagaPorDiaria, ehTemporario, precisaContrato, compromissoNoDia } from '../lib/utils'
+import { buscarForaDaJornada, horaMin, TOLERANCIA_MIN } from '../lib/jornada'
 import { addDays, startOfMonth, endOfMonth, isBefore, parseISO, isAfter, differenceInDays, subMonths, format } from 'date-fns'
 
 const BACKUP_TABLES = [
@@ -408,6 +409,9 @@ export default function Dashboard() {
       return data || []
     },
   })
+
+  // Dias abaixo da jornada (migração 067) — entra em "Precisa de atenção"
+  const { data: jornadaFora } = useQuery({ queryKey: ['dashboard-jornada'], queryFn: buscarForaDaJornada })
 
   // Meus itens "a agendar" (sem data) — pra eu lembrar que preciso definir a data
   const { data: myPending } = useQuery({
@@ -1322,6 +1326,24 @@ export default function Dashboard() {
       })
     }
     return saida
+  }
+
+  // Jornada: quem trabalhou MENOS que o combinado (Fixo / consultoria com salário), dias ainda não vistos
+  {
+    const porPessoa = new Map<string, { nome: string; cliente: string; dias: number; faltaMin: number }>()
+    for (const d of jornadaFora || []) {
+      const abaixo = d.desvio.difMin < -TOLERANCIA_MIN || d.desvio.atrasoMin > TOLERANCIA_MIN || d.desvio.saidaCedoMin > TOLERANCIA_MIN
+      if (!abaixo) continue
+      const k = `${d.employeeId}|${d.clientId}`
+      const p = porPessoa.get(k) || { nome: d.pessoa, cliente: d.cliente, dias: 0, faltaMin: 0 }
+      p.dias++; p.faltaMin += Math.max(0, -d.desvio.difMin)
+      porPessoa.set(k, p)
+    }
+    porPessoa.forEach((p, k) => amberAlerts.push({
+      key: `jornada-${k}-${p.dias}`,
+      text: `Jornada: ${p.nome} – ${p.cliente} trabalhou menos que o combinado em ${p.dias} dia(s)${p.faltaMin > 0 ? ` (faltaram ${horaMin(p.faltaMin)})` : ''}`,
+      path: '/jornada',
+    }))
   }
 
   const filteredRed = agrupar(redAlerts.filter(a => !isHidden(a)))

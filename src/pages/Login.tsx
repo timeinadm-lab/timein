@@ -105,6 +105,11 @@ export default function Login() {
               {loading ? 'Entrando...' : 'Entrar'}
             </button>
           </form>
+          {/* Recarrega a página de propósito: assim o atalho do celular passa a ser o do portal */}
+          <button type="button" onClick={() => window.location.assign('/portal')}
+            className="w-full mt-6 py-3 rounded-xl border border-ink-200 bg-white text-sm font-medium text-primary-700 active:bg-ink-50">
+            Sou nutricionista — entrar no portal
+          </button>
         </div>
       </div>
       </div>

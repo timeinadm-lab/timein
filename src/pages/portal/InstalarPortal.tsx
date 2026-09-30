@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Smartphone, X, Share, PlusSquare, MoreVertical } from 'lucide-react'
 
 type Convite = { prompt: () => Promise<void>; userChoice: Promise<{ outcome: string }> }
@@ -14,6 +14,11 @@ export const abertoComoApp = () =>
  */
 export default function InstalarPortal({ variante = 'link' }: { variante?: 'link' | 'cartao' }) {
   const [ajuda, setAjuda] = useState(false)
+  // Garante o atalho do PORTAL mesmo quando chegou aqui navegando de outra tela
+  useEffect(() => {
+    document.querySelector('link[rel=manifest]')?.setAttribute('href', '/manifest-portal.webmanifest')
+    document.querySelector('meta[name=apple-mobile-web-app-title]')?.setAttribute('content', 'Portal TIN')
+  }, [])
   if (abertoComoApp()) return null
   const iphone = /iphone|ipad|ipod/i.test(navigator.userAgent)
 

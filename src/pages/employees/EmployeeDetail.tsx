@@ -1046,15 +1046,54 @@ export default function EmployeeDetail() {
     onError: (e: Error) => toast.error(e.message),
   })
 
-  const adicionarClienteAoFixo = () => {
-    setCoverageForm(p => ({ ...p, coverage_type: 'Consultoria', consult_salario: true, vinculo_tipo: 'permanente', client_id: '', unit_id: '', unit_ids: [],
-      contrato: 'nao', pay_days: diaPagtoFixo ? [String(diaPagtoFixo)] : p.pay_days,
-      agenda_mode: (campoFixo<string>(principalDoFixo, 'agenda_mode') as typeof p.agenda_mode) || p.agenda_mode,
-      work_start: horarioPadraoFixo?.inicio || '', work_end: horarioPadraoFixo?.fim || '',
-      break_minutes: horarioPadraoFixo?.intervalo ? String(horarioPadraoFixo.intervalo) : '' }))
-    setShowCoverageForm(true)
-    setTimeout(() => document.getElementById('form-vincular')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50)
-  }
+  // Adicionar cliente ao consultor fixo: só o cliente e o combinado dele. O resto
+  // (salário, contrato, dia de pagamento, quem monta a agenda, horário padrão)
+  // já é do contrato dela. Não passa pelo formulário de vínculo novo.
+  type NovoClienteFixo = { client_id: string; frequencia: string; horas: string; inicio: string; fim: string; horarioProprio: boolean; desde: string }
+  const [novoClienteFixo, setNovoClienteFixo] = useState<NovoClienteFixo | null>(null)
+  const adicionarClienteAoFixo = () => setNovoClienteFixo({
+    client_id: '', frequencia: 'Semanal', horas: '', horarioProprio: false, desde: hojeISO(),
+    inicio: horarioPadraoFixo?.inicio || '', fim: horarioPadraoFixo?.fim || '',
+  })
+  const salvarClienteNoFixo = useMutation({
+    mutationFn: async (n: NovoClienteFixo) => {
+      if (!n.client_id) throw new Error('Escolha o cliente')
+      if (!principalDoFixo) throw new Error('Consultor fixo não encontrado')
+      if (grupoFixo.some(l => l.client_id === n.client_id)) throw new Error('Esse cliente já está no contrato dela')
+      const horas = Number(String(n.horas).replace(',', '.')) || null
+      const mult = n.frequencia === 'Mensal' ? 1 : n.frequencia === 'Quinzenal' ? 2 : n.frequencia === 'Semanal' ? 4 : 0
+      const horario = n.horarioProprio
+        ? (n.inicio && n.fim ? { work_start: n.inicio, work_end: n.fim } : {})
+        : horarioPadraoFixo ? { work_start: horarioPadraoFixo.inicio, work_end: horarioPadraoFixo.fim, ...(horarioPadraoFixo.intervalo ? { break_minutes: horarioPadraoFixo.intervalo } : {}) } : {}
+      const { data: novo, error } = await supabase.from('employee_client_links').insert({
+        employee_id: id,
+        client_id: n.client_id,
+        service_type: 'Consultoria',
+        coverage_type: 'Consultoria',
+        pay_mode: 'salario_fixo',
+        is_temporary: false,
+        agenda_mode: campoFixo<string>(principalDoFixo, 'agenda_mode') || 'gestor',
+        contract_required: false,
+        contract_file_url: contratoDoFixo,
+        start_date: n.desde || hojeISO(),
+        monthly_amount: null,
+        visit_frequency: n.frequencia,
+        weekly_hours_quota: horas,
+        monthly_hours_quota: horas && mult ? horas * mult : null,
+        ...horario,
+      }).select('id').single()
+      if (error) throw error
+      if (novo?.id) {
+        await supabase.from('employee_payment_dates').insert({ link_id: novo.id, day_of_month: diaPagtoFixo || 20 })
+      }
+    },
+    onSuccess: () => {
+      toast.success('Cliente adicionado ao consultor fixo')
+      setNovoClienteFixo(null)
+      qc.invalidateQueries({ queryKey: ['employee-links', id] })
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
 
   const removeLink = useMutation({
     mutationFn: async (linkId: string) => {
@@ -2807,6 +2846,7 @@ export default function EmployeeDetail() {
                 return encA - encB
               })
               const idsFixo = new Set(grupoFixo.map(l => l.id))
+              const idsClientesFixo = new Set(grupoFixo.map(l => l.client_id))
               return (
                 <>
                   {grupoFixo.length > 0 && (
@@ -2933,7 +2973,60 @@ export default function EmployeeDetail() {
                         </div>
                       </div>
 
-                      <button className="btn-secondary text-sm w-full" onClick={adicionarClienteAoFixo}>+ Adicionar cliente</button>
+                      {novoClienteFixo ? (
+                        <div className="rounded-lg bg-white border-2 border-primary-300 p-3 space-y-3">
+                          <p className="text-sm font-medium text-ink-900">Adicionar cliente</p>
+                          <div>
+                            <label className="label text-xs">Cliente *</label>
+                            <select className="input" value={novoClienteFixo.client_id}
+                              onChange={e => setNovoClienteFixo(p => p && { ...p, client_id: e.target.value })}>
+                              <option value="">Escolher cliente…</option>
+                              {(clientsForCoverage || []).filter(c => !idsClientesFixo.has(c.id)).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                            </select>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <label className="label text-xs">Frequência</label>
+                              <select className="input text-sm" value={novoClienteFixo.frequencia}
+                                onChange={e => setNovoClienteFixo(p => p && { ...p, frequencia: e.target.value })}>
+                                <option value="Semanal">Semanal</option>
+                                <option value="Quinzenal">Quinzenal</option>
+                                <option value="Mensal">Mensal</option>
+                                <option value="Avulso">Em aberto</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label className="label text-xs">Horas por visita</label>
+                              <input className="input text-sm" inputMode="decimal" placeholder="Sem horas"
+                                value={novoClienteFixo.horas} onChange={e => setNovoClienteFixo(p => p && { ...p, horas: e.target.value })} />
+                            </div>
+                          </div>
+                          <label className="flex items-center gap-2 text-sm text-ink-700">
+                            <input type="checkbox" className="rounded" checked={novoClienteFixo.horarioProprio}
+                              onChange={e => setNovoClienteFixo(p => p && { ...p, horarioProprio: e.target.checked })} />
+                            Horário diferente do padrão{horarioPadraoFixo ? ` (${horarioPadraoFixo.inicio}–${horarioPadraoFixo.fim})` : ''}
+                          </label>
+                          {novoClienteFixo.horarioProprio && (
+                            <div className="grid grid-cols-2 gap-2">
+                              <div><label className="label text-xs">Entrada</label><input className="input text-sm" type="time" value={novoClienteFixo.inicio} onChange={e => setNovoClienteFixo(p => p && { ...p, inicio: e.target.value })} /></div>
+                              <div><label className="label text-xs">Saída</label><input className="input text-sm" type="time" value={novoClienteFixo.fim} onChange={e => setNovoClienteFixo(p => p && { ...p, fim: e.target.value })} /></div>
+                            </div>
+                          )}
+                          <div>
+                            <label className="label text-xs">Começa em</label>
+                            <input className="input text-sm" type="date" value={novoClienteFixo.desde} onChange={e => setNovoClienteFixo(p => p && { ...p, desde: e.target.value })} />
+                          </div>
+                          <div className="flex gap-2">
+                            <button className="btn-primary text-sm flex-1" disabled={!novoClienteFixo.client_id || salvarClienteNoFixo.isPending}
+                              onClick={() => salvarClienteNoFixo.mutate(novoClienteFixo)}>
+                              {salvarClienteNoFixo.isPending ? 'Adicionando…' : 'Adicionar'}
+                            </button>
+                            <button className="btn-secondary text-sm" onClick={() => setNovoClienteFixo(null)}>Cancelar</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <button className="btn-secondary text-sm w-full" onClick={adicionarClienteAoFixo}>+ Adicionar cliente</button>
+                      )}
                       <p className="text-[11px] text-ink-500 leading-relaxed">
                         Ela recebe o salário todo mês. Em <strong>Pagamentos</strong> aparece quantas consultorias da agenda ela fez —
                         se faltou alguma, você decide se desconta. Encerrar um cliente não muda o salário.

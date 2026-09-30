@@ -391,7 +391,44 @@ export default function PaymentList() {
         }
       }
 
-      const links = [...activeLinks, ...dismissedRows]
+      // Fixo de consultoria (consultoria com salário): UM salário por pessoa,
+      // para todos os clientes dela. No cadastro cada cliente é um vínculo (o
+      // portal precisa disso), mas na folha eles viram UMA linha: o vínculo com
+      // o maior salário é o principal e os outros entram como clientes dele.
+      // Antes eram N linhas, cada uma com o próprio salário — preencher em
+      // todas pagaria N vezes. O salário da linha é a soma do que estiver
+      // preenchido (num vínculo só ou dividido entre clientes, dá o mesmo).
+      const clientesDaLinha = new Map<string, string[]>()
+      const gruposSalario = new Map<string, typeof activeLinks>()
+      for (const l of activeLinks) {
+        if (!salarioConsultoria(l)) continue
+        const eid = (l as { employee?: { id: string } }).employee?.id
+        if (!eid) continue
+        gruposSalario.set(eid, [...(gruposSalario.get(eid) || []), l])
+      }
+      const agrupados: typeof activeLinks = []
+      for (const l of activeLinks) {
+        const eid = (l as { employee?: { id: string } }).employee?.id
+        const grupo = salarioConsultoria(l) && eid ? gruposSalario.get(eid) || [] : []
+        if (grupo.length <= 1) { agrupados.push(l); continue }
+        const principal = [...grupo].sort((a, b) =>
+          (Number(b.monthly_amount) || 0) - (Number(a.monthly_amount) || 0)
+          || String((a as { created_at?: string }).created_at || '').localeCompare(String((b as { created_at?: string }).created_at || '')))[0]
+        if (l.id !== principal.id) continue
+        const inicios = grupo.map(g => (g as { start_date?: string | null }).start_date || '')
+        const fins = grupo.map(g => (g as { contract_end_date?: string | null }).contract_end_date || '')
+        const cli = (principal as { client?: { id: string; name: string } }).client
+        clientesDaLinha.set(principal.id, grupo.map(g => (g as { client?: { id: string } }).client?.id).filter(Boolean) as string[])
+        agrupados.push({
+          ...principal,
+          monthly_amount: grupo.reduce((s, g) => s + (Number(g.monthly_amount) || 0), 0),
+          start_date: inicios.some(d => !d) ? null : inicios.sort()[0],
+          contract_end_date: fins.some(d => !d) ? null : fins.sort().pop(),
+          client: cli ? { ...cli, name: `${cli.name} e mais ${grupo.length - 1} cliente${grupo.length > 2 ? 's' : ''}` } : cli,
+        } as typeof principal)
+      }
+
+      const links = [...agrupados, ...dismissedRows]
       if (!links?.length) return []
 
       // Fetch actual visits for this month for all employees
@@ -442,11 +479,12 @@ export default function PaymentList() {
 
       const hojeFolha = hojeISO()
       const progConsultoria = new Map<string, { mes: number; ateHoje: number; realizadas: number }>()
-      for (const l of links || []) {
+      // Conta com TODOS os vínculos com salário dela (a folha mostra uma linha só)
+      for (const l of activeLinks) {
         if (!salarioConsultoria(l)) continue
         const empId = (l as { employee?: { id: string } }).employee?.id
         if (!empId || progConsultoria.has(empId)) continue
-        const clientesDela = new Set((links || [])
+        const clientesDela = new Set(activeLinks
           .filter(o => salarioConsultoria(o) && (o as { employee?: { id: string } }).employee?.id === empId)
           .map(o => (o as { client?: { id: string } }).client?.id))
         const doMes = (monthAgenda || []).filter(a => a.employee_id === empId && clientesDela.has(a.client_id))
@@ -496,7 +534,9 @@ export default function PaymentList() {
           .filter(j => dentroDaJanela(d, j))
           .sort((a, b) => b.de.localeCompare(a.de))[0]?.id
 
-        const empVisits = (visits?.filter(v => v.employee_id === emp?.id && v.client_id === client?.id) ?? [])
+        // Fixo de consultoria agrupado: a linha tem as visitas de todos os clientes dela
+        const clientesLinha = clientesDaLinha.get(l.id) || [client?.id]
+        const empVisits = (visits?.filter(v => v.employee_id === emp?.id && clientesLinha.includes(v.client_id)) ?? [])
           .filter(v => {
             if (irmaos.length <= 1) return true
             const dono = donoFreela(v.visit_date)
@@ -587,7 +627,7 @@ export default function PaymentList() {
               (l as { schedule_anchor_date?: string }).schedule_anchor_date || null,
             ))
           : salarioConsult
-            ? (monthAgenda || []).filter(a => a.employee_id === emp?.id && a.client_id === client?.id).length
+            ? (monthAgenda || []).filter(a => a.employee_id === emp?.id && clientesLinha.includes(a.client_id)).length
           : !isConsultoria
             ? (l.expected_days_month
               || expectedDays((l as { work_schedule_type?: string }).work_schedule_type || l.work_schedule, filterMonth))
@@ -737,8 +777,15 @@ export default function PaymentList() {
         // venceu (expDaysToDate já respeita mês futuro e a tolerância de 4 dias).
         // "Pagar inteiro" marcado significa exatamente isso: não desconta.
         const diasCobraveis = Math.min(expDays, expDaysToDate)
+        // FOLGA (foi dispensada: feriado, cliente fechado, liberada pelo gestor)
+        // conta como dia cumprido. Antes só o dia TRABALHADO contava, e cada folga
+        // virava falta e descontava salário ÷ 30 no "Real".
+        const diasFolga = !isConsultoria && !isFreela
+          ? empVisits.filter(v => (v as { is_holiday?: boolean }).is_holiday && !(v as { is_unavailable?: boolean }).is_unavailable).length
+          : 0
+        const diasCumpridos = actualDays + diasFolga
         const faltas = !isConsultoria && !isFreela && !payFullSalary && !salarioConsult
-          ? (rescisao ? rescisao.faltas : Math.max(0, diasCobraveis - actualDays))
+          ? (rescisao ? rescisao.faltas : Math.max(0, diasCobraveis - diasCumpridos))
           : 0
 
         // Ausências declaradas — separadas entre as que têm atestado anexado e as
@@ -758,7 +805,7 @@ export default function PaymentList() {
           menos: desvios.filter(d => d.difMin < -TOLERANCIA_MIN || d.atrasoMin > TOLERANCIA_MIN || d.saidaCedoMin > TOLERANCIA_MIN).length,
           mais: desvios.filter(d => d.difMin > TOLERANCIA_MIN).length,
         }
-        const presencaCompleta = !isConsultoria && !isFreela && expDays > 0 && actualDays >= expDays
+        const presencaCompleta = !isConsultoria && !isFreela && expDays > 0 && diasCumpridos >= expDays
         const realAmt = isFreela
           ? (freelaConsultoria ? (actualAmount || 0) : Math.round(actualDays * dailyRate * 100) / 100)
           : isConsultoria
@@ -784,6 +831,7 @@ export default function PaymentList() {
           adjusted_amount: adjustedAmount,
           cost_assistance: costAssistance,
           actualDays,
+          diasFolga,
           actualVisits,
           expDays,
           valorDia,
@@ -1673,8 +1721,8 @@ export default function PaymentList() {
                       {visiveis.map(({ row, conta, et, lancado, divergente, encerradoEm, faltaQ2, mesSeguinte }) => {
                         const isFreela = !!row.isFreela
                         const isConsultoria = porTrabalho(row)
-                        const diff = isConsultoria ? 0 : row.actualDays - row.expDaysToDate
-                        const isShort = !isConsultoria && !row.salarioConsult && row.actualDays < row.expDaysToDate
+                        const diff = isConsultoria ? 0 : row.actualDays + row.diasFolga - row.expDaysToDate
+                        const isShort = !isConsultoria && !row.salarioConsult && row.actualDays + row.diasFolga < row.expDaysToDate
                         const nome = row.employee?.full_name || '—'
                         const contaVisivel = contaAberta === row.linkId
 
@@ -1793,7 +1841,7 @@ export default function PaymentList() {
                                       ? `${row.faltas} falta${row.faltas > 1 ? 's' : ''} · −${formatCurrency(row.faltas * row.valorDia)}`
                                       : row.payFullSalary ? 'Sem desconto' : row.presencaCompleta ? 'Foi todos os dias' : 'Escala OK'}
                                   </span>
-                                  <span className="text-ink-400">{row.actualDays}/{row.faltas > 0 ? row.diasCobraveis : row.expDays} dias{row.faltas > 0 ? ' até hoje' : ''}</span>
+                                  <span className="text-ink-400">{row.actualDays + row.diasFolga}/{row.faltas > 0 ? row.diasCobraveis : row.expDays} dias{row.diasFolga > 0 ? ` (${row.diasFolga} folga${row.diasFolga > 1 ? 's' : ''})` : ''}{row.faltas > 0 ? ' até hoje' : ''}</span>
                                   </>}
                                 </>
                               )}

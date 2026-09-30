@@ -455,8 +455,8 @@ export default function PortalHome() {
       const enviar = async (file: File, pasta: string, campo: string, nome: string) => {
         try {
           const ext = file.name.split('.').pop()
-          const path = `${pasta}/${employeeId}/${recordId}.${ext}`
-          const { error: upErr } = await supabase.storage.from('arquivos').upload(path, file, { upsert: true })
+          const path = `${pasta}/${employeeId}/${recordId}_${Date.now()}.${ext}` // nome único: o portal só pode criar arquivo (migração 070)
+          const { error: upErr } = await supabase.storage.from('arquivos').upload(path, file, { upsert: false })
           if (upErr) throw upErr
           await rpc('portal_set_visit_file', { p_token: token, p_id: recordId, p_field: campo, p_url: path })
         } catch {
@@ -663,8 +663,8 @@ export default function PortalHome() {
     setUploadingExpId(expenseId)
     try {
       const ext = file.name.split('.').pop()
-      const path = `receipts/${employeeId}/${expenseId}.${ext}`
-      const { error: upErr } = await supabase.storage.from('arquivos').upload(path, file, { upsert: true })
+      const path = `receipts/${employeeId}/${expenseId}_${Date.now()}.${ext}` // nome único (migração 070)
+      const { error: upErr } = await supabase.storage.from('arquivos').upload(path, file, { upsert: false })
       if (upErr) {
         console.error('[portal] comprovante', upErr)
         toast.error('O comprovante não foi enviado. Toque em "Anexar comprovante" no pedido e tente de novo.', { duration: 8000 })

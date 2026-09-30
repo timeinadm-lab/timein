@@ -1384,7 +1384,10 @@ export default function PortalHome() {
               if (n.type === 'falta' && n.notice_date === ds && !out.some(i => i.tipo === 'falta' && i.clientId === n.client_id)) out.push({ tipo: 'falta', clientId: n.client_id, aviso: n })
               if (n.type === 'troca' && (n.notice_date === ds || n.swap_work_date === ds)) out.push({ tipo: 'troca', clientId: n.client_id, aviso: n })
             }
-            return out
+            // Mesmo cliente no mesmo dia já na agenda (ex.: "Primeiro dia no cliente")
+            // ou já registrado: o dia da escala é o mesmo compromisso, não aparece de novo
+            return out.filter(i => i.tipo !== 'escala'
+              || !out.some(o => (o.tipo === 'visita' || o.tipo === 'feita') && o.clientId === i.clientId))
           }
           const corDoItem = (i: ItemAgenda) =>
             i.tipo === 'visita' ? (i.feita ? 'bg-green-600' : i.alterada ? 'bg-pink-500' : 'bg-amber-500')

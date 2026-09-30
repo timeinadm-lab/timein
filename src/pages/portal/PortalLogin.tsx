@@ -64,11 +64,12 @@ export default function PortalLogin() {
             <label className="label">CPF</label>
             <input
               className="input !text-base py-3"
-              placeholder="000.000.000-00"
+              placeholder="Só os números do CPF"
               value={cpf}
               autoComplete="off"
               inputMode="numeric"
-              onChange={e => setCpf(e.target.value)}
+              // Só números: se ela digitar ou colar com ponto e traço, eles somem
+              onChange={e => setCpf(e.target.value.replace(/\D/g, ''))}
               onKeyDown={e => e.key === 'Enter' && handleLogin()}
             />
           </div>

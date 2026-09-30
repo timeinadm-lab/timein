@@ -1834,7 +1834,7 @@ export default function VacancyDetail() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="label">CPF <span className="text-orange-400 text-xs">(login portal)</span></label>
-                  <input className="input" placeholder="000.000.000-00" value={empForm.cpf} onChange={e => setEmpForm(p => ({ ...p, cpf: e.target.value }))} />
+                  <input className="input" placeholder="Só os números" inputMode="numeric" value={empForm.cpf} onChange={e => setEmpForm(p => ({ ...p, cpf: e.target.value.replace(/\D/g, '') }))} />
                 </div>
                 <div>
                   <label className="label">RG</label>

@@ -16,7 +16,7 @@ export default function SenhaPadraoPortal() {
   const [senha, setSenha] = useState('')
   const [confirma, setConfirma] = useState('')
   const [ver, setVer] = useState(false)
-  const [aplicarATodos, setAplicarATodos] = useState(true)
+  const [aplicarATodos, setAplicarATodos] = useState(false) // desmarcado: as nutris trocam a própria senha (069)
 
   const { data: status, error: erroStatus } = useQuery({
     queryKey: ['senha-padrao-portal'],

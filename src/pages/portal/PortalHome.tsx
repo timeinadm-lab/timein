@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { LogOut, Clock, Calendar, Plus, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, X, CalendarDays, Trash2, CheckCircle2, Download, MessageCircle, Send, Home, CreditCard, TrendingUp, CheckCheck, AlertTriangle, Hourglass, Pencil, Repeat, Check, FileText, Paperclip } from 'lucide-react'
+import { LogOut, KeyRound, Eye, EyeOff, Clock, Calendar, Plus, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, X, CalendarDays, Trash2, CheckCircle2, Download, MessageCircle, Send, Home, CreditCard, TrendingUp, CheckCheck, AlertTriangle, Hourglass, Pencil, Repeat, Check, FileText, Paperclip } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { formatDate, formatCurrency, getInitials, corDoAvatar, hojeISO, tipoDoVinculo, pagaPorDiaria, ehTemporario, recebeMensal, salarioConsultoria } from '../../lib/utils'
 import { format, getDaysInMonth, startOfMonth, endOfMonth } from 'date-fns'
@@ -753,6 +753,8 @@ export default function PortalHome() {
     w.document.close()
   }
 
+  const [showSenha, setShowSenha] = useState(false)
+
   // ── Dúvidas ── (myDuvidas vem do portal_base)
   const [duvidaText, setDuvidaText] = useState('')
 
@@ -858,10 +860,16 @@ export default function PortalHome() {
                 <span className="text-sm font-medium truncate">{employeeName}</span>
               </div>
             )}
-            <button onClick={logout} aria-label="Sair"
-              className="flex items-center gap-1.5 text-xs text-white/70 hover:text-white px-2 py-1.5 -mr-2 rounded-lg hover:bg-white/10 active:scale-95 transition-all">
-              <LogOut size={15} /> Sair
-            </button>
+            <div className="flex items-center -mr-2">
+              <button onClick={() => setShowSenha(true)} aria-label="Trocar minha senha"
+                className="flex items-center gap-1.5 text-xs text-white/70 hover:text-white px-2 py-1.5 rounded-lg hover:bg-white/10 active:scale-95 transition-all">
+                <KeyRound size={15} /> Senha
+              </button>
+              <button onClick={logout} aria-label="Sair"
+                className="flex items-center gap-1.5 text-xs text-white/70 hover:text-white px-2 py-1.5 rounded-lg hover:bg-white/10 active:scale-95 transition-all">
+                <LogOut size={15} /> Sair
+              </button>
+            </div>
           </div>
           {tab === 'home' && <div className="flex items-center gap-3 mt-4">
             <div className={`w-11 h-11 rounded-full flex items-center justify-center font-semibold text-sm shrink-0 ${corDoAvatar(employeeName)}`}>
@@ -1989,6 +1997,8 @@ export default function PortalHome() {
         )
       })()}
 
+      {showSenha && <TrocarSenha token={token || ''} onClose={() => setShowSenha(false)} />}
+
       {/* ── Registrar dia: tela única, cabeçalho e botão fixos (redesenho de 30/09) ──
           Fixo: trabalhei / folga / falta + dia extra · Consultoria: visita com unidade */}
       {showPontoModal && (() => {
@@ -2365,6 +2375,61 @@ function CampoBusca({ titulo, vazio, valor, itens, onEscolher }: {
         document.body,
       )}
     </>
+  )
+}
+
+// A nutricionista troca a própria senha (migração 069). O RH continua podendo
+// trocar ou voltar para a padrão pela ficha.
+function TrocarSenha({ token, onClose }: { token: string; onClose: () => void }) {
+  const [atual, setAtual] = useState('')
+  const [nova, setNova] = useState('')
+  const [repetir, setRepetir] = useState('')
+  const [ver, setVer] = useState(false)
+  const [salvando, setSalvando] = useState(false)
+  const problema = nova && nova.trim().length < 6 ? 'A nova senha precisa ter pelo menos 6 caracteres'
+    : repetir && nova !== repetir ? 'As duas senhas novas não estão iguais' : null
+  const salvar = async () => {
+    setSalvando(true)
+    try {
+      const { error } = await supabase.rpc('portal_trocar_senha', { p_token: token, p_atual: atual, p_nova: nova })
+      if (error) {
+        const naoExiste = (error as { code?: string }).code === 'PGRST202' || /could not find|does not exist/i.test(error.message)
+        toast.error(naoExiste ? 'A troca de senha ainda não foi ativada. Fale com o RH.' : error.message)
+        return
+      }
+      toast.success('Senha trocada! Use a nova senha no próximo acesso.')
+      onClose()
+    } finally { setSalvando(false) }
+  }
+  const campo = (rotulo: string, valor: string, set: (v: string) => void, auto: string) => (
+    <div>
+      <label className="label">{rotulo}</label>
+      <input className="input !text-base py-3" type={ver ? 'text' : 'password'} autoComplete={auto} value={valor} onChange={e => set(e.target.value)} />
+    </div>
+  )
+  return (
+    <div className="modal-overlay">
+      <div className="modal-box max-w-sm space-y-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h3 className="font-semibold text-lg text-ink-900">Trocar minha senha</h3>
+            <p className="text-sm text-ink-500 mt-0.5">Depois de trocar, só você sabe a sua senha.</p>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Fechar" className="p-2 -mr-2 -mt-1 rounded-full text-ink-400 active:bg-ink-100"><X size={20} /></button>
+        </div>
+        {campo('Senha atual', atual, setAtual, 'current-password')}
+        {campo('Nova senha', nova, setNova, 'new-password')}
+        {campo('Repita a nova senha', repetir, setRepetir, 'new-password')}
+        <button type="button" onClick={() => setVer(v => !v)} className="flex items-center gap-1.5 text-sm text-ink-500">
+          {ver ? <EyeOff size={15} /> : <Eye size={15} />} {ver ? 'Esconder senhas' : 'Mostrar senhas'}
+        </button>
+        {problema && <p className="text-sm text-amber-700">{problema}</p>}
+        <button type="button" className="btn-primary w-full py-3.5 text-base" onClick={salvar}
+          disabled={salvando || !atual || !nova || !repetir || !!problema}>
+          {salvando ? 'Salvando…' : 'Trocar senha'}
+        </button>
+      </div>
+    </div>
   )
 }
 

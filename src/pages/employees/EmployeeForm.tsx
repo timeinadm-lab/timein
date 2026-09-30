@@ -198,7 +198,7 @@ export default function EmployeeForm() {
                 </div>
                 <div>
                   <label className="label">CPF <span className="text-orange-500 text-xs">(login do portal)</span></label>
-                  <input className={`input ${!form.cpf ? 'border-orange-300 bg-orange-50' : ''}`} placeholder="000.000.000-00" value={form.cpf} onChange={e => set('cpf', e.target.value)} />
+                  <input className={`input ${!form.cpf ? 'border-orange-300 bg-orange-50' : ''}`} placeholder="Só os números" inputMode="numeric" value={form.cpf} onChange={e => set('cpf', e.target.value.replace(/\D/g, ''))} />
                   {!form.cpf && <p className="text-xs text-orange-500 mt-1">⚠️ Necessário para acesso ao portal</p>}
                 </div>
                 <div>

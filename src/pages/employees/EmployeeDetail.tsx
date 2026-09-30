@@ -177,6 +177,7 @@ export default function EmployeeDetail() {
   const [confirmRemoveLinkId, setConfirmRemoveLinkId] = useState<string | null>(null)
   // Vínculo aberto na janela de encerramento (rescisão)
   const [encerrandoLink, setEncerrandoLink] = useState<VinculoParaEncerrar | null>(null)
+  const [editandoSalarioFixo, setEditandoSalarioFixo] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [statusMenuOpen, setStatusMenuOpen] = useState(false)
   const [editVisitId, setEditVisitId] = useState<string | null>(null)
@@ -883,8 +884,60 @@ export default function EmployeeDetail() {
   // link_id que não existe mais — some com o registro de quanto a pessoa recebeu
   // naquele cliente, sem jeito de recuperar. Só quando não há nada preso (vínculo
   // criado por engano) é que apagar é seguro.
+  // ── Consultor fixo ──────────────────────────────────────────────────────
+  // Recebe UM salário por todas as consultorias. Por baixo continua um registro
+  // por cliente (o portal e a folha dependem disso), mas na ficha é um vínculo
+  // só, com os clientes dentro. A folha já junta esses registros numa linha e
+  // soma o salário — por isso o salário fica num registro só.
+  const grupoFixo = (links || []).filter(l => salarioConsultoria(l as VinculoCadastro) && !ehTemporario(l)
+    && !((l as { contract_end_date?: string }).contract_end_date && (l as { contract_end_date?: string }).contract_end_date! <= hojeStr))
+  const salarioDoFixo = grupoFixo.reduce((s, l) => s + (Number(l.monthly_amount) || 0), 0)
+  const principalDoFixo = [...grupoFixo].sort((a, b) => (Number(b.monthly_amount) || 0) - (Number(a.monthly_amount) || 0))[0]
+
+  // Cliente saindo do consultor fixo: se o salário estava no registro dele,
+  // passa para outro cliente que continua. Sem isso o salário sumia da folha.
+  const passarSalarioDoFixo = async (linkId: string) => {
+    const saindo = grupoFixo.find(l => l.id === linkId)
+    const valor = Number(saindo?.monthly_amount) || 0
+    const fica = grupoFixo.filter(l => l.id !== linkId)
+      .sort((a, b) => (Number(b.monthly_amount) || 0) - (Number(a.monthly_amount) || 0))[0]
+    if (!saindo || !valor || !fica) return
+    const { error: e1 } = await supabase.from('employee_client_links').update({ monthly_amount: (Number(fica.monthly_amount) || 0) + valor }).eq('id', fica.id)
+    if (e1) throw e1
+    const { error: e2 } = await supabase.from('employee_client_links').update({ monthly_amount: null }).eq('id', saindo.id)
+    if (e2) throw e2
+  }
+
+  const salvarSalarioDoFixo = useMutation({
+    mutationFn: async (valor: number) => {
+      if (!(valor > 0)) throw new Error('Informe o salário')
+      if (!principalDoFixo) return
+      const { error } = await supabase.from('employee_client_links').update({ monthly_amount: valor }).eq('id', principalDoFixo.id)
+      if (error) throw error
+      const outros = grupoFixo.filter(l => l.id !== principalDoFixo.id && Number(l.monthly_amount) > 0).map(l => l.id)
+      if (outros.length) {
+        const { error: e2 } = await supabase.from('employee_client_links').update({ monthly_amount: null }).in('id', outros)
+        if (e2) throw e2
+      }
+    },
+    onSuccess: () => {
+      toast.success('Salário do consultor fixo atualizado')
+      setEditandoSalarioFixo(null)
+      qc.invalidateQueries({ queryKey: ['employee-links', id] })
+      qc.invalidateQueries({ queryKey: ['folha-ponto'] })
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  const adicionarClienteAoFixo = () => {
+    setCoverageForm(p => ({ ...p, coverage_type: 'Consultoria', consult_salario: true, vinculo_tipo: 'permanente', client_id: '', unit_id: '', unit_ids: [] }))
+    setShowCoverageForm(true)
+    setTimeout(() => document.getElementById('form-vincular')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50)
+  }
+
   const removeLink = useMutation({
     mutationFn: async (linkId: string) => {
+      await passarSalarioDoFixo(linkId)
       const link = (links || []).find(l => l.id === linkId) as { client_id?: string } | undefined
       const hoje = hojeISO()
 
@@ -1292,7 +1345,9 @@ export default function EmployeeDetail() {
           employeeId={id!}
           nome={(employee as { full_name?: string })?.full_name || ''}
           onClose={() => setEncerrandoLink(null)}
-          onSaved={() => {
+          onSaved={async () => {
+            // Consultor fixo: o salário passa para um cliente que continua
+            try { await passarSalarioDoFixo(encerrandoLink.id) } catch (e) { toast.error('Encerrado, mas não consegui passar o salário para outro cliente: ' + (e as Error).message) }
             setEncerrandoLink(null)
             qc.invalidateQueries({ queryKey: ['employee-links', id] })
             qc.invalidateQueries({ queryKey: ['employees'] })
@@ -1463,8 +1518,11 @@ export default function EmployeeDetail() {
           </div>
 
           {showCoverageForm && (
-            <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 space-y-3">
-              <p className="text-sm font-medium text-orange-800">Novo vínculo</p>
+            <div id="form-vincular" className="bg-orange-50 border border-orange-200 rounded-xl p-4 space-y-3 scroll-mt-4">
+              <p className="text-sm font-medium text-orange-800">
+                {coverageForm.coverage_type === 'Consultoria' && coverageForm.consult_salario && grupoFixo.length > 0
+                  ? 'Adicionar cliente ao consultor fixo' : 'Novo vínculo'}
+              </p>
               {vincularVagaId && (
                 <p className="text-xs text-orange-700 bg-orange-100 rounded-lg px-3 py-2 leading-snug">
                   Contratação concluída — falta o combinado de trabalho. O cliente da vaga já está
@@ -1749,9 +1807,16 @@ export default function EmployeeDetail() {
                   Na Consultoria o valor já foi definido por unidade lá em cima —
                   pedir uma diária também só confundia. */}
               <div className={`grid grid-cols-1 gap-3 ${coverageForm.coverage_type === 'Fixo' || coverageForm.consult_salario ? 'sm:grid-cols-2' : ''}`}>
-                {(coverageForm.coverage_type === 'Fixo' || (coverageForm.coverage_type === 'Consultoria' && coverageForm.consult_salario)) && (
+                {coverageForm.coverage_type === 'Consultoria' && coverageForm.consult_salario && salarioDoFixo > 0 && (
+                  // Já é consultor fixo: o cliente entra no vínculo dela, sem outro salário
+                  <div className="rounded-lg bg-white border border-orange-200 px-3 py-2.5">
+                    <p className="text-sm text-ink-800">Entra no vínculo de <strong>consultor fixo</strong> dela — salário de <strong>{formatCurrency(salarioDoFixo)}/mês</strong> para todos os clientes.</p>
+                    <p className="text-xs text-ink-500 mt-0.5">Aqui você só define o cliente, o horário e as horas (se tiver). Para mudar o salário, use o cartão do consultor fixo.</p>
+                  </div>
+                )}
+                {(coverageForm.coverage_type === 'Fixo' || (coverageForm.coverage_type === 'Consultoria' && coverageForm.consult_salario && !(salarioDoFixo > 0))) && (
                   <div>
-                    <label className="label">Salário mensal (R$) {coverageForm.coverage_type === 'Consultoria' && (links || []).some(o => salarioConsultoria(o as VinculoCadastro) && Number(o.monthly_amount) > 0) ? <span className="text-gray-400 font-normal">— já informado em outro cliente</span> : '*'}</label>
+                    <label className="label">Salário mensal (R$) *</label>
                     <input className="input" type="number" step="0.01" placeholder="Ex: 3000.00"
                       value={coverageForm.monthly_amount}
                       onChange={e => setCoverageForm(p => ({ ...p, monthly_amount: e.target.value }))} />
@@ -2031,16 +2096,9 @@ export default function EmployeeDetail() {
           />
 
           <div className="space-y-3">
-            {links?.filter(l => !ehTemporario(l))
-              // Encerrado vai pro fim da lista: quem está ativo é o que importa
-              .slice()
-              .sort((a, b) => {
-                const fim = (x: typeof a) => (x as { contract_end_date?: string }).contract_end_date || ''
-                const encA = fim(a) && fim(a) <= hojeStr ? 1 : 0
-                const encB = fim(b) && fim(b) <= hojeStr ? 1 : 0
-                return encA - encB
-              })
-              .map(l => {
+            {(() => {
+              // noFixo = cliente dentro do cartão do consultor fixo (o salário fica no cartão)
+              const cardDoVinculo = (l: NonNullable<typeof links>[number], noFixo = false) => {
               const contractEnd = (l as { contract_end_date?: string }).contract_end_date
               const contractFile = (l as { contract_file_url?: string }).contract_file_url
               const linkCreated = (l as { created_at?: string }).created_at
@@ -2079,7 +2137,7 @@ export default function EmployeeDetail() {
                   && !((o as { contract_end_date?: string | null }).contract_end_date && (o as { contract_end_date?: string }).contract_end_date! < hojeStr)),
               })
               return (
-                <div key={l.id} className={`border rounded-lg p-4 ${encerrado ? 'border-ink-200 bg-ink-50/60' : contractRed ? 'border-red-300 bg-red-50 ring-1 ring-red-200' : contractYellow ? 'border-amber-300 bg-amber-50 ring-1 ring-amber-200' : expired ? 'border-red-200 bg-red-50' : expiringSoon ? 'border-amber-200 bg-amber-50' : 'border-gray-100'}`}>
+                <div key={l.id} className={`border rounded-lg p-4 ${noFixo ? 'bg-white ' : ''}${encerrado ? 'border-ink-200 bg-ink-50/60' : contractRed ? 'border-red-300 bg-red-50 ring-1 ring-red-200' : contractYellow ? 'border-amber-300 bg-amber-50 ring-1 ring-amber-200' : expired ? 'border-red-200 bg-red-50' : expiringSoon ? 'border-amber-200 bg-amber-50' : 'border-gray-100'}`}>
                   {pendCadastro.length > 0 && (
                     <div className="mb-3 rounded-lg bg-amber-50 border border-amber-300 px-3 py-2">
                       <p className="text-xs font-semibold text-amber-900">⚠ Falta completar este vínculo</p>
@@ -2128,7 +2186,7 @@ export default function EmployeeDetail() {
                         <span className={`badge ${l.service_type === 'Consultoria' ? 'bg-orange-100 text-orange-700' : l.service_type === 'Volante' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'}`}>{rotuloDoVinculo(l)}</span>
                         {/* Consultoria/Freela: o valor real vem da folha de ponto — marcado como
                             estimativa em âmbar pra não ser lido como combinado (cinza). */}
-                        {l.monthly_amount && role === 'chefe' && (
+                        {l.monthly_amount && role === 'chefe' && !noFixo && (
                           l.service_type === 'Fixo'
                             ? <span className="badge bg-gray-100 text-gray-600" title="Valor combinado em contrato">{formatCurrency(l.monthly_amount)}/mês</span>
                             : <span className="badge bg-amber-100 text-amber-800" title="Estimativa — o valor real é calculado pelas horas da folha de ponto">
@@ -2265,7 +2323,7 @@ export default function EmployeeDetail() {
 
                             {isConsult ? (
                               <>
-                                {consultSalario && (
+                                {consultSalario && !noFixo && (
                                   <div>
                                     <label className="label text-xs">Salário mensal (R$)</label>
                                     <input className="input text-sm" type="number" step="0.01" value={editLinkValues.monthly_amount}
@@ -2637,7 +2695,55 @@ export default function EmployeeDetail() {
                   </div>
                 </div>
               )
-            })}
+              }
+              // Encerrado vai pro fim da lista: quem está ativo é o que importa
+              const lista = (links || []).filter(l => !ehTemporario(l)).slice().sort((a, b) => {
+                const fim = (x: typeof a) => (x as { contract_end_date?: string }).contract_end_date || ''
+                const encA = fim(a) && fim(a) <= hojeStr ? 1 : 0
+                const encB = fim(b) && fim(b) <= hojeStr ? 1 : 0
+                return encA - encB
+              })
+              const idsFixo = new Set(grupoFixo.map(l => l.id))
+              return (
+                <>
+                  {grupoFixo.length > 0 && (
+                    <div className="rounded-xl border-2 border-primary-200 bg-primary-50/40 p-4 space-y-3">
+                      <div className="flex items-start justify-between gap-3 flex-wrap">
+                        <div>
+                          <p className="font-semibold text-ink-900">Consultor fixo</p>
+                          <p className="text-xs text-ink-500 mt-0.5">Um salário por todas as consultorias · {grupoFixo.length} cliente{grupoFixo.length > 1 ? 's' : ''}</p>
+                        </div>
+                        {role === 'chefe' && (editandoSalarioFixo !== null ? (
+                          <div className="flex items-center gap-2">
+                            <input className="input text-sm w-32" type="number" step="0.01" autoFocus value={editandoSalarioFixo}
+                              onChange={e => setEditandoSalarioFixo(e.target.value)} placeholder="Salário" />
+                            <button className="btn-primary text-xs" disabled={salvarSalarioDoFixo.isPending}
+                              onClick={() => salvarSalarioDoFixo.mutate(Number(editandoSalarioFixo))}>Salvar</button>
+                            <button className="text-xs text-ink-500" onClick={() => setEditandoSalarioFixo(null)}>Cancelar</button>
+                          </div>
+                        ) : (
+                          <div className="text-right">
+                            <p className="text-lg font-semibold text-ink-900 tnum">{salarioDoFixo > 0 ? formatCurrency(salarioDoFixo) : '—'}<span className="text-xs font-normal text-ink-500">/mês</span></p>
+                            <button className="text-xs text-primary-700 hover:underline" onClick={() => setEditandoSalarioFixo(salarioDoFixo > 0 ? String(salarioDoFixo) : '')}>
+                              {salarioDoFixo > 0 ? 'Editar salário' : 'Definir salário'}
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="space-y-2">
+                        {lista.filter(l => idsFixo.has(l.id)).map(l => cardDoVinculo(l, true))}
+                      </div>
+                      <button className="btn-secondary text-sm w-full" onClick={adicionarClienteAoFixo}>+ Adicionar cliente</button>
+                      <p className="text-[11px] text-ink-500">
+                        Cada cliente tem o próprio horário e horas (se tiver). Encerrar um cliente não muda o salário — se mudar, edite aqui.
+                        Na folha tudo vira uma linha só.
+                      </p>
+                    </div>
+                  )}
+                  {lista.filter(l => !idsFixo.has(l.id)).map(l => cardDoVinculo(l))}
+                </>
+              )
+            })()}
             {links?.length === 0 && <p className="text-sm text-gray-400">Nenhum vínculo cadastrado</p>}
           </div>
         </div>

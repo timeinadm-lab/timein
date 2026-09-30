@@ -1,13 +1,20 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import toast from 'react-hot-toast'
+import InstalarPortal from './InstalarPortal'
 
 export default function PortalLogin() {
   const navigate = useNavigate()
   const [cpf, setCpf] = useState('')
   const [pin, setPin] = useState('')
   const [loading, setLoading] = useState(false)
+
+  // Abriu pelo ícone e ainda está logada (sessão de 8h): vai direto pro Início
+  useEffect(() => {
+    const ts = Number(localStorage.getItem('portal_session_ts') || '0')
+    if (localStorage.getItem('portal_token') && Date.now() - ts < 8 * 60 * 60 * 1000) navigate('/portal/home', { replace: true })
+  }, [navigate])
 
   const handleLogin = async () => {
     if (!cpf.trim() || !pin.trim()) { toast.error('Preencha CPF e senha'); return }
@@ -89,6 +96,7 @@ export default function PortalLogin() {
             {loading ? 'Entrando...' : 'Entrar'}
           </button>
         </div>
+        <div className="mt-4"><InstalarPortal /></div>
       </div>
     </div>
   )

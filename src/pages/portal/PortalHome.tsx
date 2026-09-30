@@ -10,6 +10,7 @@ import { ptBR } from 'date-fns/locale'
 import toast from 'react-hot-toast'
 import { confirmar } from '../../components/ui/ConfirmDialog'
 import JornadaAviso from './JornadaAviso'
+import InstalarPortal from './InstalarPortal'
 import { jornadaDoVinculo, desvioDoDia, textoDoDesvio, TOLERANCIA_MIN, minutosLiquidos } from '../../lib/jornada'
 import type { VinculoJornada } from '../../lib/jornada'
 
@@ -1038,6 +1039,7 @@ export default function PortalHome() {
                   <p className="text-sm text-ink-700">Tudo em dia. Nenhuma pendência.</p>
                 </div>
               )}
+              <InstalarPortal variante="cartao" />
             </div>
           )
         })()}

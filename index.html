@@ -10,6 +10,15 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="TIN" />
+    <script>
+      // No portal, o atalho do celular abre o PORTAL (e não o login do RH)
+      if (location.pathname.indexOf('/portal') === 0) {
+        document.querySelector('link[rel=manifest]').href = '/manifest-portal.webmanifest'
+        document.querySelector('meta[name=apple-mobile-web-app-title]').content = 'Portal TIN'
+      }
+      // Android: guarda o convite de instalação para o botão "Instalar no celular"
+      window.addEventListener('beforeinstallprompt', function (e) { e.preventDefault(); window.__convitePortal = e })
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet" />

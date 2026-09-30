@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { LogOut, Clock, Calendar, Plus, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, X, CalendarDays, Trash2, CheckCircle2, Download, MessageCircle, Send, Home, CreditCard, TrendingUp, CheckCheck, AlertTriangle, Hourglass, Pencil, Repeat, Check, FileText, Paperclip } from 'lucide-react'
@@ -522,6 +523,15 @@ export default function PortalHome() {
   const atestadoRef = useRef<HTMLInputElement>(null)
   const [mostrarObs, setMostrarObs] = useState(false)
   useEffect(() => { if (!showPontoModal) setMostrarObs(false) }, [showPontoModal])
+  // Com a janela aberta, a página de trás não rola (no iPhone o arrasto
+  // levava a tela junto e a janela parecia sumir)
+  useEffect(() => {
+    if (!showPontoModal) return
+    const els = [document.documentElement, document.body]
+    const antes = els.map(e => e.style.overflow)
+    els.forEach(e => { e.style.overflow = 'hidden' })
+    return () => els.forEach((e, i) => { e.style.overflow = antes[i] })
+  }, [showPontoModal])
   const [expenseForm, setExpenseForm] = useState({ description: '', amount: '', category: 'Reembolso', notes: '' })
   const [showExpForm, setShowExpForm] = useState(false)
   const [uploadingExpId, setUploadingExpId] = useState<string | null>(null)
@@ -2030,9 +2040,10 @@ export default function PortalHome() {
           : 'Salvar'
 
         return (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-ink-900/40 animate-fade-in" onClick={fechar}>
-          <div className="w-full sm:max-w-md bg-[#fbfaf7] rounded-t-2xl sm:rounded-2xl shadow-lift flex flex-col max-h-[94dvh] sm:max-h-[90vh]"
-            onClick={e => e.stopPropagation()}>
+        // Altura fixa no celular e sem fechar ao tocar fora: arrastar o dedo não
+        // pode sumir com o que ela já preencheu. Fecha só no X.
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-ink-900/40 animate-fade-in overscroll-none">
+          <div className="w-full sm:max-w-md bg-[#fbfaf7] rounded-t-2xl sm:rounded-2xl shadow-lift flex flex-col h-[92dvh] sm:h-auto sm:max-h-[90vh] overflow-hidden">
 
             {/* Cabeçalho fixo: o dia em destaque */}
             <div className="flex items-start justify-between gap-3 px-5 pt-4 pb-3 border-b border-ink-100">
@@ -2057,7 +2068,7 @@ export default function PortalHome() {
                   {!ehHoje && pontoForm.visit_date !== ontem ? formatDate(pontoForm.visit_date) : 'Outro dia'}
                   <input type="date" value={pontoForm.visit_date} max={hoje}
                     onChange={e => e.target.value && setPontoForm(p => ({ ...p, visit_date: e.target.value }))}
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" aria-label="Escolher outro dia" />
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer text-[16px]" aria-label="Escolher outro dia" />
                 </label>
               </div>
 
@@ -2081,15 +2092,14 @@ export default function PortalHome() {
                     <p className="text-xs font-medium text-ink-500 mb-2">Onde</p>
                     {lista.length === 0 ? (
                       <p className="text-sm text-ink-500 bg-white border border-ink-100 rounded-xl px-3.5 py-3">Nenhum cliente com vínculo valendo nesse dia.</p>
-                    ) : lista.length <= 6 ? (
+                    ) : lista.length <= 3 ? (
                       <div className="flex flex-wrap gap-1.5">
                         {lista.map(c => <Chip key={c.id} ativo={pontoForm.client_id === c.id} onClick={() => escolher(c.id)}>{c.name}</Chip>)}
                       </div>
                     ) : (
-                      <select className="input" value={pontoForm.client_id} onChange={e => escolher(e.target.value)}>
-                        <option value="">Escolha o cliente…</option>
-                        {lista.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                      </select>
+                      // Muitos clientes (tem gente com 18): campo que abre a lista com busca
+                      <CampoBusca titulo="Cliente" vazio="Escolha o cliente" valor={pontoForm.client_id}
+                        itens={lista.map(c => ({ id: c.id, nome: c.name }))} onEscolher={escolher} />
                     )}
                     {modalLink && (
                       <p className="text-xs text-ink-400 mt-2">
@@ -2178,7 +2188,7 @@ export default function PortalHome() {
               {precisaUnidade && (
                 <div>
                   <p className="text-xs font-medium text-ink-500 mb-2">Unidade</p>
-                  {unidades.length <= 6 ? (
+                  {unidades.length <= 3 ? (
                     <div className="flex flex-wrap gap-1.5">
                       {unidades.map(u => (
                         <Chip key={u.id} ativo={pontoForm.unit_id === u.id} onClick={() => setPontoForm(p => ({ ...p, unit_id: u.id, unit_name: u.name }))}>
@@ -2187,11 +2197,9 @@ export default function PortalHome() {
                       ))}
                     </div>
                   ) : (
-                    <select className="input" value={pontoForm.unit_id}
-                      onChange={e => { const u = unidades.find(x => x.id === e.target.value); setPontoForm(p => ({ ...p, unit_id: e.target.value, unit_name: u?.name || '' })) }}>
-                      <option value="">Escolha a unidade…</option>
-                      {unidades.map(u => <option key={u.id} value={u.id}>{u.name}{u.visit_rate ? ` — ${formatCurrency(u.visit_rate)}` : ''}</option>)}
-                    </select>
+                    <CampoBusca titulo="Unidade" vazio="Escolha a unidade" valor={pontoForm.unit_id}
+                      itens={unidades.map(u => ({ id: u.id, nome: u.name, detalhe: u.visit_rate ? formatCurrency(u.visit_rate) : undefined }))}
+                      onEscolher={id => { const u = unidades.find(x => x.id === id); setPontoForm(p => ({ ...p, unit_id: id, unit_name: u?.name || '' })) }} />
                   )}
                 </div>
               )}
@@ -2321,8 +2329,55 @@ function CampoHora({ rotulo, valor, onChange }: { rotulo: string; valor: string;
       <span className="block text-xs text-ink-500">{rotulo}</span>
       <span className={`block text-[1.75rem] leading-tight font-semibold tnum ${valor ? 'text-ink-900' : 'text-ink-300'}`}>{valor || '--:--'}</span>
       <input type="time" value={valor} onChange={e => onChange(e.target.value)} aria-label={rotulo}
-        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer text-[16px]" />
     </label>
+  )
+}
+
+// Campo de escolha com busca: toca, abre a lista em tela cheia, digita para
+// filtrar (sem ligar para acento/maiúscula) e toca no item.
+function CampoBusca({ titulo, vazio, valor, itens, onEscolher }: {
+  titulo: string; vazio: string; valor: string
+  itens: { id: string; nome: string; detalhe?: string }[]; onEscolher: (id: string) => void
+}) {
+  const [aberto, setAberto] = useState(false)
+  const [busca, setBusca] = useState('')
+  const norm = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+  const atual = itens.find(i => i.id === valor)
+  const filtrados = busca ? itens.filter(i => norm(i.nome).includes(norm(busca))) : itens
+  const fechar = () => { setAberto(false); setBusca('') }
+  return (
+    <>
+      <button type="button" onClick={() => setAberto(true)}
+        className="w-full flex items-center justify-between gap-2 rounded-xl border border-ink-200 bg-white px-4 h-12 text-left active:bg-ink-50">
+        <span className={`truncate text-[15px] ${atual ? 'text-ink-900 font-medium' : 'text-ink-400'}`}>
+          {atual ? atual.nome : vazio}{atual?.detalhe && <span className="text-ink-400 font-normal tnum"> · {atual.detalhe}</span>}
+        </span>
+        <ChevronDown size={18} className="text-ink-400 shrink-0" />
+      </button>
+      {aberto && createPortal(
+        <div className="fixed inset-0 z-[60] bg-[#fbfaf7] flex flex-col animate-fade-in">
+          <div className="flex items-center gap-2 px-3 pt-3 pb-2 border-b border-ink-100" style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}>
+            <button type="button" onClick={fechar} aria-label="Voltar" className="p-2 rounded-full text-ink-500 active:bg-ink-100"><ChevronLeft size={22} /></button>
+            <p className="font-medium text-ink-900">{titulo}</p>
+          </div>
+          <div className="px-4 py-3">
+            <input autoFocus className="input h-12 text-[16px]" placeholder="Buscar pelo nome…" value={busca} onChange={e => setBusca(e.target.value)} />
+          </div>
+          <div className="flex-1 overflow-y-auto overscroll-contain px-2 pb-6">
+            {filtrados.length === 0 && <p className="text-sm text-ink-400 px-3 py-4">Nada encontrado com “{busca}”.</p>}
+            {filtrados.map(i => (
+              <button key={i.id} type="button" onClick={() => { onEscolher(i.id); fechar() }}
+                className={`w-full flex items-center justify-between gap-3 px-3 py-3.5 rounded-xl text-left active:bg-ink-100 ${i.id === valor ? 'text-primary-800 font-medium' : 'text-ink-800'}`}>
+                <span className="text-[15px]">{i.nome}{i.detalhe && <span className="text-ink-400 font-normal tnum"> · {i.detalhe}</span>}</span>
+                {i.id === valor && <Check size={18} className="text-primary-700 shrink-0" />}
+              </button>
+            ))}
+          </div>
+        </div>,
+        document.body,
+      )}
+    </>
   )
 }
 

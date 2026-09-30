@@ -31,7 +31,15 @@
 --  6. Funções internas de cálculo deixam de poder ser chamadas pela chave
 --     pública (o portal continua usando-as por dentro, normalmente).
 --
--- Não altera nenhum dado existente.
+--  7. CORRIGE 3 vínculos gravados pela planilha (29/09): nela, o campo de
+--     horas da consultoria é HORAS POR VISITA, e foi gravado o total da semana:
+--     · Ana Carolina (SIG/TROFI - TEC e GUARAPIRANGA), "2x na semana (4h)":
+--       estava 8h por visita → uma visita de 4h saía pela METADE do valor.
+--       Passa a 4h por visita, 2 visitas por semana.
+--     · Juliany (Espetaria Cons. Carrão, "48h mensais") e Vânia (Due Grani,
+--       "7h na semana"): salário fixo, sem horas por visita definidas — o aviso
+--       de jornada acusava toda visita. Ficam só com as horas do mês.
+--     Não mexe em visitas já registradas.
 -- ============================================================
 
 -- ── Regras do tipo de vínculo (as mesmas de src/lib/utils.ts) ────────────
@@ -477,6 +485,32 @@ BEGIN
     END;
   END LOOP;
 END$$;
+
+-- ── 7. Correção dos vínculos da planilha ─────────────────────────────────
+UPDATE employee_client_links l
+   SET weekly_hours_quota = 4, visits_per_week = 2, monthly_hours_quota = 32
+  FROM employees e, clients c
+ WHERE l.employee_id = e.id AND l.client_id = c.id
+   AND regexp_replace(coalesce(e.cpf, ''), '\D', '', 'g') = '43430832845'
+   AND c.name ILIKE 'SIG/TROFI%'
+   AND l.weekly_hours_quota = 8;
+
+UPDATE employee_client_links l
+   SET weekly_hours_quota = NULL, monthly_hours_quota = 48
+  FROM employees e, clients c
+ WHERE l.employee_id = e.id AND l.client_id = c.id
+   AND regexp_replace(coalesce(e.cpf, ''), '\D', '', 'g') = '43075054844'
+   AND c.name ILIKE 'ESPETARIA CONS%'
+   AND l.weekly_hours_quota = 48;
+
+UPDATE employee_client_links l
+   SET weekly_hours_quota = NULL, monthly_hours_quota = 28
+  FROM employees e, clients c
+ WHERE l.employee_id = e.id AND l.client_id = c.id
+   AND regexp_replace(coalesce(e.cpf, ''), '\D', '', 'g') = '21730573835'
+   AND c.name ILIKE 'DUE GRANI%'
+   AND l.pay_mode = 'salario_fixo'
+   AND l.weekly_hours_quota = 7;
 
 NOTIFY pgrst, 'reload schema';
 

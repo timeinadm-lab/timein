@@ -296,6 +296,9 @@ export default function PortalHome() {
       const isNormal = !recebeMensal(link) || pontoForm.day_type === 'normal'
       if (isNormal && (!pontoForm.check_in || !pontoForm.check_out))
         throw new Error('Informe os horários de entrada e saída')
+      // Folga/falta num dia que já é folga pela escala não faz sentido (e mascararia falta de outro dia)
+      if (!isNormal && !isConsultoria && isDayOff(link, pontoForm.visit_date))
+        throw new Error('Este dia já é sua folga pela escala. Não precisa registrar folga nem falta.')
       if (!isNormal && !pontoForm.unavailability_reason)
         throw new Error(pontoForm.day_type === 'feriado' ? 'Informe o motivo da folga' : 'Informe o motivo da falta')
       if (isConsultoria && isNormal && !pontoForm.unit_id && getLinkUnitsForClient(pontoForm.client_id).length > 0)
@@ -2237,8 +2240,15 @@ export default function PortalHome() {
               </>
             )}
 
+            {/* Dia que já é folga pela escala: não se registra folga nem falta */}
+            {modalLink && mensal && !isConsultoria && pontoForm.day_type !== 'normal' && isDayOff(modalLink, pontoForm.visit_date) && (
+              <p className="text-sm text-amber-800 bg-amber-50 rounded-xl px-4 py-3">
+                Este dia já é sua folga pela escala — não precisa registrar folga nem falta.
+              </p>
+            )}
+
             {/* Folga: foi dispensada (não é falta). Motivo obrigatório — o RH vê. */}
-            {modalLink && mensal && pontoForm.day_type === 'feriado' && (
+            {modalLink && mensal && pontoForm.day_type === 'feriado' && !(!isConsultoria && isDayOff(modalLink, pontoForm.visit_date)) && (
               <div className="space-y-2">
                 <div>
                   <label className="label">Motivo da folga *</label>

@@ -59,6 +59,16 @@ function freelaExpectedDays(
   return count
 }
 
+/** Dia de folga pela escala (5x2/6x1 com as folgas marcadas; 12x36 a partir do 1º plantão) */
+function folgaDaEscala(dia: string, schedType: string | null, daysOff: number[] | null, anchor: string | null): boolean {
+  const d = new Date(dia + 'T12:00:00')
+  if (schedType === '12x36' && anchor) {
+    const diff = Math.round((d.getTime() - new Date(anchor + 'T12:00:00').getTime()) / 86400000)
+    return ((diff % 2) + 2) % 2 === 1
+  }
+  return !!daysOff?.length && daysOff.includes(d.getDay())
+}
+
 // Dias de trabalho esperados no mês, pela escala do vínculo.
 // ATENÇÃO: recebe work_schedule_TYPE (5x2/6x1/12x36/Plantão), que é o campo
 // que o cadastro preenche. Antes recebia work_schedule (texto livre), que só
@@ -781,7 +791,10 @@ export default function PaymentList() {
         // conta como dia cumprido. Antes só o dia TRABALHADO contava, e cada folga
         // virava falta e descontava salário ÷ 30 no "Real".
         const diasFolga = !isConsultoria && !isFreela
-          ? empVisits.filter(v => (v as { is_holiday?: boolean }).is_holiday && !(v as { is_unavailable?: boolean }).is_unavailable).length
+          ? empVisits.filter(v => (v as { is_holiday?: boolean }).is_holiday && !(v as { is_unavailable?: boolean }).is_unavailable
+              // folga marcada num dia que JÁ era folga pela escala não cobre falta de outro dia
+              && !folgaDaEscala(v.visit_date, (l as { work_schedule_type?: string }).work_schedule_type || null,
+                (l as { days_off?: number[] }).days_off || null, (l as { schedule_anchor_date?: string }).schedule_anchor_date || null)).length
           : 0
         const diasCumpridos = actualDays + diasFolga
         const faltas = !isConsultoria && !isFreela && !payFullSalary && !salarioConsult

@@ -1010,8 +1010,13 @@ export default function EmployeeDetail() {
         weekly_hours_quota: isConsult ? (vals.weekly_hours ? Number(vals.weekly_hours) : null) : undefined,
         // Cota de horas no mês só existe com frequência definida. "Em aberto"
         // não tem quantas visitas terá, então não há cota a cobrar.
+        // Semanal com mais de uma visita por semana: horas por visita × visitas × 4
+        // (antes ignorava as visitas por semana e metade das visitas de quem vai
+        // 2x/semana caía em "aguardando aprovação")
         monthly_hours_quota: isConsult
-          ? (vals.weekly_hours && freqMultiplier > 0 ? Number(vals.weekly_hours) * freqMultiplier : null)
+          ? (vals.weekly_hours && freqMultiplier > 0
+              ? Number(vals.weekly_hours) * freqMultiplier * (vals.visit_frequency === 'Semanal' ? (Number(vals.visits_per_week) || 1) : 1)
+              : null)
           : undefined,
         // Regras do combinado: quantas visitas por semana e se paga além disso
         visits_per_week: isConsult ? (vals.visits_per_week ? Number(vals.visits_per_week) : null) : undefined,
@@ -2215,7 +2220,9 @@ export default function EmployeeDetail() {
                         const freqMultiplier = emAberto ? 0
                           : editLinkValues.visit_frequency === 'Mensal' ? 1
                           : editLinkValues.visit_frequency === 'Quinzenal' ? 2 : 4
-                        const consultTotal = avgRate * freqMultiplier
+                        // Visitas por semana (só na frequência semanal) entram nas horas do mês
+                        const visitasSemana = editLinkValues.visit_frequency === 'Semanal' ? (Number(editLinkValues.visits_per_week) || 1) : 1
+                        const consultTotal = avgRate * freqMultiplier * visitasSemana
                         const fixoTotal = !isConsult ? (Number(editLinkValues.monthly_amount) || 0) + (Number(editLinkValues.cost_assistance) || 0) : 0
 
                         return (
@@ -2299,7 +2306,7 @@ export default function EmployeeDetail() {
                                     <div>
                                       <label className="label text-xs">Horas/mês — automático</label>
                                       <div className="input text-sm bg-white/60 text-gray-600 flex items-center">
-                                        {editLinkValues.weekly_hours ? `${Number(editLinkValues.weekly_hours) * freqMultiplier}h` : '—'}
+                                        {editLinkValues.weekly_hours ? `${Number(editLinkValues.weekly_hours) * freqMultiplier * visitasSemana}h` : '—'}
                                       </div>
                                     </div>
                                   )}
@@ -2354,11 +2361,11 @@ export default function EmployeeDetail() {
                                 <div className="border-t border-orange-200 pt-2 space-y-2">
                                   <p className="text-xs text-orange-600">
                                     {editLinkValues.weekly_hours
-                                      ? `Combinado: ${Number(editLinkValues.weekly_hours) * 4}h no mês. Se ela passar disso em +1h, o excedente vai pra sua aprovação em Visitas → Consultoria.`
+                                      ? `Combinado: ${Number(editLinkValues.weekly_hours) * freqMultiplier * visitasSemana}h no mês. Se ela passar disso em +1h, o excedente vai pra sua aprovação em Visitas → Consultoria.`
                                       : 'Sem combinado de horas — toda visita registrada é paga pela fórmula.'}
                                   </p>
                                   <div>
-                                    <label className="label text-xs">Meta de visitas/semana <span className="text-gray-400 font-normal">— opcional, só referência</span></label>
+                                    <label className="label text-xs">Visitas por semana <span className="text-gray-400 font-normal">— {editLinkValues.visit_frequency === 'Semanal' ? 'entra nas horas do mês' : 'só na frequência semanal'}</span></label>
                                     <input className="input text-sm" type="number" min={1} placeholder="Livre"
                                       value={editLinkValues.visits_per_week}
                                       onChange={e => setEditLinkValues(p => p ? { ...p, visits_per_week: e.target.value } : p)} />
@@ -2368,7 +2375,7 @@ export default function EmployeeDetail() {
                                 {consultTotal > 0 && (
                                   <div className="bg-orange-100 rounded-lg px-3 py-2 text-sm font-semibold text-orange-800">
                                     Estimativa mensal: R$ {consultTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                                    <span className="text-xs font-normal text-orange-600 ml-1">(média das unidades R$ {avgRate.toFixed(2)} × {freqMultiplier}x/mês — o pagamento real é pelas horas da folha de ponto)</span>
+                                    <span className="text-xs font-normal text-orange-600 ml-1">(média das unidades R$ {avgRate.toFixed(2)} × {freqMultiplier * visitasSemana}x/mês — o pagamento real é pelas horas da folha de ponto)</span>
                                   </div>
                                 )}
                               </>

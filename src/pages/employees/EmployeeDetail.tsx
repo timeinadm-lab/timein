@@ -13,6 +13,7 @@ import toast from 'react-hot-toast'
 import { confirmar } from '../../components/ui/ConfirmDialog'
 import EncerrarVinculoModal, { QUEM_ENCERROU } from './EncerrarVinculoModal'
 import type { VinculoParaEncerrar } from './EncerrarVinculoModal'
+import HorarioVinculo from './HorarioVinculo'
 import { format, startOfMonth, endOfMonth, getDaysInMonth, getDay, differenceInDays } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import type { EmployeeClientLink, EmployeePaymentDate } from '../../types'
@@ -99,6 +100,8 @@ const EMPTY_COVERAGE = {
   coverage_type: 'Fixo' as 'Fixo' | 'Consultoria',
   // Fixo
   unit_id: '', work_schedule_type: '', daily_hours: '', days_off: [] as number[], schedule_anchor_date: '',
+  // Horário definido (vazio = livre) — Fixo e consultoria com salário
+  work_start: '', work_end: '', break_minutes: '',
   // Consultoria
   coverage_units: [] as CoverageUnit[],
   // Consultoria paga por SALÁRIO FIXO mensal (não por visita) — migração 060
@@ -155,7 +158,7 @@ export default function EmployeeDetail() {
   const hojeStr = hojeISO()
   const [linkForm, setLinkForm] = useState({ client_id: '', service_type: 'Fixo' as 'Fixo' | 'Consultoria', monthly_amount: '', cost_assistance: '', weekly_hours_quota: '', visit_frequency: 'Semanal' as 'Semanal' | 'Quinzenal' | 'Mensal', contract_end_date: '', work_schedule_type: '', daily_hours: '', days_off: [] as number[], schedule_anchor_date: '' })
   type EditLinkUnit = { unit_id: string; unit_name: string; visit_rate: string }
-  type EditLinkState = { linkId: string; serviceType: string; clientId: string; monthly_amount: string; cost_assistance: string; weekly_hours: string; visit_frequency: string; visits_per_week: string; units: EditLinkUnit[]; work_schedule_type: string; daily_hours: string; days_off: number[]; schedule_anchor_date: string; start_date: string; payDays: string[]; pay_full_salary: boolean; expected_days_month: string }
+  type EditLinkState = { linkId: string; serviceType: string; clientId: string; monthly_amount: string; cost_assistance: string; weekly_hours: string; visit_frequency: string; visits_per_week: string; units: EditLinkUnit[]; work_schedule_type: string; daily_hours: string; days_off: number[]; schedule_anchor_date: string; start_date: string; payDays: string[]; pay_full_salary: boolean; expected_days_month: string; work_start: string; work_end: string; break_minutes: string }
   const [editLinkValues, setEditLinkValues] = useState<EditLinkState | null>(null)
   const [linkDates, setLinkDates] = useState<{ day_of_month: string; amount: string }[]>([{ day_of_month: '', amount: '' }])
   const [newDocName, setNewDocName] = useState('')
@@ -500,6 +503,11 @@ export default function EmployeeDetail() {
         contract_end_date: isTemporario ? (coverageForm.end_date || null) : (coverageForm.end_date || null),
         monthly_amount: isFixo || coverageForm.consult_salario ? mensal : null,
         link_units: linkUnits,
+        // Horário definido só entra se preenchido (antes da migração 067 a coluna não existe)
+        ...((isFixo || coverageForm.consult_salario) && coverageForm.work_start && coverageForm.work_end
+          ? { work_start: coverageForm.work_start, work_end: coverageForm.work_end } : {}),
+        ...((isFixo || coverageForm.consult_salario) && Number(coverageForm.break_minutes) > 0
+          ? { break_minutes: Number(coverageForm.break_minutes) } : {}),
         ...(isFixo ? {
           work_schedule_type: coverageForm.work_schedule_type || null,
           daily_hours: coverageForm.daily_hours ? Number(coverageForm.daily_hours) : null,
@@ -1009,7 +1017,19 @@ export default function EmployeeDetail() {
         pay_full_salary: !isConsult ? vals.pay_full_salary : undefined,
         expected_days_month: !isConsult ? (vals.expected_days_month ? Number(vals.expected_days_month) : null) : undefined,
       }
+      // Horário definido (Fixo / consultoria com salário). Só vai no update quando
+      // há algo a gravar ou apagar — antes da migração 067 a coluna não existe.
+      const antes = (links || []).find(l => l.id === vals.linkId) as { work_start?: string; break_minutes?: number } | undefined
+      const horarioOk = !!(vals.work_start && vals.work_end)
+      if ((!isConsult || consultSalario) && (horarioOk || !!antes?.work_start)) {
+        atualizacao.work_start = horarioOk ? vals.work_start : null
+        atualizacao.work_end = horarioOk ? vals.work_end : null
+      }
+      if ((!isConsult || consultSalario) && (Number(vals.break_minutes) > 0 || !!antes?.break_minutes)) {
+        atualizacao.break_minutes = Number(vals.break_minutes) > 0 ? Number(vals.break_minutes) : null
+      }
       let { error } = await supabase.from('employee_client_links').update(atualizacao).eq('id', vals.linkId)
+      if (error && /work_start|work_end|break_minutes/.test(error.message)) throw new Error('Falta rodar a migração 067 no Supabase para gravar o horário.')
       // Migração 058 ainda não rodada: diária volta a ser gravada como Volante
       if (error && consultSalario && /pay_mode|check/i.test(error.message)) throw new Error('Falta rodar a migração 060 no Supabase para usar consultoria com salário fixo.')
       if (error && /pay_mode/i.test(error.message)) {
@@ -1731,6 +1751,11 @@ export default function EmployeeDetail() {
                     )}
                   </div>
                 )}
+                {(coverageForm.coverage_type === 'Fixo' || (coverageForm.coverage_type === 'Consultoria' && coverageForm.consult_salario)) && (
+                  <HorarioVinculo inicio={coverageForm.work_start} fim={coverageForm.work_end}
+                    onChange={(i, f) => setCoverageForm(p => ({ ...p, work_start: i, work_end: f }))}
+                    intervalo={coverageForm.break_minutes} onIntervalo={v => setCoverageForm(p => ({ ...p, break_minutes: v }))} />
+                )}
                 <div>
                   <label className="label">Dia(s) de pagamento * <span className="text-gray-400 font-normal">— pode marcar dois</span></label>
                   <div className="flex gap-1.5">
@@ -2157,6 +2182,9 @@ export default function EmployeeDetail() {
                               payDays: l.service_type === 'Consultoria' ? ['8', '20'] : (l.payment_dates || []).map(d => String(d.day_of_month)).filter(d => ['8', '15', '20'].includes(d)).sort((a, b) => Number(a) - Number(b)),
                               pay_full_salary: (l as { pay_full_salary?: boolean }).pay_full_salary ?? false,
                               expected_days_month: String((l as { expected_days_month?: number }).expected_days_month || ''),
+                              work_start: ((l as { work_start?: string }).work_start || '').slice(0, 5),
+                              work_end: ((l as { work_end?: string }).work_end || '').slice(0, 5),
+                              break_minutes: String((l as { break_minutes?: number }).break_minutes || ''),
                             })
                           }}
                         >
@@ -2232,6 +2260,11 @@ export default function EmployeeDetail() {
                                       onChange={e => setEditLinkValues(p => p ? { ...p, monthly_amount: e.target.value } : p)} />
                                     <p className="text-[11px] text-ink-500 mt-1">As consultorias vêm da agenda. A folha mostra programadas × realizadas; o valor por unidade abaixo é opcional.</p>
                                   </div>
+                                )}
+                                {consultSalario && (
+                                  <HorarioVinculo compacto inicio={editLinkValues.work_start} fim={editLinkValues.work_end}
+                                    onChange={(i, f) => setEditLinkValues(p => p ? { ...p, work_start: i, work_end: f } : p)}
+                                    intervalo={editLinkValues.break_minutes} onIntervalo={v => setEditLinkValues(p => p ? { ...p, break_minutes: v } : p)} />
                                 )}
                                 {/* Frequência + Horas por visita */}
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -2369,6 +2402,9 @@ export default function EmployeeDetail() {
                                   <input className="input text-sm" type="number" min={1} max={24} placeholder="Ex: 8" value={editLinkValues.daily_hours}
                                     onChange={e => setEditLinkValues(p => p ? { ...p, daily_hours: e.target.value } : p)} />
                                 </div>
+                                <HorarioVinculo compacto inicio={editLinkValues.work_start} fim={editLinkValues.work_end}
+                                  onChange={(i, f) => setEditLinkValues(p => p ? { ...p, work_start: i, work_end: f } : p)}
+                                    intervalo={editLinkValues.break_minutes} onIntervalo={v => setEditLinkValues(p => p ? { ...p, break_minutes: v } : p)} />
                                 {(editLinkValues.work_schedule_type === '5x2' || editLinkValues.work_schedule_type === '6x1') && (() => {
                                   const maxOff = editLinkValues.work_schedule_type === '5x2' ? 2 : 1
                                   const DAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']

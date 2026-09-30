@@ -8,6 +8,7 @@ import { format, getDaysInMonth, startOfMonth, endOfMonth } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import toast from 'react-hot-toast'
 import { confirmar } from '../../components/ui/ConfirmDialog'
+import JornadaAviso from './JornadaAviso'
 
 type Tab = 'home' | 'folha' | 'agenda' | 'gastos' | 'duvidas'
 
@@ -494,7 +495,7 @@ export default function PortalHome() {
     return !start || start <= _today
   })
 
-  type FolhaLink = { id: string; service_type: string; coverage_type?: string; pay_mode?: string; is_temporary?: boolean; start_date?: string; contract_end_date?: string; monthly_amount?: number; work_schedule?: string; work_schedule_type?: string; daily_hours?: number; days_off?: number[]; schedule_anchor_date?: string; weekly_hours_quota?: number; monthly_hours_quota?: number; visits_per_week?: number; link_units?: { unit_id: string; unit_name: string; visit_rate?: number }[]; client?: { id: string; name: string } }
+  type FolhaLink = { id: string; service_type: string; coverage_type?: string; pay_mode?: string; is_temporary?: boolean; start_date?: string; contract_end_date?: string; monthly_amount?: number; work_schedule?: string; work_schedule_type?: string; daily_hours?: number; work_start?: string | null; work_end?: string | null; break_minutes?: number | null; days_off?: number[]; schedule_anchor_date?: string; weekly_hours_quota?: number; monthly_hours_quota?: number; visits_per_week?: number; link_units?: { unit_id: string; unit_name: string; visit_rate?: number }[]; client?: { id: string; name: string } }
 
   // Pode haver mais de um vínculo no mesmo cliente (ex: consultoria fixa +
   // freela de cobertura). Nesse caso o dia manda: se a data cai dentro do
@@ -1841,7 +1842,7 @@ export default function PortalHome() {
               </select>
               {modalLink && (
                 <p className="text-xs text-gray-400 mt-1">
-                  {isConsultoria ? 'Consultoria — registre a visita com a unidade' : `Fixo${modalLink.work_schedule_type ? ` · escala ${modalLink.work_schedule_type}` : ''}${Number(modalLink.daily_hours) > 0 ? ` · jornada de ${modalLink.daily_hours}h por dia` : ''}`}
+                  {isConsultoria ? 'Consultoria — registre a visita com a unidade' : `Fixo${modalLink.work_schedule_type ? ` · escala ${modalLink.work_schedule_type}` : ''}${Number(modalLink.daily_hours) > 0 ? ` · jornada de ${modalLink.daily_hours}h por dia` : ''}${modalLink.work_start && modalLink.work_end ? ` · das ${modalLink.work_start.slice(0, 5)} às ${modalLink.work_end.slice(0, 5)}` : ''}${Number(modalLink.break_minutes) > 0 ? ` · ${modalLink.break_minutes}min de intervalo` : ''}`}
                 </p>
               )}
             </div>
@@ -1923,6 +1924,7 @@ export default function PortalHome() {
                     <input className="input" type="time" value={pontoForm.check_out} onChange={e => setPontoForm(p => ({ ...p, check_out: e.target.value }))} />
                   </div>
                 </div>
+                <JornadaAviso vinculo={modalLink} entrada={pontoForm.check_in} saida={pontoForm.check_out} />
                 {pontoForm.check_in && pontoForm.check_out && pontoForm.check_in !== pontoForm.check_out && (() => {
                   const weeklyQuota = Number(modalLink?.weekly_hours_quota) || null
                   const unit = getLinkUnitsForClient(pontoForm.client_id).find(u => u.id === pontoForm.unit_id)
@@ -2020,20 +2022,13 @@ export default function PortalHome() {
                 {pontoForm.check_in && pontoForm.check_out && (() => {
                   const raw = calcDurationMin(pontoForm.check_in, pontoForm.check_out)
                   if (raw <= 0) return null
-                  const hm = (m: number) => `${Math.floor(m/60)}h${m%60>0?String(m%60).padStart(2,'0')+'min':''}`
-                  // Compara com a jornada do contrato (ex.: 8h por dia)
-                  const jornada = Math.round((Number(modalLink.daily_hours) || 0) * 60)
-                  const dif = raw - jornada
                   return (
-                    <p className="text-xs font-medium">
-                      <span className="text-blue-600">Total: {hm(raw)}</span>
-                      {jornada > 0 && (
-                        <span className={Math.abs(dif) <= 10 ? 'text-green-700' : 'text-amber-700'}>
-                          {' · '}jornada {hm(jornada)}
-                          {Math.abs(dif) > 10 && (dif > 0 ? ` · ${hm(dif)} a mais` : ` · faltam ${hm(-dif)}`)}
-                        </span>
-                      )}
-                    </p>
+                    <div className="space-y-0.5">
+                      <p className="text-xs text-blue-600 font-medium">
+                        Total: {Math.floor(raw/60)}h{raw%60>0?String(raw%60).padStart(2,'0')+'min':''}
+                      </p>
+                      <JornadaAviso vinculo={modalLink} entrada={pontoForm.check_in} saida={pontoForm.check_out} />
+                    </div>
                   )
                 })()}
               </>

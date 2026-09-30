@@ -1,11 +1,12 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Bell, Receipt, Clock3, FileWarning, FileSignature, MessageSquare, AlertTriangle, ChevronRight, ShieldAlert, Repeat } from 'lucide-react'
+import { Bell, Receipt, Clock3, FileWarning, FileSignature, MessageSquare, AlertTriangle, ChevronRight, ShieldAlert, Repeat, Timer } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { hojeISO, precisaContrato } from '../../lib/utils'
+import { buscarForaDaJornada } from '../../lib/jornada'
 
 type Aviso = { chave: string; rotulo: string; n: number; caminho: string; icone: LucideIcon; urgente?: boolean }
 
@@ -28,7 +29,7 @@ export default function AvisosSino() {
         const { count, error } = await q
         return error ? 0 : count ?? 0
       }
-      const [reembolsos, extras, atrasados, docs, perguntas, contratos, supervisoes, trocas, horasAcima] = await Promise.all([
+      const [reembolsos, extras, atrasados, docs, perguntas, contratos, supervisoes, trocas, horasAcima, jornada] = await Promise.all([
         chefe ? conta(supabase.from('employee_expenses').select('id', { count: 'exact', head: true }).eq('status', 'pendente')) : 0,
         chefe ? conta(supabase.from('nutritionist_visits').select('id', { count: 'exact', head: true }).eq('extra_approval', 'pendente')) : 0,
         chefe ? conta(supabase.from('payments').select('id', { count: 'exact', head: true }).eq('status', 'Pendente').lt('due_date', hojeISO())) : 0,
@@ -50,11 +51,14 @@ export default function AvisosSino() {
         conta(supabase.from('nutritionist_agenda').select('id', { count: 'exact', head: true }).eq('changed_by_portal', true).is('change_seen_at', null)),
         // Visita que passou das horas combinadas: decidir a hora extra em Pagamentos (migração 062)
         chefe ? conta(supabase.from('nutritionist_visits').select('id', { count: 'exact', head: true }).eq('excesso_status', 'pendente')) : 0,
+        // Fixo / consultoria com salário: dia a menos ou a mais que a jornada, não visto (migração 067)
+        buscarForaDaJornada().then(l => l.length).catch(() => 0),
       ])
       return ([
         { chave: 'atrasados', rotulo: 'Pagamentos atrasados', n: atrasados, caminho: '/pagamentos', icone: AlertTriangle, urgente: true },
         { chave: 'reembolsos', rotulo: 'Reembolsos para analisar', n: reembolsos, caminho: '/pagamentos', icone: Receipt },
         { chave: 'horasAcima', rotulo: 'Horas acima do combinado', n: horasAcima, caminho: '/pagamentos', icone: Clock3 },
+        { chave: 'jornada', rotulo: 'Jornada fora do combinado', n: jornada, caminho: '/jornada', icone: Timer },
         { chave: 'extras', rotulo: 'Extras para aprovar', n: extras, caminho: '/visitas', icone: Clock3 },
         { chave: 'trocas', rotulo: 'Visitas trocadas no portal', n: trocas, caminho: '/calendario', icone: Repeat },
         { chave: 'supervisoes', rotulo: 'Supervisões sem check-in', n: supervisoes, caminho: '/supervisao', icone: ShieldAlert },

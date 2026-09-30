@@ -52,6 +52,7 @@ const InspectionPublic = lazy(() => import('./pages/inspections/InspectionPublic
 import PortalLogin from './pages/portal/PortalLogin'
 const PortalHome = lazy(() => import('./pages/portal/PortalHome'))
 const VisitsDashboard = lazy(() => import('./pages/visits/VisitsDashboard'))
+const JornadaPage = lazy(() => import('./pages/visits/JornadaPage'))
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 0, staleTime: 30_000 } },
@@ -126,6 +127,7 @@ export default function App() {
 
               {/* Supervision (recrutador também acessa) */}
               <Route path="supervisao" element={<SupervisionDashboard />} />
+              <Route path="jornada" element={<JornadaPage />} />
 
               {/* Templates */}
               <Route path="templates" element={<TemplateList />} />

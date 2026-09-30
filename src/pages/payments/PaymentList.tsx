@@ -4,6 +4,8 @@ import { useNavigate } from 'react-router-dom'
 import { Plus, Download, Check, RefreshCw, AlertTriangle, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, BarChart3, Trash2, FileSpreadsheet, X, Paperclip, Search, MoreHorizontal, Pencil, Wallet, ExternalLink, FileCheck2, FileX2 } from 'lucide-react'
 import { supabase, fetchAll } from '../../lib/supabase'
 import { formatDate, formatCurrency, hojeISO, semAcento, tipoDoVinculo, pagaPorDiaria, ehTemporario, salarioConsultoria } from '../../lib/utils'
+import { jornadaDoVinculo, desvioDoDia, TOLERANCIA_MIN } from '../../lib/jornada'
+import type { VinculoJornada } from '../../lib/jornada'
 import { exportToCSV } from '../../lib/exportUtils'
 import { SkeletonRows } from '../../components/ui/Skeleton'
 import { SignedLink } from '../../components/ui/SignedFile'
@@ -744,6 +746,18 @@ export default function PaymentList() {
         // conseguia ver, na folha, quem faltou justificando e quem simplesmente faltou.
         const ausencias = empVisits.filter(v => (v as { is_unavailable?: boolean }).is_unavailable)
         const ausenciasComAtestado = ausencias.filter(v => (v as { atestado_url?: string }).atestado_url)
+        // Dias fora da jornada do vínculo (Fixo e consultoria com salário) — pedido de 30/09/2026
+        const jornada = jornadaDoVinculo(l as VinculoJornada)
+        const desvios = jornada
+          ? empVisits
+              .filter(v => !(v as { is_unavailable?: boolean }).is_unavailable && !(v as { is_extra?: boolean }).is_extra)
+              .map(v => desvioDoDia(v as { check_in?: string; check_out?: string; break_start?: string; break_end?: string }, jornada))
+              .filter((d): d is NonNullable<typeof d> => !!d)
+          : []
+        const foraJornada = {
+          menos: desvios.filter(d => d.difMin < -TOLERANCIA_MIN || d.atrasoMin > TOLERANCIA_MIN || d.saidaCedoMin > TOLERANCIA_MIN).length,
+          mais: desvios.filter(d => d.difMin > TOLERANCIA_MIN).length,
+        }
         const presencaCompleta = !isConsultoria && !isFreela && expDays > 0 && actualDays >= expDays
         const realAmt = isFreela
           ? (freelaConsultoria ? (actualAmount || 0) : Math.round(actualDays * dailyRate * 100) / 100)
@@ -778,6 +792,7 @@ export default function PaymentList() {
           realAmt,
           hasRealPayment,
           visits: empVisits,
+          foraJornada,
           group,
           payDay,
           payDaysAll: payDates.map(p => p.day_of_month),
@@ -1790,6 +1805,16 @@ export default function PaymentList() {
                                 </span>
                               )}
                               {isShort && row.faltas === 0 && <span className="text-amber-600 font-medium">{Math.abs(diff)} dia(s) sem registro</span>}
+                              {row.foraJornada.menos > 0 && (
+                                <button type="button" onClick={() => navigate('/jornada')} className="text-amber-600 font-medium hover:underline">
+                                  {row.foraJornada.menos} dia(s) abaixo da jornada
+                                </button>
+                              )}
+                              {row.foraJornada.mais > 0 && (
+                                <button type="button" onClick={() => navigate('/jornada')} className="text-sky-700 hover:underline">
+                                  {row.foraJornada.mais} dia(s) acima da jornada
+                                </button>
+                              )}
                               {row.reportRequired && row.semRelatorio > 0 && (
                                 <span className="text-red-600">{row.semRelatorio} sem relatório</span>
                               )}

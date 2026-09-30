@@ -1634,7 +1634,7 @@ export default function EmployeeDetail() {
               )}
 
               {/* Unidade — Fixo: select único; Consultoria: lista com valor por unidade */}
-              {coverageForm.client_id && coverageClientUnits && coverageClientUnits.length > 0 && (
+              {coverageForm.client_id && coverageClientUnits && coverageClientUnits.length > 0 && !(coverageForm.coverage_type === 'Consultoria' && coverageForm.consult_salario) && (
                 <div>
                   <label className="label">{coverageForm.coverage_type === 'Fixo' ? 'Unidade (opcional)' : 'Valor diferente só para esta pessoa (opcional)'}</label>
                   {coverageForm.coverage_type !== 'Fixo' && (
@@ -1707,9 +1707,12 @@ export default function EmployeeDetail() {
                   "(opcional)" — quem deixava em branco não sabia o que estava abrindo mão. */}
               {coverageForm.coverage_type === 'Consultoria' && (
                 <div className="rounded-xl border-2 border-orange-300 bg-white p-3">
-                  <label className="label !text-orange-800">A visita tem tempo mínimo? *</label>
+                  <label className="label !text-orange-800">{coverageForm.consult_salario ? 'Tem horas combinadas por visita? *' : 'A visita tem tempo mínimo? *'}</label>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {([
+                    {(coverageForm.consult_salario ? [
+                      { v: 'sim', t: '⏱ Sim', d: 'Fica registrado quantas horas ela faz em cada visita. Não muda o salário.' },
+                      { v: 'nao', t: '✓ Não', d: 'Sem horas definidas neste cliente.' },
+                    ] as const : [
                       { v: 'sim', t: '⏱ Sim, tem tempo certo', d: 'Se ela ficar menos que o combinado, recebe proporcional às horas feitas.' },
                       { v: 'nao', t: '✓ Não, o que vale é a visita', d: 'Recebe o valor cheio da unidade, independente de quanto tempo ficar.' },
                     ] as const).map(o => (
@@ -1727,7 +1730,7 @@ export default function EmployeeDetail() {
                       <input className="input" type="number" step="0.5" min="0.5" placeholder="Ex: 4"
                         value={coverageForm.weekly_hours_quota}
                         onChange={e => setCoverageForm(p => ({ ...p, weekly_hours_quota: e.target.value }))} />
-                      {Number(coverageForm.weekly_hours_quota) > 0 && (
+                      {Number(coverageForm.weekly_hours_quota) > 0 && !coverageForm.consult_salario && (
                         <p className="text-xs text-orange-700 bg-orange-100 rounded px-2 py-1 mt-1 leading-snug">
                           Ela só recebe 100% da visita se cumprir as {coverageForm.weekly_hours_quota}h.
                           Ficando menos, o sistema paga na proporção e pede confirmação dela antes de lançar.
@@ -2286,7 +2289,7 @@ export default function EmployeeDetail() {
                         return (
                           <div className={`mt-3 p-3 rounded-lg space-y-3 border ${isConsult ? 'bg-orange-50 border-orange-200' : 'bg-blue-50 border-blue-200'}`}>
                             <p className={`text-xs font-semibold ${isConsult ? 'text-orange-700' : 'text-blue-700'}`}>
-                              {isConsult ? 'Consultoria — Unidades & Valores' : 'Editar valores'}
+                              {consultSalario ? 'Consultor fixo — horário e horas' : isConsult ? 'Consultoria — Unidades & Valores' : 'Editar valores'}
                             </p>
 
                             {/* Trocar o grupo do vínculo. Cadastrar no grupo errado
@@ -2369,15 +2372,16 @@ export default function EmployeeDetail() {
                                     </div>
                                   )}
                                 </div>
-                                {emAberto && (
+                                {emAberto && !consultSalario && (
                                   <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
                                     Sem frequência fixa: não há cota de horas nem previsão no mês.
                                     Cada visita registrada é paga pelo valor da unidade.
                                   </p>
                                 )}
 
-                                {/* Unidades — cada uma com o valor da vistoria dela */}
-                                <div className="space-y-2">
+                                {/* Unidades — cada uma com o valor da vistoria dela.
+                                    Consultor fixo recebe salário: não tem valor por unidade. */}
+                                {!consultSalario && <div className="space-y-2">
                                   <label className="label text-xs">Unidades e valor da vistoria</label>
                                   {(editClientUnits || []).map(unit => {
                                     const row = editLinkValues.units.find(u => u.unit_id === unit.id)
@@ -2413,12 +2417,14 @@ export default function EmployeeDetail() {
                                   {(editClientUnits || []).length === 0 && (
                                     <p className="text-xs text-orange-500 italic">Este cliente não tem unidades cadastradas. Cadastre em Clientes → Unidades.</p>
                                   )}
-                                </div>
+                                </div>}
 
                                 {/* Combinado de pagamento = horas no mês (definidas acima). Visitas em si são livres. */}
                                 <div className="border-t border-orange-200 pt-2 space-y-2">
                                   <p className="text-xs text-orange-600">
-                                    {editLinkValues.weekly_hours
+                                    {consultSalario
+                                      ? 'Consultor fixo: as horas são só o combinado com o cliente — o pagamento é o salário.'
+                                      : editLinkValues.weekly_hours
                                       ? `Combinado: ${Number(editLinkValues.weekly_hours) * freqMultiplier * visitasSemana}h no mês. Se ela passar disso em +1h, o excedente vai pra sua aprovação em Visitas → Consultoria.`
                                       : 'Sem combinado de horas — toda visita registrada é paga pela fórmula.'}
                                   </p>
@@ -2430,7 +2436,7 @@ export default function EmployeeDetail() {
                                   </div>
                                 </div>
 
-                                {consultTotal > 0 && (
+                                {consultTotal > 0 && !consultSalario && (
                                   <div className="bg-orange-100 rounded-lg px-3 py-2 text-sm font-semibold text-orange-800">
                                     Estimativa mensal: R$ {consultTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                                     <span className="text-xs font-normal text-orange-600 ml-1">(média das unidades R$ {avgRate.toFixed(2)} × {freqMultiplier * visitasSemana}x/mês — o pagamento real é pelas horas da folha de ponto)</span>

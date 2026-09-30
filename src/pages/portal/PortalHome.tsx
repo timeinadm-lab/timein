@@ -534,6 +534,8 @@ export default function PortalHome() {
   }, [showPontoModal])
   const [expenseForm, setExpenseForm] = useState({ description: '', amount: '', category: 'Reembolso', notes: '' })
   const [showExpForm, setShowExpForm] = useState(false)
+  const [expenseFile, setExpenseFile] = useState<File | null>(null)
+  const expFormFileRef = useRef<HTMLInputElement>(null)
   const [uploadingExpId, setUploadingExpId] = useState<string | null>(null)
   const expReceiptRef = useRef<HTMLInputElement>(null)
   const [pendingExpenseUpload, setPendingExpenseUpload] = useState<string | null>(null)
@@ -632,20 +634,26 @@ export default function PortalHome() {
 
   const submitExpense = useMutation({
     mutationFn: async () => {
-      if (!expenseForm.description || !expenseForm.amount) throw new Error('Preencha descrição e valor')
-      return await rpc<string>('portal_add_expense', { p_token: token, p_payload: {
-        description: expenseForm.description,
-        amount: Number(expenseForm.amount),
+      // Aceita "18,50" e "18.50" (o teclado do iPhone usa vírgula)
+      const valor = Number(String(expenseForm.amount).replace(/\./g, (m, i, t) => t.indexOf(',') >= 0 ? '' : m).replace(',', '.'))
+      if (!expenseForm.description.trim() || !(valor > 0)) throw new Error('Preencha a descrição e o valor')
+      const id = await rpc<string>('portal_add_expense', { p_token: token, p_payload: {
+        description: expenseForm.description.trim(),
+        amount: valor,
         // Só reembolso: ajuda de custo e vale-transporte são de CLT, não se aplicam
         category: 'Reembolso',
         notes: expenseForm.notes || null,
         reference_month: folhaMonth,
       } })
+      // Comprovante escolhido no próprio pedido: envia junto
+      if (expenseFile && id) await uploadReceipt(id, expenseFile)
+      return id
     },
     onSuccess: () => {
-      toast.success('Gasto registrado! Aguardando aprovação do gestor.')
+      toast.success(expenseFile ? 'Reembolso pedido com comprovante! O RH vai analisar.' : 'Reembolso pedido! Anexe o comprovante na lista.')
       qc.invalidateQueries({ queryKey: ['portal-month', employeeId] })
       setExpenseForm({ description: '', amount: '', category: 'Reembolso', notes: '' })
+      setExpenseFile(null)
       setShowExpForm(false)
     },
     onError: (e: Error) => toast.error(e.message),
@@ -657,7 +665,11 @@ export default function PortalHome() {
       const ext = file.name.split('.').pop()
       const path = `receipts/${employeeId}/${expenseId}.${ext}`
       const { error: upErr } = await supabase.storage.from('arquivos').upload(path, file, { upsert: true })
-      if (upErr) { toast.error('Erro ao enviar: ' + upErr.message); return }
+      if (upErr) {
+        console.error('[portal] comprovante', upErr)
+        toast.error('O comprovante não foi enviado. Toque em "Anexar comprovante" no pedido e tente de novo.', { duration: 8000 })
+        return
+      }
       await rpc('portal_set_expense_receipt', { p_token: token, p_id: expenseId, p_url: path })
       qc.invalidateQueries({ queryKey: ['portal-month', employeeId] })
       toast.success('Comprovante enviado!')
@@ -821,6 +833,11 @@ export default function PortalHome() {
     return l?.work_start && l?.work_end ? { check_in: l.work_start.slice(0, 5), check_out: l.work_end.slice(0, 5) } : {}
   }
   // O que o dia pede: visita marcada na agenda, dia de escala do Fixo ou o único cliente dela
+  // Cliente com uma unidade só: não faz sentido ela escolher
+  const unidadeUnica = (clientId: string) => {
+    const us = getLinkUnitsForClient(clientId)
+    return us.length === 1 ? { unit_id: us[0].id, unit_name: us[0].name } : {}
+  }
   const sugestaoDoDia = (dia: string): Partial<typeof EMPTY_PONTO> => {
     const validos = clientesDoDia(dia)
     const jaRegistrado = (cid: string) => (folhaVisits || []).some(v => v.client_id === cid && v.visit_date === dia)
@@ -833,7 +850,7 @@ export default function PortalHome() {
     const escala = ((folhaLinks as FolhaLink[] | undefined) || []).find(l => l.client && validos.some(c => c.id === l.client!.id)
       && effectiveType(l) === 'Fixo' && hasKnownSchedule(l) && !isDayOff(l, dia) && !jaRegistrado(l.client.id))
     if (escala?.client) return { client_id: escala.client.id, ...horarioDoContrato(escala.client.id, dia) }
-    if (validos.length === 1) return { client_id: validos[0].id, ...horarioDoContrato(validos[0].id, dia) }
+    if (validos.length === 1) return { client_id: validos[0].id, ...unidadeUnica(validos[0].id), ...horarioDoContrato(validos[0].id, dia) }
     return {}
   }
   const abrirRegistro = (dia: string = hojeISO()) => {
@@ -1382,16 +1399,20 @@ export default function PortalHome() {
                 <div>
                   <div>
                     <label className="label">Valor (R$)</label>
-                    <input className="input !text-base tnum" type="number" inputMode="decimal" placeholder="0,00" value={expenseForm.amount} onChange={e => setExpenseForm(p => ({ ...p, amount: e.target.value }))} />
+                    <input className="input !text-base tnum" type="text" inputMode="decimal" placeholder="0,00" value={expenseForm.amount} onChange={e => setExpenseForm(p => ({ ...p, amount: e.target.value.replace(/[^0-9.,]/g, '') }))} />
                   </div>
                 </div>
+                <input ref={expFormFileRef} type="file" className="hidden" accept=".pdf,.jpg,.jpeg,.png,image/*"
+                  onChange={e => { setExpenseFile(e.target.files?.[0] || null); e.target.value = '' }} />
+                <Anexo rotulo="Comprovante" dica="Foto ou PDF da nota" alerta={!expenseFile}
+                  arquivo={expenseFile} onEscolher={() => expFormFileRef.current?.click()} onRemover={() => setExpenseFile(null)} />
                 <div>
                   <label className="label">Observação (opcional)</label>
                   <input className="input w-full !text-base" value={expenseForm.notes} onChange={e => setExpenseForm(p => ({ ...p, notes: e.target.value }))} />
                 </div>
                 <button className="btn-primary w-full py-3" onClick={() => submitExpense.mutate()}
                   disabled={submitExpense.isPending || !expenseForm.description || !expenseForm.amount}>
-                  {submitExpense.isPending ? 'Enviando…' : 'Registrar'}
+                  {submitExpense.isPending ? 'Enviando…' : 'Pedir reembolso'}
                 </button>
               </div>
             )}
@@ -1402,7 +1423,15 @@ export default function PortalHome() {
                   <div key={e.id} className="px-4 py-3.5 flex items-center gap-3">
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-ink-900 truncate">{e.description}</p>
-                      <p className="text-xs text-ink-500 truncate">{[e.category, e.notes].filter(Boolean).join(' · ')}</p>
+                      <p className="text-xs text-ink-500 truncate">{[e.notes].filter(Boolean).join(' · ') || e.category}</p>
+                      {(() => {
+                        // Situação do pedido: o RH aprova ou não em Pagamentos
+                        const st = (e as { status?: string }).status
+                        return st === 'aprovado' ? <span className="text-[11px] font-medium text-primary-700">Aprovado</span>
+                          : st === 'negado' ? <span className="text-[11px] font-medium text-red-700">Não aprovado</span>
+                          : st === 'pendente' ? <span className="text-[11px] font-medium text-amber-700">Aguardando o RH</span>
+                          : null
+                      })()}
                     </div>
                     <div className="flex flex-col items-end gap-1 shrink-0">
                       <span className="text-sm font-semibold text-ink-900 tnum">{formatCurrency(Number(e.amount))}</span>
@@ -1420,7 +1449,7 @@ export default function PortalHome() {
                 ))}
                 <div className="px-4 py-3 flex justify-between items-center bg-ink-50/60">
                   <span className="text-sm text-ink-500">Total do mês</span>
-                  <span className="text-sm font-semibold text-ink-900 tnum">{formatCurrency(myExpenses.reduce((s, e) => s + Number(e.amount), 0))}</span>
+                  <span className="text-sm font-semibold text-ink-900 tnum">{formatCurrency(myExpenses.filter(e => (e as { status?: string }).status !== 'negado').reduce((s, e) => s + Number(e.amount), 0))}</span>
                 </div>
               </div>
             ) : !showExpForm && (
@@ -2093,7 +2122,7 @@ export default function PortalHome() {
                   // Horário do contrato só quando ela ainda não digitou nada
                   const horario = !p.check_in && !p.check_out ? horarioDoContrato(cid, p.visit_date) : {}
                   const ag = ((agenda || []) as AgendaItem[]).find(a => a.client_id === cid && a.planned_date === p.visit_date)
-                  return { ...p, client_id: cid, unit_id: ag?.unit_id || '', unit_name: ag?.unit?.name || '', is_extra: false, is_swap: false, swapped_from: '',
+                  return { ...p, client_id: cid, unit_id: ag?.unit_id || '', unit_name: ag?.unit?.name || '', ...(ag?.unit_id ? {} : unidadeUnica(cid)), is_extra: false, is_swap: false, swapped_from: '',
                     day_type: 'normal', unavailability_reason: '', ...horario,
                     ...(ag?.planned_time && !p.check_in ? { check_in: ag.planned_time.slice(0, 5) } : {}) }
                 })
@@ -2150,7 +2179,7 @@ export default function PortalHome() {
                     <p className="text-xs font-medium text-ink-500 mb-2">{pontoForm.day_type === 'feriado' ? 'Por que foi folga?' : 'Motivo da falta'}</p>
                     <div className="flex flex-wrap gap-1.5">
                       {motivos.map(m => (
-                        <Chip key={m} ativo={pontoForm.unavailability_reason === m} onClick={() => setPontoForm(p => ({ ...p, unavailability_reason: m }))}>{m}</Chip>
+                        <Chip key={m} ativo={pontoForm.unavailability_reason === m} onClick={() => { setPontoForm(p => ({ ...p, unavailability_reason: m })); if (m === 'Outro') setMostrarObs(true) }}>{m}</Chip>
                       ))}
                     </div>
                   </div>
@@ -2265,7 +2294,7 @@ export default function PortalHome() {
               {/* Relatório */}
               {modalLink && pedeRelatorio && (
                 <Anexo rotulo={isConsultoria ? 'Relatório da visita' : 'Relatório do dia'}
-                  dica={existente?.report_url ? 'Já anexado — toque para trocar' : 'Obrigatório — dá para anexar depois'}
+                  dica={existente?.report_url ? 'Já anexado' : 'Obrigatório · pode anexar depois'}
                   alerta={!existente?.report_url && !reportFile}
                   arquivo={reportFile} onEscolher={() => reportRef.current?.click()} onRemover={() => setReportFile(null)} />
               )}

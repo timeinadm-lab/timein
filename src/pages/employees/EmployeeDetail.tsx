@@ -563,7 +563,8 @@ export default function EmployeeDetail() {
       // sem isto o freela virava só um vínculo sem data e não aparecia em lugar nenhum.
       // Vazio = começa hoje; vincular já é o início
       const inicio = coverageForm.start_date || hojeISO()
-      if (inicio && coverageForm.marcar_primeiro_dia) {
+      // Fixo permanente não ganha dia na agenda: a escala já diz quais dias são de trabalho
+      if (inicio && coverageForm.marcar_primeiro_dia && !(isFixo && !isTemporario)) {
         const { error: agErr } = await supabase.from('nutritionist_agenda').insert({
           employee_id: id,
           client_id: coverageForm.client_id || null,
@@ -1948,14 +1949,16 @@ export default function EmployeeDetail() {
                 <div>
                   <label className="label">Data início <span className="text-gray-400 font-normal">(vazio = começa hoje)</span></label>
                   <input className="input" type="date" value={coverageForm.start_date} onChange={e => setCoverageForm(p => ({ ...p, start_date: e.target.value }))} />
-                  <label className="flex items-start gap-2 mt-2 text-xs text-ink-700 cursor-pointer select-none">
+                  {/* Fixo permanente não precisa: os dias de trabalho vêm da escala a partir do início.
+                      Consultoria é agendável: só marca se já houver dia combinado. */}
+                  {!(coverageForm.coverage_type === 'Fixo' && coverageForm.vinculo_tipo === 'permanente') && <label className="flex items-start gap-2 mt-2 text-xs text-ink-700 cursor-pointer select-none">
                     <input type="checkbox" className="mt-0.5 h-4 w-4 rounded border-ink-300 text-primary-700"
                       checked={coverageForm.marcar_primeiro_dia}
                       onChange={e => setCoverageForm(p => ({ ...p, marcar_primeiro_dia: e.target.checked }))} />
                     <span>Já marcar este dia na agenda dela
                       <span className="block text-ink-400">Deixe desmarcado se ainda não há dia combinado.</span>
                     </span>
-                  </label>
+                  </label>}
                 </div>
                 <div>
                   <label className="label">
@@ -3012,10 +3015,6 @@ export default function EmployeeDetail() {
                               <div><label className="label text-xs">Saída</label><input className="input text-sm" type="time" value={novoClienteFixo.fim} onChange={e => setNovoClienteFixo(p => p && { ...p, fim: e.target.value })} /></div>
                             </div>
                           )}
-                          <div>
-                            <label className="label text-xs">Começa em</label>
-                            <input className="input text-sm" type="date" value={novoClienteFixo.desde} onChange={e => setNovoClienteFixo(p => p && { ...p, desde: e.target.value })} />
-                          </div>
                           <div className="flex gap-2">
                             <button className="btn-primary text-sm flex-1" disabled={!novoClienteFixo.client_id || salvarClienteNoFixo.isPending}
                               onClick={() => salvarClienteNoFixo.mutate(novoClienteFixo)}>

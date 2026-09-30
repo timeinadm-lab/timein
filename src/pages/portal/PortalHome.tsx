@@ -287,7 +287,8 @@ export default function PortalHome() {
       // Registrou num dia que NÃO estava combinado, tendo dia em aberto no mesmo
       // cliente? Pergunta o que aconteceu. Sem isso o combinado ficava pendente
       // pra sempre e o painel acusava "não apareceu" sem saber que ela foi noutro dia.
-      if (isNormal && !editingPontoId) {
+      // Só Consultoria: o fixo trabalha pela escala, não troca dia de visita
+      if (isConsultoria && isNormal && !editingPontoId) {
         const doDia = (agenda || []).some(a =>
           a.planned_date === pontoForm.visit_date && (a as { client_id?: string }).client_id === pontoForm.client_id)
         if (!doDia) {
@@ -1840,7 +1841,7 @@ export default function PortalHome() {
               </select>
               {modalLink && (
                 <p className="text-xs text-gray-400 mt-1">
-                  {isConsultoria ? 'Consultoria — registre a visita com a unidade' : `Fixo${modalLink.work_schedule_type ? ` · escala ${modalLink.work_schedule_type}` : ''}`}
+                  {isConsultoria ? 'Consultoria — registre a visita com a unidade' : `Fixo${modalLink.work_schedule_type ? ` · escala ${modalLink.work_schedule_type}` : ''}${Number(modalLink.daily_hours) > 0 ? ` · jornada de ${modalLink.daily_hours}h por dia` : ''}`}
                 </p>
               )}
             </div>
@@ -2018,11 +2019,22 @@ export default function PortalHome() {
                 </div>
                 {pontoForm.check_in && pontoForm.check_out && (() => {
                   const raw = calcDurationMin(pontoForm.check_in, pontoForm.check_out)
-                  return raw > 0 ? (
-                    <p className="text-xs text-blue-600 font-medium">
-                      Total: {Math.floor(raw/60)}h{raw%60>0?String(raw%60).padStart(2,'0')+'min':''}
+                  if (raw <= 0) return null
+                  const hm = (m: number) => `${Math.floor(m/60)}h${m%60>0?String(m%60).padStart(2,'0')+'min':''}`
+                  // Compara com a jornada do contrato (ex.: 8h por dia)
+                  const jornada = Math.round((Number(modalLink.daily_hours) || 0) * 60)
+                  const dif = raw - jornada
+                  return (
+                    <p className="text-xs font-medium">
+                      <span className="text-blue-600">Total: {hm(raw)}</span>
+                      {jornada > 0 && (
+                        <span className={Math.abs(dif) <= 10 ? 'text-green-700' : 'text-amber-700'}>
+                          {' · '}jornada {hm(jornada)}
+                          {Math.abs(dif) > 10 && (dif > 0 ? ` · ${hm(dif)} a mais` : ` · faltam ${hm(-dif)}`)}
+                        </span>
+                      )}
                     </p>
-                  ) : null
+                  )
                 })()}
               </>
             )}

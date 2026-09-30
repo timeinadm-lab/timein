@@ -520,6 +520,8 @@ export default function PortalHome() {
   const [pontoForm, setPontoForm] = useState(EMPTY_PONTO)
   const [atestadoFile, setAtestadoFile] = useState<File | null>(null)
   const atestadoRef = useRef<HTMLInputElement>(null)
+  const [mostrarObs, setMostrarObs] = useState(false)
+  useEffect(() => { if (!showPontoModal) setMostrarObs(false) }, [showPontoModal])
   const [expenseForm, setExpenseForm] = useState({ description: '', amount: '', category: 'Reembolso', notes: '' })
   const [showExpForm, setShowExpForm] = useState(false)
   const [uploadingExpId, setUploadingExpId] = useState<string | null>(null)
@@ -1977,367 +1979,317 @@ export default function PortalHome() {
         )
       })()}
 
-      {/* ── Modal: Registrar dia (Fixo: ponto/falta/feriado + dia extra · Consultoria: visita com valor) ── */}
+      {/* ── Registrar dia: tela única, cabeçalho e botão fixos (redesenho de 30/09) ──
+          Fixo: trabalhei / folga / falta + dia extra · Consultoria: visita com unidade */}
       {showPontoModal && (() => {
         const modalLink = getLinkForClient(pontoForm.client_id, pontoForm.visit_date)
         const isConsultoria = effectiveType(modalLink) === 'Consultoria'
         const mensal = recebeMensal(modalLink)
-        const dayIsOff = !isConsultoria && pontoForm.day_type === 'normal' && isDayOff(modalLink, pontoForm.visit_date)
-        const noFixedSchedule = !isConsultoria && modalLink && !hasKnownSchedule(modalLink)
+        // "Trabalho" = registro com horário. Quem não recebe mensal só registra trabalho.
+        const trabalho = !mensal || pontoForm.day_type === 'normal'
+        const folgaDaEscala = !!modalLink && !isConsultoria && isDayOff(modalLink, pontoForm.visit_date)
+        const dayIsOff = trabalho && folgaDaEscala
+        const noFixedSchedule = !isConsultoria && !!modalLink && !hasKnownSchedule(modalLink)
         const extraDayValue = modalLink?.monthly_amount ? Math.round((Number(modalLink.monthly_amount) / 30) * 100) / 100 : null
+        const unidades = pontoForm.client_id ? getLinkUnitsForClient(pontoForm.client_id) : []
+        const precisaUnidade = isConsultoria && trabalho && unidades.length > 0
+        const hoje = hojeISO()
+        const ehHoje = pontoForm.visit_date === hoje
+        const ontem = (() => { const d = new Date(hoje + 'T12:00:00'); d.setDate(d.getDate() - 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` })()
+        const contrato = pontoForm.client_id ? horarioDoContrato(pontoForm.client_id, pontoForm.visit_date) as { check_in?: string; check_out?: string } : {}
+        const temHorario = !!pontoForm.check_in && !!pontoForm.check_out && pontoForm.check_in !== pontoForm.check_out
+        const intervalo = !isConsultoria ? Number(modalLink?.break_minutes) || 0 : 0
+        const liquido = temHorario ? minutosLiquidos({ check_in: pontoForm.check_in, check_out: pontoForm.check_out }, intervalo) : 0
+        const existente = editingPontoId ? ((folhaVisits || []) as { id: string; report_url?: string; atestado_url?: string }[]).find(v => v.id === editingPontoId) : undefined
+        const pedeRelatorio = trabalho && (isConsultoria || modalLink?.service_type === 'Volante' || pagaPorDiaria(modalLink))
+        const nomeCliente = clientesDoDia(pontoForm.visit_date).find(c => c.id === pontoForm.client_id)?.name
+          || ((links as FolhaLink[] | undefined) || []).find(l => l.client?.id === pontoForm.client_id)?.client?.name || ''
+        const agora = () => { const d = new Date(); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` }
+        const fechar = () => { setShowPontoModal(false); setPontoForm(EMPTY_PONTO); setAtestadoFile(null); setReportFile(null); setEditingPontoId(null); setMostrarObs(false) }
+        const motivos = pontoForm.day_type === 'feriado'
+          ? ['Feriado', 'Cliente fechado', 'Liberada pelo gestor', 'Cliente pediu para não ir', 'Outro']
+          : ['Atestado médico', 'Doença sem atestado', 'Emergência familiar', 'Licença maternidade/paternidade', 'Licença especial', 'Problema no transporte', 'Outro']
+
+        // O que falta para salvar — aparece no rodapé, em vez de um erro depois
+        const falta = !pontoForm.client_id ? 'Escolha o cliente'
+          : !trabalho && folgaDaEscala ? 'Este dia já é folga pela escala'
+          : !trabalho && !pontoForm.unavailability_reason ? 'Escolha o motivo'
+          : precisaUnidade && !pontoForm.unit_id ? 'Escolha a unidade'
+          : trabalho && !pontoForm.check_in ? `Informe ${isConsultoria ? 'o início' : 'a entrada'}`
+          : trabalho && !pontoForm.check_out ? `Informe ${isConsultoria ? 'o fim' : 'a saída'}`
+          : trabalho && !temHorario ? 'Entrada e saída estão iguais'
+          : trabalho && pontoForm.is_swap && !pontoForm.swapped_from ? 'Informe o dia que você trocou'
+          : null
+        const resumo = falta ? null
+          : trabalho
+            ? [nomeCliente, isConsultoria ? pontoForm.unit_name : null, `${pontoForm.check_in}–${pontoForm.check_out}`, fmtHoras(liquido)].filter(Boolean).join(' · ')
+            : `${pontoForm.day_type === 'feriado' ? 'Folga' : 'Falta'} · ${pontoForm.unavailability_reason}${atestadoFile ? ' · com atestado' : ''}`
+        const rotuloSalvar = registrarPonto.isPending ? 'Salvando…'
+          : editingPontoId ? 'Salvar alterações'
+          : !trabalho ? (pontoForm.day_type === 'feriado' ? 'Registrar folga' : 'Registrar falta')
+          : 'Salvar'
+
         return (
-        <div className="modal-overlay">
-          <div className="modal-box max-w-md space-y-4">
-            <h3 className="font-bold text-lg">{editingPontoId ? 'Editar registro' : 'Registrar dia'}</h3>
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-ink-900/40 animate-fade-in" onClick={fechar}>
+          <div className="w-full sm:max-w-md bg-[#fbfaf7] rounded-t-2xl sm:rounded-2xl shadow-lift flex flex-col max-h-[94dvh] sm:max-h-[90vh]"
+            onClick={e => e.stopPropagation()}>
 
-            {/* Quando: a data vem primeiro — ela define em quais clientes dá para registrar */}
-            <div>
-              <label className="label">Dia *</label>
-              <div className="flex gap-2">
-                {(() => {
-                  const hoje = hojeISO()
-                  const d = new Date(hoje + 'T12:00:00'); d.setDate(d.getDate() - 1)
-                  const ontem = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-                  return ([[hoje, 'Hoje'], [ontem, 'Ontem']] as const).map(([dia, rotulo]) => (
-                    <button key={dia} type="button"
-                      onClick={() => setPontoForm(p => p.visit_date === dia ? p : ({ ...p, visit_date: dia }))}
-                      className={`px-3.5 rounded-xl border text-sm font-medium shrink-0 transition-colors ${pontoForm.visit_date === dia ? 'border-primary-600 bg-primary-50 text-primary-800' : 'border-ink-200 text-ink-600 active:bg-ink-50'}`}>
-                      {rotulo}
-                    </button>
-                  ))
-                })()}
-                <input className="input flex-1 min-w-0" type="date" value={pontoForm.visit_date} onChange={e => setPontoForm(p => ({ ...p, visit_date: e.target.value }))} />
+            {/* Cabeçalho fixo: o dia em destaque */}
+            <div className="flex items-start justify-between gap-3 px-5 pt-4 pb-3 border-b border-ink-100">
+              <div className="min-w-0">
+                <p className="text-xs text-ink-400">{editingPontoId ? 'Editar registro' : 'Registrar'}</p>
+                <h3 className="font-serif text-[1.6rem] leading-tight text-ink-900 first-letter:uppercase truncate">
+                  {new Date(pontoForm.visit_date + 'T12:00:00').toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}
+                </h3>
               </div>
+              <button type="button" onClick={fechar} aria-label="Fechar" className="p-2 -mr-2 -mt-1 rounded-full text-ink-400 active:bg-ink-100">
+                <X size={20} />
+              </button>
             </div>
 
-            {/* Onde: só os clientes com vínculo valendo no dia. Poucos = botões grandes. */}
-            {(() => {
-              const opcoes = clientesDoDia(pontoForm.visit_date)
-              // O registro em edição pode ser de um cliente que já não está na lista
-              const lista = pontoForm.client_id && !opcoes.some(c => c.id === pontoForm.client_id)
-                ? [...opcoes, { id: pontoForm.client_id, name: ((links as FolhaLink[] | undefined) || []).find(l => l.client?.id === pontoForm.client_id)?.client?.name || 'Cliente' }]
-                : opcoes
-              const escolher = (cid: string) => setPontoForm(p => {
-                if (p.client_id === cid) return p
-                // Sugere o horário do contrato só quando ela ainda não digitou nada
-                const horario = !p.check_in && !p.check_out ? horarioDoContrato(cid, p.visit_date) : {}
-                const ag = ((agenda || []) as AgendaItem[]).find(a => a.client_id === cid && a.planned_date === p.visit_date)
-                return { ...p, client_id: cid, unit_id: ag?.unit_id || '', unit_name: ag?.unit?.name || '', is_extra: false, is_swap: false, swapped_from: '',
-                  day_type: 'normal', unavailability_reason: '', ...horario,
-                  ...(ag?.planned_time && !p.check_in ? { check_in: ag.planned_time.slice(0, 5) } : {}) }
-              })
-              return (
-                <div>
-                  <label className="label">Cliente *</label>
-                  {lista.length === 0 ? (
-                    <p className="text-sm text-ink-500 bg-ink-50 rounded-xl px-3 py-2.5">Nenhum cliente com vínculo valendo nesse dia.</p>
-                  ) : lista.length <= 4 ? (
-                    <div className="grid grid-cols-1 gap-1.5">
-                      {lista.map(c => (
-                        <button key={c.id} type="button" onClick={() => escolher(c.id)}
-                          className={`text-left px-3.5 py-3 rounded-xl border text-sm transition-colors ${pontoForm.client_id === c.id ? 'border-primary-600 bg-primary-50 text-primary-900 font-medium' : 'border-ink-200 text-ink-700 active:bg-ink-50'}`}>
-                          {c.name}
-                        </button>
-                      ))}
-                    </div>
-                  ) : (
-                    <select className="input" value={pontoForm.client_id} onChange={e => escolher(e.target.value)}>
-                      <option value="">Selecionar...</option>
-                      {lista.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                    </select>
-                  )}
-                  {modalLink && (
-                    <p className="text-xs text-ink-400 mt-1.5">
-                      {isConsultoria
-                        ? (salarioConsultoria(modalLink) ? 'Consultoria (salário mensal) — registre a consultoria com a unidade' : 'Consultoria — registre a visita com a unidade')
-                        : `Fixo${modalLink.work_schedule_type ? ` · escala ${modalLink.work_schedule_type}` : ''}${Number(modalLink.daily_hours) > 0 ? ` · jornada de ${modalLink.daily_hours}h por dia` : ''}${modalLink.work_start && modalLink.work_end ? ` · das ${modalLink.work_start.slice(0, 5)} às ${modalLink.work_end.slice(0, 5)}` : ''}${Number(modalLink.break_minutes) > 0 ? ` · ${modalLink.break_minutes}min de intervalo` : ''}`}
-                    </p>
-                  )}
-                </div>
-              )
-            })()}
-
-            {/* ── Tipo do dia: só para quem recebe mensal (Fixo mensal e consultoria com salário) ── */}
-            {modalLink && mensal && (
-            <div>
-              <label className="label">O que aconteceu neste dia? *</label>
-              <div className="grid grid-cols-3 gap-2">
-                {([
-                  { value: 'normal', label: 'Trabalhei', color: 'border-green-300 bg-green-50 text-green-800', active: 'border-green-500 bg-green-100' },
-                  { value: 'feriado', label: 'Folga', color: 'border-amber-300 bg-amber-50 text-amber-800', active: 'border-amber-500 bg-amber-100' },
-                  { value: 'indisponivel', label: 'Faltei', color: 'border-red-300 bg-red-50 text-red-800', active: 'border-red-500 bg-red-100' },
-                ] as const).map(opt => (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    onClick={() => setPontoForm(p => ({ ...p, day_type: opt.value, is_extra: opt.value === 'normal' ? p.is_extra : false }))}
-                    className={`border-2 rounded-xl p-3 text-sm font-medium transition-all ${pontoForm.day_type === opt.value ? opt.active + ' border-2' : opt.color + ' border'}`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
+            <div className="flex-1 overflow-y-auto overscroll-contain px-5 py-4 space-y-5">
+              {/* Quando */}
+              <div className="flex gap-1.5">
+                <Chip ativo={ehHoje} onClick={() => setPontoForm(p => ({ ...p, visit_date: hoje }))}>Hoje</Chip>
+                <Chip ativo={pontoForm.visit_date === ontem} onClick={() => setPontoForm(p => ({ ...p, visit_date: ontem }))}>Ontem</Chip>
+                <label className={`relative inline-flex items-center gap-1.5 px-3.5 h-10 rounded-full border text-sm cursor-pointer transition-colors ${!ehHoje && pontoForm.visit_date !== ontem ? 'border-primary-600 bg-primary-600 text-white' : 'border-ink-200 bg-white text-ink-600'}`}>
+                  <CalendarDays size={15} />
+                  {!ehHoje && pontoForm.visit_date !== ontem ? formatDate(pontoForm.visit_date) : 'Outro dia'}
+                  <input type="date" value={pontoForm.visit_date} max={hoje}
+                    onChange={e => e.target.value && setPontoForm(p => ({ ...p, visit_date: e.target.value }))}
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" aria-label="Escolher outro dia" />
+                </label>
               </div>
-            </div>
-            )}
 
-            {/* ── CONSULTORIA: unidade + horários + valor + relatório (só quando trabalhou) ── */}
-            {isConsultoria && (!mensal || pontoForm.day_type === 'normal') && (
-              <>
-                {getLinkUnitsForClient(pontoForm.client_id).length > 0 && (
+              {/* Onde */}
+              {(() => {
+                const opcoes = clientesDoDia(pontoForm.visit_date)
+                // Registro em edição pode ser de um cliente que já não está na lista
+                const lista = pontoForm.client_id && !opcoes.some(c => c.id === pontoForm.client_id)
+                  ? [...opcoes, { id: pontoForm.client_id, name: nomeCliente || 'Cliente' }] : opcoes
+                const escolher = (cid: string) => setPontoForm(p => {
+                  if (p.client_id === cid) return p
+                  // Horário do contrato só quando ela ainda não digitou nada
+                  const horario = !p.check_in && !p.check_out ? horarioDoContrato(cid, p.visit_date) : {}
+                  const ag = ((agenda || []) as AgendaItem[]).find(a => a.client_id === cid && a.planned_date === p.visit_date)
+                  return { ...p, client_id: cid, unit_id: ag?.unit_id || '', unit_name: ag?.unit?.name || '', is_extra: false, is_swap: false, swapped_from: '',
+                    day_type: 'normal', unavailability_reason: '', ...horario,
+                    ...(ag?.planned_time && !p.check_in ? { check_in: ag.planned_time.slice(0, 5) } : {}) }
+                })
+                return (
                   <div>
-                    <label className="label">Unidade *</label>
-                    <select
-                      className="input"
-                      value={pontoForm.unit_id}
-                      onChange={e => {
-                        const unit = getLinkUnitsForClient(pontoForm.client_id).find(u => u.id === e.target.value)
-                        setPontoForm(p => ({ ...p, unit_id: e.target.value, unit_name: unit?.name || '' }))
-                      }}
-                    >
-                      <option value="">Selecionar unidade...</option>
-                      {getLinkUnitsForClient(pontoForm.client_id).map(u => (
-                        <option key={u.id} value={u.id}>{u.name}{u.visit_rate ? ` — vistoria R$ ${u.visit_rate.toFixed(2)}` : ''}</option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-                {/* Combinado de HORAS no mês: aviso leve — quem decide o pagamento do excedente é o chefe */}
-                {(() => {
-                  const monthlyQuota = Number((modalLink as { monthly_hours_quota?: number } | undefined)?.monthly_hours_quota) || null
-                  if (!monthlyQuota || !pontoForm.check_in || !pontoForm.check_out) return null
-                  const mPrefix = pontoForm.visit_date.slice(0, 7)
-                  const hoursSoFar = (folhaVisits || []).filter(v =>
-                    v.client_id === pontoForm.client_id && v.visit_date.slice(0, 7) === mPrefix && v.id !== editingPontoId)
-                    .reduce((s, v) => s + calcDurationMin((v.check_in || '').slice(0,5), (v.check_out || '').slice(0,5)) / 60, 0)
-                  const thisHours = calcDurationMin(pontoForm.check_in, pontoForm.check_out) / 60
-                  const total = hoursSoFar + thisHours
-                  const fmt = (h: number) => `${Math.floor(h)}h${Math.round((h % 1) * 60) > 0 ? Math.round((h % 1) * 60) + 'm' : ''}`
-                  return total > monthlyQuota + 1 ? (
-                    <p className="text-xs text-blue-600">Com esta visita você chega a {fmt(total)} no mês (combinado: {monthlyQuota}h). O excedente vai para aprovação do gestor.</p>
-                  ) : (
-                    <p className="text-xs text-gray-400">{fmt(total)} de {monthlyQuota}h combinadas no mês.</p>
-                  )
-                })()}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="label">Início *</label>
-                    <input className="input" type="time" value={pontoForm.check_in} onChange={e => setPontoForm(p => ({ ...p, check_in: e.target.value }))} />
-                  </div>
-                  <div>
-                    <label className="label">Fim *</label>
-                    <input className="input" type="time" value={pontoForm.check_out} onChange={e => setPontoForm(p => ({ ...p, check_out: e.target.value }))} />
-                  </div>
-                </div>
-                <JornadaAviso vinculo={modalLink} entrada={pontoForm.check_in} saida={pontoForm.check_out} />
-                {pontoForm.check_in && pontoForm.check_out && pontoForm.check_in !== pontoForm.check_out && (() => {
-                  const weeklyQuota = Number(modalLink?.weekly_hours_quota) || null
-                  const unit = getLinkUnitsForClient(pontoForm.client_id).find(u => u.id === pontoForm.unit_id)
-                  const amount = calcVisitAmount(unit?.visit_rate ?? null, pontoForm.check_in, pontoForm.check_out, weeklyQuota)
-                  const hours = calcDurationMin(pontoForm.check_in, pontoForm.check_out) / 60
-                  const pct = weeklyQuota ? Math.min(100, Math.round((hours / weeklyQuota) * 100)) : null
-                  return (
-                    <div className="bg-green-50 text-green-700 text-sm rounded-lg px-3 py-2 space-y-1">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="flex items-center gap-2"><Clock size={14} />{calcDuration(pontoForm.check_in, pontoForm.check_out)} de visita</span>
-                        {amount != null && <span className="font-bold">R$ {amount.toFixed(2)}</span>}
+                    <p className="text-xs font-medium text-ink-500 mb-2">Onde</p>
+                    {lista.length === 0 ? (
+                      <p className="text-sm text-ink-500 bg-white border border-ink-100 rounded-xl px-3.5 py-3">Nenhum cliente com vínculo valendo nesse dia.</p>
+                    ) : lista.length <= 6 ? (
+                      <div className="flex flex-wrap gap-1.5">
+                        {lista.map(c => <Chip key={c.id} ativo={pontoForm.client_id === c.id} onClick={() => escolher(c.id)}>{c.name}</Chip>)}
                       </div>
-                      {amount != null && unit?.visit_rate && pct != null && (
-                        <p className="text-xs text-green-600">
-                          {pct >= 100
-                            ? `✓ Semana cheia (${weeklyQuota}h) — valor inteiro da vistoria`
-                            : `${pct}% da semana cheia (${weeklyQuota}h) → R$ ${unit.visit_rate.toFixed(2)} × ${pct}%`}
-                        </p>
-                      )}
+                    ) : (
+                      <select className="input" value={pontoForm.client_id} onChange={e => escolher(e.target.value)}>
+                        <option value="">Escolha o cliente…</option>
+                        {lista.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                      </select>
+                    )}
+                    {modalLink && (
+                      <p className="text-xs text-ink-400 mt-2">
+                        {isConsultoria
+                          ? (salarioConsultoria(modalLink) ? 'Consultoria · salário mensal' : 'Consultoria · por visita')
+                          : [
+                              pagaPorDiaria(modalLink) ? 'Fixo · por diária' : 'Fixo',
+                              modalLink.work_schedule_type ? `escala ${modalLink.work_schedule_type}` : null,
+                              Number(modalLink.daily_hours) > 0 ? `${modalLink.daily_hours}h por dia` : null,
+                              modalLink.work_start && modalLink.work_end ? `${modalLink.work_start.slice(0, 5)}–${modalLink.work_end.slice(0, 5)}` : null,
+                              intervalo > 0 ? `${fmtHoras(intervalo)} de intervalo` : null,
+                            ].filter(Boolean).join(' · ')}
+                      </p>
+                    )}
+                  </div>
+                )
+              })()}
+
+              {/* O que aconteceu (só quem recebe mensal) */}
+              {modalLink && mensal && (
+                <div className="grid grid-cols-3 gap-1 p-1 rounded-xl bg-ink-100/70">
+                  {([['normal', 'Trabalhei', 'text-ink-900'], ['feriado', 'Folga', 'text-amber-700'], ['indisponivel', 'Faltei', 'text-red-700']] as const).map(([v, t, cor]) => (
+                    <button key={v} type="button"
+                      onClick={() => setPontoForm(p => ({ ...p, day_type: v, is_extra: v === 'normal' ? p.is_extra : false, is_swap: v === 'normal' ? p.is_swap : false, unavailability_reason: v === p.day_type ? p.unavailability_reason : '' }))}
+                      className={`h-10 rounded-lg text-sm font-medium transition-all ${pontoForm.day_type === v ? `bg-white shadow-sm ${cor}` : 'text-ink-500 active:bg-white/60'}`}>
+                      {t}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Folga / falta num dia que já é folga pela escala */}
+              {modalLink && !trabalho && folgaDaEscala && (
+                <p className="text-sm text-amber-800 bg-amber-50 rounded-xl px-4 py-3">Este dia já é sua folga pela escala — não precisa registrar folga nem falta.</p>
+              )}
+
+              {/* Folga ou falta: motivo em um toque */}
+              {modalLink && !trabalho && !folgaDaEscala && (
+                <div className="space-y-3">
+                  <div>
+                    <p className="text-xs font-medium text-ink-500 mb-2">{pontoForm.day_type === 'feriado' ? 'Por que foi folga?' : 'Motivo da falta'}</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {motivos.map(m => (
+                        <Chip key={m} ativo={pontoForm.unavailability_reason === m} onClick={() => setPontoForm(p => ({ ...p, unavailability_reason: m }))}>{m}</Chip>
+                      ))}
                     </div>
-                  )
-                })()}
-                {/* Relatório — obrigatório para consultoria */}
-                <div>
-                  <label className="label">Relatório da visita <span className="text-red-500 font-normal">— obrigatório</span></label>
-                  <input ref={reportRef} type="file" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" className="hidden"
-                    onChange={e => setReportFile(e.target.files?.[0] || null)} />
-                  <button
-                    type="button"
-                    onClick={() => reportRef.current?.click()}
-                    className={`w-full border-2 border-dashed rounded-xl px-4 py-3 text-sm transition-colors text-center ${reportFile ? 'border-green-300 text-green-700 bg-green-50' : 'border-red-200 text-gray-500 hover:border-primary-400 hover:text-primary-600'}`}
-                  >
-                    {reportFile ? `✓ ${reportFile.name}` : '+ Anexar relatório (PDF ou foto) *'}
-                  </button>
-                  <p className="text-xs text-ink-400 mt-1">Dá para registrar sem o anexo, mas a visita fica marcada como <strong>relatório pendente</strong> até você anexar.</p>
-                  {reportFile && (
-                    <button type="button" onClick={() => setReportFile(null)} className="text-xs text-red-400 mt-1 hover:underline">Remover arquivo</button>
+                  </div>
+                  {pontoForm.day_type === 'feriado' ? (
+                    <p className="text-xs text-ink-500 leading-relaxed">Folga é quando você foi dispensada: não conta como falta nem desconta. Se foi você que não pôde ir, marque <strong>Faltei</strong>.</p>
+                  ) : (
+                    <Anexo rotulo="Atestado ou comprovante" dica={existente?.atestado_url ? 'Já anexado — toque para trocar' : 'Opcional'}
+                      arquivo={atestadoFile} onEscolher={() => atestadoRef.current?.click()} onRemover={() => setAtestadoFile(null)} />
                   )}
                 </div>
-              </>
-            )}
+              )}
 
-            {/* ── FIXO: folga da escala detectada → dia extra OU troca de dia ── */}
-            {dayIsOff && (
-              <div className="bg-green-50 border border-green-300 rounded-xl px-4 py-3 space-y-2">
-                <p className="text-sm font-medium text-green-800">
-                  Este dia é sua <strong>folga</strong> pela escala. Trabalhou mesmo assim? Escolha o que aconteceu:
-                </p>
-                <label className={`flex items-center gap-2 text-sm cursor-pointer rounded-lg px-2 py-1.5 ${pontoForm.is_extra ? 'bg-green-100 text-green-800 font-medium' : 'text-green-700'}`}>
-                  <input type="radio" name="folga-opt" checked={pontoForm.is_extra}
-                    onChange={() => setPontoForm(p => ({ ...p, is_extra: true, is_swap: false, swapped_from: '' }))} />
-                  Foi um <strong>dia extra</strong>
-                  <span className="text-xs text-gray-500">(valor definido pelo gestor)</span>
-                </label>
-                <label className={`flex items-center gap-2 text-sm cursor-pointer rounded-lg px-2 py-1.5 ${pontoForm.is_swap ? 'bg-blue-100 text-blue-800 font-medium' : 'text-green-700'}`}>
-                  <input type="radio" name="folga-opt" checked={pontoForm.is_swap}
-                    onChange={() => setPontoForm(p => ({ ...p, is_swap: true, is_extra: false }))} />
-                  <strong>Troquei o dia</strong> — trabalhei hoje no lugar de outro dia da escala
-                </label>
-                {pontoForm.is_swap && (
-                  <div className="pl-6">
-                    <label className="label text-xs">Qual dia da escala você trocou? *</label>
-                    <input className="input text-sm" type="date" value={pontoForm.swapped_from}
-                      onChange={e => setPontoForm(p => ({ ...p, swapped_from: e.target.value }))} />
-                    <p className="text-xs text-blue-600 mt-1">O dia trocado não fica pendente na sua folha. Troca de dia não gera pagamento extra.</p>
+              {/* Trabalhou num dia de folga da escala: dia extra ou troca */}
+              {modalLink && dayIsOff && (
+                <div className="rounded-xl bg-white border border-ink-200 p-3.5 space-y-3">
+                  <p className="text-sm text-ink-800">Este dia é sua <strong>folga</strong> pela escala. O que foi?</p>
+                  <div className="grid grid-cols-2 gap-1 p-1 rounded-xl bg-ink-100/70">
+                    {([['extra', 'Dia extra'], ['troca', 'Troquei o dia']] as const).map(([v, t]) => {
+                      const on = v === 'extra' ? pontoForm.is_extra : pontoForm.is_swap
+                      return (
+                        <button key={v} type="button"
+                          onClick={() => setPontoForm(p => v === 'extra' ? ({ ...p, is_extra: !p.is_extra, is_swap: false, swapped_from: '' }) : ({ ...p, is_swap: !p.is_swap, is_extra: false }))}
+                          className={`h-10 rounded-lg text-sm font-medium transition-all ${on ? 'bg-white shadow-sm text-ink-900' : 'text-ink-500'}`}>
+                          {t}
+                        </button>
+                      )
+                    })}
                   </div>
-                )}
-                {pontoForm.is_extra && <p className="text-xs text-amber-600">Dia extra registrado — o gestor será notificado e vai definir o valor a receber.</p>}
-                {!pontoForm.is_extra && !pontoForm.is_swap && <p className="text-xs text-gray-500">Sem escolher, o dia é registrado como trabalho normal.</p>}
-              </div>
-            )}
-            {/* Escala sem dias conhecidos (Plantão, 12x36 sem âncora): ela marca manualmente */}
-            {!dayIsOff && noFixedSchedule && pontoForm.day_type === 'normal' && (
-              <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer bg-gray-50 rounded-xl px-4 py-3">
-                <input type="checkbox" className="rounded" checked={pontoForm.is_extra}
-                  onChange={e => setPontoForm(p => ({ ...p, is_extra: e.target.checked }))} />
-                Dia extra — trabalhei fora da minha escala
-                {pontoForm.is_extra && extraDayValue ? <span className="font-bold text-green-700">+ R$ {extraDayValue.toFixed(2)}</span> : null}
-              </label>
-            )}
-
-            {/* Normal: entrada / saída / intervalo */}
-            {modalLink && !isConsultoria && pontoForm.day_type === 'normal' && (
-              <>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="label">Entrada *</label>
-                    <input className="input" type="time" value={pontoForm.check_in} onChange={e => setPontoForm(p => ({ ...p, check_in: e.target.value }))} />
-                  </div>
-                  <div>
-                    <label className="label">Saída *</label>
-                    <input className="input" type="time" value={pontoForm.check_out} onChange={e => setPontoForm(p => ({ ...p, check_out: e.target.value }))} />
-                  </div>
+                  {pontoForm.is_extra && <p className="text-xs text-ink-500">O RH é avisado e define o valor{extraDayValue ? ` (sugestão: ${formatCurrency(extraDayValue)})` : ''}.</p>}
+                  {pontoForm.is_swap && (
+                    <div>
+                      <label className="text-xs font-medium text-ink-500">Qual dia da escala você trocou?</label>
+                      <input className="input mt-1" type="date" value={pontoForm.swapped_from} onChange={e => setPontoForm(p => ({ ...p, swapped_from: e.target.value }))} />
+                      <p className="text-xs text-ink-400 mt-1">O dia trocado não fica pendente. Troca não gera pagamento a mais.</p>
+                    </div>
+                  )}
+                  {!pontoForm.is_extra && !pontoForm.is_swap && <p className="text-xs text-ink-400">Sem escolher, fica como trabalho normal.</p>}
                 </div>
-                {pontoForm.check_in && pontoForm.check_out && (() => {
-                  const raw = calcDurationMin(pontoForm.check_in, pontoForm.check_out)
-                  if (raw <= 0) return null
-                  const intervalo = Number(modalLink.break_minutes) || 0
-                  const liquido = minutosLiquidos({ check_in: pontoForm.check_in, check_out: pontoForm.check_out }, intervalo)
-                  return (
-                    <div className="space-y-0.5">
-                      <p className="text-xs text-ink-600 font-medium tnum">
-                        Total: {fmtHoras(liquido)}{intervalo > 0 && <span className="font-normal text-ink-400"> (já descontado {fmtHoras(intervalo)} de intervalo)</span>}
+              )}
+
+              {/* Unidade (consultoria) */}
+              {precisaUnidade && (
+                <div>
+                  <p className="text-xs font-medium text-ink-500 mb-2">Unidade</p>
+                  {unidades.length <= 6 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {unidades.map(u => (
+                        <Chip key={u.id} ativo={pontoForm.unit_id === u.id} onClick={() => setPontoForm(p => ({ ...p, unit_id: u.id, unit_name: u.name }))}>
+                          {u.name}{u.visit_rate ? <span className="opacity-70 tnum"> · {formatCurrency(u.visit_rate)}</span> : null}
+                        </Chip>
+                      ))}
+                    </div>
+                  ) : (
+                    <select className="input" value={pontoForm.unit_id}
+                      onChange={e => { const u = unidades.find(x => x.id === e.target.value); setPontoForm(p => ({ ...p, unit_id: e.target.value, unit_name: u?.name || '' })) }}>
+                      <option value="">Escolha a unidade…</option>
+                      {unidades.map(u => <option key={u.id} value={u.id}>{u.name}{u.visit_rate ? ` — ${formatCurrency(u.visit_rate)}` : ''}</option>)}
+                    </select>
+                  )}
+                </div>
+              )}
+
+              {/* Horários */}
+              {modalLink && trabalho && (
+                <div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <CampoHora rotulo={isConsultoria ? 'Início' : 'Entrada'} valor={pontoForm.check_in} onChange={v => setPontoForm(p => ({ ...p, check_in: v }))} />
+                    <CampoHora rotulo={isConsultoria ? 'Fim' : 'Saída'} valor={pontoForm.check_out} onChange={v => setPontoForm(p => ({ ...p, check_out: v }))} />
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {contrato.check_in && contrato.check_out && (pontoForm.check_in !== contrato.check_in || pontoForm.check_out !== contrato.check_out) && (
+                      <Chip pequeno onClick={() => setPontoForm(p => ({ ...p, check_in: contrato.check_in!, check_out: contrato.check_out! }))}>
+                        Horário do contrato {contrato.check_in}–{contrato.check_out}
+                      </Chip>
+                    )}
+                    {ehHoje && (!pontoForm.check_in || !pontoForm.check_out) && (
+                      <Chip pequeno onClick={() => setPontoForm(p => !p.check_in ? ({ ...p, check_in: agora() }) : ({ ...p, check_out: agora() }))}>
+                        <Clock size={13} /> {!pontoForm.check_in ? (isConsultoria ? 'Início agora' : 'Entrada agora') : (isConsultoria ? 'Fim agora' : 'Saída agora')}
+                      </Chip>
+                    )}
+                  </div>
+
+                  {/* O que o horário representa */}
+                  {temHorario && (
+                    <div className="mt-3 space-y-1">
+                      <p className="text-sm text-ink-700 tnum">
+                        <strong className="font-semibold text-ink-900">{fmtHoras(liquido)}</strong> de {isConsultoria ? 'visita' : 'trabalho'}
+                        {intervalo > 0 && <span className="text-ink-400"> (já sem {fmtHoras(intervalo)} de intervalo)</span>}
+                        {(() => {
+                          if (!isConsultoria) return null
+                          const unit = unidades.find(u => u.id === pontoForm.unit_id)
+                          const valor = calcVisitAmount(unit?.visit_rate ?? null, pontoForm.check_in, pontoForm.check_out, Number(modalLink?.weekly_hours_quota) || null)
+                          return valor != null ? <span className="text-ink-900 font-semibold"> · {formatCurrency(valor)}</span> : null
+                        })()}
                       </p>
+                      {(() => {
+                        // Consultoria por visita: horas combinadas no mês
+                        const quota = !salarioConsultoria(modalLink) ? Number((modalLink as { monthly_hours_quota?: number } | undefined)?.monthly_hours_quota) || null : null
+                        if (!isConsultoria || !quota) return null
+                        const mPrefix = pontoForm.visit_date.slice(0, 7)
+                        const antes = (folhaVisits || []).filter(v => v.client_id === pontoForm.client_id && v.visit_date.slice(0, 7) === mPrefix && v.id !== editingPontoId)
+                          .reduce((s, v) => s + calcDurationMin((v.check_in || '').slice(0, 5), (v.check_out || '').slice(0, 5)) / 60, 0)
+                        const total = antes + calcDurationMin(pontoForm.check_in, pontoForm.check_out) / 60
+                        return (
+                          <p className={`text-xs ${total > quota + 1 ? 'text-amber-700' : 'text-ink-400'}`}>
+                            {fmtHoras(total * 60)} de {fmtHoras(quota * 60)} combinadas no mês{total > quota + 1 ? ' — o que passar vai para aprovação do RH' : ''}
+                          </p>
+                        )
+                      })()}
                       <JornadaAviso vinculo={modalLink} entrada={pontoForm.check_in} saida={pontoForm.check_out} />
                     </div>
-                  )
-                })()}
-              </>
-            )}
-
-            {/* Dia que já é folga pela escala: não se registra folga nem falta */}
-            {modalLink && mensal && !isConsultoria && pontoForm.day_type !== 'normal' && isDayOff(modalLink, pontoForm.visit_date) && (
-              <p className="text-sm text-amber-800 bg-amber-50 rounded-xl px-4 py-3">
-                Este dia já é sua folga pela escala — não precisa registrar folga nem falta.
-              </p>
-            )}
-
-            {/* Folga: foi dispensada (não é falta). Motivo obrigatório — o RH vê. */}
-            {modalLink && mensal && pontoForm.day_type === 'feriado' && !(!isConsultoria && isDayOff(modalLink, pontoForm.visit_date)) && (
-              <div className="space-y-2">
-                <div>
-                  <label className="label">Motivo da folga *</label>
-                  <select className="input" value={pontoForm.unavailability_reason} onChange={e => setPontoForm(p => ({ ...p, unavailability_reason: e.target.value }))}>
-                    <option value="">Selecionar motivo...</option>
-                    <option value="Feriado">Feriado</option>
-                    <option value="Cliente fechado">Cliente fechado</option>
-                    <option value="Liberada pelo gestor">Liberada pelo gestor</option>
-                    <option value="Cliente pediu para não ir">Cliente pediu para não ir</option>
-                    <option value="Outro">Outro</option>
-                  </select>
-                </div>
-                <p className="bg-amber-50 rounded-xl px-4 py-3 text-sm text-amber-700">
-                  Folga é quando você foi dispensada. Não conta como falta nem como dia trabalhado, e o RH é avisado. Se foi você que não pôde ir, marque Faltei.
-                </p>
-              </div>
-            )}
-
-            {/* Volante cobrindo Fixo: relatório do dia é obrigatório também */}
-            {modalLink && !isConsultoria && pontoForm.day_type === 'normal' && (modalLink?.service_type === 'Volante' || pagaPorDiaria(modalLink)) && (
-              <div>
-                <label className="label">Relatório do dia <span className="text-red-500 font-normal">— obrigatório</span></label>
-                <input ref={reportRef} type="file" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" className="hidden"
-                  onChange={e => setReportFile(e.target.files?.[0] || null)} />
-                <button
-                  type="button"
-                  onClick={() => reportRef.current?.click()}
-                  className={`w-full border-2 border-dashed rounded-xl px-4 py-3 text-sm transition-colors text-center ${reportFile ? 'border-green-300 text-green-700 bg-green-50' : 'border-red-200 text-gray-500 hover:border-primary-400 hover:text-primary-600'}`}
-                >
-                  {reportFile ? `✓ ${reportFile.name}` : '+ Anexar relatório (PDF ou foto) *'}
-                </button>
-                <p className="text-xs text-ink-400 mt-1">Dá para registrar sem o anexo, mas o dia fica marcado como <strong>relatório pendente</strong> até você anexar.</p>
-                {reportFile && (
-                  <button type="button" onClick={() => setReportFile(null)} className="text-xs text-red-400 mt-1 hover:underline">Remover arquivo</button>
-                )}
-              </div>
-            )}
-
-            {/* Falta: motivo + atestado — aparece para o RH cobrar/acompanhar */}
-            {modalLink && mensal && pontoForm.day_type === 'indisponivel' && (
-              <div className="space-y-3">
-                <div>
-                  <label className="label">Motivo da falta *</label>
-                  <select className="input" value={pontoForm.unavailability_reason} onChange={e => setPontoForm(p => ({ ...p, unavailability_reason: e.target.value }))}>
-                    <option value="">Selecionar motivo...</option>
-                    <option value="Atestado médico">Atestado médico</option>
-                    <option value="Doença sem atestado">Doença sem atestado</option>
-                    <option value="Emergência familiar">Emergência familiar</option>
-                    <option value="Licença maternidade/paternidade">Licença maternidade/paternidade</option>
-                    <option value="Licença especial">Licença especial</option>
-                    <option value="Problema no transporte">Problema no transporte</option>
-                    <option value="Outro">Outro</option>
-                  </select>
-                </div>
-
-                {/* Anexar atestado */}
-                <div>
-                  <label className="label">Atestado ou comprovante <span className="text-gray-400 font-normal">— opcional</span></label>
-                  <input ref={atestadoRef} type="file" accept=".pdf,.jpg,.jpeg,.png" className="hidden"
-                    onChange={e => setAtestadoFile(e.target.files?.[0] || null)} />
-                  <button
-                    type="button"
-                    onClick={() => atestadoRef.current?.click()}
-                    className="w-full border-2 border-dashed border-gray-300 rounded-xl px-4 py-3 text-sm text-gray-500 hover:border-primary-400 hover:text-primary-600 transition-colors text-center"
-                  >
-                    {atestadoFile ? `✓ ${atestadoFile.name}` : '+ Anexar PDF ou foto'}
-                  </button>
-                  {atestadoFile && (
-                    <button type="button" onClick={() => setAtestadoFile(null)} className="text-xs text-red-400 mt-1 hover:underline">Remover arquivo</button>
                   )}
                 </div>
-              </div>
-            )}
+              )}
 
-            {/* Observação — sempre disponível */}
-            <div>
-              <label className="label">Observação <span className="text-gray-400 font-normal">— opcional</span></label>
-              <input className="input" placeholder="Ex: fiz horas extras, precisei sair mais cedo..." value={pontoForm.observations} onChange={e => setPontoForm(p => ({ ...p, observations: e.target.value }))} />
+              {/* Escala sem dias conhecidos: ela marca o dia extra */}
+              {modalLink && trabalho && !dayIsOff && noFixedSchedule && (
+                <label className="flex items-center justify-between gap-3 rounded-xl bg-white border border-ink-200 px-3.5 py-3 cursor-pointer">
+                  <span className="text-sm text-ink-800">Dia extra — fora da minha escala{pontoForm.is_extra && extraDayValue ? <span className="text-ink-400"> · sugestão {formatCurrency(extraDayValue)}</span> : null}</span>
+                  <input type="checkbox" className="rounded" checked={pontoForm.is_extra} onChange={e => setPontoForm(p => ({ ...p, is_extra: e.target.checked }))} />
+                </label>
+              )}
+
+              {/* Relatório */}
+              {modalLink && pedeRelatorio && (
+                <Anexo rotulo={isConsultoria ? 'Relatório da visita' : 'Relatório do dia'}
+                  dica={existente?.report_url ? 'Já anexado — toque para trocar' : 'Obrigatório — dá para anexar depois'}
+                  alerta={!existente?.report_url && !reportFile}
+                  arquivo={reportFile} onEscolher={() => reportRef.current?.click()} onRemover={() => setReportFile(null)} />
+              )}
+
+              {/* Observação: só abre quando ela quer */}
+              {modalLink && (mostrarObs || pontoForm.observations ? (
+                <div>
+                  <p className="text-xs font-medium text-ink-500 mb-2">Observação</p>
+                  <textarea className="input resize-none" rows={2} autoFocus={mostrarObs && !pontoForm.observations}
+                    placeholder="Ex.: saí mais cedo, cliente pediu reunião…"
+                    value={pontoForm.observations} onChange={e => setPontoForm(p => ({ ...p, observations: e.target.value }))} />
+                </div>
+              ) : (
+                <button type="button" onClick={() => setMostrarObs(true)} className="text-sm text-primary-700 font-medium">+ Adicionar observação</button>
+              ))}
+
+              {/* Entradas de arquivo (escondidas) */}
+              <input ref={reportRef} type="file" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" className="hidden" onChange={e => setReportFile(e.target.files?.[0] || null)} />
+              <input ref={atestadoRef} type="file" accept=".pdf,.jpg,.jpeg,.png" className="hidden" onChange={e => setAtestadoFile(e.target.files?.[0] || null)} />
             </div>
 
-            <div className="flex gap-3 pt-1">
-              <button
-                className="btn-primary flex-1"
+            {/* Rodapé fixo: o que vai ser salvo e o botão */}
+            <div className="border-t border-ink-100 bg-white rounded-b-none sm:rounded-b-2xl px-5 pt-3" style={{ paddingBottom: 'max(0.875rem, env(safe-area-inset-bottom))' }}>
+              <p className={`text-xs text-center mb-2 truncate tnum ${falta ? 'text-ink-400' : 'text-ink-600'}`}>{falta || resumo}</p>
+              <button type="button" className="btn-primary w-full py-3.5 text-base"
                 onClick={() => registrarPonto.mutate()}
-                disabled={registrarPonto.isPending || !pontoForm.client_id || !pontoForm.visit_date || (isConsultoria && getLinkUnitsForClient(pontoForm.client_id).length > 0 && !pontoForm.unit_id) || (pontoForm.is_swap && !pontoForm.swapped_from)}
-              >
-                {registrarPonto.isPending ? 'Salvando...' : editingPontoId ? 'Salvar alterações' : 'Salvar'}
+                disabled={registrarPonto.isPending || !!falta}>
+                {rotuloSalvar}
               </button>
-              <button className="btn-ghost px-4" onClick={() => { setShowPontoModal(false); setPontoForm(EMPTY_PONTO); setAtestadoFile(null); setReportFile(null); setEditingPontoId(null) }}>Cancelar</button>
             </div>
           </div>
         </div>
@@ -2348,6 +2300,49 @@ export default function PortalHome() {
 }
 
 // ── Peças visuais do portal ────────────────────────────────────────────────
+
+// Etiqueta de escolha (dia, cliente, unidade, motivo)
+function Chip({ ativo, pequeno, onClick, children }: { ativo?: boolean; pequeno?: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button type="button" onClick={onClick}
+      className={`inline-flex items-center gap-1 rounded-full border transition-colors ${pequeno ? 'h-8 px-3 text-xs' : 'h-10 px-3.5 text-sm'} ${ativo
+        ? 'border-primary-600 bg-primary-600 text-white'
+        : 'border-ink-200 bg-white text-ink-700 active:bg-ink-50'}`}>
+      {children}
+    </button>
+  )
+}
+
+// Horário em bloco grande. Vazio mostra --:-- (o campo do iPhone mostrava a hora
+// atual como se já estivesse preenchido). O seletor nativo fica por cima, invisível.
+function CampoHora({ rotulo, valor, onChange }: { rotulo: string; valor: string; onChange: (v: string) => void }) {
+  return (
+    <label className={`relative block rounded-xl border bg-white px-4 py-3 cursor-pointer transition-colors ${valor ? 'border-ink-200' : 'border-dashed border-ink-300'}`}>
+      <span className="block text-xs text-ink-500">{rotulo}</span>
+      <span className={`block text-[1.75rem] leading-tight font-semibold tnum ${valor ? 'text-ink-900' : 'text-ink-300'}`}>{valor || '--:--'}</span>
+      <input type="time" value={valor} onChange={e => onChange(e.target.value)} aria-label={rotulo}
+        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+    </label>
+  )
+}
+
+// Linha de anexo (relatório / atestado)
+function Anexo({ rotulo, dica, alerta, arquivo, onEscolher, onRemover }: { rotulo: string; dica: string; alerta?: boolean; arquivo: File | null; onEscolher: () => void; onRemover: () => void }) {
+  return (
+    <div className="flex items-center gap-3 rounded-xl bg-white border border-ink-200 px-3.5 py-3">
+      <span className={`shrink-0 w-9 h-9 rounded-full flex items-center justify-center ${arquivo ? 'bg-primary-50 text-primary-700' : 'bg-ink-100 text-ink-500'}`}>
+        {arquivo ? <Check size={16} /> : <Paperclip size={16} />}
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="text-sm text-ink-800">{rotulo}</p>
+        <p className={`text-xs truncate ${arquivo ? 'text-primary-700' : alerta ? 'text-amber-700' : 'text-ink-400'}`}>{arquivo ? arquivo.name : dica}</p>
+      </div>
+      {arquivo
+        ? <button type="button" onClick={onRemover} className="text-xs text-ink-500 px-2 py-1">Remover</button>
+        : <button type="button" onClick={onEscolher} className="text-sm font-medium text-primary-700 px-2 py-1">Anexar</button>}
+    </div>
+  )
+}
 
 function saudacao() {
   const h = new Date().getHours()

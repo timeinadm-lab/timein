@@ -527,6 +527,20 @@ export default function EmployeeDetail() {
           monthly_hours_quota: monthlyHours,
         }),
       }
+      // Cliente novo do consultor fixo: usa o contrato, o dia de pagamento e o
+      // horário padrão do vínculo (o salário já está nele)
+      const noFixo = coverageForm.coverage_type === 'Consultoria' && coverageForm.consult_salario && grupoFixo.length > 0
+      if (noFixo) {
+        registroVinculo.contract_required = false
+        registroVinculo.contract_deadline = null
+        if (contratoDoFixo) registroVinculo.contract_file_url = contratoDoFixo
+        if (salarioDoFixo > 0) registroVinculo.monthly_amount = null
+        if (!(coverageForm.work_start && coverageForm.work_end) && horarioPadraoFixo) {
+          registroVinculo.work_start = horarioPadraoFixo.inicio
+          registroVinculo.work_end = horarioPadraoFixo.fim
+          if (horarioPadraoFixo.intervalo) registroVinculo.break_minutes = horarioPadraoFixo.intervalo
+        }
+      }
       let { data: newLink, error } = await supabase.from('employee_client_links').insert(registroVinculo).select('id').single()
       if (error && coverageForm.consult_salario && /pay_mode|check/i.test(error.message)) throw new Error('Falta rodar a migração 060 no Supabase para usar consultoria com salário fixo.')
       // Migração 058 ainda não rodada: grava no formato antigo (Volante)
@@ -538,7 +552,7 @@ export default function EmployeeDetail() {
       if (error) throw error
       // Dias de pagamento. Dois dias = quinzena: o que a pessoa fizer do dia 20 ao
       // dia 7 cai no pagamento do dia 8; do dia 8 ao 19 cai no do dia 20.
-      const dias = (coverageForm.pay_days.length ? coverageForm.pay_days : ['20'])
+      const dias = noFixo && diaPagtoFixo ? [diaPagtoFixo] : (coverageForm.pay_days.length ? coverageForm.pay_days : ['20'])
         .map(Number).sort((a, b) => a - b)
       if (newLink?.id) {
         await supabase.from('employee_payment_dates').insert(
@@ -929,8 +943,115 @@ export default function EmployeeDetail() {
     onError: (e: Error) => toast.error(e.message),
   })
 
+  const abrirEdicaoDoVinculo = (l: NonNullable<typeof links>[number]) => {
+      const existing = ((l as { link_units?: { unit_id: string; unit_name: string; visit_rate?: number }[] }).link_units) || []
+      const clientId = (l as { client?: { id: string } }).client?.id || ''
+      setEditLinkValues({
+        linkId: l.id,
+        serviceType: grupoDoVinculo(l),
+        clientId,
+        monthly_amount: String(l.monthly_amount || ''),
+        cost_assistance: String((l as { cost_assistance?: number }).cost_assistance || ''),
+        weekly_hours: String(l.weekly_hours_quota || ''),
+        visit_frequency: (l as { visit_frequency?: string }).visit_frequency || 'Semanal',
+        visits_per_week: String((l as { visits_per_week?: number }).visits_per_week || ''),
+        units: existing.map(u => ({ unit_id: u.unit_id, unit_name: u.unit_name, visit_rate: u.visit_rate != null ? String(u.visit_rate) : '' })),
+        work_schedule_type: (l as { work_schedule_type?: string }).work_schedule_type || '',
+        daily_hours: String((l as { daily_hours?: number }).daily_hours || ''),
+        days_off: ((l as { days_off?: number[] }).days_off) || [],
+        schedule_anchor_date: (l as { schedule_anchor_date?: string }).schedule_anchor_date || '',
+        start_date: (l as { start_date?: string }).start_date || '',
+        payDays: l.service_type === 'Consultoria' && (l as { pay_mode?: string }).pay_mode !== 'salario_fixo' ? ['8', '20'] : (l.payment_dates || []).map(d => String(d.day_of_month)).filter(d => ['8', '15', '20'].includes(d)).sort((a, b) => Number(a) - Number(b)),
+        pay_full_salary: (l as { pay_full_salary?: boolean }).pay_full_salary ?? false,
+        expected_days_month: String((l as { expected_days_month?: number }).expected_days_month || ''),
+        work_start: ((l as { work_start?: string }).work_start || '').slice(0, 5),
+        work_end: ((l as { work_end?: string }).work_end || '').slice(0, 5),
+        break_minutes: String((l as { break_minutes?: number }).break_minutes || ''),
+      })
+  }
+
+  // Contrato, dia de pagamento e horário são do vínculo de consultor fixo
+  // inteiro — ficam iguais em todos os clientes dele (o login do portal olha
+  // o contrato cliente a cliente, por isso vai em todos).
+  const campoFixo = <T,>(l: unknown, k: string) => (l as Record<string, T | undefined>)[k]
+  const contratoDoFixo = grupoFixo.map(l => campoFixo<string>(l, 'contract_file_url')).find(Boolean) || null
+  const diaPagtoFixo = (principalDoFixo?.payment_dates || []).map(d => Number(d.day_of_month)).sort((a, b) => b - a)[0] || null
+  const horarioDoCliente = (l: unknown) => {
+    const i = (campoFixo<string>(l, 'work_start') || '').slice(0, 5), f = (campoFixo<string>(l, 'work_end') || '').slice(0, 5)
+    return i && f ? { inicio: i, fim: f, intervalo: Number(campoFixo<number>(l, 'break_minutes')) || 0 } : null
+  }
+  const chaveHorario = (h: { inicio: string; fim: string; intervalo: number } | null) => h ? `${h.inicio}|${h.fim}|${h.intervalo}` : ''
+  // Horário padrão = o que a maioria dos clientes tem
+  const horarioPadraoFixo = (() => {
+    const cont = new Map<string, number>()
+    for (const l of grupoFixo) { const k = chaveHorario(horarioDoCliente(l)); if (k) cont.set(k, (cont.get(k) || 0) + 1) }
+    const top = [...cont.entries()].sort((a, b) => b[1] - a[1])[0]?.[0]
+    if (!top) return null
+    const [inicio, fim, intervalo] = top.split('|')
+    return { inicio, fim, intervalo: Number(intervalo) || 0 }
+  })()
+  const [editandoHorarioFixo, setEditandoHorarioFixo] = useState<{ inicio: string; fim: string; intervalo: string } | null>(null)
+  const [clienteAbertoNoFixo, setClienteAbertoNoFixo] = useState<string | null>(null)
+  const [enviandoContratoFixo, setEnviandoContratoFixo] = useState(false)
+  const contratoFixoRef = useRef<HTMLInputElement>(null)
+
+  const anexarContratoDoFixo = async (file: File) => {
+    setEnviandoContratoFixo(true)
+    try {
+      const path = `employees/${id}/consultor_fixo_${Date.now()}.pdf`
+      const { error: upErr } = await supabase.storage.from('arquivos').upload(path, file, { upsert: true })
+      if (upErr) throw upErr
+      const { error } = await supabase.from('employee_client_links').update({ contract_file_url: path }).in('id', grupoFixo.map(l => l.id))
+      if (error) throw error
+      // Também fica na aba Documentos
+      const docName = 'Contrato assinado — Consultor fixo'
+      const { data: doc } = await supabase.from('employee_documents').select('id').eq('employee_id', id).eq('name', docName).limit(1)
+      if (doc?.[0]) await supabase.from('employee_documents').update({ file_url: path, status: 'Entregue' }).eq('id', doc[0].id)
+      else await supabase.from('employee_documents').insert({ employee_id: id, name: docName, status: 'Entregue', file_url: path })
+      toast.success('Contrato anexado ao consultor fixo')
+      qc.invalidateQueries({ queryKey: ['employee-links', id] })
+    } catch (e) {
+      toast.error('Não consegui anexar: ' + (e as Error).message)
+    } finally {
+      setEnviandoContratoFixo(false)
+    }
+  }
+
+  const salvarDiaPagtoFixo = useMutation({
+    mutationFn: async (dia: number) => {
+      const ids = grupoFixo.map(l => l.id)
+      const { error } = await supabase.from('employee_payment_dates').delete().in('link_id', ids)
+      if (error) throw error
+      const { error: e2 } = await supabase.from('employee_payment_dates').insert(grupoFixo.map(l => ({
+        link_id: l.id, day_of_month: dia, amount: l.id === principalDoFixo?.id && salarioDoFixo > 0 ? salarioDoFixo : null,
+      })))
+      if (e2) throw e2
+    },
+    onSuccess: () => { toast.success('Dia de pagamento atualizado'); qc.invalidateQueries({ queryKey: ['employee-links', id] }) },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  // Muda o horário padrão: vale para os clientes que estavam no padrão (ou sem
+  // horário). Quem tem horário próprio continua com o dele.
+  const salvarHorarioPadrao = useMutation({
+    mutationFn: async (h: { inicio: string; fim: string; intervalo: string }) => {
+      if (!h.inicio || !h.fim) throw new Error('Informe entrada e saída')
+      const antigo = chaveHorario(horarioPadraoFixo)
+      const ids = grupoFixo.filter(l => { const k = chaveHorario(horarioDoCliente(l)); return !k || k === antigo }).map(l => l.id)
+      const { error } = await supabase.from('employee_client_links')
+        .update({ work_start: h.inicio, work_end: h.fim, break_minutes: Number(h.intervalo) || null }).in('id', ids)
+      if (error) throw error
+    },
+    onSuccess: () => { toast.success('Horário padrão atualizado'); setEditandoHorarioFixo(null); qc.invalidateQueries({ queryKey: ['employee-links', id] }) },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
   const adicionarClienteAoFixo = () => {
-    setCoverageForm(p => ({ ...p, coverage_type: 'Consultoria', consult_salario: true, vinculo_tipo: 'permanente', client_id: '', unit_id: '', unit_ids: [] }))
+    setCoverageForm(p => ({ ...p, coverage_type: 'Consultoria', consult_salario: true, vinculo_tipo: 'permanente', client_id: '', unit_id: '', unit_ids: [],
+      contrato: 'nao', pay_days: diaPagtoFixo ? [String(diaPagtoFixo)] : p.pay_days,
+      agenda_mode: (campoFixo<string>(principalDoFixo, 'agenda_mode') as typeof p.agenda_mode) || p.agenda_mode,
+      work_start: horarioPadraoFixo?.inicio || '', work_end: horarioPadraoFixo?.fim || '',
+      break_minutes: horarioPadraoFixo?.intervalo ? String(horarioPadraoFixo.intervalo) : '' }))
     setShowCoverageForm(true)
     setTimeout(() => document.getElementById('form-vincular')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50)
   }
@@ -1839,7 +1960,7 @@ export default function EmployeeDetail() {
                     onChange={(i, f) => setCoverageForm(p => ({ ...p, work_start: i, work_end: f }))}
                     intervalo={coverageForm.break_minutes} onIntervalo={v => setCoverageForm(p => ({ ...p, break_minutes: v }))} />
                 )}
-                <div>
+                {!(coverageForm.coverage_type === 'Consultoria' && coverageForm.consult_salario && grupoFixo.length > 0) && <div>
                   <label className="label">Dia(s) de pagamento * <span className="text-gray-400 font-normal">— pode marcar dois</span></label>
                   <div className="flex gap-1.5">
                     {(['8', '15', '20'] as const).map(d => {
@@ -1861,12 +1982,12 @@ export default function EmployeeDetail() {
                       Quinzenal: o que ela fizer entre os dias {[...coverageForm.pay_days].map(Number).sort((a, b) => a - b).join(' e ')} cai no pagamento seguinte.
                     </p>
                   )}
-                </div>
+                </div>}
               </div>
 
               {/* Contrato assinado. Vale igual para freela e permanente. Enquanto
                   não for anexado, o portal da pessoa não abre. */}
-              <div className="rounded-xl border-2 border-orange-300 bg-white p-3">
+              {!(coverageForm.coverage_type === 'Consultoria' && coverageForm.consult_salario && grupoFixo.length > 0) && <div className="rounded-xl border-2 border-orange-300 bg-white p-3">
                 <label className="label !text-orange-800">Exige contrato assinado? *</label>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {([
@@ -1897,7 +2018,7 @@ export default function EmployeeDetail() {
                     </p>
                   </div>
                 )}
-              </div>
+              </div>}
 
               {(() => {
                 // Fixo cobra o mensal; consultoria se paga pelo valor por unidade.
@@ -1921,7 +2042,8 @@ export default function EmployeeDetail() {
                           && !coverageForm.coverage_units.some(u => Number(u.visit_rate) > 0)))
                   : false
                 // Freela sem data fim = por tempo indeterminado. Não bloqueia.
-                const faltaPag = coverageForm.pay_days.length === 0
+                const entraNoFixo = consultSalario && grupoFixo.length > 0
+                const faltaPag = coverageForm.pay_days.length === 0 && !entraNoFixo
                 const isConsult = coverageForm.coverage_type === 'Consultoria'
                 const faltaRegraHoras = isConsult && !consultSalario && !coverageForm.horas_obrigatorias
                 // Escolheu "tem tempo certo" mas não disse quanto: o pagamento
@@ -1943,7 +2065,7 @@ export default function EmployeeDetail() {
                   && coverageForm.work_schedule_type === '12x36'
                   && !coverageForm.schedule_anchor_date
                 const bloqueado = !coverageForm.vinculo_tipo || !coverageForm.agenda_mode
-                  || !coverageForm.client_id || faltaValor || faltaUnidade || faltaPag || !coverageForm.contrato
+                  || !coverageForm.client_id || faltaValor || faltaUnidade || faltaPag || (!coverageForm.contrato && !entraNoFixo)
                   || faltaRegraHoras || faltaHoras || faltaEscala || faltaFolgas || faltaAncora
                 const pendencias = [
                   !coverageForm.vinculo_tipo && 'o tipo do vínculo',
@@ -2105,7 +2227,7 @@ export default function EmployeeDetail() {
               const contractEnd = (l as { contract_end_date?: string }).contract_end_date
               const contractFile = (l as { contract_file_url?: string }).contract_file_url
               const linkCreated = (l as { created_at?: string }).created_at
-              const contractPendingHours = !contractFile && (l.service_type === 'Fixo' || l.service_type === 'Consultoria') && linkCreated
+              const contractPendingHours = !noFixo && !contractFile && (l.service_type === 'Fixo' || l.service_type === 'Consultoria') && linkCreated
                 ? Math.floor((Date.now() - new Date(linkCreated).getTime()) / 3600000)
                 : null
               const contractYellow = contractPendingHours !== null && contractPendingHours >= 24 && contractPendingHours < 48
@@ -2211,7 +2333,7 @@ export default function EmployeeDetail() {
                               : `📎 Anexar contrato (${contractPendingHours}h)`}
                           </span>
                         )}
-                        {contractFile && (
+                        {contractFile && !noFixo && (
                           <span className="badge bg-green-100 text-green-700">✓ Contrato anexado</span>
                         )}
                         {(l as { visits_per_week?: number }).visits_per_week ? (
@@ -2227,37 +2349,12 @@ export default function EmployeeDetail() {
                           <span className={`badge text-xs ${expired ? 'bg-red-100 text-red-700' : expiringSoon ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700'}`}>
                             {expired ? `Contrato vencido há ${Math.abs(daysLeft)}d` : `Contrato: ${daysLeft}d restantes`}
                           </span>
-                        ) : !contractEnd && (l.service_type === 'Fixo' || l.service_type === 'Consultoria') ? (
+                        ) : !noFixo && !contractEnd && (l.service_type === 'Fixo' || l.service_type === 'Consultoria') ? (
                           <span className="badge text-xs bg-gray-100 text-gray-500">Contrato indeterminado</span>
                         ) : null}
                         <button
                           className="text-xs text-primary-600 hover:underline flex items-center gap-0.5 ml-1"
-                          onClick={() => {
-                            const existing = ((l as { link_units?: { unit_id: string; unit_name: string; visit_rate?: number }[] }).link_units) || []
-                            const clientId = (l as { client?: { id: string } }).client?.id || ''
-                            setEditLinkValues({
-                              linkId: l.id,
-                              serviceType: grupoDoVinculo(l),
-                              clientId,
-                              monthly_amount: String(l.monthly_amount || ''),
-                              cost_assistance: String((l as { cost_assistance?: number }).cost_assistance || ''),
-                              weekly_hours: String(l.weekly_hours_quota || ''),
-                              visit_frequency: (l as { visit_frequency?: string }).visit_frequency || 'Semanal',
-                              visits_per_week: String((l as { visits_per_week?: number }).visits_per_week || ''),
-                              units: existing.map(u => ({ unit_id: u.unit_id, unit_name: u.unit_name, visit_rate: u.visit_rate != null ? String(u.visit_rate) : '' })),
-                              work_schedule_type: (l as { work_schedule_type?: string }).work_schedule_type || '',
-                              daily_hours: String((l as { daily_hours?: number }).daily_hours || ''),
-                              days_off: ((l as { days_off?: number[] }).days_off) || [],
-                              schedule_anchor_date: (l as { schedule_anchor_date?: string }).schedule_anchor_date || '',
-                              start_date: (l as { start_date?: string }).start_date || '',
-                              payDays: l.service_type === 'Consultoria' ? ['8', '20'] : (l.payment_dates || []).map(d => String(d.day_of_month)).filter(d => ['8', '15', '20'].includes(d)).sort((a, b) => Number(a) - Number(b)),
-                              pay_full_salary: (l as { pay_full_salary?: boolean }).pay_full_salary ?? false,
-                              expected_days_month: String((l as { expected_days_month?: number }).expected_days_month || ''),
-                              work_start: ((l as { work_start?: string }).work_start || '').slice(0, 5),
-                              work_end: ((l as { work_end?: string }).work_end || '').slice(0, 5),
-                              break_minutes: String((l as { break_minutes?: number }).break_minutes || ''),
-                            })
-                          }}
+                          onClick={() => abrirEdicaoDoVinculo(l)}
                         >
                           ✏️ Editar
                         </button>
@@ -2597,7 +2694,7 @@ export default function EmployeeDetail() {
                           </div>
                         )
                       })()}
-                      {l.payment_dates?.length > 0 && (() => {
+                      {!noFixo && l.payment_dates?.length > 0 && (() => {
                         // Consultoria/Freela não têm valor fixo por data: o que cai é o
                         // que as visitas somarem. Mostrar "Dia 8 — R$ 260,00" fazia um
                         // rateio da estimativa parecer valor combinado.
@@ -2615,7 +2712,7 @@ export default function EmployeeDetail() {
                           </div>
                         )
                       })()}
-                      <div className="flex items-center gap-2 mt-2 flex-wrap">
+                      {!noFixo && <div className="flex items-center gap-2 mt-2 flex-wrap">
                         {editContractDate?.linkId === l.id ? (
                           <div className="flex items-center gap-2">
                             <input type="date" className="input input-sm text-xs py-0.5 px-2 h-7" value={editContractDate.date}
@@ -2629,10 +2726,10 @@ export default function EmployeeDetail() {
                             {contractEnd ? `Vence ${formatDate(contractEnd)}` : '+ Definir vencimento'}
                           </button>
                         )}
-                      </div>
+                      </div>}
 
                       {/* Check-in do contrato assinado — anexar o PDF confirma o processo e alimenta a pizza do Dashboard */}
-                      {(l.service_type === 'Fixo' || l.service_type === 'Consultoria') && (
+                      {!noFixo && (l.service_type === 'Fixo' || l.service_type === 'Consultoria') && (
                         <div className={`mt-2 rounded-xl border px-3 py-2.5 flex items-center gap-3 ${contractFile ? 'border-green-200 bg-green-50' : 'border-amber-300 bg-amber-50'}`}>
                           {contractFile ? (
                             <>
@@ -2713,36 +2810,133 @@ export default function EmployeeDetail() {
               return (
                 <>
                   {grupoFixo.length > 0 && (
-                    <div className="rounded-xl border-2 border-primary-200 bg-primary-50/40 p-4 space-y-3">
-                      <div className="flex items-start justify-between gap-3 flex-wrap">
-                        <div>
-                          <p className="font-semibold text-ink-900">Consultor fixo</p>
-                          <p className="text-xs text-ink-500 mt-0.5">Um salário por todas as consultorias · {grupoFixo.length} cliente{grupoFixo.length > 1 ? 's' : ''}</p>
+                    // Consultor fixo: UM vínculo (contrato, salário, dia de pagamento e
+                    // horário padrão) com os clientes dentro, em lista compacta
+                    <div className="rounded-xl border-2 border-primary-200 bg-primary-50/40 p-3 sm:p-4 space-y-3">
+                      <div>
+                        <p className="font-semibold text-ink-900">Consultor fixo</p>
+                        <p className="text-xs text-ink-500 mt-0.5">{grupoFixo.length} cliente{grupoFixo.length > 1 ? 's' : ''} · salário fixo todo mês, pela agenda</p>
+                      </div>
+
+                      <input ref={contratoFixoRef} type="file" accept=".pdf,.doc,.docx" className="hidden"
+                        onChange={e => { const file = e.target.files?.[0]; if (file) anexarContratoDoFixo(file); e.target.value = '' }} />
+
+                      <div className="rounded-lg bg-white border border-ink-200 divide-y divide-ink-100">
+                        {role === 'chefe' && (
+                          <div className="px-3 py-2.5 flex items-center justify-between gap-2 flex-wrap">
+                            <span className="text-xs text-ink-500">Salário</span>
+                            {editandoSalarioFixo !== null ? (
+                              <div className="flex items-center gap-1.5">
+                                <input className="input text-sm w-28 py-1" type="number" step="0.01" autoFocus value={editandoSalarioFixo}
+                                  onChange={e => setEditandoSalarioFixo(e.target.value)} placeholder="R$" />
+                                <button className="btn-primary text-xs py-1" disabled={salvarSalarioDoFixo.isPending}
+                                  onClick={() => salvarSalarioDoFixo.mutate(Number(editandoSalarioFixo))}>Salvar</button>
+                                <button className="text-xs text-ink-500 px-1" onClick={() => setEditandoSalarioFixo(null)}>✕</button>
+                              </div>
+                            ) : (
+                              <button className="flex items-baseline gap-2" onClick={() => setEditandoSalarioFixo(salarioDoFixo > 0 ? String(salarioDoFixo) : '')}>
+                                <span className="text-base font-semibold text-ink-900 tnum">{salarioDoFixo > 0 ? `${formatCurrency(salarioDoFixo)}/mês` : 'Definir'}</span>
+                                <span className="text-xs text-primary-700">editar</span>
+                              </button>
+                            )}
+                          </div>
+                        )}
+
+                        <div className="px-3 py-2.5 flex items-center justify-between gap-2">
+                          <span className="text-xs text-ink-500">Pagamento</span>
+                          <select className="input text-sm py-1 w-auto" value={diaPagtoFixo ? String(diaPagtoFixo) : ''}
+                            disabled={salvarDiaPagtoFixo.isPending}
+                            onChange={e => e.target.value && salvarDiaPagtoFixo.mutate(Number(e.target.value))}>
+                            {!diaPagtoFixo && <option value="">Escolher dia</option>}
+                            {[8, 15, 20].map(d => <option key={d} value={d}>Todo dia {d}</option>)}
+                          </select>
                         </div>
-                        {role === 'chefe' && (editandoSalarioFixo !== null ? (
-                          <div className="flex items-center gap-2">
-                            <input className="input text-sm w-32" type="number" step="0.01" autoFocus value={editandoSalarioFixo}
-                              onChange={e => setEditandoSalarioFixo(e.target.value)} placeholder="Salário" />
-                            <button className="btn-primary text-xs" disabled={salvarSalarioDoFixo.isPending}
-                              onClick={() => salvarSalarioDoFixo.mutate(Number(editandoSalarioFixo))}>Salvar</button>
-                            <button className="text-xs text-ink-500" onClick={() => setEditandoSalarioFixo(null)}>Cancelar</button>
+
+                        <div className="px-3 py-2.5 space-y-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-xs text-ink-500">Horário padrão</span>
+                            {editandoHorarioFixo === null && (
+                              <button className="flex items-baseline gap-2"
+                                onClick={() => setEditandoHorarioFixo({ inicio: horarioPadraoFixo?.inicio || '', fim: horarioPadraoFixo?.fim || '', intervalo: horarioPadraoFixo?.intervalo ? String(horarioPadraoFixo.intervalo) : '' })}>
+                                <span className="text-sm font-medium text-ink-900 tnum">
+                                  {horarioPadraoFixo ? `${horarioPadraoFixo.inicio}–${horarioPadraoFixo.fim}${horarioPadraoFixo.intervalo ? ` · ${horarioPadraoFixo.intervalo}min intervalo` : ''}` : 'Sem horário'}
+                                </span>
+                                <span className="text-xs text-primary-700">editar</span>
+                              </button>
+                            )}
                           </div>
-                        ) : (
-                          <div className="text-right">
-                            <p className="text-lg font-semibold text-ink-900 tnum">{salarioDoFixo > 0 ? formatCurrency(salarioDoFixo) : '—'}<span className="text-xs font-normal text-ink-500">/mês</span></p>
-                            <button className="text-xs text-primary-700 hover:underline" onClick={() => setEditandoSalarioFixo(salarioDoFixo > 0 ? String(salarioDoFixo) : '')}>
-                              {salarioDoFixo > 0 ? 'Editar salário' : 'Definir salário'}
+                          {editandoHorarioFixo !== null && (
+                            <div className="space-y-2">
+                              <div className="grid grid-cols-3 gap-2">
+                                <div><label className="label text-xs">Entrada</label><input className="input text-sm" type="time" value={editandoHorarioFixo.inicio} onChange={e => setEditandoHorarioFixo(p => p && { ...p, inicio: e.target.value })} /></div>
+                                <div><label className="label text-xs">Saída</label><input className="input text-sm" type="time" value={editandoHorarioFixo.fim} onChange={e => setEditandoHorarioFixo(p => p && { ...p, fim: e.target.value })} /></div>
+                                <div><label className="label text-xs">Intervalo (min)</label><input className="input text-sm" type="number" min={0} placeholder="0" value={editandoHorarioFixo.intervalo} onChange={e => setEditandoHorarioFixo(p => p && { ...p, intervalo: e.target.value })} /></div>
+                              </div>
+                              <p className="text-[11px] text-ink-500">Vale para todos os clientes, menos os que têm horário próprio.</p>
+                              <div className="flex gap-2">
+                                <button className="btn-primary text-xs" disabled={salvarHorarioPadrao.isPending} onClick={() => salvarHorarioPadrao.mutate(editandoHorarioFixo)}>Salvar</button>
+                                <button className="btn-secondary text-xs" onClick={() => setEditandoHorarioFixo(null)}>Cancelar</button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="px-3 py-2.5 flex items-center justify-between gap-2">
+                          <span className="text-xs text-ink-500">Contrato</span>
+                          {contratoDoFixo ? (
+                            <div className="flex items-center gap-3">
+                              <SignedLink value={contratoDoFixo} bucket="arquivos" className="text-sm text-green-700 font-medium hover:underline flex items-center gap-1">
+                                <CheckCircle size={14} /> Anexado
+                              </SignedLink>
+                              <button className="text-xs text-primary-700" disabled={enviandoContratoFixo} onClick={() => contratoFixoRef.current?.click()}>
+                                {enviandoContratoFixo ? 'Enviando…' : 'trocar'}
+                              </button>
+                            </div>
+                          ) : (
+                            <button className="text-sm font-medium text-amber-700 flex items-center gap-1" disabled={enviandoContratoFixo} onClick={() => contratoFixoRef.current?.click()}>
+                              <Upload size={13} /> {enviandoContratoFixo ? 'Enviando…' : 'Anexar contrato'}
                             </button>
-                          </div>
-                        ))}
+                          )}
+                        </div>
                       </div>
-                      <div className="space-y-2">
-                        {lista.filter(l => idsFixo.has(l.id)).map(l => cardDoVinculo(l, true))}
+
+                      <div>
+                        <p className="text-xs font-medium text-ink-500 mb-1.5">Clientes</p>
+                        <div className="space-y-1.5">
+                          {lista.filter(l => idsFixo.has(l.id)).map(l => {
+                            const h = horarioDoCliente(l)
+                            const proprio = !!h && chaveHorario(h) !== chaveHorario(horarioPadraoFixo)
+                            const aberto = clienteAbertoNoFixo === l.id
+                            const freq = campoFixo<string>(l, 'visit_frequency')
+                            const horas = Number(l.weekly_hours_quota) || 0
+                            const info = [freq === 'Avulso' ? 'Em aberto' : freq, horas ? `${String(horas).replace('.', ',')}h/visita` : null,
+                              proprio ? `horário próprio ${h!.inicio}–${h!.fim}` : null].filter(Boolean).join(' · ')
+                            return (
+                              <div key={l.id} className="rounded-lg bg-white border border-ink-200">
+                                <div className="flex items-center gap-2 px-3 py-2">
+                                  <div className="min-w-0 flex-1">
+                                    <p className="text-sm font-medium text-ink-900 truncate">{(l as { client?: { name?: string } }).client?.name}</p>
+                                    <p className="text-xs text-ink-500 truncate">{info || 'Sem horas definidas'}</p>
+                                  </div>
+                                  <button className="text-xs font-medium text-primary-700 px-2 py-1.5 shrink-0"
+                                    onClick={() => {
+                                      if (aberto) { setClienteAbertoNoFixo(null); setEditLinkValues(null) }
+                                      else { setClienteAbertoNoFixo(l.id); abrirEdicaoDoVinculo(l) }
+                                    }}>
+                                    {aberto ? 'Fechar' : 'Editar'}
+                                  </button>
+                                </div>
+                                {aberto && <div className="border-t border-ink-100 p-1.5">{cardDoVinculo(l, true)}</div>}
+                              </div>
+                            )
+                          })}
+                        </div>
                       </div>
+
                       <button className="btn-secondary text-sm w-full" onClick={adicionarClienteAoFixo}>+ Adicionar cliente</button>
-                      <p className="text-[11px] text-ink-500">
-                        Cada cliente tem o próprio horário e horas (se tiver). Encerrar um cliente não muda o salário — se mudar, edite aqui.
-                        Na folha tudo vira uma linha só.
+                      <p className="text-[11px] text-ink-500 leading-relaxed">
+                        Ela recebe o salário todo mês. Em <strong>Pagamentos</strong> aparece quantas consultorias da agenda ela fez —
+                        se faltou alguma, você decide se desconta. Encerrar um cliente não muda o salário.
                       </p>
                     </div>
                   )}

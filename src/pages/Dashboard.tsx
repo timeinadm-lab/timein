@@ -636,8 +636,18 @@ export default function Dashboard() {
         .gte('notice_date', de).lte('notice_date', ate)
       const avisadas = new Set((avisos || []).map(n => `${n.employee_id}|${n.client_id}|${n.notice_date}`))
 
+      // Visita marcada fora do período do vínculo (ex.: contrato encerrou antes)
+      // não é "não apareceu": ela nem podia ir. O portal já esconde esses dias.
+      const { data: vinc } = await supabase.from('employee_client_links')
+        .select('employee_id,client_id,start_date,contract_end_date')
+        .in('employee_id', Array.from(new Set(planejados.map(a => a.employee_id))))
+      const vinculoNoDia = (a: { employee_id: string; client_id: string; planned_date: string }) =>
+        (vinc || []).some(l => l.employee_id === a.employee_id && l.client_id === a.client_id
+          && (!l.start_date || a.planned_date >= l.start_date) && (!l.contract_end_date || a.planned_date <= l.contract_end_date))
+
       return planejados
         .filter(a => (a as { employee?: { status?: string } }).employee?.status === 'Ativo')
+        .filter(a => vinculoNoDia(a))
         .filter(a => {
           const chave = `${a.employee_id}|${a.client_id}|${a.planned_date}`
           return !feitasSet.has(chave) && !avisadas.has(chave)
@@ -748,12 +758,13 @@ export default function Dashboard() {
     queryFn: async () => {
       const desde = new Date(now); desde.setDate(desde.getDate() - 30)
       const { data, error } = await supabase.from('nutritionist_visits')
-        .select('id,visit_date,unavailability_reason,employee:employees(id,full_name,status),client:clients(name)')
-        .eq('is_holiday', true)
+        .select('id,visit_date,unavailability_reason,is_unavailable,atestado_url,employee:employees(id,full_name,status),client:clients(name)')
+        // Folga (dispensada) e falta: as duas registradas pela pessoa no portal
+        .or('is_holiday.eq.true,is_unavailable.eq.true')
         .gte('visit_date', desde.toISOString().slice(0, 10))
         .order('visit_date', { ascending: false })
       if (error) throw error
-      type Folga = { id: string; visit_date: string; unavailability_reason: string | null; employee?: { id: string; full_name: string; status?: string }; client?: { name: string } }
+      type Folga = { id: string; visit_date: string; unavailability_reason: string | null; is_unavailable?: boolean | null; atestado_url?: string | null; employee?: { id: string; full_name: string; status?: string }; client?: { name: string } }
       return ((data || []) as unknown as Folga[]).filter(v => v.employee?.status === 'Ativo')
     },
   })
@@ -1032,7 +1043,7 @@ export default function Dashboard() {
     const empId = (v as { employee?: { id: string } }).employee?.id
     const cli = (v as { client?: { name: string } }).client?.name
     amberAlerts.push({
-      text: `${nome} marcou folga em ${formatDate(v.visit_date)}${cli ? ` — ${cli}` : ''}${v.unavailability_reason ? ` (${v.unavailability_reason})` : ''}`,
+      text: `${nome} marcou ${v.is_unavailable ? 'falta' : 'folga'} em ${formatDate(v.visit_date)}${cli ? ` — ${cli}` : ''}${v.unavailability_reason ? ` (${v.unavailability_reason}${v.is_unavailable && v.atestado_url ? ', com atestado' : ''})` : ''}`,
       path: empId ? `/colaboradores/${empId}?tab=visitas` : '/visitas',
       key: `folga-${v.id}`,
     })

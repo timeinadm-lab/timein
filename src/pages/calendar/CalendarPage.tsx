@@ -126,6 +126,20 @@ export default function CalendarPage() {
     },
   })
 
+  // Períodos dos vínculos: visita marcada depois do fim do contrato (ou antes do
+  // início) não entra no calendário — o portal também não mostra
+  const { data: periodosVinculo } = useQuery({
+    queryKey: ['cal-periodos-vinculo'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('employee_client_links').select('employee_id, client_id, start_date, contract_end_date')
+      if (error) throw error
+      return (data || []) as { employee_id: string; client_id: string; start_date: string | null; contract_end_date: string | null }[]
+    },
+  })
+  const vinculoNoDia = (empId?: string | null, cliId?: string | null, dia?: string) => !periodosVinculo || !empId || !cliId || !dia
+    || periodosVinculo.some(l => l.employee_id === empId && l.client_id === cliId
+      && (!l.start_date || dia >= l.start_date) && (!l.contract_end_date || dia <= l.contract_end_date))
+
   // Compromissos da Agenda do RH (reuniões, férias...)
   const { data: appointments } = useQuery({
     queryKey: ['cal-appointments', monthKey],
@@ -454,6 +468,7 @@ export default function CalendarPage() {
     // OU ausência) ou falta avisada, mostra só isso — antes aparecia "planejada"
     // e "ausência" juntas, parecendo duas coisas diferentes.
     for (const a of agenda || []) {
+      if (!vinculoNoDia(a.employee_id, (a as { client_id?: string }).client_id, a.planned_date)) continue
       const emp = (a as { employee?: { full_name: string } }).employee?.full_name || '—'
       const aClient = (a as { client_id?: string }).client_id
       const already = (visits || []).some(v => v.visit_date === a.planned_date && v.employee_id === a.employee_id
@@ -561,7 +576,7 @@ export default function CalendarPage() {
       }
     }
     return out
-  }, [visits, agenda, notices, appointments, supervisoes, rhUsers, allClients, allEmployees, mStart, mEnd])
+  }, [visits, agenda, notices, appointments, supervisoes, rhUsers, allClients, allEmployees, mStart, mEnd, periodosVinculo])
 
   const filtered = events.filter(e =>
     !ocultos.has(e.kind) &&

@@ -17,7 +17,7 @@ export default function JornadaPage() {
   const navigate = useNavigate()
   const [filtro, setFiltro] = useState<'todos' | 'menos' | 'mais'>('todos')
 
-  const { data: dias = [], isLoading } = useQuery({
+  const { data: dias = [], isLoading, error: erro } = useQuery({
     queryKey: ['jornada-fora'],
     queryFn: buscarForaDaJornada,
   })
@@ -71,7 +71,9 @@ export default function JornadaPage() {
         ))}
       </div>
 
-      {isLoading ? (
+      {erro ? (
+        <div className="card p-4 border-red-200 bg-red-50 text-sm text-red-700">Não carregou: {(erro as Error).message}</div>
+      ) : isLoading ? (
         <p className="text-sm text-ink-500">Carregando…</p>
       ) : grupos.length === 0 ? (
         <div className="card p-8 text-center">

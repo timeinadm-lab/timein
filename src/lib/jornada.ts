@@ -102,13 +102,13 @@ function inicioJanela() {
 
 /**
  * Dias fora da jornada ainda não vistos pelo RH (mês atual e anterior).
- * Antes da migração 067 as colunas não existem: devolve lista vazia.
+ * Erro de consulta sobe: o sino conta 0, a tela mostra o motivo.
  */
 export async function buscarForaDaJornada(): Promise<DiaForaDaJornada[]> {
   const { data: links, error: e1 } = await supabase.from('employee_client_links')
     .select('*, employee:employees(full_name, status), client:clients(name)')
     .or('daily_hours.not.is.null,weekly_hours_quota.not.is.null,work_start.not.is.null')
-  if (e1) return []
+  if (e1) throw new Error('Vínculos: ' + e1.message)
   type L = VinculoJornada & { employee?: { full_name?: string; status?: string } | null; client?: { name?: string } | null }
   const comJornada = ((links || []) as L[])
     .filter(l => l.employee?.status === 'Ativo')
@@ -129,7 +129,7 @@ export async function buscarForaDaJornada(): Promise<DiaForaDaJornada[]> {
       .not('is_unavailable', 'is', true)
       .not('is_extra', 'is', true)
       .limit(5000)
-    if (error) return []
+    if (error) throw new Error('Registros: ' + error.message)
     visitas.push(...((data || []) as V[]))
   }
 

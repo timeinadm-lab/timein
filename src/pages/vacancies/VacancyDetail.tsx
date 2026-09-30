@@ -444,8 +444,13 @@ export default function VacancyDetail() {
         // Define a senha do portal pelo servidor (ela vive num cofre separado).
         // Se falhar, não inventa uma senha na tela que não existe no banco —
         // o RH cria depois na ficha, aba Portal.
-        const { error: pinErr } = await supabase.rpc('portal_set_pin', { p_employee: empId, p_pin: autoPin })
-        autoPinToShow = pinErr ? '' : autoPin
+        // Com senha padrão definida (migração 054), a pessoa nova entra com ela —
+        // antes ganhava uma senha aleatória e a padrão não funcionava para ela.
+        const { data: tipoSenha } = await supabase.rpc('portal_tipo_senha', { p_employee: empId })
+        if (tipoSenha !== 'padrao') {
+          const { error: pinErr } = await supabase.rpc('portal_set_pin', { p_employee: empId, p_pin: autoPin })
+          autoPinToShow = pinErr ? '' : autoPin
+        }
       }
       const emp = { id: empId }
 
@@ -502,7 +507,7 @@ export default function VacancyDetail() {
       toast.success(
         autoPin
           ? `Colaborador criado! Acesso ao portal — CPF + Senha: ${autoPin}`
-          : 'Colaborador criado!',
+          : 'Colaborador criado! Acesso ao portal: CPF + senha padrão.',
         { duration: 8000 }
       )
       toast('Agora defina o vínculo: valores, escala e dias de pagamento.', { icon: '👉', duration: 7000 })

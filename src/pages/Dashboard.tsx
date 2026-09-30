@@ -8,7 +8,8 @@ import {
 import toast from 'react-hot-toast'
 import { supabase, fetchAll } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
-import { formatDate, formatCurrency, formatLocalTime, parseLocal, isMeetingLink, mapsUrl, hojeISO, tipoDoVinculo, pagaPorDiaria, ehTemporario, precisaContrato, compromissoNoDia } from '../lib/utils'
+import { formatDate, formatCurrency, formatLocalTime, parseLocal, isMeetingLink, mapsUrl, hojeISO, tipoDoVinculo, pagaPorDiaria, ehTemporario, precisaContrato, compromissoNoDia, pendenciasDoVinculo, salarioConsultoria } from '../lib/utils'
+import type { VinculoCadastro } from '../lib/utils'
 import { buscarForaDaJornada, horaMin, TOLERANCIA_MIN } from '../lib/jornada'
 import { addDays, startOfMonth, endOfMonth, isBefore, parseISO, isAfter, differenceInDays, subMonths, format } from 'date-fns'
 
@@ -757,6 +758,40 @@ export default function Dashboard() {
     },
   })
 
+  // Vínculo incompleto (sem salário, sem escala, sem valor da visita…): a mesma
+  // regra da ficha do colaborador. Sem isto só aparecia abrindo ficha por ficha.
+  const { data: vinculosIncompletos } = useQuery({
+    queryKey: ['dashboard-vinculos-incompletos'],
+    queryFn: async () => {
+      const hoje = hojeISO()
+      const { data, error } = await supabase.from('employee_client_links')
+        .select('*, employee:employees(id,full_name,status), client:clients(name, client_units(visit_rate))')
+      if (error) throw error
+      type L = VinculoCadastro & { id: string; employee_id: string; contract_end_date?: string | null
+        employee?: { id: string; full_name: string; status?: string } | null
+        client?: { name?: string; client_units?: { visit_rate?: number | null }[] } | null }
+      const ativos = ((data || []) as unknown as L[])
+        .filter(l => l.employee?.status === 'Ativo' && !(l.contract_end_date && l.contract_end_date < hoje))
+      // Fixo de consultoria: o salário é um só, em qualquer um dos vínculos dela
+      const comSalario = new Set(ativos.filter(l => salarioConsultoria(l) && Number(l.monthly_amount) > 0).map(l => l.employee_id))
+      const porPessoa = new Map<string, { id: string; nome: string; vinculos: number; itens: Set<string> }>()
+      for (const l of ativos) {
+        const falta = pendenciasDoVinculo(l, {
+          unidadesComValor: (l.client?.client_units || []).some(u => Number(u.visit_rate) > 0),
+          salarioNoGrupo: comSalario.has(l.employee_id),
+        })
+        if (!falta.length || !l.employee) continue
+        const p = porPessoa.get(l.employee_id) || { id: l.employee.id, nome: l.employee.full_name, vinculos: 0, itens: new Set<string>() }
+        p.vinculos++
+        // "sem salário — o pagamento sai R$ 0,00" → "sem salário"
+        falta.forEach(f => p.itens.add(f.split(/ [—(]/)[0]))
+        porPessoa.set(l.employee_id, p)
+      }
+      return Array.from(porPessoa.values()).map(p => ({ ...p, itens: Array.from(p.itens) }))
+    },
+    enabled: role === 'chefe',
+  })
+
   // Documentos entregues (com arquivo) — para o gráfico de documentos
   const { data: deliveredDocsCount } = useQuery({
     queryKey: ['dashboard-delivered-docs'],
@@ -980,6 +1015,15 @@ export default function Dashboard() {
     }
     if (naoVista) redAlerts.unshift(item)
     else amberAlerts.push(item)
+  })
+
+  // Vínculo incompleto: portal sem dias ou pagamento zerado até completar
+  ;(vinculosIncompletos || []).forEach(p => {
+    amberAlerts.push({
+      text: `${p.nome}: ${p.vinculos === 1 ? 'vínculo incompleto' : `${p.vinculos} vínculos incompletos`} — ${p.itens.join(', ')}`,
+      path: `/colaboradores/${p.id}?tab=vinculos`,
+      key: `vinculo-incompleto-${p.id}-${p.itens.join('|')}`,
+    })
   })
 
   // Folga registrada no portal

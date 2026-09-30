@@ -3,7 +3,9 @@ import { useParams, useNavigate, useLocation, useSearchParams } from 'react-rout
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Edit, Plus, Trash2, CheckCircle, Clock, XCircle, Download, Upload, ExternalLink, AlertTriangle, Star, X, FileText } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
-import { formatDate, formatCurrency, getInitials, serviceTypeLabel, hojeISO, corDoAvatar, pagaPorDiaria, ehTemporario, rotuloDoVinculo } from '../../lib/utils'
+import { formatDate, formatCurrency, getInitials, serviceTypeLabel, hojeISO, corDoAvatar, pagaPorDiaria, ehTemporario, rotuloDoVinculo, pendenciasDoVinculo, salarioConsultoria } from '../../lib/utils'
+import type { VinculoCadastro } from '../../lib/utils'
+import { minutosLiquidos } from '../../lib/jornada'
 import { exportEmployeeToPDF } from '../../lib/exportUtils'
 import { SignedLink, SignedImage } from '../../components/ui/SignedFile'
 import DeletePinModal from '../../components/ui/DeletePinModal'
@@ -160,6 +162,11 @@ export default function EmployeeDetail() {
   type EditLinkUnit = { unit_id: string; unit_name: string; visit_rate: string }
   type EditLinkState = { linkId: string; serviceType: string; clientId: string; monthly_amount: string; cost_assistance: string; weekly_hours: string; visit_frequency: string; visits_per_week: string; units: EditLinkUnit[]; work_schedule_type: string; daily_hours: string; days_off: number[]; schedule_anchor_date: string; start_date: string; payDays: string[]; pay_full_salary: boolean; expected_days_month: string; work_start: string; work_end: string; break_minutes: string }
   const [editLinkValues, setEditLinkValues] = useState<EditLinkState | null>(null)
+  // Intervalo do contrato do cliente (o portal não pede intervalo; a conta das
+  // horas desconta o do vínculo — mesma regra do portal e do aviso de jornada)
+  const intervaloDoCliente = (cid?: string | null) =>
+    Number((((links as unknown) as { client_id?: string; break_minutes?: number | null }[] | undefined) || [])
+      .find(l => l.client_id === cid && Number(l.break_minutes) > 0)?.break_minutes) || 0
   const [linkDates, setLinkDates] = useState<{ day_of_month: string; amount: string }[]>([{ day_of_month: '', amount: '' }])
   const [newDocName, setNewDocName] = useState('')
   // Validade do documento — vazio significa "não vence"
@@ -1739,10 +1746,13 @@ export default function EmployeeDetail() {
               <div className={`grid grid-cols-1 gap-3 ${coverageForm.coverage_type === 'Fixo' || coverageForm.consult_salario ? 'sm:grid-cols-2' : ''}`}>
                 {(coverageForm.coverage_type === 'Fixo' || (coverageForm.coverage_type === 'Consultoria' && coverageForm.consult_salario)) && (
                   <div>
-                    <label className="label">Salário mensal (R$) *</label>
+                    <label className="label">Salário mensal (R$) {coverageForm.coverage_type === 'Consultoria' && (links || []).some(o => salarioConsultoria(o as VinculoCadastro) && Number(o.monthly_amount) > 0) ? <span className="text-gray-400 font-normal">— já informado em outro cliente</span> : '*'}</label>
                     <input className="input" type="number" step="0.01" placeholder="Ex: 3000.00"
                       value={coverageForm.monthly_amount}
                       onChange={e => setCoverageForm(p => ({ ...p, monthly_amount: e.target.value }))} />
+                    {coverageForm.coverage_type === 'Consultoria' && (
+                      <p className="text-[11px] text-ink-500 mt-1">Fixo de consultoria: o salário é um só para todos os clientes dela. Preencha em um vínculo; nos outros, deixe em branco. Na folha tudo vira uma linha só.</p>
+                    )}
                     {diariaFromMensal(coverageForm.monthly_amount) != null && (
                       <p className="text-xs text-orange-700 bg-orange-100 rounded px-2 py-1 mt-1">
                         Diária: <strong>{formatCurrency(diariaFromMensal(coverageForm.monthly_amount)!)}</strong>
@@ -1819,7 +1829,11 @@ export default function EmployeeDetail() {
               {(() => {
                 // Fixo cobra o mensal; consultoria se paga pelo valor por unidade.
                 const consultSalario = coverageForm.coverage_type === 'Consultoria' && coverageForm.consult_salario
-                const faltaValor = (coverageForm.coverage_type === 'Fixo' || consultSalario) && !coverageForm.monthly_amount
+                // Fixo de consultoria: o salário é um só para todos os clientes dela.
+                // Se já está em outro vínculo, aqui fica em branco (a folha soma tudo).
+                const jaTemSalario = (links || []).some(o => salarioConsultoria(o as VinculoCadastro) && Number(o.monthly_amount) > 0
+                  && !((o as { contract_end_date?: string | null }).contract_end_date && (o as { contract_end_date?: string }).contract_end_date! < hojeStr))
+                const faltaValor = (coverageForm.coverage_type === 'Fixo' || (consultSalario && !jaTemSalario)) && !coverageForm.monthly_amount
                 // Unidade é obrigatória nos dois: no Fixo é o local de trabalho;
                 // na Consultoria é de onde sai o valor da visita (sem ela vale R$ 0).
                 // Salário fixo: basta marcar as unidades (o valor por visita não existe)
@@ -2052,22 +2066,13 @@ export default function EmployeeDetail() {
               const escalaL = (l as { work_schedule_type?: string }).work_schedule_type
               const ehConsult = l.service_type === 'Consultoria'
                 || (l.service_type === 'Volante' && (l as { coverage_type?: string }).coverage_type === 'Consultoria')
-              const pendCadastro = encerrado ? [] : ([
-                // Valor vem do vínculo ou, sem ele, das unidades do cliente (migração 064)
-                ehConsult && (l as { pay_mode?: string }).pay_mode !== 'salario_fixo'
-                  && !(((l as { link_units?: { visit_rate?: number }[] }).link_units) || []).some(u => Number(u.visit_rate) > 0)
-                  && !(((l.client as { client_units?: { visit_rate?: number | null }[] } | undefined)?.client_units) || []).some(u => Number(u.visit_rate) > 0)
-                  && 'sem valor da visita (nem no vínculo nem nas unidades do cliente) — o pagamento sai R$ 0,00',
-                // Freela não precisa de escala: os dias dele vêm da agenda
-                !ehConsult && !pagaPorDiaria(l) && !escalaL
-                  && 'sem escala definida — a folha estima 22 dias no chute',
-                !ehConsult && !pagaPorDiaria(l) && ['5x2', '6x1'].includes(escalaL || '')
-                  && !((l as { days_off?: number[] }).days_off || []).length
-                  && 'sem dias de folga — ela não vê os dias no portal',
-                !ehConsult && !pagaPorDiaria(l) && escalaL === '12x36'
-                  && !(l as { schedule_anchor_date?: string }).schedule_anchor_date
-                  && 'sem a data do primeiro plantão — ela não vê os dias no portal',
-              ].filter(Boolean) as string[])
+              // Uma regra só (utils.pendenciasDoVinculo), igual à do Dashboard
+              const pendCadastro = encerrado ? [] : pendenciasDoVinculo(l as VinculoCadastro, {
+                unidadesComValor: (((l.client as { client_units?: { visit_rate?: number | null }[] } | undefined)?.client_units) || []).some(u => Number(u.visit_rate) > 0),
+                // Fixo de consultoria: o salário vale para todos os clientes dela
+                salarioNoGrupo: (links || []).some(o => salarioConsultoria(o as VinculoCadastro) && Number(o.monthly_amount) > 0
+                  && !((o as { contract_end_date?: string | null }).contract_end_date && (o as { contract_end_date?: string }).contract_end_date! < hojeStr)),
+              })
               return (
                 <div key={l.id} className={`border rounded-lg p-4 ${encerrado ? 'border-ink-200 bg-ink-50/60' : contractRed ? 'border-red-300 bg-red-50 ring-1 ring-red-200' : contractYellow ? 'border-amber-300 bg-amber-50 ring-1 ring-amber-200' : expired ? 'border-red-200 bg-red-50' : expiringSoon ? 'border-amber-200 bg-amber-50' : 'border-gray-100'}`}>
                   {pendCadastro.length > 0 && (
@@ -2255,10 +2260,10 @@ export default function EmployeeDetail() {
                               <>
                                 {consultSalario && (
                                   <div>
-                                    <label className="label text-xs">Salário mensal (R$) *</label>
+                                    <label className="label text-xs">Salário mensal (R$)</label>
                                     <input className="input text-sm" type="number" step="0.01" value={editLinkValues.monthly_amount}
                                       onChange={e => setEditLinkValues(p => p ? { ...p, monthly_amount: e.target.value } : p)} />
-                                    <p className="text-[11px] text-ink-500 mt-1">As consultorias vêm da agenda. A folha mostra programadas × realizadas; o valor por unidade abaixo é opcional.</p>
+                                    <p className="text-[11px] text-ink-500 mt-1">O salário é um só para todos os clientes dela: preencha em um vínculo e deixe os outros em branco — na folha tudo vira uma linha. As consultorias vêm da agenda (programadas × realizadas).</p>
                                   </div>
                                 )}
                                 {consultSalario && (
@@ -3009,7 +3014,7 @@ export default function EmployeeDetail() {
         const fmtH = (m: number) => `${Math.floor(m/60)}h${m%60>0?m%60+'min':''}`
         const visits = (visitHistory || []) as { id: string; visit_date: string; client_id?: string; client?: { name?: string }; unit_name?: string; check_in?: string; check_out?: string; break_start?: string; break_end?: string; visit_rate?: number; is_unavailable?: boolean; unavailability_reason?: string; observations?: string; is_holiday?: boolean; atestado_url?: string; report_url?: string; is_extra?: boolean; extra_approval?: string; extra_amount?: number; is_swap?: boolean }[]
         const realized = visits.filter(v => !v.is_unavailable && v.check_in && v.check_out)
-        const totalMin = realized.reduce((s, v) => s + Math.max(0, durMin(v.check_in, v.check_out) - durMin(v.break_start, v.break_end)), 0)
+        const totalMin = realized.reduce((s, v) => s + minutosLiquidos(v, intervaloDoCliente(v.client_id)), 0)
         const totalVal = realized.reduce((s, v) => s + (Number(v.visit_rate) || 0), 0)
         const faltas = visits.filter(v => v.is_unavailable)
         const feriados = visits.filter(v => v.is_holiday)
@@ -3037,7 +3042,7 @@ export default function EmployeeDetail() {
                   className="btn-secondary text-sm flex items-center gap-1"
                   onClick={() => {
                     const rows = realized.map(v => {
-                      const net = Math.max(0, durMin(v.check_in, v.check_out) - durMin(v.break_start, v.break_end))
+                      const net = minutosLiquidos(v, intervaloDoCliente(v.client_id))
                       return `<tr><td>${formatDate(v.visit_date)}</td><td>${v.client?.name||'-'}</td><td>${v.unit_name||'-'}</td><td>${v.check_in?.slice(0,5)||'-'}</td><td>${v.check_out?.slice(0,5)||'-'}</td><td>${fmtH(net)}</td><td>${v.visit_rate?'R$ '+Number(v.visit_rate).toFixed(2):'-'}</td></tr>`
                     }).join('')
                     const w = window.open('', '_blank')!
@@ -3171,12 +3176,13 @@ export default function EmployeeDetail() {
                       <tr key={v.id} className="border-b border-gray-50 bg-amber-50/40">
                         <td className="py-2 px-2 text-gray-500">{formatDate(v.visit_date)}</td>
                         <td className="py-2 px-2" colSpan={7}>
-                          <span className="text-amber-700 font-medium">Feriado</span>
+                          <span className="text-amber-700 font-medium">Folga</span>
+                          {(v as { unavailability_reason?: string }).unavailability_reason && <span className="text-amber-700"> · {(v as { unavailability_reason?: string }).unavailability_reason}</span>}
                           {v.observations && <span className="text-gray-500"> — {v.observations}</span>}
                         </td>
                       </tr>
                     )
-                    const net = Math.max(0, durMin(v.check_in, v.check_out) - durMin(v.break_start, v.break_end))
+                    const net = minutosLiquidos(v, intervaloDoCliente(v.client_id))
                     const isEditing = editVisitId === v.id
                     return (
                       <>
@@ -3499,6 +3505,10 @@ function VisaoGeral({
   const { role } = useAuth()
   const [selectedMonth, setSelectedMonth] = useState(format(new Date(), 'yyyy-MM'))
   const [dayDetail, setDayDetail] = useState<number | null>(null)
+  // Intervalo do contrato do cliente (mesma regra do portal)
+  const intervaloDoCliente = (cid?: string | null) =>
+    Number(((links as unknown) as { client_id?: string; break_minutes?: number | null }[])
+      .find(l => l.client_id === cid && Number(l.break_minutes) > 0)?.break_minutes) || 0
 
   const monthDate = new Date(selectedMonth + '-15')
   const monthStart = format(startOfMonth(monthDate), 'yyyy-MM-dd')
@@ -3768,7 +3778,7 @@ function VisaoGeral({
 
               {dayVisits.length === 0 && dayPlanned.length === 0 && <p className="text-sm text-gray-400">Sem registro neste dia.</p>}
               {dayVisits.map(v => {
-                const net = Math.max(0, dur(v.check_in, v.check_out) - dur(v.break_start, v.break_end))
+                const net = minutosLiquidos(v, intervaloDoCliente(v.client_id))
                 return (
                   <div key={v.id} className="rounded-xl border border-gray-100 p-3 space-y-2">
                     <div className="flex items-center justify-between gap-2 flex-wrap">

@@ -255,6 +255,42 @@ export function recebeMensal(l?: VinculoTipo | null): boolean {
   return salarioConsultoria(l) || (tipoDoVinculo(l) === 'Fixo' && !pagaPorDiaria(l))
 }
 
+/**
+ * O que falta preencher num vínculo para ele funcionar (portal e pagamento).
+ * Uma regra só para a ficha do colaborador e o Dashboard.
+ *   · unidadesComValor: o cliente tem unidade com valor da visita (migração 064)
+ *   · salarioNoGrupo: fixo de consultoria — algum vínculo com salário DELA tem o
+ *     salário preenchido (o salário é um só para todos os clientes)
+ */
+export type VinculoCadastro = VinculoTipo & {
+  monthly_amount?: number | null; daily_rate?: number | null; daily_hours?: number | null
+  work_schedule_type?: string | null; days_off?: number[] | null; schedule_anchor_date?: string | null
+  work_start?: string | null; work_end?: string | null
+  link_units?: { visit_rate?: number | null }[] | null
+}
+export function pendenciasDoVinculo(l: VinculoCadastro, ctx: { unidadesComValor: boolean; salarioNoGrupo?: boolean }): string[] {
+  const out: string[] = []
+  if (tipoDoVinculo(l) === 'Consultoria') {
+    if (salarioConsultoria(l)) {
+      if (!ctx.salarioNoGrupo && !(Number(l.monthly_amount) > 0)) out.push('sem salário (fixo de consultoria: o salário vai em um dos vínculos dela e vale para todos os clientes)')
+    } else if (!(l.link_units || []).some(u => Number(u.visit_rate) > 0) && !ctx.unidadesComValor) {
+      out.push('sem valor da visita (nem no vínculo nem nas unidades do cliente) — o pagamento sai R$ 0,00')
+    }
+    return out
+  }
+  if (pagaPorDiaria(l)) {
+    if (!(Number(l.daily_rate) > 0)) out.push('sem valor da diária — o pagamento sai R$ 0,00')
+    return out // os dias do Fixo por diária vêm da agenda
+  }
+  if (!(Number(l.monthly_amount) > 0)) out.push('sem salário — o pagamento sai R$ 0,00')
+  const escala = l.work_schedule_type || ''
+  if (!escala) out.push('sem escala definida — a folha estima 22 dias no chute')
+  else if (['5x2', '6x1'].includes(escala) && !(l.days_off || []).length) out.push('sem dias de folga — ela não vê os dias no portal')
+  else if (escala === '12x36' && !l.schedule_anchor_date) out.push('sem a data do primeiro plantão — ela não vê os dias no portal')
+  if (!(Number(l.daily_hours) > 0) && !(l.work_start && l.work_end)) out.push('sem horas por dia — a jornada não é conferida')
+  return out
+}
+
 /** Vínculo que nasceu para acabar (cobertura, auditoria avulsa) */
 export function ehTemporario(l?: VinculoTipo | null): boolean {
   return !!l && (l.service_type === 'Volante' || !!l.is_temporary)

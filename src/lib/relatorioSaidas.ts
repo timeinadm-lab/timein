@@ -22,6 +22,7 @@ export async function exportRelatorioSaidas(opts: {
   grupos: GrupoDia[]
   nomePessoa: (p: Lancamento) => string
   nomeCliente: (p: Lancamento) => string
+  dadosBancarios?: (p: Lancamento) => { cpf: string; pix: string; banco: string }
   reembolsos: ReembolsoRel[]
   folha: FolhaRel[]
   mesFolha: string                // nome do mês trabalhado da aba Folha
@@ -86,9 +87,11 @@ export async function exportRelatorioSaidas(opts: {
 
   // ── Saídas ──
   aba('Saídas', [
-    ['Dia de pagamento', 'Vencimento', 'Colaborador', 'Cliente', 'Descrição', 'Categoria', 'Tipo', 'Mês trabalhado', 'Valor', 'Situação', 'Pago em'],
+    ['Dia de pagamento', 'Vencimento', 'Colaborador', 'CPF', 'Chave PIX', 'Banco / agência / conta', 'Cliente', 'Descrição', 'Categoria', 'Tipo', 'Mês trabalhado', 'Valor', 'Situação', 'Pago em'],
     ...opts.grupos.flatMap(g => g.itens.map(p => [
-      g.titulo, dataBR(p.due_date), opts.nomePessoa(p), opts.nomeCliente(p), p.description || '', p.category || '',
+      g.titulo, dataBR(p.due_date), opts.nomePessoa(p),
+      opts.dadosBancarios?.(p).cpf || '', opts.dadosBancarios?.(p).pix || '', opts.dadosBancarios?.(p).banco || '',
+      opts.nomeCliente(p), p.description || '', p.category || '',
       p.type === 'Real' ? 'Realizado' : p.type === 'Estimativa' ? 'Previsão' : 'Manual',
       mesCurto(p.reference_month), n2(p.amount), p.status, p.paid_at ? dataBR(String(p.paid_at).slice(0, 10)) : '',
     ])),

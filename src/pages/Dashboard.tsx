@@ -983,6 +983,9 @@ export default function Dashboard() {
   }
 
   type AlertItem = { text: string; action?: string; path?: string; key?: string; customId?: string }
+  // Aviso de uma pessoa abre a Jornada dela no mês do acontecido (pedido de 01/10/2026)
+  const jornadaDe = (empId: string, data?: string | null) =>
+    `/jornada?pessoa=${empId}&mes=${(data && /^d{4}-d{2}/.test(data) ? data : format(now, 'yyyy-MM')).slice(0, 7)}`
   const redAlerts: AlertItem[] = []
   const amberAlerts: AlertItem[] = []
 
@@ -1020,8 +1023,8 @@ export default function Dashboard() {
     ]
     const naoVista = !!a.changed_by_portal && !a.change_seen_at
     const item = {
-      text: `${nome} trocou a visita ${partes.join(' ')}${naoVista ? ' (pelo portal — marque como vista no Calendário)' : ''}`,
-      path: naoVista ? '/calendario' : empId ? `/colaboradores/${empId}?tab=agenda` : '/visitas',
+      text: `${nome} trocou a visita ${partes.join(' ')}${naoVista ? ' (pelo portal — abra e marque como vista)' : ''}`,
+      path: empId ? jornadaDe(empId, a.planned_date) : '/jornada?filtro=trocas',
       key: `troca-${a.id}-${a.planned_date}`,
     }
     if (naoVista) redAlerts.unshift(item)
@@ -1044,7 +1047,7 @@ export default function Dashboard() {
     const cli = (v as { client?: { name: string } }).client?.name
     amberAlerts.push({
       text: `${nome} marcou ${v.is_unavailable ? 'falta' : 'folga'} em ${formatDate(v.visit_date)}${cli ? ` — ${cli}` : ''}${v.unavailability_reason ? ` (${v.unavailability_reason}${v.is_unavailable && v.atestado_url ? ', com atestado' : ''})` : ''}`,
-      path: empId ? `/colaboradores/${empId}?tab=visitas` : '/visitas',
+      path: empId ? jornadaDe(empId, v.visit_date) : '/jornada',
       key: `folga-${v.id}`,
     })
   })
@@ -1056,7 +1059,7 @@ export default function Dashboard() {
     const cli = (v as { client?: { name: string } }).client?.name
     amberAlerts.push({
       text: `${nome} registrou visita fora do combinado em ${formatDate(v.visit_date)}${cli ? ` — ${cli}` : ''}`,
-      path: empId ? `/colaboradores/${empId}?tab=visitas` : '/visitas',
+      path: empId ? jornadaDe(empId, v.visit_date) : '/jornada',
       key: `fora-combinado-${v.id}`,
     })
   })
@@ -1110,7 +1113,7 @@ export default function Dashboard() {
     const dias = Math.max(1, Math.round((now.getTime() - new Date(a.planned_date + 'T12:00:00').getTime()) / 86400000))
     amberAlerts.push({
       text: `${nome} tinha visita marcada em ${formatDate(a.planned_date)}${cli ? ` — ${cli}` : ''} e não registrou (há ${dias}d)`,
-      path: empId ? `/colaboradores/${empId}` : '/visitas',
+      path: empId ? jornadaDe(empId, a.planned_date) : '/jornada',
       key: `agenda-nao-cumprida-${a.id}`,
     })
   })
@@ -1288,8 +1291,8 @@ export default function Dashboard() {
             const key = `visit-excess-${link.id}-${(v as { check_in?: string }).check_in}`
             amberAlerts.push({
               key,
-              text: `Consultoria: ${name} – ${client} registrou visita de ${fmtH(durH)} (combinado semanal: ${fmtH(weeklyQuota)}) — verificar e aprovar excedente`,
-              path: '/colaboradores',
+              text: `Consultoria: ${name} – ${client} registrou visita de ${fmtH(durH)} (combinado: ${fmtH(weeklyQuota)}) — verificar e aprovar excedente`,
+              path: jornadaDe(link.employee_id, (v as { visit_date?: string }).visit_date),
             })
           }
         })
@@ -1320,7 +1323,7 @@ export default function Dashboard() {
           redAlerts.push({
             key,
             text: `Consultoria: ${name} – ${client} fechou o mês com ${fmtH(proportionalQuota - prevTotalH)} abaixo do combinado (${fmtH(prevTotalH)} de ${fmtH(proportionalQuota)}${effectiveDays < totalDays ? ` — proporcional: ${effectiveDays}/${totalDays} dias` : ''}) — aplicar desconto proporcional`,
-            path: '/colaboradores',
+            path: jornadaDe(link.employee_id, prevMonthStr),
           })
         }
       }
@@ -1342,12 +1345,12 @@ export default function Dashboard() {
       // Se já passamos da 1ª quinzena e todas as visitas estão na mesma
       if (currentDay >= 16 && q1 > 0 && q2 === 0) {
         const key = `quinzena-dist-${link.id}-${currentMonthStr}`
-        amberAlerts.push({ key, text: `Consultoria quinzenal: ${name} – ${client} tem ${q1} visita(s) apenas na 1ª quinzena — falta visita na 2ª quinzena`, path: '/visitas' })
+        amberAlerts.push({ key, text: `Consultoria quinzenal: ${name} – ${client} tem ${q1} visita(s) apenas na 1ª quinzena — falta visita na 2ª quinzena`, path: jornadaDe(link.employee_id) })
       }
       // Se o mês acabou (ou quase) e todas na 2ª quinzena
       if (q2 > 0 && q1 === 0) {
         const key = `quinzena-dist-${link.id}-${currentMonthStr}`
-        amberAlerts.push({ key, text: `Consultoria quinzenal: ${name} – ${client} tem ${q2} visita(s) apenas na 2ª quinzena — nenhuma visita na 1ª quinzena (irregularidade)`, path: '/visitas' })
+        amberAlerts.push({ key, text: `Consultoria quinzenal: ${name} – ${client} tem ${q2} visita(s) apenas na 2ª quinzena — nenhuma visita na 1ª quinzena (irregularidade)`, path: jornadaDe(link.employee_id) })
       }
     })
   }
@@ -1397,7 +1400,7 @@ export default function Dashboard() {
     porPessoa.forEach((p, k) => amberAlerts.push({
       key: `jornada-${k}-${p.dias}`,
       text: `Jornada: ${p.nome} – ${p.cliente} trabalhou menos que o combinado em ${p.dias} dia(s)${p.faltaMin > 0 ? ` (faltaram ${horaMin(p.faltaMin)})` : ''}`,
-      path: '/jornada',
+      path: jornadaDe(k.split('|')[0]),
     }))
   }
 

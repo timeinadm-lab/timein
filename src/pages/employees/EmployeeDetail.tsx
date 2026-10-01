@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react'
 import { useParams, useNavigate, useLocation, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Edit, Plus, Trash2, CheckCircle, Clock, XCircle, Download, Upload, ExternalLink, AlertTriangle, Star, X, FileText } from 'lucide-react'
+import { ArrowLeft, Edit, Plus, Trash2, CheckCircle, Clock, XCircle, Download, Upload, ExternalLink, AlertTriangle, Star, X, FileText, Timer } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { formatDate, formatCurrency, getInitials, serviceTypeLabel, hojeISO, corDoAvatar, pagaPorDiaria, ehTemporario, rotuloDoVinculo, pendenciasDoVinculo, salarioConsultoria } from '../../lib/utils'
 import type { VinculoCadastro } from '../../lib/utils'
@@ -1529,6 +1529,8 @@ export default function EmployeeDetail() {
           </div>
         </div>
         <div className="flex gap-2 mt-4 pt-4 border-t border-ink-100">
+          {/* Jornada do mês: tudo o que ela registra no portal, pagamentos e reembolsos */}
+          <button onClick={() => navigate(`/jornada?pessoa=${id}`)} className="btn-primary text-sm flex-1 md:flex-none"><Timer size={16} /><span>Jornada</span></button>
           <button onClick={() => exportEmployeeToPDF(employee, docs ?? [])} className="btn-secondary text-sm flex-1 md:flex-none"><Download size={16} /><span className="hidden sm:inline">PDF</span></button>
           <button onClick={() => navigate(`/colaboradores/${id}/editar`)} className="btn-secondary text-sm flex-1 md:flex-none"><Edit size={16} /><span className="hidden sm:inline">Editar</span></button>
           <button

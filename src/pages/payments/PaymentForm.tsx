@@ -42,7 +42,23 @@ export default function PaymentForm() {
   const mutation = useMutation({
     mutationFn: async (payload: Record<string, unknown>) => {
       if (isEdit) {
-        const { error } = await supabase.from('payments').update(payload).eq('id', id)
+        const antes = paymentData as { amount?: number | string; due_date?: string; status?: string; paid_at?: string | null } | undefined
+        const dados: Record<string, unknown> = { ...payload }
+        // Marcar "Pago" por aqui grava a data do pagamento; voltar para pendente apaga.
+        // Antes ficava pago sem data e a conferência acusava "Pago sem data".
+        if (payload.status === 'Pago' && antes?.status !== 'Pago') dados.paid_at = new Date().toISOString()
+        if (payload.status !== 'Pago' && antes?.status === 'Pago') dados.paid_at = null
+        // Mudou valor ou vencimento à mão: fica marcado e a correção automática
+        // dos pendentes não mexe mais nele (migração 073)
+        const mudouValor = Math.abs((Number(antes?.amount) || 0) - (Number(payload.amount) || 0)) >= 0.005
+        const mudouDia = !!antes?.due_date && antes.due_date !== payload.due_date
+        if (mudouValor || mudouDia) dados.ajuste_manual = true
+        let { error } = await supabase.from('payments').update(dados).eq('id', id)
+        // Migração 073 ainda não rodada: grava sem a marca
+        if (error && /ajuste_manual/.test(error.message)) {
+          const { ajuste_manual: _a, ...semMarca } = dados
+          ;({ error } = await supabase.from('payments').update(semMarca).eq('id', id))
+        }
         if (error) throw error
       } else {
         const { error } = await supabase.from('payments').insert(payload)

@@ -1,6 +1,6 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Plus, Download, Check, RefreshCw, AlertTriangle, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, BarChart3, Trash2, FileSpreadsheet, X, Paperclip, Search, MoreHorizontal, Pencil, Wallet, ExternalLink, FileCheck2, FileX2 } from 'lucide-react'
 import { supabase, fetchAll } from '../../lib/supabase'
 import { formatDate, formatCurrency, hojeISO, semAcento, tipoDoVinculo, pagaPorDiaria, ehTemporario, salarioConsultoria } from '../../lib/utils'
@@ -13,6 +13,8 @@ import { format, startOfMonth, endOfMonth, getDaysInMonth, addDays } from 'date-
 import toast from 'react-hot-toast'
 import { confirmar } from '../../components/ui/ConfirmDialog'
 import PorDiaDePagamento from './PorDiaDePagamento'
+import { planoDaPrevisao, valorDoFechamento, correcoesDoVinculo } from '../../lib/planoLancamentos'
+import type { BasePlano, Correcao, LancamentoExistente } from '../../lib/planoLancamentos'
 import type { FolhaRel } from '../../lib/relatorioSaidas'
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend,
@@ -174,7 +176,12 @@ export default function PaymentList() {
   // Abre em "Por dia de pagamento": dia 8, 15, 20 e avulsos (pedido de 30/09/2026)
   const [tab, setTab] = useState<Tab>('dias')
   const [showCharts, setShowCharts] = useState(false)
-  const [filterMonth, setFilterMonth] = useState(() => format(new Date(), 'yyyy-MM'))
+  // Mês pode vir no link (?mes=aaaa-mm) — a Jornada abre Pagamentos no mês dela
+  const [paramsUrl] = useSearchParams()
+  const [filterMonth, setFilterMonth] = useState(() => {
+    const m = paramsUrl.get('mes')
+    return m && /^d{4}-d{2}$/.test(m) ? m : format(new Date(), 'yyyy-MM')
+  })
   // Filtro por etapa e busca da folha. O antigo filtro de status ia no banco e
   // escondia lançamentos: com "Pago" selecionado a linha achava que não havia
   // pendente, mostrava "Gerar" de novo e os totais saíam errados.
@@ -196,7 +203,7 @@ export default function PaymentList() {
   const monthEnd = format(endOfMonth(new Date(filterMonth + '-15')), 'yyyy-MM-dd')
 
   // ── Pagamentos — filter by reference_month (falls back to due_date range) ──
-  const { data: payments, isLoading } = useQuery({
+  const { data: payments, isLoading, isFetching: pagBuscando, isSuccess: pagOk } = useQuery({
     queryKey: ['payments', filterMonth],
     queryFn: async () => {
       let q = supabase.from('payments').select('*, employee:employees(id,full_name,status)').order('due_date')
@@ -209,7 +216,7 @@ export default function PaymentList() {
   })
 
   // ── Expenses for this month ──
-  const { data: expenses } = useQuery({
+  const { data: expenses, isFetching: gastosBuscando, isSuccess: gastosOk } = useQuery({
     queryKey: ['expenses', filterMonth],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -289,7 +296,7 @@ export default function PaymentList() {
   })
 
   // ── Folha de ponto: vínculos ativos + desligados com visitas pendentes ──
-  const { data: folhaData, isLoading: folhaLoading } = useQuery({
+  const { data: folhaData, isLoading: folhaLoading, isFetching: folhaBuscando, isSuccess: folhaOk } = useQuery({
     queryKey: ['folha-ponto', filterMonth],
     queryFn: async () => {
       // 1) Vínculos ativos
@@ -946,6 +953,18 @@ export default function PaymentList() {
   // Insere lançamento; se as colunas client_id/link_id ainda não existirem (migração 024
   // pendente), tenta de novo sem elas para não travar o pagamento.
   const insertPayment = async (record: Record<string, unknown>) => {
+    // Mesmo vínculo, mês, vencimento e tipo já lançado (e não cancelado)? Não grava
+    // de novo — dois cliques rápidos ou duas pessoas ao mesmo tempo davam lançamento em dobro.
+    if (record.link_id && record.reference_month && record.due_date && record.type) {
+      const { data: ja } = await supabase.from('payments').select('id')
+        .eq('link_id', record.link_id as string).eq('reference_month', record.reference_month as string)
+        .eq('due_date', record.due_date as string).eq('type', record.type as string)
+        .neq('status', 'Cancelado').limit(1)
+      if (ja?.length) {
+        qc.invalidateQueries({ queryKey: ['payments'] })
+        throw new Error('Esse lançamento já existe — alguém lançou agora há pouco. A tela foi atualizada.')
+      }
+    }
     const { error } = await supabase.from('payments').insert(record)
     if (error && /column|link_id|client_id/i.test(error.message)) {
       const { client_id: _c, link_id: _l, ...legacy } = record
@@ -1000,6 +1019,25 @@ export default function PaymentList() {
   const empAdiantamento = (linkId: string) =>
     aprovadosDe(linkId).filter(ehAdiantamento).reduce((s, e) => s + (Number(e.amount) || 0), 0)
 
+  // A conta do lançamento de um vínculo — a MESMA para o botão Lançar, o
+  // fechamento e a correção automática (lib/planoLancamentos, com testes)
+  const baseDoPlano = (row: { service_type: string; salarioConsult?: boolean; visits: { visit_date: string; visit_rate?: number | null }[]; linkId: string; cost_assistance: number; extrasAprovados: number; multaEncerramento?: number; adjusted_amount: number; realAmt: number; payDaysAll?: number[]; payDay: number; isFreela?: boolean }): BasePlano => {
+    const porVisita = row.service_type === 'Consultoria' && !row.salarioConsult
+    const soma = (f: (d: number) => boolean) => row.visits
+      .filter(v => f(Number(v.visit_date.slice(8, 10))))
+      .reduce((s, v) => s + (Number(v.visit_rate) || 0), 0)
+    return {
+      mes: filterMonth, porVisita,
+      q1: porVisita ? soma(d => d <= 15) : 0,
+      q2: porVisita ? soma(d => d > 15) : 0,
+      extras: empExpensesTotal(row.linkId) + row.cost_assistance + row.extrasAprovados + (row.multaEncerramento || 0),
+      previsto: row.adjusted_amount,
+      realizado: row.realAmt,
+      diasPagamento: row.payDaysAll || [],
+      diaPadrao: row.payDay || (row.isFreela ? 20 : 5),
+    }
+  }
+
   const expensesPendentes = (expenses ?? []).filter(e => (e as { status?: string }).status === 'pendente')
 
   const baseRecord = (row: GenRow) => ({
@@ -1035,74 +1073,21 @@ export default function PaymentList() {
       if (!row.employee) throw new Error('Sem colaborador')
       const monthLabel = new Date(filterMonth + '-15').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
       const who = `${row.employee.full_name}${row.client ? ` (${row.client.name})` : ''}`
-      const extras = empExpensesTotal(row.linkId) + row.cost_assistance + row.extrasAprovados + (row.multaEncerramento || 0)
-
-      if (row.service_type === 'Consultoria' && !row.salarioConsult) {
-        // Consultoria: SÓ dia 20 (visitas da 1ª quinzena) e dia 8 do mês seguinte (2ª quinzena)
-        const q1 = row.visits.filter(v => Number(v.visit_date.slice(8, 10)) <= 15).reduce((s, v) => s + (Number(v.visit_rate) || 0), 0)
-        const q2 = row.visits.filter(v => Number(v.visit_date.slice(8, 10)) > 15).reduce((s, v) => s + (Number(v.visit_rate) || 0), 0)
-        if (q1 <= 0 && q2 <= 0 && extras <= 0) throw new Error('Nenhuma visita registrada neste mês — nada a lançar.')
-        const [yr, mo] = filterMonth.split('-').map(Number)
-        const nextMonth = mo === 12 ? `${yr + 1}-01` : `${yr}-${String(mo + 1).padStart(2, '0')}`
-        // Extras (aj. custo/gastos) entram no último lançamento do mês
-        const extrasEmQ2 = q2 > 0 || q1 <= 0
-        if (q1 > 0 || (!extrasEmQ2 && extras > 0)) {
-          await insertPayment({
-            ...baseRecord(row),
-            type: 'Estimativa',
-            description: `Honorários – ${who} – 1ª quinzena ${monthLabel}`,
-            amount: Math.max(0, Math.round((q1 + (extrasEmQ2 ? 0 : extras)) * 100) / 100),
-            due_date: `${filterMonth}-20`,
-          })
-        }
-        if (q2 > 0 || (extrasEmQ2 && extras > 0)) {
-          await insertPayment({
-            ...baseRecord(row),
-            type: 'Estimativa',
-            description: `Honorários – ${who} – 2ª quinzena ${monthLabel}`,
-            amount: Math.max(0, Math.round((q2 + (extrasEmQ2 ? extras : 0)) * 100) / 100),
-            due_date: `${nextMonth}-08`,
-          })
-        }
-      } else {
-        // Fixo/Plantão/12x36 e Freela: um pagamento por mês no dia do contrato.
-        // Se o vínculo tiver DOIS dias marcados, o valor é dividido entre eles
-        // (quinzena) — o 2º dia cai no mês seguinte quando é menor que o 1º.
-        const isFreela = !!row.isFreela
-        // Adiantamento maior que o devido não vira pagamento negativo
-        const amount = Math.max(0, Math.round((row.adjusted_amount + extras) * 100) / 100)
-        if (isFreela && amount <= 0) throw new Error('Sem dias na agenda neste mês — nada a lançar. Marque os dias ou feche pelo realizado.')
-
-        const dias = (row.payDaysAll || []).slice().sort((a, b) => a - b)
-        const label = isFreela ? 'Diárias' : 'Honorários'
-
-        if (dias.length >= 2) {
-          const metade = Math.round((amount / 2) * 100) / 100
-          // Diferença de arredondamento vai na 1ª parcela
-          const primeira = Math.round((amount - metade) * 100) / 100
-          await insertPayment({
-            ...baseRecord(row),
-            type: 'Estimativa',
-            description: `${label} – ${who} – 1ª quinzena ${monthLabel}`,
-            amount: primeira,
-            due_date: `${filterMonth}-${String(dias[0]).padStart(2, '0')}`,
-          })
-          await insertPayment({
-            ...baseRecord(row),
-            type: 'Estimativa',
-            description: `${label} – ${who} – 2ª quinzena ${monthLabel}`,
-            amount: metade,
-            due_date: `${filterMonth}-${String(dias[1]).padStart(2, '0')}`,
-          })
-        } else {
-          await insertPayment({
-            ...baseRecord(row),
-            type: 'Estimativa',
-            description: `${label} – ${who} – ${monthLabel}`,
-            amount,
-            due_date: `${filterMonth}-${String(row.payDay || (isFreela ? 20 : 5)).padStart(2, '0')}`,
-          })
-        }
+      const base = baseDoPlano(row)
+      const plano = planoDaPrevisao(base)
+      if (base.porVisita && base.q1 <= 0 && base.q2 <= 0 && base.extras <= 0) throw new Error('Nenhuma visita registrada neste mês — nada a lançar.')
+      const isFreela = !!row.isFreela
+      if (!base.porVisita && isFreela && plano.reduce((t, i) => t + i.valor, 0) <= 0) throw new Error('Sem dias na agenda neste mês — nada a lançar. Marque os dias ou feche pelo realizado.')
+      // Consultoria: dia 20 (1ª quinzena) e dia 8 do mês seguinte (2ª). Fixo: dia(s) do contrato.
+      const label = !base.porVisita && isFreela ? 'Diárias' : 'Honorários'
+      for (const item of plano) {
+        await insertPayment({
+          ...baseRecord(row),
+          type: 'Estimativa',
+          description: `${label} – ${who} – ${item.parte === 'mês' ? monthLabel : `${item.parte} ${monthLabel}`}`,
+          amount: item.valor,
+          due_date: item.vencimento,
+        })
       }
     },
     onSuccess: () => {
@@ -1122,7 +1107,6 @@ export default function PaymentList() {
       const vencePrevisto = lancamentosDaLinha(row).filter(p => p.status === 'Pendente').map(p => p.due_date).sort()[0]
       const vence = vencePrevisto || `${filterMonth}-${String(payDay).padStart(2, '0')}`
       const monthLabel = new Date(filterMonth + '-15').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
-      const extras = empExpensesTotal(row.linkId) + row.cost_assistance + row.extrasAprovados + (row.multaEncerramento || 0)
       // O Real substitui a Estimativa do mês: o que já foi pago dela sai do
       // valor, e a parte ainda pendente é cancelada. Antes ficavam as duas
       // abertas e dava para pagar em dobro.
@@ -1135,7 +1119,7 @@ export default function PaymentList() {
         description: row.rescisao
           ? `Rescisão – ${row.employee.full_name}${row.client ? ` (${row.client.name})` : ''} – até ${formatDate(row.rescisao.fim)}${jaPago > 0 ? ` (já pago ${formatCurrency(jaPago)})` : ''}`
           : `[REAL] ${row.isFreela ? 'Diárias' : 'Honorários'} – ${row.employee.full_name}${row.client ? ` (${row.client.name})` : ''} – ${monthLabel}${jaPago > 0 ? ` (já pago ${formatCurrency(jaPago)})` : ''}`,
-        amount: Math.max(0, Math.round((row.realAmt + extras - jaPago) * 100) / 100),
+        amount: valorDoFechamento(baseDoPlano(row), jaPago),
         due_date: vence,
       })
       if (pendentes.length) {
@@ -1346,6 +1330,54 @@ export default function PaymentList() {
     // continua aparecendo para pagar esses dias.
     .filter(l => !(l.encerradoEm && l.row.visits.length === 0 && l.et.etapa === 'lancar' && l.conta.total <= 0))
   type Linha = typeof linhas[number]
+
+  // ── Lançamento pendente acompanha a conta (pedido do Gabriel, 01/10/2026) ──
+  // Salário, ajuda de custo, dia de pagamento, gastos ou visitas mudaram e
+  // ainda não foi pago: o lançamento pendente é corrigido sozinho, com a mesma
+  // conta do "Lançar". Não mexe no que já foi pago, no que foi ajustado à mão,
+  // nem em lançamento de antes de 01/10 (quando o ajuste à mão não era marcado).
+  // Folha de mês passado só para consultoria (a 2ª quinzena vence no mês seguinte).
+  const SINCRONIZA_DESDE = '2026-10-01'
+  const sincronizando = useRef(false)
+  const aplicarCorrecoes = async (correcoes: Correcao[]) => {
+    let feitas = 0
+    for (const c of correcoes) {
+      // Só se continua pendente e com o mesmo valor (ninguém mexeu nesse meio-tempo)
+      const { data, error } = await supabase.from('payments')
+        .update({ amount: c.para, due_date: c.vencimentoPara })
+        .eq('id', c.id).eq('status', 'Pendente').eq('amount', c.de)
+        .select('id')
+      if (!error && data?.length) feitas++
+    }
+    if (feitas) qc.invalidateQueries({ queryKey: ['payments'] })
+    return feitas
+  }
+  useEffect(() => {
+    if (sincronizando.current || !folhaOk || !pagOk || !gastosOk || folhaBuscando || pagBuscando || gastosBuscando) return
+    // Sem a coluna da migração 073 não dá para saber o que foi ajustado à mão: não mexe
+    if (!(payments ?? []).some(p => 'ajuste_manual' in (p as object))) return
+    const mesAtual = format(new Date(), 'yyyy-MM')
+    const mesAnterior = format(addDays(startOfMonth(new Date()), -1), 'yyyy-MM')
+    const correcoes: Correcao[] = []
+    for (const l of linhas) {
+      const porVisita = l.row.service_type === 'Consultoria' && !l.row.salarioConsult
+      if (filterMonth < (porVisita ? mesAnterior : mesAtual)) continue
+      const ls = lancamentosDaLinha(l.row) as unknown as LancamentoExistente[]
+      if (!ls.length || ls.some(p => String(p.created_at || '') < SINCRONIZA_DESDE)) continue
+      correcoes.push(...correcoesDoVinculo(baseDoPlano(l.row), ls))
+    }
+    if (!correcoes.length) return
+    sincronizando.current = true
+    aplicarCorrecoes(correcoes)
+      .then(n => { if (n) toast.success(`${n} lançamento${n > 1 ? 's' : ''} pendente${n > 1 ? 's' : ''} atualizado${n > 1 ? 's' : ''} com os valores de hoje`) })
+      .finally(() => { sincronizando.current = false })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [folhaOk, pagOk, gastosOk, folhaBuscando, pagBuscando, gastosBuscando, folhaData, payments, expenses, filterMonth])
+  const corrigirAgora = useMutation({
+    mutationFn: aplicarCorrecoes,
+    onSuccess: n => { if (n) toast.success('Lançamento atualizado para o valor de hoje'); else toast.error('Não atualizou: o lançamento mudou ou já foi pago. Atualize a tela.') },
+    onError: (e: Error) => toast.error(e.message),
+  })
 
   const termoBusca = semAcento(busca.trim())
   const passaFiltro = (l: Linha) => {
@@ -1667,8 +1699,6 @@ export default function PaymentList() {
         <PorDiaDePagamento
           mes={filterMonth}
           nomeMes={nomeDoMes}
-          onPagar={id => markPaid.mutate(id)}
-          pagando={markPaid.isPending}
           aLancar={contagem.lancar}
           irParaFolha={() => { setTab('folha'); setFiltroEtapa('lancar') }}
           reembolsos={(expenses ?? []) as never}
@@ -1856,9 +1886,11 @@ export default function PaymentList() {
                             {/* Quem é + quanto */}
                             <div className="flex items-start gap-3">
                               <div className="flex-1 min-w-0">
+                                {/* Nome abre a Jornada da pessoa no mês: o que ela fez e por que recebe isso */}
                                 <button
                                   className="font-medium text-ink-900 hover:underline text-left leading-snug"
-                                  onClick={() => navigate(`/colaboradores/${row.employee?.id}`, { state: { tab: 'vinculos' } })}
+                                  title="Abrir a jornada do mês"
+                                  onClick={() => navigate(`/jornada?pessoa=${row.employee?.id}&mes=${filterMonth}`)}
                                 >
                                   {nome}
                                 </button>
@@ -2034,7 +2066,11 @@ export default function PaymentList() {
                                 <AlertTriangle size={14} className="shrink-0 mt-0.5 text-amber-600" />
                                 <span>
                                   <strong>O valor mudou depois do lançamento.</strong> Lançado {formatCurrency(lancado)}; pelo que está registrado hoje daria {formatCurrency(conta.fechamento)}.
-                                  {et.proximo && <> <button className="underline font-semibold" onClick={() => navigate(`/pagamentos/${et.proximo!.id}/editar`)}>Ajustar lançamento</button></>}
+                                  {(() => {
+                                    const corr = correcoesDoVinculo(baseDoPlano(row), lancamentosDaLinha(row) as unknown as LancamentoExistente[])
+                                    return corr.length > 0 ? <> <button className="underline font-semibold" disabled={corrigirAgora.isPending} onClick={() => corrigirAgora.mutate(corr)}>Atualizar para {formatCurrency(corr.reduce((t, c) => t + c.para, 0))}</button> ·</> : null
+                                  })()}
+                                  {et.proximo && <> <button className="underline font-semibold" onClick={() => navigate(`/pagamentos/${et.proximo!.id}/editar`)}>Ajustar à mão</button></>}
                                 </span>
                               </div>
                             )}

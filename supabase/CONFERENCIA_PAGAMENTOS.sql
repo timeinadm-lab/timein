@@ -50,21 +50,35 @@ problemas AS (
    WHERE l.service_type = 'Consultoria' AND coalesce(l.pay_mode, 'mensal') <> 'salario_fixo'
      AND extract(day FROM p.due_date) NOT IN (8, 20)
 
-  UNION ALL -- 4. Consultoria: lançado MENOR que as visitas registradas (visita entrou depois do lançamento)
-  SELECT 1, 'Consultoria lançada a menos', v.pessoa, v.cliente,
-         'Mês ' || x.mes || ': visitas somam ' || to_char(x.visitas, 'FM999G990D00') || ', lançado ' || to_char(coalesce(x.lancado, 0), 'FM999G990D00'),
-         x.visitas - coalesce(x.lancado, 0)
+  UNION ALL -- 4. Consultoria por quinzena: 1ª (vence dia 20) e 2ª (vence dia 8 do mês seguinte)
+  SELECT 1, q.problema, v.pessoa, v.cliente, q.detalhe, q.diferenca
     FROM vinc v
     JOIN LATERAL (
-      SELECT m.mes,
+      SELECT m.mes, qz.n,
              (SELECT sum(coalesce(nv.visit_rate, 0)) FROM nutritionist_visits nv
                WHERE nv.employee_id = v.employee_id AND nv.client_id = v.client_id
-                 AND to_char(nv.visit_date, 'YYYY-MM') = m.mes AND nv.check_out IS NOT NULL
-                 AND NOT coalesce(nv.is_unavailable, false)) AS visitas,
-             (SELECT sum(p.amount) FROM pg p WHERE p.link_id = v.id AND p.reference_month = m.mes) AS lancado
+                 AND to_char(nv.visit_date, 'YYYY-MM') = m.mes
+                 AND (extract(day FROM nv.visit_date) <= 15) = (qz.n = 1)
+                 AND nv.check_out IS NOT NULL AND NOT coalesce(nv.is_unavailable, false)) AS visitas,
+             (SELECT sum(p.amount) FROM pg p
+               WHERE p.link_id = v.id AND p.reference_month = m.mes
+                 AND extract(day FROM p.due_date) = CASE WHEN qz.n = 1 THEN 20 ELSE 8 END) AS lancado,
+             (SELECT sum(p.amount) FROM pg p WHERE p.link_id = v.id AND p.reference_month = m.mes) AS lancado_mes
         FROM (SELECT mes_ant AS mes FROM jan UNION ALL SELECT mes_atu FROM jan) m
+       CROSS JOIN (VALUES (1), (2)) qz(n)
     ) x ON true
-   WHERE v.por_visita AND coalesce(x.lancado, 0) > 0 AND x.visitas - coalesce(x.lancado, 0) >= 1
+    JOIN LATERAL (
+      SELECT CASE WHEN coalesce(x.lancado, 0) = 0 THEN x.n || 'ª quinzena ainda não lançada'
+                  ELSE x.n || 'ª quinzena lançada a menos' END AS problema,
+             'Mês ' || x.mes || ' · ' || x.n || 'ª quinzena (vence ' ||
+               CASE WHEN x.n = 1 THEN '20/' || substr(x.mes, 6, 2)
+                    ELSE '08/' || to_char((x.mes || '-01')::date + interval '1 month', 'MM') END ||
+               '): visitas ' || to_char(x.visitas, 'FM999G990D00') || ', lançado ' || to_char(coalesce(x.lancado, 0), 'FM999G990D00') AS detalhe,
+             x.visitas - coalesce(x.lancado, 0) AS diferenca
+    ) q ON true
+   WHERE v.por_visita
+     AND coalesce(x.lancado_mes, 0) > 0            -- o mês já começou a ser lançado
+     AND x.visitas - coalesce(x.lancado, 0) >= 1
 
   UNION ALL -- 5. Marcado como pago sem data de pagamento
   SELECT 2, 'Pago sem data', pessoa, cliente, coalesce(description, ''), amount
@@ -107,6 +121,9 @@ problemas AS (
    WHERE v.por_visita AND nv.visit_date BETWEEN jan.ini AND jan.fim
      AND nv.check_out IS NOT NULL AND NOT coalesce(nv.is_unavailable, false)
      AND coalesce(nv.visit_rate, 0) = 0
+     AND nv.extra_approval IS DISTINCT FROM 'pendente'   -- extra esperando decisão: sem valor de propósito
+     AND nv.extra_approval IS DISTINCT FROM 'negada'
+     AND NOT coalesce(nv.is_holiday, false)
    GROUP BY v.id, v.pessoa, v.cliente
 
   UNION ALL -- 12. Pendente com vencimento já passado

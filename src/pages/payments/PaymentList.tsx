@@ -133,6 +133,25 @@ export default function PaymentList() {
 
   // Horas acima do combinado (migração 062): pagar a hora extra ou não.
   // A visita já foi paga pelo valor inteiro; isto decide só o extra.
+  // Visita registrada sem valor: recalcula com a mesma conta do portal, depois
+  // que o RH coloca o preço na unidade do cliente. Só preenche o que está vazio.
+  const recalcularSemValor = useMutation({
+    mutationFn: async ({ empId, clientId }: { empId: string; clientId: string }) => {
+      const { data, error } = await supabase.rpc('rh_recalcular_visitas_sem_valor', {
+        p_employee: empId, p_client: clientId, p_ini: monthStart, p_fim: monthEnd,
+      })
+      if (error) throw new Error(/rh_recalcular_visitas_sem_valor|function/i.test(error.message) ? 'Falta rodar a migração 072 no Supabase.' : error.message)
+      return data as { corrigidas: number; sem_preco: number }
+    },
+    onSuccess: (r) => {
+      if (r?.corrigidas) toast.success(`${r.corrigidas} visita${r.corrigidas > 1 ? 's' : ''} com valor agora`)
+      if (r?.sem_preco) toast.error(`${r.sem_preco} ainda sem valor: o cliente/unidade continua sem preço por visita.`, { duration: 8000 })
+      if (r && !r.corrigidas && !r.sem_preco) toast('Nenhuma visita sem valor neste mês.')
+      qc.invalidateQueries({ queryKey: ['folha-ponto'] })
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
   const decidirHorasAcima = useMutation({
     mutationFn: async ({ visitId, pagar, valor }: { visitId: string; pagar: boolean; valor: number | null }) => {
       if (pagar && !(valor && valor > 0)) throw new Error('Informe o valor da hora extra')
@@ -607,6 +626,15 @@ export default function PaymentList() {
         // precisa aparecer: antes sumia da folha e o pagamento saía sem ele.
         const extrasPendentes = empVisits.filter(v =>
           (v as { extra_approval?: string }).extra_approval === 'pendente')
+        // Consultoria por visita registrada SEM VALOR (cliente/unidade sem preço na
+        // hora do registro): pagaria R$ 0 calado. Extra pendente/negado e
+        // falta/folga não entram — esses não têm valor de propósito (migração 072)
+        const visitasSemValor = isConsultoria && !salarioConsult
+          ? empVisits.filter(v => v.check_in && v.check_out
+              && !(v as { is_unavailable?: boolean }).is_unavailable && !(v as { is_holiday?: boolean }).is_holiday
+              && !(Number(v.visit_rate) > 0)
+              && !['pendente', 'negada'].includes((v as { extra_approval?: string }).extra_approval || ''))
+          : []
 
         // Relatório exigido: Consultoria sempre; Volante em qualquer cobertura. Fixo puro não.
         const reportRequired = l.service_type === 'Consultoria' || l.service_type === 'Volante' || pagaPorDiaria(l)
@@ -869,6 +897,7 @@ export default function PaymentList() {
           proportionalFactor,
           extrasAprovados,
           extrasPendentes,
+          visitasSemValor,
           horasAcimaPendentes,
           horasAcimaPagas,
           expDaysToDate,
@@ -2006,6 +2035,31 @@ export default function PaymentList() {
                                 <span>
                                   <strong>O valor mudou depois do lançamento.</strong> Lançado {formatCurrency(lancado)}; pelo que está registrado hoje daria {formatCurrency(conta.fechamento)}.
                                   {et.proximo && <> <button className="underline font-semibold" onClick={() => navigate(`/pagamentos/${et.proximo!.id}/editar`)}>Ajustar lançamento</button></>}
+                                </span>
+                              </div>
+                            )}
+
+                            {/* Visita sem valor: o pagamento sairia sem ela. Coloca o preço
+                                na unidade do cliente e recalcula (migração 072) */}
+                            {(row.visitasSemValor?.length || 0) > 0 && (
+                              <div className="flex items-start justify-between gap-3 flex-wrap rounded-xl bg-red-50 border border-red-200 px-3 py-2">
+                                <span className="text-xs text-red-900 flex items-start gap-1.5">
+                                  <AlertTriangle size={13} className="text-red-600 shrink-0 mt-0.5" />
+                                  <span>
+                                    <strong>{row.visitasSemValor.length} visita{row.visitasSemValor.length > 1 ? 's' : ''} sem valor</strong>
+                                    {' '}— {row.visitasSemValor.map(v => formatDate(v.visit_date)).join(', ')}. Não entra{row.visitasSemValor.length > 1 ? 'm' : ''} no pagamento.
+                                    {' '}Coloque o preço por visita na unidade do cliente e clique Recalcular.
+                                  </span>
+                                </span>
+                                <span className="flex gap-3 shrink-0">
+                                  {row.client && (
+                                    <button onClick={() => navigate(`/clientes/${row.client!.id}`)} className="text-xs font-semibold text-red-900 underline whitespace-nowrap">Abrir cliente</button>
+                                  )}
+                                  <button disabled={recalcularSemValor.isPending}
+                                    onClick={() => row.employee && row.client && recalcularSemValor.mutate({ empId: row.employee.id, clientId: row.client.id })}
+                                    className="text-xs font-semibold text-red-900 underline whitespace-nowrap">
+                                    {recalcularSemValor.isPending ? 'Recalculando…' : 'Recalcular'}
+                                  </button>
                                 </span>
                               </div>
                             )}

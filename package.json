@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "node scripts/checagem.cjs && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "testes": "node scripts/testes.cjs"
   },
   "dependencies": {
     "@hello-pangea/dnd": "^16.6.0",

@@ -1,4 +1,4 @@
-import { supabase } from './supabase'
+import { supabase, fetchAll } from './supabase'
 import { tipoDoVinculo, salarioConsultoria } from './utils'
 
 /**
@@ -146,8 +146,9 @@ export async function buscarForaDaJornada(): Promise<DiaForaDaJornada[]> {
   if (links.length === 0) return []
   const ids = Array.from(new Set(links.map(l => l.employee_id)))
   const visitas: Registro[] = []
+  // Paginado: o Supabase corta em 1000 linhas sem avisar (60 pessoas × 2 meses passa disso)
   for (let i = 0; i < ids.length; i += 50) {
-    const { data, error } = await supabase.from('nutritionist_visits')
+    const lote = await fetchAll<Registro>(() => supabase.from('nutritionist_visits')
       .select('id, employee_id, client_id, visit_date, check_in, check_out, break_start, break_end')
       .in('employee_id', ids.slice(i, i + 50))
       .gte('visit_date', inicioJanela())
@@ -155,9 +156,9 @@ export async function buscarForaDaJornada(): Promise<DiaForaDaJornada[]> {
       .is('jornada_seen_at', null)
       .not('is_unavailable', 'is', true)
       .not('is_extra', 'is', true)
-      .limit(5000)
-    if (error) throw new Error('Registros: ' + error.message)
-    visitas.push(...((data || []) as Registro[]))
+      .order('id'))
+      .catch((e: Error) => { throw new Error('Registros: ' + e.message) })
+    visitas.push(...lote)
   }
 
   const out: DiaForaDaJornada[] = []

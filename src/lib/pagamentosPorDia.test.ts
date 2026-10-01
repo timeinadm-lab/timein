@@ -1,6 +1,6 @@
 // Teste da divisão por dia de pagamento. Rodar: node src/lib/pagamentosPorDia.test.ts
-import { agruparPorDia, totaisDoMes, chaveDoDia, limitesDoMes, mesCurto } from './pagamentosPorDia.ts'
-import type { Lancamento } from './pagamentosPorDia.ts'
+import { agruparPorDia, totaisDoMes, chaveDoDia, limitesDoMes, mesCurto } from './pagamentosPorDia'
+import type { Lancamento } from './pagamentosPorDia'
 
 let falhas = 0
 const ok = (cond: boolean, nome: string) => {

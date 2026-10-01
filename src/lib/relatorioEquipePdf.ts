@@ -14,6 +14,7 @@ export type DadosRelatorioEquipe = {
   atividades: { data: string; nome: string; notas?: string | null; feito: boolean | null }[]
   compromissos: { inicio: string; categoria: string; titulo: string; cliente?: string | null; situacao: string; notas?: string | null }[]
   supervisoes: { data: string; cliente: string; unidade?: string | null; situacao: string; detalhe?: string | null }[]
+  visitas: { data: string; cliente: string; unidade?: string | null; horario?: string | null; valor: number; situacao: string; temRelatorio: boolean; obs?: string | null }[]
   caixa: { data: string; tipo: 'recebido' | 'compra' | 'devolvido'; descricao: string; cliente?: string | null; valor: number; temComprovante: boolean }[]
   saldoPeriodo: SaldoCaixa
   saldoFinal: SaldoCaixa
@@ -62,7 +63,8 @@ export async function gerarRelatorioEquipe(d: DadosRelatorioEquipe): Promise<Blo
   }
 
   const secao = (titulo: string, info?: string) => {
-    garantir(16)
+    // Título nunca fica sozinho no pé da página: só começa se couber com o começo do conteúdo
+    garantir(30)
     y += 4
     doc.setFillColor(...VERDE); doc.rect(L, y - 4.2, 1.3, 5.6, 'F')
     t(titulo, L + 3.5, y, { tam: 12, negrito: true, cor: VERDE })
@@ -88,16 +90,17 @@ export async function gerarRelatorioEquipe(d: DadosRelatorioEquipe): Promise<Blo
     ['Atividades', `${feitas} de ${d.atividades.length}`, 'feitas'],
     ['Reuniões e compromissos', String(d.compromissos.length), d.compromissos.length === 1 ? 'no período' : 'no período'],
     ['Supervisões', String(supReal), `realizada${supReal === 1 ? '' : 's'} de ${d.supervisoes.length}`],
+    ['Visitas pagas', String(d.visitas.length), brl(d.visitas.filter(v => v.situacao !== 'Recusada').reduce((s, v) => s + v.valor, 0))],
     ['Compras', brl(d.saldoPeriodo.gasto), `${d.caixa.filter(c => c.tipo === 'compra').length} comprovante(s)`],
   ]
-  const qw = (W - 3 * 4) / 4
+  const qw = (W - 4 * 3) / 5
   quadros.forEach(([rot, val, sub], i) => {
-    const x = L + i * (qw + 4)
+    const x = L + i * (qw + 3)
     doc.setFillColor(246, 247, 244); doc.setDrawColor(228, 230, 224); doc.setLineWidth(0.3)
     doc.roundedRect(x, y, qw, 22, 2, 2, 'FD')
-    t(rot.toUpperCase(), x + 3.5, y + 5.5, { tam: 6.8, negrito: true, cor: [120, 120, 120] })
-    t(val, x + 3.5, y + 13.5, { tam: val.length > 11 ? 11.5 : 14, negrito: true, cor: [20, 20, 20] })
-    t(sub, x + 3.5, y + 18.5, { tam: 7.5, cor: [120, 120, 120] })
+    t(rot === 'Reuniões e compromissos' ? 'REUNIÕES' : rot.toUpperCase(), x + 3, y + 5.5, { tam: 6.5, negrito: true, cor: [120, 120, 120] })
+    t(val, x + 3, y + 13.5, { tam: val.length > 10 ? 10 : 13, negrito: true, cor: [20, 20, 20] })
+    t(sub, x + 3, y + 18.5, { tam: 7, cor: [120, 120, 120] })
   })
   y += 30
 
@@ -154,6 +157,23 @@ export async function gerarRelatorioEquipe(d: DadosRelatorioEquipe): Promise<Blo
     t(s.situacao, R, y, { tam: 8, negrito: true, cor: realizada ? [22, 128, 61] : /não/i.test(s.situacao) ? [200, 38, 38] : [150, 110, 20], direita: true })
     y += 4.6
     det.forEach(ln => { t(ln, L + 8, y, { tam: 8, cor: [110, 110, 110] }); y += 3.8 })
+    y += 2
+  }
+
+  // ── Visitas pagas ──
+  secao('Visitas pagas', `${d.visitas.length} visita(s)`)
+  if (!d.visitas.length) vazio('Nenhuma visita paga no período.')
+  for (const v of [...d.visitas].sort((a, b) => a.data.localeCompare(b.data))) {
+    const det = [v.horario, v.temRelatorio ? 'relatório anexado' : 'sem relatório', v.obs].filter(Boolean).join(' · ')
+    const linhas = quebra(det, W - 50, 8)
+    garantir(9 + linhas.length * 3.8)
+    marca(L + 3, y - 1.2, v.situacao === 'Aprovada' ? true : v.situacao === 'Recusada' ? false : null)
+    t(`${nomeDia(v.data)} · ${v.cliente}${v.unidade ? ` · ${v.unidade}` : ''}`, L + 8, y, { tam: 9.5, negrito: true })
+    t(brl(v.valor), R, y, { tam: 9.5, negrito: true, direita: true })
+    y += 4.6
+    // Situação na linha de baixo, à direita (embaixo do valor)
+    t(v.situacao, R, y, { tam: 7.5, cor: v.situacao === 'Aprovada' ? [22, 128, 61] : v.situacao === 'Recusada' ? [200, 38, 38] : [150, 110, 20], direita: true })
+    linhas.forEach(ln => { t(ln, L + 8, y, { tam: 8, cor: [110, 110, 110] }); y += 3.8 })
     y += 2
   }
 

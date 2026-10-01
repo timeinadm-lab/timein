@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Bell, Receipt, Clock3, FileWarning, FileSignature, MessageSquare, AlertTriangle, ChevronRight, ShieldAlert, Repeat, Timer, HardDrive } from 'lucide-react'
+import { Bell, Receipt, Clock3, FileWarning, FileSignature, MessageSquare, AlertTriangle, ChevronRight, ShieldAlert, Repeat, Timer, HardDrive, Users } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
@@ -31,7 +31,7 @@ export default function AvisosSino() {
         const { count, error } = await q
         return error ? 0 : count ?? 0
       }
-      const [reembolsos, extras, atrasados, docs, perguntas, contratos, supervisoes, trocas, horasAcima, jornada, uso] = await Promise.all([
+      const [reembolsos, extras, atrasados, docs, perguntas, contratos, supervisoes, trocas, horasAcima, jornada, uso, visitasEquipe] = await Promise.all([
         chefe ? conta(supabase.from('employee_expenses').select('id', { count: 'exact', head: true }).eq('status', 'pendente')) : 0,
         chefe ? conta(supabase.from('nutritionist_visits').select('id', { count: 'exact', head: true }).eq('extra_approval', 'pendente')) : 0,
         chefe ? conta(supabase.from('payments').select('id', { count: 'exact', head: true }).eq('status', 'Pendente').lt('due_date', hojeISO())) : 0,
@@ -57,11 +57,14 @@ export default function AvisosSino() {
         buscarForaDaJornada().then(l => l.length).catch(() => 0),
         // Espaço do plano gratuito (migração 074): só o chefe
         chefe ? Promise.resolve(supabase.rpc('uso_do_sistema')).then(r => (r.error ? null : (r.data as UsoDoSistema))).catch(() => null) : null,
+        // Visita paga da equipe esperando aprovação (migração 076)
+        chefe ? conta(supabase.from('equipe_visitas').select('id', { count: 'exact', head: true }).eq('status', 'pendente')) : 0,
       ])
       const espaco = uso ? Math.max(porcento(uso.arquivos_bytes, LIMITE_ARQUIVOS), porcento(uso.banco_bytes, LIMITE_BANCO)) : 0
       return ([
         { chave: 'espaco', rotulo: `Espaço do sistema quase cheio (${Math.round(espaco)}%)`, n: espaco >= 90 ? 1 : 0, caminho: '/', icone: HardDrive, urgente: true },
         { chave: 'atrasados', rotulo: 'Pagamentos atrasados', n: atrasados, caminho: '/pagamentos', icone: AlertTriangle, urgente: true },
+        { chave: 'visitasEquipe', rotulo: 'Visitas da equipe para aprovar', n: visitasEquipe, caminho: '/equipe', icone: Users },
         { chave: 'reembolsos', rotulo: 'Reembolsos para analisar', n: reembolsos, caminho: '/pagamentos', icone: Receipt },
         { chave: 'horasAcima', rotulo: 'Horas acima do combinado', n: horasAcima, caminho: '/pagamentos', icone: Clock3 },
         { chave: 'jornada', rotulo: 'Jornada fora do combinado', n: jornada, caminho: '/jornada?aba=avisos', icone: Timer },

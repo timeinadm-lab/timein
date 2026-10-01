@@ -21,11 +21,27 @@ import type { Periodo, TipoPeriodo, LancamentoCaixa } from '../../lib/equipe'
  * A própria pessoa baixa o relatório (semana ou mês) e entrega para a chefe.
  */
 
-type Perfil = { id: string; full_name: string; role: string; photo_url?: string | null }
+type Perfil = { id: string; full_name: string; role: string; photo_url?: string | null; employee_id?: string | null }
 type Atividade = { id: string; user_id: string; activity_date: string; activity_name: string; notes?: string | null; done: boolean | null }
 type Compromisso = { id: string; title: string; category?: string | null; scheduled_at: string; status?: string | null; notes?: string | null; recruiter_id?: string | null; participant_ids?: string[] | null; client?: { name?: string } | null }
 type Supervisao = { id: string; supervisor_id: string | null; visit_date: string; status?: string | null; unit_name?: string | null; observations?: string | null; motivo_nao_realizada?: string | null; checked_in_at?: string | null; client?: { name?: string } | null }
-type Dados = { perfis: Perfil[]; atividades: Atividade[]; compromissos: Compromisso[]; supervisoes: Supervisao[]; caixa: LancamentoCaixa[]; caixaErro: boolean }
+type VisitaEquipe = {
+  id: string; user_id: string; client_id: string | null; unidade?: string | null; data: string
+  entrada?: string | null; saida?: string | null; valor: number | string; relatorio?: string | null; observacoes?: string | null
+  status: 'pendente' | 'aprovada' | 'recusada'; motivo_recusa?: string | null; client?: { name?: string } | null
+}
+type Dados = { perfis: Perfil[]; atividades: Atividade[]; compromissos: Compromisso[]; supervisoes: Supervisao[]; caixa: LancamentoCaixa[]; caixaErro: boolean; visitas: VisitaEquipe[]; visitasErro: boolean }
+const SITUACAO_VISITA: Record<VisitaEquipe['status'], { rotulo: string; cor: string }> = {
+  pendente: { rotulo: 'Aguardando aprovação', cor: 'bg-amber-50 text-amber-700' },
+  aprovada: { rotulo: 'Aprovada', cor: 'bg-green-50 text-green-700' },
+  recusada: { rotulo: 'Recusada', cor: 'bg-red-50 text-red-700' },
+}
+const horasDaVisita = (v: VisitaEquipe) => {
+  if (!v.entrada || !v.saida) return null
+  const [h1, m1] = v.entrada.slice(0, 5).split(':').map(Number), [h2, m2] = v.saida.slice(0, 5).split(':').map(Number)
+  let min = (h2 * 60 + m2) - (h1 * 60 + m1); if (min < 0) min += 1440
+  return `${v.entrada.slice(0, 5)}–${v.saida.slice(0, 5)} · ${Math.floor(min / 60)}h${min % 60 ? String(min % 60).padStart(2, '0') : ''}`
+}
 
 const iniciais = (nome: string) => nome.split(' ').filter(Boolean).slice(0, 2).map(s => s[0]).join('').toUpperCase()
 const DIAS = ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado']
@@ -38,8 +54,10 @@ const doUsuario = (c: Compromisso, uid: string) => c.recruiter_id === uid || (c.
 async function carregar(p: Periodo, uid?: string): Promise<Dados> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const dele = (q: any, col: string) => (uid ? q.eq(col, uid) : q)
-  const [perfisR, atividades, compromissos, supervisoes, caixaR] = await Promise.all([
-    supabase.from('user_profiles').select('id, full_name, role, photo_url').order('full_name'),
+  // Com a migração 076 o login tem o cadastro de colaborador ligado; sem ela, só o básico
+  const comCadastro = await supabase.from('user_profiles').select('id, full_name, role, photo_url, employee_id').order('full_name')
+  const perfisR = comCadastro.error ? await supabase.from('user_profiles').select('id, full_name, role, photo_url').order('full_name') : comCadastro
+  const [atividades, compromissos, supervisoes, caixaR, visitasR] = await Promise.all([
     fetchAll<Atividade>(() => dele(supabase.from('activity_logs').select('id, user_id, activity_date, activity_name, notes, done'), 'user_id')
       .gte('activity_date', p.ini).lte('activity_date', p.fim).order('id')),
     fetchAll<Compromisso>(() => {
@@ -53,12 +71,16 @@ async function carregar(p: Periodo, uid?: string): Promise<Dados> {
       .gte('visit_date', p.ini).lte('visit_date', p.fim).order('id')),
     // Caixa: tudo (o saldo vem de antes do período também)
     dele(supabase.from('equipe_caixa').select('*'), 'user_id').order('data'),
+    // Visitas pagas do período (migração 076)
+    dele(supabase.from('equipe_visitas').select('*, client:clients(name)'), 'user_id').gte('data', p.ini).lte('data', p.fim).order('data'),
   ])
   return {
     perfis: (perfisR.data || []) as Perfil[],
     atividades, compromissos, supervisoes,
     caixa: (caixaR.error ? [] : caixaR.data || []) as LancamentoCaixa[],
     caixaErro: !!caixaR.error,
+    visitas: (visitasR.error ? [] : visitasR.data || []) as VisitaEquipe[],
+    visitasErro: !!visitasR.error,
   }
 }
 
@@ -67,8 +89,11 @@ function resumoDe(d: Dados, uid: string, p: Periodo) {
   const compromissos = d.compromissos.filter(c => doUsuario(c, uid))
   const supervisoes = d.supervisoes.filter(s => s.supervisor_id === uid)
   const caixaDele = d.caixa.filter(c => c.user_id === uid)
+  const visitas = d.visitas.filter(v => v.user_id === uid)
   return {
-    atividades, compromissos, supervisoes, caixaDele,
+    atividades, compromissos, supervisoes, caixaDele, visitas,
+    visitasPendentes: visitas.filter(v => v.status === 'pendente').length,
+    valorVisitas: visitas.filter(v => v.status !== 'recusada').reduce((t, v) => t + (Number(v.valor) || 0), 0),
     caixaPeriodo: caixaDele.filter(c => c.data >= p.ini && c.data <= p.fim),
     feitas: atividades.filter(a => a.done === true).length,
     supReal: supervisoes.filter(s => (s.status || 'realizada') === 'realizada').length,
@@ -118,7 +143,7 @@ export default function EquipePage() {
       {chefia && !pessoa
         ? <ListaEquipe periodo={periodo} abrir={id => ir({ pessoa: id })} />
         : pessoa
-          ? <PerfilEquipe uid={pessoa} periodo={periodo} proprio={pessoa === profile?.id} voltar={chefia ? () => ir({ pessoa: null }) : undefined} />
+          ? <PerfilEquipe uid={pessoa} periodo={periodo} proprio={pessoa === profile?.id} chefia={chefia} voltar={chefia ? () => ir({ pessoa: null }) : undefined} />
           : <p className="text-sm text-ink-500">Carregando…</p>}
     </div>
   )
@@ -139,10 +164,13 @@ function ListaEquipe({ periodo, abrir }: { periodo: Periodo; abrir: (id: string)
             <span className={`w-10 h-10 rounded-full flex items-center justify-center text-xs font-semibold shrink-0 ${corDoAvatar(m.full_name)}`}>{iniciais(m.full_name)}</span>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold text-ink-900 truncate">{m.full_name}</p>
-              <p className="text-xs text-ink-500">{ROTULO_PAPEL[m.role] || m.role}</p>
+              <p className="text-xs text-ink-500">
+                {ROTULO_PAPEL[m.role] || m.role}
+                {r.visitasPendentes > 0 && <span className="ml-2 text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-50 text-amber-700">{r.visitasPendentes} visita{r.visitasPendentes > 1 ? 's' : ''} para aprovar</span>}
+              </p>
             </div>
-            <div className="hidden sm:grid grid-cols-4 gap-4 text-center shrink-0">
-              {([['Atividades', `${r.feitas}/${r.atividades.length}`], ['Reuniões', r.compromissos.length], ['Supervisões', r.supReal], ['Compras', formatCurrency(r.movPeriodo.gasto)]] as const).map(([t, v]) => (
+            <div className="hidden sm:grid grid-cols-5 gap-4 text-center shrink-0">
+              {([['Atividades', `${r.feitas}/${r.atividades.length}`], ['Reuniões', r.compromissos.length], ['Supervisões', r.supReal], ['Visitas', r.visitas.length], ['Compras', formatCurrency(r.movPeriodo.gasto)]] as const).map(([t, v]) => (
                 <div key={t}><p className="text-sm font-semibold text-ink-900 tnum">{v}</p><p className="text-[10px] text-ink-400">{t}</p></div>
               ))}
             </div>
@@ -156,7 +184,7 @@ function ListaEquipe({ periodo, abrir }: { periodo: Periodo; abrir: (id: string)
 }
 
 // ── Perfil de uma pessoa ──────────────────────────────────────────────────
-function PerfilEquipe({ uid, periodo, proprio, voltar }: { uid: string; periodo: Periodo; proprio: boolean; voltar?: () => void }) {
+function PerfilEquipe({ uid, periodo, proprio, voltar, chefia }: { uid: string; periodo: Periodo; proprio: boolean; voltar?: () => void; chefia: boolean }) {
   const { profile } = useAuth()
   const qc = useQueryClient()
   const { data, isLoading, error } = useQuery({ queryKey: ['equipe', periodo.ini, periodo.fim, uid], queryFn: () => carregar(periodo, uid) })
@@ -171,8 +199,52 @@ function PerfilEquipe({ uid, periodo, proprio, voltar }: { uid: string; periodo:
   })
   const nomeCliente = (id?: string | null) => (id && clientes.find(c => c.id === id)?.name) || ''
   const [lancando, setLancando] = useState(false)
+  const [registrandoVisita, setRegistrandoVisita] = useState(false)
+  const [recusando, setRecusando] = useState<{ id: string; motivo: string } | null>(null)
   const [comFotos, setComFotos] = useState(true)
   const [gerando, setGerando] = useState(false)
+
+  // Cadastro de colaborador para o pagamento sair com nome, PIX e banco (só a chefia liga)
+  const { data: colaboradores = [] } = useQuery({
+    queryKey: ['colaboradores-lista-simples'],
+    enabled: chefia,
+    queryFn: async () => {
+      const { data, error } = await supabase.from('employees').select('id, full_name, status').order('full_name')
+      if (error) throw error
+      return (data || []) as { id: string; full_name: string; status?: string }[]
+    },
+    staleTime: 5 * 60_000,
+  })
+  const ligarCadastro = useMutation({
+    mutationFn: async (employeeId: string) => {
+      const { error } = await supabase.from('user_profiles').update({ employee_id: employeeId || null }).eq('id', uid)
+      if (error) throw new Error(/employee_id/.test(error.message) ? 'Falta rodar a migração 076 no Supabase.' : error.message)
+    },
+    onSuccess: () => { toast.success('Cadastro ligado'); qc.invalidateQueries({ queryKey: ['equipe'] }) },
+    onError: (e: Error) => toast.error(e.message),
+  })
+  const decidirVisita = useMutation({
+    mutationFn: async ({ id, aprovar, motivo }: { id: string; aprovar: boolean; motivo?: string }) => {
+      const { error } = aprovar
+        ? await supabase.rpc('aprovar_visita_equipe', { p_id: id })
+        : await supabase.rpc('recusar_visita_equipe', { p_id: id, p_motivo: motivo || null })
+      if (error) throw error
+    },
+    onSuccess: (_d, v) => {
+      toast.success(v.aprovar ? 'Visita aprovada — já está em Pagamentos' : 'Visita recusada')
+      setRecusando(null)
+      qc.invalidateQueries({ queryKey: ['equipe'] }); qc.invalidateQueries({ queryKey: ['payments'] }); qc.invalidateQueries({ queryKey: ['avisos-sino'] })
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+  const apagarVisita = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from('equipe_visitas').delete().eq('id', id)
+      if (error) throw error
+    },
+    onSuccess: () => { toast.success('Visita apagada'); qc.invalidateQueries({ queryKey: ['equipe'] }) },
+    onError: (e: Error) => toast.error(e.message),
+  })
 
   const apagar = useMutation({
     mutationFn: async (id: string) => {
@@ -215,6 +287,11 @@ function PerfilEquipe({ uid, periodo, proprio, voltar }: { uid: string; periodo:
         supervisoes: r.supervisoes.map(s => ({
           data: s.visit_date, cliente: s.client?.name || 'Cliente', unidade: s.unit_name, situacao: situacaoSup(s),
           detalhe: [s.checked_in_at ? `check-in às ${hora(s.checked_in_at)}` : null, s.motivo_nao_realizada ? `motivo: ${s.motivo_nao_realizada}` : null, s.observations].filter(Boolean).join(' · ') || null,
+        })),
+        visitas: r.visitas.map(v => ({
+          data: v.data, cliente: v.client?.name || nomeCliente(v.client_id) || 'Cliente', unidade: v.unidade, horario: horasDaVisita(v),
+          valor: Number(v.valor) || 0, situacao: SITUACAO_VISITA[v.status].rotulo === 'Aguardando aprovação' ? 'Aguardando' : SITUACAO_VISITA[v.status].rotulo,
+          temRelatorio: !!v.relatorio, obs: [v.observacoes, v.motivo_recusa ? `recusada: ${v.motivo_recusa}` : null].filter(Boolean).join(' · ') || null,
         })),
         caixa: r.caixaPeriodo.map(c => ({ data: c.data, tipo: c.tipo, descricao: c.descricao, cliente: nomeCliente(c.client_id), valor: Number(c.valor) || 0, temComprovante: !!c.comprovante })),
         saldoPeriodo: r.movPeriodo, saldoFinal: r.saldoFim,
@@ -316,6 +393,60 @@ function PerfilEquipe({ uid, periodo, proprio, voltar }: { uid: string; periodo:
           ))}
       </Secao>
 
+      {/* Visitas pagas: ela registra, a chefia aprova e vira pagamento (migração 076) */}
+      <div className="card overflow-hidden">
+        <div className="px-4 py-3 border-b border-ink-100 flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <p className="text-sm font-semibold text-ink-900">Visitas pagas</p>
+            <p className="text-xs text-ink-500">{r.visitas.length} no período · {formatCurrency(r.valorVisitas)}{r.visitasPendentes ? ` · ${r.visitasPendentes} aguardando aprovação` : ''}</p>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            {chefia && !data.visitasErro && (
+              <select className="input w-auto text-xs py-1.5" title="Cadastro de colaborador para o pagamento (nome, PIX e banco)"
+                value={perfil?.employee_id || ''} onChange={e => ligarCadastro.mutate(e.target.value)} disabled={ligarCadastro.isPending}>
+                <option value="">Recebe como: (sem cadastro ligado)</option>
+                {colaboradores.filter(c => c.status === 'Ativo' || c.id === perfil?.employee_id).map(c => <option key={c.id} value={c.id}>Recebe como: {c.full_name}</option>)}
+              </select>
+            )}
+            {proprio && !data.visitasErro && <button className="btn-primary text-sm" onClick={() => setRegistrandoVisita(true)}><Plus size={15} />Registrar visita</button>}
+          </div>
+        </div>
+        {data.visitasErro ? <p className="px-4 py-4 text-sm text-amber-700">Para registrar visita paga, rode a migração 076 no Supabase.</p>
+          : r.visitas.length === 0 ? <Vazio texto={proprio ? 'Nenhuma visita paga neste período. Fez uma visita a cliente? Toque em Registrar visita.' : 'Nenhuma visita paga neste período.'} />
+          : (
+            <div className="divide-y divide-ink-100">
+              {r.visitas.map(v => (
+                <div key={v.id} className="px-4 py-2.5 flex items-start gap-3">
+                  <p className="w-14 shrink-0 text-xs font-semibold text-ink-700 pt-0.5">{formatDate(v.data).slice(0, 5)}</p>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-ink-900">{v.client?.name || nomeCliente(v.client_id) || 'Cliente'}{v.unidade ? ` · ${v.unidade}` : ''}</p>
+                    <p className="text-xs text-ink-500">{[horasDaVisita(v), v.observacoes].filter(Boolean).join(' · ')}</p>
+                    {v.motivo_recusa && <p className="text-xs text-red-600">Recusada: {v.motivo_recusa}</p>}
+                    <div className="flex items-center gap-2 mt-1 flex-wrap">
+                      <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${SITUACAO_VISITA[v.status].cor}`}>{SITUACAO_VISITA[v.status].rotulo}</span>
+                      {v.relatorio && <SignedLink value={v.relatorio} bucket="arquivos" className="text-[11px] underline text-ink-500 inline-flex items-center gap-1"><FileText size={11} />relatório</SignedLink>}
+                    </div>
+                  </div>
+                  <div className="flex flex-col items-end gap-1 shrink-0">
+                    <p className="text-sm font-semibold tnum text-ink-900">{formatCurrency(Number(v.valor) || 0)}</p>
+                    {chefia && v.status === 'pendente' && (
+                      <div className="flex gap-1">
+                        <button className="btn-primary text-[11px] py-1 px-2" disabled={decidirVisita.isPending}
+                          onClick={async () => { if (await confirmar({ titulo: `Aprovar a visita de ${formatCurrency(Number(v.valor) || 0)}?`, texto: 'Ela vira um lançamento em Pagamentos (dia 20 para visita até o dia 15; dia 8 do mês seguinte depois disso).', confirmar: 'Aprovar' })) decidirVisita.mutate({ id: v.id, aprovar: true }) }}>Aprovar</button>
+                        <button className="btn-secondary text-[11px] py-1 px-2" disabled={decidirVisita.isPending} onClick={() => setRecusando({ id: v.id, motivo: '' })}>Recusar</button>
+                      </div>
+                    )}
+                    {proprio && v.status === 'pendente' && (
+                      <button className="p-1 text-ink-400 hover:text-red-600" aria-label="Apagar visita" disabled={apagarVisita.isPending}
+                        onClick={async () => { if (await confirmar({ titulo: 'Apagar esta visita?', confirmar: 'Apagar', perigo: true })) apagarVisita.mutate(v.id) }}><Trash2 size={14} /></button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+      </div>
+
       {/* Caixa de compras */}
       <div className="card overflow-hidden">
         <div className="px-4 py-3 border-b border-ink-100 flex items-center justify-between gap-3 flex-wrap">
@@ -356,6 +487,20 @@ function PerfilEquipe({ uid, periodo, proprio, voltar }: { uid: string; periodo:
       </div>
 
       {lancando && <LancarCaixa uid={uid} clientes={clientes} fechar={() => setLancando(false)} />}
+      {registrandoVisita && <RegistrarVisita uid={uid} clientes={clientes} fechar={() => setRegistrandoVisita(false)} />}
+      {recusando && (
+        <div className="modal-overlay" onClick={() => setRecusando(null)}>
+          <div className="modal-box max-w-sm space-y-3" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-ink-900">Recusar visita</h3>
+            <textarea className="input" rows={3} placeholder="Motivo (ela vê no relatório)" value={recusando.motivo}
+              onChange={e => setRecusando(p => p ? { ...p, motivo: e.target.value } : p)} />
+            <div className="flex gap-2">
+              <button className="btn-secondary flex-1" onClick={() => setRecusando(null)}>Cancelar</button>
+              <button className="btn-danger flex-1" disabled={decidirVisita.isPending} onClick={() => decidirVisita.mutate({ id: recusando.id, aprovar: false, motivo: recusando.motivo })}>Recusar</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -451,6 +596,88 @@ function LancarCaixa({ uid, clientes, fechar }: { uid: string; clientes: { id: s
         <div className="flex flex-col-reverse sm:flex-row gap-2">
           <button className="btn-secondary flex-1" onClick={fechar}>Cancelar</button>
           <button className="btn-primary flex-1" disabled={salvar.isPending} onClick={() => salvar.mutate()}>{salvar.isPending ? 'Salvando…' : 'Lançar'}</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Registrar visita paga (a própria pessoa) ──────────────────────────────
+function RegistrarVisita({ uid, clientes, fechar }: { uid: string; clientes: { id: string; name: string }[]; fechar: () => void }) {
+  const qc = useQueryClient()
+  const [cliente, setCliente] = useState('')
+  const [unidade, setUnidade] = useState('')
+  const [data, setData] = useState(hojeISO())
+  const [entrada, setEntrada] = useState('')
+  const [saida, setSaida] = useState('')
+  const [valor, setValor] = useState('')
+  const [obs, setObs] = useState('')
+  const [arquivo, setArquivo] = useState<File | null>(null)
+
+  const salvar = useMutation({
+    mutationFn: async () => {
+      if (!cliente) throw new Error('Escolha o cliente')
+      if (!entrada || !saida) throw new Error('Informe a entrada e a saída')
+      const v = Number(valor.replace(/\./g, '').replace(',', '.'))
+      if (!(v > 0)) throw new Error('Informe o valor da visita')
+      let relatorio: string | null = null
+      if (arquivo) {
+        // Foto diminuída antes de subir (continua legível). PDF vai igual.
+        const f = await comprimirImagem(arquivo)
+        const ext = (f.name.split('.').pop() || 'jpg').toLowerCase()
+        const caminho = `visitas-equipe/${uid}/${Date.now()}.${ext}`
+        const { error: upErr } = await supabase.storage.from('arquivos').upload(caminho, f, { upsert: false, contentType: f.type || undefined })
+        if (upErr) throw new Error('O relatório não subiu: ' + upErr.message)
+        relatorio = caminho
+      }
+      const { error } = await supabase.from('equipe_visitas').insert({
+        user_id: uid, client_id: cliente, unidade: unidade.trim() || null, data, entrada, saida,
+        valor: Math.round(v * 100) / 100, relatorio, observacoes: obs.trim() || null,
+      })
+      if (error) throw new Error(/equipe_visitas/.test(error.message) ? 'Falta rodar a migração 076 no Supabase.' : error.message)
+    },
+    onSuccess: () => { toast.success('Visita registrada — aguardando aprovação da chefia'); qc.invalidateQueries({ queryKey: ['equipe'] }); qc.invalidateQueries({ queryKey: ['avisos-sino'] }); fechar() },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  return (
+    <div className="modal-overlay" onClick={fechar}>
+      <div className="modal-box max-w-md space-y-4" onClick={e => e.stopPropagation()}>
+        <div>
+          <h3 className="text-lg font-semibold text-ink-900">Registrar visita paga</h3>
+          <p className="text-xs text-ink-500">A chefia aprova e ela entra em Pagamentos.</p>
+        </div>
+        <div>
+          <label className="label">Cliente *</label>
+          <select className="input" value={cliente} onChange={e => setCliente(e.target.value)}>
+            <option value="">Escolha…</option>
+            {clientes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="label">Unidade <span className="text-ink-400 font-normal">— opcional</span></label>
+          <input className="input" value={unidade} onChange={e => setUnidade(e.target.value)} placeholder="Ex.: Unidade Centro" />
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          <div><label className="label">Dia *</label><input className="input" type="date" value={data} max={hojeISO()} onChange={e => setData(e.target.value)} /></div>
+          <div><label className="label">Entrada *</label><input className="input" type="time" value={entrada} onChange={e => setEntrada(e.target.value)} /></div>
+          <div><label className="label">Saída *</label><input className="input" type="time" value={saida} onChange={e => setSaida(e.target.value)} /></div>
+        </div>
+        <div>
+          <label className="label">Valor da visita *</label>
+          <input className="input tnum" inputMode="decimal" placeholder="0,00" value={valor} onChange={e => setValor(e.target.value)} />
+        </div>
+        <div>
+          <label className="label">Relatório <span className="text-ink-400 font-normal">— foto ou PDF</span></label>
+          <input type="file" accept="image/*,application/pdf" className="input" onChange={e => setArquivo(e.target.files?.[0] || null)} />
+        </div>
+        <div>
+          <label className="label">Observações <span className="text-ink-400 font-normal">— opcional</span></label>
+          <textarea className="input" rows={2} value={obs} onChange={e => setObs(e.target.value)} />
+        </div>
+        <div className="flex flex-col-reverse sm:flex-row gap-2">
+          <button className="btn-secondary flex-1" onClick={fechar}>Cancelar</button>
+          <button className="btn-primary flex-1" disabled={salvar.isPending} onClick={() => salvar.mutate()}>{salvar.isPending ? 'Salvando…' : 'Registrar'}</button>
         </div>
       </div>
     </div>

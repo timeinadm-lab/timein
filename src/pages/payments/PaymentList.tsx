@@ -1209,6 +1209,8 @@ export default function PaymentList() {
     (payments ?? []).filter(p => {
       // Cancelado não conta: antes ele "ocupava" a linha e sumia o botão Gerar
       if (p.status === 'Cancelado') return false
+      // Visita paga da equipe é lançamento à parte: não entra na conta da folha (migração 076)
+      if ((p as { origem?: string | null }).origem === 'visita_equipe') return false
       const plink = (p as { link_id?: string }).link_id
       return plink ? plink === row.linkId : p.employee_id === row.employee?.id
     })
@@ -1416,7 +1418,7 @@ export default function PaymentList() {
   const linkedEmpIds = new Set((folhaData ?? []).map(r => r.employee?.id).filter(Boolean))
   const unlinkedPayments = (payments ?? []).filter(p => {
     const eid = (p as { employee_id?: string }).employee_id
-    return !eid || !linkedEmpIds.has(eid)
+    return !eid || !linkedEmpIds.has(eid) || (p as { origem?: string | null }).origem === 'visita_equipe'
   })
 
   const cancelPayment = useMutation({

@@ -12,12 +12,14 @@ import { SignedLink } from '../../components/ui/SignedFile'
 import { format, startOfMonth, endOfMonth, getDaysInMonth, addDays } from 'date-fns'
 import toast from 'react-hot-toast'
 import { confirmar } from '../../components/ui/ConfirmDialog'
+import PorDiaDePagamento from './PorDiaDePagamento'
+import type { FolhaRel } from '../../lib/relatorioSaidas'
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend,
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
 } from 'recharts'
 
-type Tab = 'folha' | 'pagos'
+type Tab = 'dias' | 'folha' | 'pagos'
 type WorkerGroup = 'consultoria' | 'fixo_plantao'
 
 // Freela acabou (migração 058): Consultoria ou Fixo (mensal ou por diária)
@@ -150,7 +152,8 @@ export default function PaymentList() {
     },
     onError: (e: Error) => toast.error(e.message),
   })
-  const [tab, setTab] = useState<Tab>('folha')
+  // Abre em "Por dia de pagamento": dia 8, 15, 20 e avulsos (pedido de 30/09/2026)
+  const [tab, setTab] = useState<Tab>('dias')
   const [showCharts, setShowCharts] = useState(false)
   const [filterMonth, setFilterMonth] = useState(() => format(new Date(), 'yyyy-MM'))
   // Filtro por etapa e busca da folha. O antigo filtro de status ia no banco e
@@ -1083,10 +1086,12 @@ export default function PaymentList() {
   const generateRealPayment = useMutation({
     mutationFn: async (row: GenRow) => {
       if (!row.employee) throw new Error('Sem colaborador')
-      const now = new Date()
+      // Vence no dia do contrato do MÊS DA FOLHA — o mesmo da previsão. Antes
+      // contava a partir de hoje: fechar um dia depois do vencimento jogava o
+      // pagamento para o mês seguinte e ele não aparecia como atrasado.
       const payDay = row.payDay || 5
-      const dueDate = new Date(now.getFullYear(), now.getMonth(), payDay)
-      if (dueDate < now) dueDate.setMonth(dueDate.getMonth() + 1)
+      const vencePrevisto = lancamentosDaLinha(row).filter(p => p.status === 'Pendente').map(p => p.due_date).sort()[0]
+      const vence = vencePrevisto || `${filterMonth}-${String(payDay).padStart(2, '0')}`
       const monthLabel = new Date(filterMonth + '-15').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
       const extras = empExpensesTotal(row.linkId) + row.cost_assistance + row.extrasAprovados + (row.multaEncerramento || 0)
       // O Real substitui a Estimativa do mês: o que já foi pago dela sai do
@@ -1102,7 +1107,7 @@ export default function PaymentList() {
           ? `Rescisão – ${row.employee.full_name}${row.client ? ` (${row.client.name})` : ''} – até ${formatDate(row.rescisao.fim)}${jaPago > 0 ? ` (já pago ${formatCurrency(jaPago)})` : ''}`
           : `[REAL] ${row.isFreela ? 'Diárias' : 'Honorários'} – ${row.employee.full_name}${row.client ? ` (${row.client.name})` : ''} – ${monthLabel}${jaPago > 0 ? ` (já pago ${formatCurrency(jaPago)})` : ''}`,
         amount: Math.max(0, Math.round((row.realAmt + extras - jaPago) * 100) / 100),
-        due_date: `${dueDate.getFullYear()}-${String(dueDate.getMonth() + 1).padStart(2, '0')}-${String(dueDate.getDate()).padStart(2, '0')}`,
+        due_date: vence,
       })
       if (pendentes.length) {
         const { error } = await supabase.from('payments').update({ status: 'Cancelado' }).in('id', pendentes.map(p => p.id))
@@ -1332,6 +1337,20 @@ export default function PaymentList() {
     atrasado: linhas.filter(l => l.et.atrasado).length,
   }
 
+  // Folha para o relatório do mês: a conta, o lançado e o pago de cada vínculo
+  const ROTULO_ETAPA: Record<string, string> = { lancar: 'A lançar', conferir: 'A conferir', pagar: 'A pagar', pago: 'Pago' }
+  const folhaRel: FolhaRel[] = linhas.map(l => ({
+    pessoa: l.row.employee?.full_name || '',
+    cliente: l.row.client?.name || '',
+    tipo: porTrabalho(l.row) ? 'Consultoria (por visita)' : l.row.salarioConsult ? 'Consultoria (salário)' : l.row.isFreela ? 'Fixo (diária)' : 'Fixo',
+    diaPagamento: porTrabalho(l.row) ? '20 (1ª quinz.) e 8 do mês seguinte (2ª)' : ((l.row.payDaysAll || []).length ? l.row.payDaysAll.join(' e ') : String(l.row.payDay || '')),
+    etapa: ROTULO_ETAPA[l.et.etapa] || l.et.etapa,
+    conta: l.conta.total,
+    lancado: l.lancado,
+    pago: l.et.somaPaga,
+    aberto: l.aberto,
+  }))
+
   // Unlinked payment records (manual, no vínculo)
   const linkedEmpIds = new Set((folhaData ?? []).map(r => r.employee?.id).filter(Boolean))
   const unlinkedPayments = (payments ?? []).filter(p => {
@@ -1445,7 +1464,7 @@ export default function PaymentList() {
       {/* Resumo do mês: quanto é a folha, quanto já saiu e quanto falta.
           Antes eram 4 cartões aqui e outros 4 iguais dentro da aba — e o
           "Folha do mês" somava o salário cheio mesmo de quem tinha falta. */}
-      {(() => {
+      {tab !== 'dias' && (() => {
         const folhaTotal = r2(linhas.reduce((s, l) => s + l.conta.total, 0))
         const outrosAbertos = unlinkedPayments.filter(p => p.status === 'Pendente').reduce((s, p) => s + (Number(p.amount) || 0), 0)
         const faltaPagar = r2(linhas.reduce((s, l) => s + l.aberto, 0) + outrosAbertos)
@@ -1568,6 +1587,7 @@ export default function PaymentList() {
         </div>
         <div className="flex gap-1.5 ml-auto">
           {([
+            ['dias', 'Por dia de pagamento'],
             ['folha', 'Folha do mês'],
             ['pagos', 'Pagos'],
           ] as const).map(([k, label]) => (
@@ -1611,6 +1631,20 @@ export default function PaymentList() {
             ))}
           </div>
         </div>
+      )}
+
+      {/* ── POR DIA DE PAGAMENTO ── */}
+      {tab === 'dias' && (
+        <PorDiaDePagamento
+          mes={filterMonth}
+          nomeMes={nomeDoMes}
+          onPagar={id => markPaid.mutate(id)}
+          pagando={markPaid.isPending}
+          aLancar={contagem.lancar}
+          irParaFolha={() => { setTab('folha'); setFiltroEtapa('lancar') }}
+          reembolsos={(expenses ?? []) as never}
+          folha={folhaRel}
+        />
       )}
 
       {/* ── FOLHA DO MÊS ── */}

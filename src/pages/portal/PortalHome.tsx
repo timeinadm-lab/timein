@@ -1750,7 +1750,7 @@ export default function PortalHome() {
                                   <button className="btn-secondary text-xs py-2 flex-1" onClick={() => {
                                     setDiaAgenda(null)
                                     setDayModal({ date: ds, linkId: it.linkId! }); setNoticeAction(''); setNoticeForm({ reason: '', otherDate: '' })
-                                  }}>Avisar falta ou trocar</button>
+                                  }}>Trocar dia</button>
                                 </div>
                               </div>
                             )
@@ -1952,11 +1952,6 @@ export default function PortalHome() {
                 <div className="space-y-2">
                   {!off && (
                     <>
-                      <button className="w-full text-left px-4 py-3 rounded-xl border-2 border-red-200 bg-red-50 text-red-800 text-sm font-medium hover:border-red-400 transition-colors"
-                        onClick={() => setNoticeAction('falta')}>
-                        Vou faltar neste dia
-                        <span className="block text-xs font-normal text-red-500">Avisa o RH com antecedência</span>
-                      </button>
                       <button className="w-full text-left px-4 py-3 rounded-xl border-2 border-amber-200 bg-amber-50 text-amber-800 text-sm font-medium hover:border-amber-400 transition-colors"
                         onClick={() => setNoticeAction('troca-folgar')}>
                         Quero trocar este dia
@@ -2029,7 +2024,10 @@ export default function PortalHome() {
       {showPontoModal && (() => {
         const modalLink = getLinkForClient(pontoForm.client_id, pontoForm.visit_date)
         const isConsultoria = effectiveType(modalLink) === 'Consultoria'
-        const mensal = recebeMensal(modalLink)
+        // Folga e Falta saíram do portal (Gabriel, 30/09/2026): pagamos por dia
+        // trabalhado, não é CLT — então só se registra trabalho. Registro antigo
+        // de folga/falta aberto pelo lápis ainda mostra o que era.
+        const mensal = recebeMensal(modalLink) && pontoForm.day_type !== 'normal'
         // "Trabalho" = registro com horário. Quem não recebe mensal só registra trabalho.
         const trabalho = !mensal || pontoForm.day_type === 'normal'
         const folgaDaEscala = !!modalLink && !isConsultoria && isDayOff(modalLink, pontoForm.visit_date)
@@ -2150,8 +2148,8 @@ export default function PortalHome() {
                 )
               })()}
 
-              {/* O que aconteceu (só quem recebe mensal) */}
-              {modalLink && mensal && (
+              {/* Trabalhei / Folga / Faltei: só aparece ao corrigir um registro antigo de folga ou falta */}
+              {modalLink && mensal && editingPontoId && (
                 <div className="grid grid-cols-3 gap-1 p-1 rounded-xl bg-ink-100/70">
                   {([['normal', 'Trabalhei', 'text-ink-900'], ['feriado', 'Folga', 'text-amber-700'], ['indisponivel', 'Faltei', 'text-red-700']] as const).map(([v, t, cor]) => (
                     <button key={v} type="button"

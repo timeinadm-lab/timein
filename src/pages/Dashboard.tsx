@@ -11,6 +11,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { formatDate, formatCurrency, formatLocalTime, parseLocal, isMeetingLink, mapsUrl, hojeISO, tipoDoVinculo, pagaPorDiaria, ehTemporario, precisaContrato, compromissoNoDia, pendenciasDoVinculo, salarioConsultoria } from '../lib/utils'
 import type { VinculoCadastro } from '../lib/utils'
 import { buscarForaDaJornada, horaMin, TOLERANCIA_MIN } from '../lib/jornada'
+import MedidorEspaco, { useUsoDoSistema, porcento, tamanho, LIMITE_ARQUIVOS, LIMITE_BANCO } from '../components/ui/MedidorEspaco'
 import { addDays, startOfMonth, endOfMonth, isBefore, parseISO, isAfter, differenceInDays, subMonths, format } from 'date-fns'
 
 const BACKUP_TABLES = [
@@ -413,6 +414,8 @@ export default function Dashboard() {
 
   // Dias abaixo da jornada (migração 067) — entra em "Precisa de atenção"
   const { data: jornadaFora } = useQuery({ queryKey: ['dashboard-jornada'], queryFn: buscarForaDaJornada })
+  // Espaço do plano gratuito do Supabase (migração 074) — só o chefe vê
+  const { data: usoSistema } = useUsoDoSistema(role === 'chefe')
 
   // Meus itens "a agendar" (sem data) — pra eu lembrar que preciso definir a data
   const { data: myPending } = useQuery({
@@ -1404,6 +1407,21 @@ export default function Dashboard() {
     }))
   }
 
+  // Espaço do plano gratuito: ao lotar, o Supabase pode parar o sistema e o portal juntos
+  if (usoSistema) {
+    const pa = porcento(usoSistema.arquivos_bytes, LIMITE_ARQUIVOS)
+    const pb = porcento(usoSistema.banco_bytes, LIMITE_BANCO)
+    const pior = Math.max(pa, pb)
+    if (pior >= 70) {
+      const item: AlertItem = {
+        key: `espaco-${Math.floor(pior / 10)}`,
+        text: `Espaço do sistema em ${pior.toLocaleString('pt-BR')}% (${pa >= pb ? `arquivos: ${tamanho(usoSistema.arquivos_bytes)} de 1 GB` : `banco: ${tamanho(usoSistema.banco_bytes)} de 500 MB`}) — ao lotar, o Supabase pode parar o sistema e o portal`,
+      }
+      if (pior >= 90) redAlerts.unshift(item)
+      else amberAlerts.push(item)
+    }
+  }
+
   const filteredRed = agrupar(redAlerts.filter(a => !isHidden(a)))
   const filteredAmber = agrupar(amberAlerts.filter(a => !isHidden(a)))
   const allAlerts = [...filteredRed, ...filteredAmber]
@@ -1795,6 +1813,9 @@ export default function Dashboard() {
           </div>
         </section>
       </div>
+
+      {/* Espaço do plano gratuito do Supabase (1 GB de arquivos, 500 MB de banco) */}
+      {role === 'chefe' && <MedidorEspaco />}
     </div>
   )
 }

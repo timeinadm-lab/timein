@@ -10,6 +10,7 @@ import { ptBR } from 'date-fns/locale'
 import toast from 'react-hot-toast'
 import { confirmar } from '../../components/ui/ConfirmDialog'
 import JornadaAviso from './JornadaAviso'
+import { comprimirImagem } from '../../lib/imagem'
 import InstalarPortal from './InstalarPortal'
 import { jornadaDoVinculo, desvioDoDia, textoDoDesvio, TOLERANCIA_MIN, minutosLiquidos } from '../../lib/jornada'
 import type { VinculoJornada } from '../../lib/jornada'
@@ -455,11 +456,13 @@ export default function PortalHome() {
       // Se o envio falhar o registro já está salvo; antes a falha era engolida
       // e a pessoa achava que o atestado tinha ido.
       const anexosFalhos: string[] = []
-      const enviar = async (file: File, pasta: string, campo: string, nome: string) => {
+      const enviar = async (original: File, pasta: string, campo: string, nome: string) => {
         try {
+          // Foto diminuída antes de subir (continua legível): 3–5 MB viram ~0,5 MB. PDF vai igual.
+          const file = await comprimirImagem(original)
           const ext = file.name.split('.').pop()
           const path = `${pasta}/${employeeId}/${recordId}_${Date.now()}.${ext}` // nome único: o portal só pode criar arquivo (migração 070)
-          const { error: upErr } = await supabase.storage.from('arquivos').upload(path, file, { upsert: false })
+          const { error: upErr } = await supabase.storage.from('arquivos').upload(path, file, { upsert: false, contentType: file.type || undefined })
           if (upErr) throw upErr
           await rpc('portal_set_visit_file', { p_token: token, p_id: recordId, p_field: campo, p_url: path })
         } catch {
@@ -662,12 +665,14 @@ export default function PortalHome() {
     onError: (e: Error) => toast.error(e.message),
   })
 
-  const uploadReceipt = async (expenseId: string, file: File) => {
+  const uploadReceipt = async (expenseId: string, original: File) => {
     setUploadingExpId(expenseId)
     try {
+      // Foto diminuída antes de subir (continua legível). PDF vai igual.
+      const file = await comprimirImagem(original)
       const ext = file.name.split('.').pop()
       const path = `receipts/${employeeId}/${expenseId}_${Date.now()}.${ext}` // nome único (migração 070)
-      const { error: upErr } = await supabase.storage.from('arquivos').upload(path, file, { upsert: false })
+      const { error: upErr } = await supabase.storage.from('arquivos').upload(path, file, { upsert: false, contentType: file.type || undefined })
       if (upErr) {
         console.error('[portal] comprovante', upErr)
         toast.error('O comprovante não foi enviado. Toque em "Anexar comprovante" no pedido e tente de novo.', { duration: 8000 })

@@ -7,7 +7,8 @@
 // ============================================================
 
 /** Foto → JPEG com no máximo `maxLado` px. PDF e outros arquivos passam iguais. */
-export async function comprimirImagem(file: File, maxLado = 1600, qualidade = 0.75): Promise<File> {
+// 2000 px no lado maior com qualidade 0,82: nota fiscal e relatório continuam fáceis de ler
+export async function comprimirImagem(file: File, maxLado = 2000, qualidade = 0.82): Promise<File> {
   if (!file.type.startsWith('image/') || file.type === 'image/gif' || file.type === 'image/svg+xml') return file
   try {
     const bmp = await createImageBitmap(file)

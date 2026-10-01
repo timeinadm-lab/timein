@@ -7,6 +7,7 @@ import { formatDate, getInitials } from '../../lib/utils'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import toast from 'react-hot-toast'
+import { linhaDoTempo, naoRespondidas } from '../../lib/chat'
 
 type Tab = 'colaboradores' | 'interno'
 
@@ -49,10 +50,10 @@ export default function Chat() {
       const { data, error } = await supabase
         .from('employee_questions')
         .select('*, employee:employees(id, full_name, whatsapp)')
-        .order('created_at', { ascending: true })
+        .order('created_at', { ascending: false })
         .limit(500)
       if (error) throw error
-      return (data || []) as EmpQuestion[]
+      return ((data || []) as EmpQuestion[]).reverse()
     },
   })
 
@@ -113,10 +114,9 @@ export default function Chat() {
           if (!emp) return acc
           if (!acc[emp.id]) acc[emp.id] = { employee: emp, messages: [], unread: 0 }
           acc[emp.id].messages.push(q)
-          if (!q.answer && q.message) acc[emp.id].unread++
           return acc
         }, {})
-      ).sort((a, b) => (b.messages.at(-1)?.created_at || '').localeCompare(a.messages.at(-1)?.created_at || ''))
+      ).map(t => ({ ...t, unread: naoRespondidas(t.messages) })).sort((a, b) => (linhaDoTempo(b.messages).at(-1)?.quando || '').localeCompare(linhaDoTempo(a.messages).at(-1)?.quando || ''))
     : []
 
   const filteredThreads = searchEmp
@@ -124,7 +124,7 @@ export default function Chat() {
     : threads
 
   const selectedThread = selectedEmployee ? threads.find(t => t.employee.id === selectedEmployee) ?? null : null
-  const totalUnread = questions?.filter(q => !q.answer && q.message).length ?? 0
+  const totalUnread = threads.reduce((s, t) => s + t.unread, 0)
 
   const answerQuestion = useMutation({
     mutationFn: async ({ id, answer }: { id: string; answer: string }) => {
@@ -165,6 +165,13 @@ export default function Chat() {
     const unanswered = selectedThread.messages.filter(m => !m.answer && m.message)
     if (unanswered.length > 0) {
       await answerQuestion.mutateAsync({ id: unanswered.at(-1)!.id, answer: reply.trim() })
+      // As mensagens anteriores ficam respondidas por esta resposta (resposta vazia não
+      // aparece na conversa); assim o sino e o contador não ficam presos nelas.
+      const anteriores = unanswered.slice(0, -1).map(m => m.id)
+      if (anteriores.length) {
+        await supabase.from('employee_questions').update({ answer: '' }).in('id', anteriores).is('answer', null)
+        qc.invalidateQueries({ queryKey: ['chat-employee-questions'] })
+      }
     } else {
       await sendAdminMessage.mutateAsync({ employeeId: selectedThread.employee.id, message: reply.trim() })
     }
@@ -270,7 +277,7 @@ export default function Chat() {
                 </div>
               )}
               {filteredThreads.map(t => {
-                const last = t.messages.at(-1)
+                const last = linhaDoTempo(t.messages).at(-1)
                 return (
                   <button
                     key={t.employee.id}
@@ -288,7 +295,7 @@ export default function Chat() {
                             <span className="w-4 h-4 bg-red-500 text-white text-xs rounded-full flex items-center justify-center flex-shrink-0">{t.unread}</span>
                           )}
                         </div>
-                        <p className="text-xs text-gray-500 truncate">{last?.message || last?.answer || ''}</p>
+                        <p className="text-xs text-gray-500 truncate">{last?.texto || ''}</p>
                       </div>
                     </div>
                   </button>
@@ -324,33 +331,28 @@ export default function Chat() {
               </div>
 
               <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                {selectedThread.messages.map(m => (
-                  <div key={m.id} className="space-y-2">
-                    {m.message && (
-                      <div className="flex gap-2 items-end">
-                        <div className="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center text-xs font-medium text-gray-600 flex-shrink-0">
-                          {getInitials(selectedThread.employee.full_name)}
-                        </div>
-                        <div className="max-w-xs lg:max-w-md">
-                          <div className="bg-gray-100 text-gray-900 px-3 py-2 rounded-2xl rounded-bl-sm text-sm">{m.message}</div>
-                          <p className="text-xs text-gray-400 mt-0.5 px-1">{format(new Date(m.created_at), "d MMM 'às' HH:mm", { locale: ptBR })}</p>
-                        </div>
-                      </div>
-                    )}
-                    {m.answer && (
-                      <div className="flex gap-2 items-end flex-row-reverse">
-                        <div className="w-7 h-7 rounded-full bg-primary-600 flex items-center justify-center text-xs font-medium text-white flex-shrink-0">
-                          RH
-                        </div>
-                        <div className="max-w-xs lg:max-w-md flex flex-col items-end">
-                          <div className="bg-primary-600 text-white px-3 py-2 rounded-2xl rounded-br-sm text-sm">{m.answer}</div>
-                          <p className="text-xs text-gray-400 mt-0.5 px-1">
-                            {m.answered_at ? format(new Date(m.answered_at), "d MMM 'às' HH:mm", { locale: ptBR }) : ''}
-                            {m.answered_by ? ` · ${m.answered_by}` : ''}
-                          </p>
-                        </div>
-                      </div>
-                    )}
+                {linhaDoTempo(selectedThread.messages).map(m => m.de === 'pessoa' ? (
+                  <div key={m.chave} className="flex gap-2 items-end">
+                    <div className="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center text-xs font-medium text-gray-600 flex-shrink-0">
+                      {getInitials(selectedThread.employee.full_name)}
+                    </div>
+                    <div className="max-w-xs lg:max-w-md">
+                      <div className="bg-gray-100 text-gray-900 px-3 py-2 rounded-2xl rounded-bl-sm text-sm whitespace-pre-wrap break-words">{m.texto}</div>
+                      <p className="text-xs text-gray-400 mt-0.5 px-1">{format(new Date(m.quando), "d MMM 'às' HH:mm", { locale: ptBR })}</p>
+                    </div>
+                  </div>
+                ) : (
+                  <div key={m.chave} className="flex gap-2 items-end flex-row-reverse">
+                    <div className="w-7 h-7 rounded-full bg-primary-600 flex items-center justify-center text-xs font-medium text-white flex-shrink-0">
+                      RH
+                    </div>
+                    <div className="max-w-xs lg:max-w-md flex flex-col items-end">
+                      <div className="bg-primary-600 text-white px-3 py-2 rounded-2xl rounded-br-sm text-sm whitespace-pre-wrap break-words">{m.texto}</div>
+                      <p className="text-xs text-gray-400 mt-0.5 px-1">
+                        {format(new Date(m.quando), "d MMM 'às' HH:mm", { locale: ptBR })}
+                        {m.autor ? ` · ${m.autor}` : ''}
+                      </p>
+                    </div>
                   </div>
                 ))}
                 <div ref={threadEndRef} />

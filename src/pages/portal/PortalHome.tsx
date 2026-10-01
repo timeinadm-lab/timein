@@ -10,6 +10,7 @@ import { ptBR } from 'date-fns/locale'
 import toast from 'react-hot-toast'
 import { confirmar } from '../../components/ui/ConfirmDialog'
 import JornadaAviso from './JornadaAviso'
+import { linhaDoTempo } from '../../lib/chat'
 import { comprimirImagem } from '../../lib/imagem'
 import InstalarPortal from './InstalarPortal'
 import { jornadaDoVinculo, desvioDoDia, textoDoDesvio, TOLERANCIA_MIN, minutosLiquidos } from '../../lib/jornada'
@@ -170,7 +171,6 @@ export default function PortalHome() {
 
   const lastChatSeen = Number(localStorage.getItem(`portal_chat_seen_${employeeId}`) || '0')
   const unreadChats = myDuvidas?.filter(d => {
-    if ((d as { initiated_by_admin?: boolean }).initiated_by_admin) return true
     const answeredAt = (d as { answered_at?: string }).answered_at
     return !!answeredAt && new Date(answeredAt).getTime() > lastChatSeen
   }).length ?? 0
@@ -1526,47 +1526,31 @@ export default function PortalHome() {
             {/* Histórico de mensagens — bolhas estilo chat */}
             {myDuvidas && myDuvidas.length > 0 ? (
               <div className="space-y-4">
-                {myDuvidas.map(d => {
-                  const isAdminInitiated = !!(d as { initiated_by_admin?: boolean }).initiated_by_admin
+                {linhaDoTempo(myDuvidas).map(m => {
                   const fmtTs = (ts: string) => new Date(ts).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
-                  return (
-                    <div key={d.id} className="space-y-2">
-                      {/* Mensagem do colaborador (direita) */}
-                      {d.message && !isAdminInitiated && (
-                        <div className="flex justify-end">
-                          <div className="max-w-[80%] space-y-1">
-                            <div className="bg-primary-600 text-white rounded-2xl rounded-br-sm px-4 py-2.5 shadow-sm">
-                              <p className="text-sm leading-relaxed">{d.message}</p>
-                            </div>
-                            <p className="text-[10px] text-ink-400 text-right px-1">{fmtTs(d.created_at)}</p>
-                          </div>
+                  return m.de === 'pessoa' ? (
+                    <div key={m.chave} className="flex flex-col items-end gap-1">
+                      <div className="max-w-[80%] space-y-1">
+                        <div className="bg-primary-600 text-white rounded-2xl rounded-br-sm px-4 py-2.5 shadow-sm">
+                          <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">{m.texto}</p>
                         </div>
+                        <p className="text-[10px] text-ink-400 text-right px-1">{fmtTs(m.quando)}</p>
+                      </div>
+                      {m.semResposta && (
+                        <span className="text-[10px] text-amber-500 flex items-center gap-1 px-1">
+                          <Clock size={10} /> aguardando resposta
+                        </span>
                       )}
-
-                      {/* Mensagem do RH / resposta (esquerda) */}
-                      {d.answer && (
-                        <div className="flex justify-start gap-2">
-                          <div className="w-7 h-7 rounded-full bg-primary-100 flex items-center justify-center text-primary-700 font-bold text-xs flex-shrink-0 mt-1">RH</div>
-                          <div className="max-w-[80%] space-y-1">
-                            {isAdminInitiated && (
-                              <p className="text-[10px] text-ink-500 font-semibold px-1">RH</p>
-                            )}
-                            <div className="bg-white border border-ink-100 rounded-2xl rounded-bl-sm px-4 py-2.5 shadow-sm">
-                              <p className="text-sm text-ink-800 leading-relaxed">{d.answer}</p>
-                            </div>
-                            <p className="text-[10px] text-ink-400 px-1">{fmtTs(d.answered_at)}</p>
-                          </div>
+                    </div>
+                  ) : (
+                    <div key={m.chave} className="flex justify-start gap-2">
+                      <div className="w-7 h-7 rounded-full bg-primary-100 flex items-center justify-center text-primary-700 font-bold text-xs flex-shrink-0 mt-1">RH</div>
+                      <div className="max-w-[80%] space-y-1">
+                        <div className="bg-white border border-ink-100 rounded-2xl rounded-bl-sm px-4 py-2.5 shadow-sm">
+                          <p className="text-sm text-ink-800 leading-relaxed whitespace-pre-wrap break-words">{m.texto}</p>
                         </div>
-                      )}
-
-                      {/* Mensagem do colaborador sem resposta ainda */}
-                      {d.message && !isAdminInitiated && !d.answer && (
-                        <div className="flex justify-end">
-                          <span className="text-[10px] text-amber-500 flex items-center gap-1 px-1">
-                            <Clock size={10} /> aguardando resposta
-                          </span>
-                        </div>
-                      )}
+                        <p className="text-[10px] text-ink-400 px-1">{fmtTs(m.quando)}</p>
+                      </div>
                     </div>
                   )
                 })}

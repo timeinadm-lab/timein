@@ -1547,6 +1547,22 @@ export default function VacancyDetail() {
                     )}
 
                     {interest.status === 'Interessado' && (
+                      <button
+                        className="btn-ghost p-1.5 text-ink-400 hover:text-red-600"
+                        title="Tirar da lista de interessados desta vaga (a pessoa continua no banco de candidatos)"
+                        onClick={async () => {
+                          if (!(await confirmar({ titulo: `Tirar ${c?.full_name || 'esta pessoa'} dos interessados?`, texto: 'Ela sai só desta vaga. O cadastro dela continua no banco de candidatos.', confirmar: 'Tirar' }))) return
+                          const { error } = await supabase.from('vacancy_interests').delete().eq('id', interest.id).eq('status', 'Interessado')
+                          if (error) { toast.error(error.message); return }
+                          toast.success('Removida dos interessados')
+                          qc.invalidateQueries({ queryKey: ['vacancy-interests', id] })
+                        }}
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    )}
+
+                    {interest.status === 'Interessado' && (
                       (vacancy as { vacancy_type?: string }).vacancy_type !== 'Volante' && contractedCount >= totalPositions ? (
                         <span
                           title="Vaga cheia — edite a vaga para aumentar o número de posições"

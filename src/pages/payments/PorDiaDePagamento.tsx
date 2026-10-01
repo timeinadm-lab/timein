@@ -56,7 +56,8 @@ export default function PorDiaDePagamento({ mes, nomeMes, aLancar, irParaFolha, 
   const { data: clientes } = useQuery({
     queryKey: ['clientes-nomes'],
     queryFn: async () => {
-      const { data } = await supabase.from('clients').select('id, name')
+      const { data, error } = await supabase.from('clients').select('id, name')
+      if (error) throw error // não guarda lista vazia por 5 minutos
       return new Map((data || []).map(c => [c.id as string, c.name as string]))
     },
     staleTime: 5 * 60_000,

@@ -1,5 +1,5 @@
 // Testes da Jornada por pessoa. Rodar todos: npm run testes
-import { resumoDoVinculo, textoDoResumo, diasDoVinculoNoMes, folgaPelaEscala, temEscala } from './jornadaPessoa'
+import { resumoDoVinculo, textoDoResumo, diasDoVinculoNoMes, folgaPelaEscala, temEscala, feriadosNacionais, feriadoNacional } from './jornadaPessoa'
 import type { VinculoPerfil, RegistroPerfil, AgendaPerfil, AvisoPerfil } from './jornadaPessoa'
 
 let falhas = 0
@@ -18,24 +18,32 @@ const fixo: VinculoPerfil = {
   id: 'L1', client_id: C, service_type: 'Fixo', pay_mode: 'mensal', work_schedule_type: '5x2',
   days_off: [0, 6], daily_hours: 8, break_minutes: 60, monthly_amount: 3000,
 }
-console.log('Fixo 5x2 — outubro/2026 tem 22 dias úteis')
+console.log('Feriados nacionais')
+ok(feriadoNacional('2026-04-03') === 'Sexta-feira Santa', 'Sexta-feira Santa 2026 = 03/04 (Páscoa 05/04)')
+ok(feriadoNacional('2027-03-26') === 'Sexta-feira Santa', 'Sexta-feira Santa 2027 = 26/03 (Páscoa 28/03)')
+ok(feriadoNacional('2026-09-07') === 'Independência' && feriadoNacional('2026-10-12') === 'Nossa Senhora Aparecida', '07/09 e 12/10')
+ok(feriadoNacional('2026-11-20') === 'Consciência Negra' && feriadosNacionais(2026).size === 10, '20/11 e 10 feriados no ano')
+ok(!feriadoNacional('2026-10-13'), 'dia comum não é feriado')
+
+console.log('Fixo 5x2 — outubro/2026: 22 dias úteis menos o feriado de 12/10 = 21')
 ok(temEscala(fixo), 'tem escala')
 ok(folgaPelaEscala(fixo, '2026-10-03') && !folgaPelaEscala(fixo, '2026-10-05'), 'sábado é folga, segunda não')
 
 {
-  // Trabalhou todos os dias úteis até 15/10 (11 dias), menos 07/10; extra no sábado 10/10
-  const uteisAte15 = ['01', '02', '05', '06', '07', '08', '09', '12', '13', '14', '15']
+  // Trabalhou todos os dias úteis até 15/10 (fora o feriado 12/10), menos 07/10; extra no sábado 10/10
+  const uteisAte15 = ['01', '02', '05', '06', '07', '08', '09', '13', '14', '15']
   const regs = uteisAte15.filter(d => d !== '07').map(d => reg('r' + d, d))
   regs.push(reg('x10', '10', { is_extra: true }))
   const r = resumoDoVinculo(fixo, MES, '2026-10-16', regs, [], [])
-  ok(r.modo === 'escala' && r.previstos === 22, '22 dias previstos', r.previstos)
-  ok(r.feitos === 10, '10 dias feitos', r.feitos)
+  ok(r.modo === 'escala' && r.previstos === 21, '21 dias previstos (feriado não conta)', r.previstos)
+  ok(r.feitos === 9, '9 dias feitos', r.feitos)
   ok(r.extras === 1, '1 extra (sábado)', r.extras)
   ok(r.faltas.length === 1 && r.faltas[0] === '2026-10-07', 'falta em 07/10', r.faltas)
   ok(r.restantes === 11, '11 dias ainda por vir (16 a 30 úteis)', r.restantes)
   ok(r.feitos + r.faltas.length + r.restantes === r.previstos, 'feitos + faltas + restantes = previstos')
-  ok(textoDoResumo(r) === '10 de 22 dias + 1 extra', 'texto: "10 de 22 dias + 1 extra"', textoDoResumo(r))
-  ok(r.minutos === 11 * 8 * 60, 'horas: 11 dias × 8h (desconta 1h de almoço)', r.minutos)
+  ok(textoDoResumo(r) === '9 de 21 dias + 1 extra', 'texto: "9 de 21 dias + 1 extra"', textoDoResumo(r))
+  ok(r.minutos === 10 * 8 * 60, 'horas: 10 dias × 8h (desconta 1h de almoço)', r.minutos)
+  ok(r.dias.find(d => d.data === '2026-10-12')?.status === 'feriado', '12/10 aparece como Feriado, não como falta')
   ok(r.abaixoJornada === 0 && r.acimaJornada === 0, '08–17 com 1h de almoço = dentro da jornada')
   ok(r.dias.find(d => d.data === '2026-10-07')?.status === 'faltou', 'dia 07 aparece como "Sem registro"')
 }
@@ -52,7 +60,7 @@ ok(folgaPelaEscala(fixo, '2026-10-03') && !folgaPelaEscala(fixo, '2026-10-05'), 
   const avisos: AvisoPerfil[] = [{ id: 'a1', client_id: C, type: 'troca', notice_date: '2026-10-07', swap_work_date: '2026-10-10' }]
   const regs = [reg('r10', '10', { is_swap: true, swapped_from: '2026-10-07' })]
   const r = resumoDoVinculo(fixo, MES, '2026-10-12', regs, [], avisos)
-  ok(r.previstos === 22, 'troca não muda o total (sai 07, entra 10)', r.previstos)
+  ok(r.previstos === 21, 'troca não muda o total (sai 07, entra 10)', r.previstos)
   ok(r.dias.find(d => d.data === '2026-10-10')?.status === 'feito', 'sábado 10 trabalhado conta como feito')
   ok(!r.faltas.includes('2026-10-07'), 'quarta 07 não é falta (foi trocada)')
   ok(r.extras === 0 && r.trocas === 1, 'não vira extra; 1 troca', { extras: r.extras, trocas: r.trocas })
@@ -73,8 +81,15 @@ ok(folgaPelaEscala(fixo, '2026-10-03') && !folgaPelaEscala(fixo, '2026-10-05'), 
 }
 
 // ── 6x1 e 12x36 ──
-ok(resumoDoVinculo({ ...fixo, work_schedule_type: '6x1', days_off: [0] }, MES, '2026-10-01', [], [], []).previstos === 27, '6x1 folga domingo: 27 dias')
-ok(resumoDoVinculo({ ...fixo, work_schedule_type: '12x36', days_off: null, schedule_anchor_date: '2026-10-02' }, MES, '2026-10-01', [], [], []).previstos === 15, '12x36 a partir de 02/10: 15 plantões')
+ok(resumoDoVinculo({ ...fixo, work_schedule_type: '6x1', days_off: [0] }, MES, '2026-10-01', [], [], []).previstos === 26, '6x1 folga domingo: 27 dias menos o feriado = 26')
+{
+  // Trabalhou no feriado: conta como extra
+  const r = resumoDoVinculo(fixo, MES, '2026-10-20', [reg('h12', '12')], [], [])
+  const d = r.dias.find(x => x.data === '2026-10-12')
+  ok(r.extras === 1 && d?.status === 'extra' && d?.titulo === 'Trabalhou no feriado', 'trabalhou em 12/10: "Trabalhou no feriado" (extra)')
+}
+ok(resumoDoVinculo(fixo, '2026-09', '2026-09-01', [], [], []).previstos === 21, 'setembro/2026: 22 dias úteis menos 07/09 = 21')
+ok(resumoDoVinculo({ ...fixo, work_schedule_type: '12x36', days_off: null, schedule_anchor_date: '2026-10-02' }, MES, '2026-10-01', [], [], []).previstos === 15, '12x36 a partir de 02/10: 15 plantões (plantão trabalha no feriado)')
 ok(resumoDoVinculo({ ...fixo, days_off: null, work_schedule_type: '5x2' }, MES, '2026-10-01', [reg('r1', '01')], [], []).modo === 'livre', 'sem folgas marcadas: conta só o registrado')
 
 // ── Consultor pela agenda ──

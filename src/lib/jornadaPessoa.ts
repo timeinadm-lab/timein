@@ -59,6 +59,7 @@ export type RegistroPerfil = {
   unit_name?: string | null
   observations?: string | null
   report_url?: string | null
+  atestado_url?: string | null
   unavailability_reason?: string | null
   jornada_seen_at?: string | null
 }
@@ -95,6 +96,7 @@ export type StatusDia =
   | 'faltou'           // dia previsto que passou sem registro
   | 'falta_registrada' // ela registrou falta
   | 'previsto'         // ainda vai acontecer
+  | 'feriado'          // feriado nacional: não é dia previsto na escala 5x2/6x1
 
 export type DiaPerfil = {
   data: string
@@ -145,6 +147,39 @@ const horas = (min: number) => min < 60 ? `${min}min` : `${Math.floor(min / 60)}
 export function diasDoVinculoNoMes(link: VinculoPerfil, mes: string): string[] {
   return diasDoMes(mes).filter(ds => (!link.start_date || ds >= link.start_date) && (!link.contract_end_date || ds <= link.contract_end_date))
 }
+
+// ── Feriados nacionais ───────────────────────────────────────────────────
+/** Domingo de Páscoa (algoritmo de Meeus/Jones/Butcher) */
+function pascoa(ano: number): Date {
+  const a = ano % 19, b = Math.floor(ano / 100), c = ano % 100, d = Math.floor(b / 4), e = b % 4
+  const f = Math.floor((b + 8) / 25), g = Math.floor((b - f + 1) / 3), h = (19 * a + b - d - g + 15) % 30
+  const i = Math.floor(c / 4), k = c % 4, l = (32 + 2 * e + 2 * i - h - k) % 7, m = Math.floor((a + 11 * h + 22 * l) / 451)
+  const mes = Math.floor((h + l - 7 * m + 114) / 31), dia = ((h + l - 7 * m + 114) % 31) + 1
+  return new Date(ano, mes - 1, dia, 12)
+}
+const cacheFeriados = new Map<number, Map<string, string>>()
+/** Feriados nacionais do ano (lei federal): data → nome */
+export function feriadosNacionais(ano: number): Map<string, string> {
+  if (cacheFeriados.has(ano)) return cacheFeriados.get(ano)!
+  const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  const sexta = pascoa(ano); sexta.setDate(sexta.getDate() - 2)
+  const lista: [string, string][] = [
+    [`${ano}-01-01`, 'Confraternização Universal'],
+    [iso(sexta), 'Sexta-feira Santa'],
+    [`${ano}-04-21`, 'Tiradentes'],
+    [`${ano}-05-01`, 'Dia do Trabalho'],
+    [`${ano}-09-07`, 'Independência'],
+    [`${ano}-10-12`, 'Nossa Senhora Aparecida'],
+    [`${ano}-11-02`, 'Finados'],
+    [`${ano}-11-15`, 'Proclamação da República'],
+    [`${ano}-12-25`, 'Natal'],
+  ]
+  if (ano >= 2024) lista.push([`${ano}-11-20`, 'Consciência Negra'])
+  const m = new Map(lista)
+  cacheFeriados.set(ano, m)
+  return m
+}
+export const feriadoNacional = (ds: string) => feriadosNacionais(Number(ds.slice(0, 4))).get(ds)
 
 // ── Escala ───────────────────────────────────────────────────────────────
 /** A escala tem os dias de trabalho conhecidos? (5x2/6x1 com folgas marcadas, ou 12x36 com o 1º plantão) */
@@ -238,8 +273,15 @@ export function resumoDoVinculo(
     ])
     trocas = chavesTroca.size
 
+    // Feriado nacional não é dia previsto na 5x2/6x1 (o plantão 12x36 trabalha em feriado)
+    const feriado = (ds: string) => link.work_schedule_type === '12x36' ? undefined : feriadoNacional(ds)
     const previstosDias = [...periodo].sort().filter(ds =>
-      (!folgaPelaEscala(link, ds) && !folgaPorTroca.has(ds)) || trabalhoPorTroca.has(ds))
+      (!folgaPelaEscala(link, ds) && !folgaPorTroca.has(ds) && !feriado(ds)) || trabalhoPorTroca.has(ds))
+    for (const ds of [...periodo].sort()) {
+      if (feriado(ds) && !folgaPelaEscala(link, ds) && !trabalhoPorTroca.has(ds) && !porData.has(ds)) {
+        dias.push({ data: ds, linkId: link.id, clientId: link.client_id || '', status: 'feriado', titulo: 'Feriado', detalhe: feriado(ds) })
+      }
+    }
     previstos = previstosDias.length
     for (const ds of previstosDias) {
       const r = porData.get(ds)
@@ -273,7 +315,8 @@ export function resumoDoVinculo(
         dias.push(diaDeRegistro(r, 'feito', 'Trabalhou (troca)', { troca: true, detalhe: `${infoDoRegistro(r).texto} · no lugar de ${ddmm(r.swapped_from)}` }))
       } else {
         extras++
-        dias.push(diaDeRegistro(r, 'extra', 'Dia extra'))
+        const fer = link.work_schedule_type === '12x36' ? undefined : feriadoNacional(r.visit_date)
+        dias.push(diaDeRegistro(r, 'extra', fer ? 'Trabalhou no feriado' : 'Dia extra', fer ? { detalhe: `${infoDoRegistro(r).texto} · ${fer}` } : undefined))
       }
     }
   } else if (modo === 'agenda') {

@@ -2,13 +2,13 @@ import { useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
-import { ChevronLeft, ChevronRight, Search, FileDown, Save } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Search, FileDown, Save, FileText, Paperclip } from 'lucide-react'
 import { supabase, fetchAll } from '../../lib/supabase'
-import { formatDate, formatCurrency, corDoAvatar, hojeISO, semAcento, rotuloDoVinculo } from '../../lib/utils'
+import { formatDate, formatCurrency, corDoAvatar, hojeISO, semAcento, rotuloDoVinculo, tipoDoVinculo, pagaPorDiaria } from '../../lib/utils'
 import { buscarForaDaJornada, textoDoDesvio, TOLERANCIA_MIN } from '../../lib/jornada'
 import type { DiaForaDaJornada } from '../../lib/jornada'
 import { resumoDoVinculo, textoDoResumo, vinculoNoMes } from '../../lib/jornadaPessoa'
-import type { ResumoVinculo, StatusDia, VinculoPerfil, RegistroPerfil, AgendaPerfil, AvisoPerfil } from '../../lib/jornadaPessoa'
+import type { ResumoVinculo, StatusDia, VinculoPerfil, RegistroPerfil, AgendaPerfil, AvisoPerfil, DiaPerfil } from '../../lib/jornadaPessoa'
 import { limitesDoMes } from '../../lib/pagamentosPorDia'
 import { gerarPdfJornada } from '../../lib/jornadaPdf'
 import { useAuth } from '../../contexts/AuthContext'
@@ -162,7 +162,7 @@ async function carregarMes(mes: string, pessoa?: string): Promise<DadosMes> {
     // Paginado: consultores em todos os clientes fazem os vínculos passarem de 1000 com o tempo
     fetchAll<DadosMes['links'][number]>(() => porPessoa(supabase.from('employee_client_links').select('*, client:clients(name), employee:employees(id, full_name, status, cpf)')).order('id')),
     fetchAll<DadosMes['regs'][number]>(() => porPessoa(supabase.from('nutritionist_visits')
-      .select('id, employee_id, client_id, visit_date, check_in, check_out, break_start, break_end, is_extra, is_unavailable, is_holiday, is_swap, swapped_from, visit_rate, extra_approval, unit_name, observations, report_url, unavailability_reason, jornada_seen_at'))
+      .select('id, employee_id, client_id, visit_date, check_in, check_out, break_start, break_end, is_extra, is_unavailable, is_holiday, is_swap, swapped_from, visit_rate, extra_approval, unit_name, observations, report_url, atestado_url, unavailability_reason, jornada_seen_at'))
       .gte('visit_date', inicio).lte('visit_date', fim).order('id')),
     fetchAll<DadosMes['agenda'][number]>(() => porPessoa(supabase.from('nutritionist_agenda').select('*'))
       .gte('planned_date', inicio).lte('planned_date', fim).order('id')),
@@ -180,7 +180,8 @@ function useNomesDeClientes() {
   const { data } = useQuery({
     queryKey: ['clientes-nomes'],
     queryFn: async () => {
-      const { data } = await supabase.from('clients').select('id, name')
+      const { data, error } = await supabase.from('clients').select('id, name')
+      if (error) throw error // não guarda lista vazia por 5 minutos
       return new Map((data || []).map(c => [c.id as string, c.name as string]))
     },
     staleTime: 5 * 60_000,
@@ -227,16 +228,18 @@ const COR_STATUS: Record<StatusDia, string> = {
   faltou: 'bg-red-50 text-red-700 border-red-200',
   falta_registrada: 'bg-red-50 text-red-700 border-red-200',
   previsto: 'bg-ink-50 text-ink-600 border-ink-200',
+  feriado: 'bg-sky-50 text-sky-700 border-sky-200',
 }
 
 // ── Lista de pessoas do mês ──────────────────────────────────────────────
 function ListaPessoas({ mes, abrir, filtroInicial }: { mes: string; abrir: (id: string) => void; filtroInicial?: string | null }) {
   const hoje = hojeISO()
-  const nomeCliente = useNomesDeClientes()
+  const nomeDaLista = useNomesDeClientes()
   const [busca, setBusca] = useState('')
   const [filtro, setFiltro] = useState<'todos' | 'atencao' | 'faltas' | 'trocas'>(
     filtroInicial === 'trocas' || filtroInicial === 'faltas' || filtroInicial === 'atencao' ? filtroInicial : 'todos')
   const { data, isLoading, error } = useQuery({ queryKey: ['jornada-mes', mes], queryFn: () => carregarMes(mes) })
+  const nomeCliente = (id?: string | null) => nomeDaLista(id) || (id ? data?.links.find(l => l.client_id === id)?.client?.name || '' : '')
 
   const pessoas = useMemo(() => {
     if (!data) return []
@@ -328,12 +331,15 @@ function PerfilJornada({ pessoa, mes, voltar }: { pessoa: string; mes: string; v
   const qc = useQueryClient()
   const { profile } = useAuth()
   const hoje = hojeISO()
-  const nomeCliente = useNomesDeClientes()
+  const nomeDaLista = useNomesDeClientes()
   const { inicio, fim } = limitesDoMes(mes)
-  const [filtroDia, setFiltroDia] = useState<'todos' | 'faltas' | 'extras' | 'trocas' | 'jornada'>('todos')
+  const [filtroDia, setFiltroDia] = useState<'todos' | 'faltas' | 'extras' | 'trocas' | 'jornada' | 'relatorios' | 'semRelatorio'>('todos')
+  // Dia a dia de um cliente só (quem atende vários)
+  const [clienteDia, setClienteDia] = useState('')
   const [gerando, setGerando] = useState<'' | 'pdf' | 'salvar'>('')
 
   const { data, isLoading, error } = useQuery({ queryKey: ['jornada-pessoa', pessoa, mes], queryFn: () => carregarMes(mes, pessoa) })
+  const nomeCliente = (id?: string | null) => nomeDaLista(id) || (id ? data?.links.find(l => l.client_id === id)?.client?.name || '' : '')
   const { data: emp } = useQuery({
     queryKey: ['jornada-emp', pessoa],
     queryFn: async () => {
@@ -372,11 +378,24 @@ function PerfilJornada({ pessoa, mes, voltar }: { pessoa: string; mes: string; v
   const nome = emp?.full_name || data?.links[0]?.employee?.full_name || 'Colaborador'
   const varios = resumos.length > 1
   const dias = resumos.flatMap(r => r.dias).sort((a, b) => a.data.localeCompare(b.data))
-  const diasFiltrados = dias.filter(d => filtroDia === 'todos'
+  // Relatório da visita: exigido de consultoria e de quem recebe por diária (regra de 04/07)
+  const exigeRelatorio = (linkId: string) => {
+    const l = resumos.find(r => r.link.id === linkId)?.link
+    return !!l && (tipoDoVinculo(l) === 'Consultoria' || pagaPorDiaria(l) || l.service_type === 'Volante')
+  }
+  const trabalhado = (d: DiaPerfil) => !!d.registro?.check_in && !!d.registro?.check_out && !d.registro?.is_unavailable
+  const comRelatorio = (d: DiaPerfil) => trabalhado(d) && !!d.registro?.report_url
+  const semRelatorio = (d: DiaPerfil) => trabalhado(d) && !d.registro?.report_url && exigeRelatorio(d.linkId)
+  const diasDoCliente = dias.filter(d => !clienteDia || d.clientId === clienteDia)
+  const diasFiltrados = diasDoCliente.filter(d => filtroDia === 'todos'
     || (filtroDia === 'faltas' && (d.status === 'faltou' || d.status === 'falta_registrada'))
     || (filtroDia === 'extras' && (d.status === 'extra' || d.status === 'fora'))
     || (filtroDia === 'trocas' && !!d.troca)
-    || (filtroDia === 'jornada' && !!d.desvio))
+    || (filtroDia === 'jornada' && !!d.desvio)
+    || (filtroDia === 'relatorios' && comRelatorio(d))
+    || (filtroDia === 'semRelatorio' && semRelatorio(d)))
+  const relatoriosMes = dias.filter(d => comRelatorio(d) && (!clienteDia || d.clientId === clienteDia))
+  const relatoriosPendentes = dias.filter(d => semRelatorio(d) && (!clienteDia || d.clientId === clienteDia))
   const reembolsosMes = reembolsos.filter(e => (e.reference_month || (e.created_at || '').slice(0, 7)) === mes)
   const totalPagamentos = pagamentos.reduce((s, p) => s + (Number(p.amount) || 0), 0)
 
@@ -527,13 +546,27 @@ function PerfilJornada({ pessoa, mes, voltar }: { pessoa: string; mes: string; v
           <div className="card overflow-hidden">
             <div className="px-4 py-3 border-b border-ink-100 space-y-2">
               <p className="text-sm font-semibold text-ink-900">Dia a dia</p>
+              {varios && (
+                <div className="flex gap-1.5 overflow-x-auto scrollbar-none">
+                  {[{ id: '', nome: 'Todos os clientes' }, ...resumos.map(r => ({ id: r.link.client_id || '', nome: nomeCliente(r.link.client_id) || 'Cliente' }))]
+                    .filter((c, i, arr) => arr.findIndex(x => x.id === c.id) === i)
+                    .map(c => (
+                      <button key={c.id || 'todos'} onClick={() => setClienteDia(c.id)}
+                        className={`px-2.5 py-1 rounded-lg text-xs whitespace-nowrap font-medium ${clienteDia === c.id ? 'bg-primary-700 text-white' : 'bg-primary-50 text-primary-800 hover:bg-primary-100'}`}>
+                        {c.nome}
+                      </button>
+                    ))}
+                </div>
+              )}
               <div className="flex gap-1.5 overflow-x-auto scrollbar-none">
                 {([
-                  ['todos', 'Todos', dias.length],
-                  ['faltas', 'Faltas', dias.filter(d => d.status === 'faltou' || d.status === 'falta_registrada').length],
-                  ['extras', 'Extras', dias.filter(d => d.status === 'extra' || d.status === 'fora').length],
-                  ['trocas', 'Trocas', dias.filter(d => d.troca).length],
-                  ['jornada', 'Fora da jornada', dias.filter(d => d.desvio).length],
+                  ['todos', 'Todos', diasDoCliente.length],
+                  ['faltas', 'Faltas', diasDoCliente.filter(d => d.status === 'faltou' || d.status === 'falta_registrada').length],
+                  ['extras', 'Extras', diasDoCliente.filter(d => d.status === 'extra' || d.status === 'fora').length],
+                  ['trocas', 'Trocas', diasDoCliente.filter(d => d.troca).length],
+                  ['jornada', 'Fora da jornada', diasDoCliente.filter(d => d.desvio).length],
+                  ['relatorios', 'Com relatório', diasDoCliente.filter(comRelatorio).length],
+                  ['semRelatorio', 'Sem relatório', diasDoCliente.filter(semRelatorio).length],
                 ] as const).map(([k, t, n]) => (
                   <button key={k} onClick={() => setFiltroDia(k)}
                     className={`px-2.5 py-1 rounded-lg text-xs whitespace-nowrap ${filtroDia === k ? 'bg-ink-900 text-white' : 'bg-white border border-ink-200 text-ink-600'}`}>
@@ -553,8 +586,11 @@ function PerfilJornada({ pessoa, mes, voltar }: { pessoa: string; mes: string; v
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full border ${COR_STATUS[d.status]}`}>{d.titulo}</span>
-                        {varios && <span className="text-xs text-ink-500 truncate">{nomeCliente(d.clientId)}</span>}
+                        {(varios && !clienteDia) || d.registro?.unit_name ? (
+                          <span className="text-xs text-ink-500 truncate">{[varios && !clienteDia ? nomeCliente(d.clientId) : null, d.registro?.unit_name].filter(Boolean).join(' · ')}</span>
+                        ) : null}
                         {d.troca && <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-pink-50 text-pink-700">troca</span>}
+                        {semRelatorio(d) && <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-50 text-amber-700">sem relatório</span>}
                       </div>
                       {d.detalhe && <p className="text-xs text-ink-600 mt-0.5">{d.detalhe}</p>}
                       {d.desvio && (() => {
@@ -563,7 +599,13 @@ function PerfilJornada({ pessoa, mes, voltar }: { pessoa: string; mes: string; v
                       })()}
                       {d.registro?.observations && <p className="text-[11px] text-ink-400 mt-0.5 italic">"{d.registro.observations}"</p>}
                     </div>
-                    <div className="flex flex-col gap-1 shrink-0">
+                    <div className="flex flex-col gap-1 shrink-0 items-end">
+                      {d.registro?.report_url && (
+                        <SignedLink value={d.registro.report_url} bucket="arquivos" className="btn-secondary text-[11px] py-1 px-2 inline-flex items-center gap-1"><FileText size={12} />Relatório</SignedLink>
+                      )}
+                      {d.registro?.atestado_url && (
+                        <SignedLink value={d.registro.atestado_url} bucket="arquivos" className="btn-ghost text-[11px] py-1 px-2 inline-flex items-center gap-1"><Paperclip size={12} />Atestado</SignedLink>
+                      )}
                       {d.trocaNaoVista && d.agenda && (
                         <button className="btn-secondary text-[11px] py-1 px-2" disabled={cienteTroca.isPending} onClick={() => cienteTroca.mutate(d.agenda!.id)}>Ciente da troca</button>
                       )}
@@ -571,6 +613,40 @@ function PerfilJornada({ pessoa, mes, voltar }: { pessoa: string; mes: string; v
                         <button className="btn-ghost text-[11px] py-1 px-2" disabled={cienteJornada.isPending} onClick={() => cienteJornada.mutate(d.registro!.id)}>Ciente</button>
                       )}
                     </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Relatórios do mês: o histórico do que ela anexou (o mês muda no topo) */}
+          <div className="card overflow-hidden">
+            <div className="px-4 py-3 border-b border-ink-100 flex items-baseline justify-between gap-3 flex-wrap">
+              <p className="text-sm font-semibold text-ink-900">
+                Relatórios de {nomeDoMes(mes)}
+                {clienteDia && <span className="font-normal text-ink-500"> · {nomeCliente(clienteDia)}</span>}
+              </p>
+              <p className="text-xs text-ink-500">
+                <span className="text-green-700 font-medium">{relatoriosMes.length} anexado{relatoriosMes.length !== 1 ? 's' : ''}</span>
+                {relatoriosPendentes.length > 0 && <> · <span className="text-amber-700 font-medium">{relatoriosPendentes.length} sem relatório</span></>}
+              </p>
+            </div>
+            {relatoriosMes.length === 0 && relatoriosPendentes.length === 0 ? (
+              <p className="px-4 py-4 text-sm text-ink-500">Nenhum relatório neste mês.</p>
+            ) : (
+              <div className="divide-y divide-ink-100">
+                {[...relatoriosMes, ...relatoriosPendentes].sort((a, b) => a.data.localeCompare(b.data)).map((d, i) => (
+                  <div key={`rel-${d.data}-${d.linkId}-${i}`} className="flex items-center gap-3 px-4 py-2.5">
+                    <FileText size={16} className={d.registro?.report_url ? 'text-primary-700 shrink-0' : 'text-amber-500 shrink-0'} />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-ink-800 truncate">
+                        <span className="tnum font-medium">{diaCurto(d.data)}</span> · {nomeCliente(d.clientId)}{d.registro?.unit_name ? ` · ${d.registro.unit_name}` : ''}
+                      </p>
+                      <p className="text-[11px] text-ink-500">{d.detalhe || ''}</p>
+                    </div>
+                    {d.registro?.report_url
+                      ? <SignedLink value={d.registro.report_url} bucket="arquivos" className="btn-secondary text-xs py-1.5">Abrir</SignedLink>
+                      : <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-amber-50 text-amber-700">pendente</span>}
                   </div>
                 ))}
               </div>

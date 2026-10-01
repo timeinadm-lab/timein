@@ -3,7 +3,7 @@
 // O mesmo conteúdo da tela: resumo por vínculo, dia a dia, reembolsos e
 // pagamentos. Devolve o arquivo (Blob) para baixar e/ou salvar no histórico.
 // ============================================================
-import type { ResumoVinculo } from './jornadaPessoa'
+import type { ResumoVinculo, DiaPerfil } from './jornadaPessoa'
 import { textoDoResumo } from './jornadaPessoa'
 
 export type DadosPdfJornada = {
@@ -32,6 +32,8 @@ export async function gerarPdfJornada(d: DadosPdfJornada): Promise<Blob> {
   let y = 16
 
   const novaPagina = () => { doc.addPage(); y = 16 }
+  // Dia com entrada e saída (não é falta): é dele que se cobra o relatório
+  const trabalhado = (x: DiaPerfil) => !!x.registro?.check_in && !!x.registro?.check_out && !x.registro?.is_unavailable
   const garantir = (alt: number) => { if (y + alt > 282) novaPagina() }
   const texto = (t: string, x: number, yy: number, opt?: { tam?: number; negrito?: boolean; cor?: [number, number, number]; alinhar?: 'right' | 'left' }) => {
     doc.setFont('helvetica', opt?.negrito ? 'bold' : 'normal')
@@ -100,6 +102,7 @@ export async function gerarPdfJornada(d: DadosPdfJornada): Promise<Blob> {
       r.acimaJornada ? `${r.acimaJornada} dia(s) acima da jornada` : null,
       r.valorVisitas ? `visitas registradas: ${brl(r.valorVisitas)}` : null,
       r.semValor ? `${r.semValor} visita(s) sem valor` : null,
+      r.modo === 'agenda' && r.dias.some(trabalhado) ? `relatórios: ${r.dias.filter(x => trabalhado(x) && x.registro?.report_url).length} anexado(s), ${r.dias.filter(x => trabalhado(x) && !x.registro?.report_url).length} pendente(s)` : null,
     ].filter(Boolean) as string[]
     if (itens.length) {
       const ls = doc.splitTextToSize(limpo(itens.join('  ·  ')), W) as string[]
@@ -109,7 +112,7 @@ export async function gerarPdfJornada(d: DadosPdfJornada): Promise<Blob> {
   }
 
   // ── Dia a dia ──
-  const dias = d.resumos.flatMap(r => r.dias.map(x => ({ ...x, cliente: d.nomeCliente(r.link.client_id) })))
+  const dias = d.resumos.flatMap(r => r.dias.map(x => ({ ...x, cliente: d.nomeCliente(r.link.client_id), exige: r.modo === 'agenda' })))
     .sort((a, b) => a.data.localeCompare(b.data))
   secao('Dia a dia')
   if (!dias.length) { texto('Nada registrado ou previsto no mês.', L, y); y += 6 }
@@ -121,7 +124,8 @@ export async function gerarPdfJornada(d: DadosPdfJornada): Promise<Blob> {
         `${x.data.slice(8, 10)}/${x.data.slice(5, 7)} ${DIAS_SEMANA[new Date(x.data + 'T12:00:00').getDay()]}`,
         ...(varios ? [x.cliente || ''] : []),
         x.titulo,
-        [x.detalhe, x.desvio ? `fora da jornada (${x.desvio.difMin >= 0 ? '+' : '-'}${horas(Math.abs(x.desvio.difMin))})` : null].filter(Boolean).join(' · '),
+        [x.registro?.unit_name, x.detalhe, x.desvio ? `fora da jornada (${x.desvio.difMin >= 0 ? '+' : '-'}${horas(Math.abs(x.desvio.difMin))})` : null,
+          trabalhado(x) ? (x.registro?.report_url ? 'relatório anexado' : x.exige ? 'SEM RELATÓRIO' : null) : null].filter(Boolean).join(' · '),
       ]),
     )
   }

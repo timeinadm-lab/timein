@@ -49,3 +49,30 @@ export async function miniaturaJpeg(url: string, maxLado = 700, qualidade = 0.7)
     return null
   }
 }
+
+/**
+ * Extensão segura para o nome do arquivo no armazenamento. Alguns Android entregam a
+ * foto sem extensão ("1000012345") ou com nome estranho; aí usa o tipo do arquivo.
+ */
+export function extensaoDoArquivo(file: File): string {
+  const pelaMime: Record<string, string> = {
+    'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/heic': 'heic', 'image/heif': 'heif',
+    'application/pdf': 'pdf', 'application/msword': 'doc',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+  }
+  const doNome = (file.name.includes('.') ? file.name.split('.').pop() || '' : '').toLowerCase()
+  if (/^[a-z0-9]{1,5}$/.test(doNome)) return doNome
+  return pelaMime[file.type] || 'bin'
+}
+
+/** Tenta de novo uma vez (internet do celular cai no meio do envio) */
+export async function comNovaTentativa<T extends { error: unknown }>(fazer: () => Promise<T>): Promise<T> {
+  const r = await fazer()
+  if (!r.error) return r
+  await new Promise(res => setTimeout(res, 1500))
+  const r2 = await fazer()
+  // A 1ª tentativa chegou, só a resposta se perdeu: o arquivo já está lá
+  const msg = String((r2.error as { message?: string } | null)?.message || '')
+  if (r2.error && /already exists|duplicate/i.test(msg)) return { ...r2, error: null }
+  return r2
+}

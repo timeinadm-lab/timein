@@ -11,7 +11,7 @@ import toast from 'react-hot-toast'
 import { confirmar } from '../../components/ui/ConfirmDialog'
 import JornadaAviso from './JornadaAviso'
 import { linhaDoTempo } from '../../lib/chat'
-import { comprimirImagem } from '../../lib/imagem'
+import { comprimirImagem, extensaoDoArquivo, comNovaTentativa } from '../../lib/imagem'
 import InstalarPortal from './InstalarPortal'
 import { jornadaDoVinculo, desvioDoDia, textoDoDesvio, TOLERANCIA_MIN, minutosLiquidos } from '../../lib/jornada'
 import type { VinculoJornada } from '../../lib/jornada'
@@ -460,9 +460,9 @@ export default function PortalHome() {
         try {
           // Foto diminuída antes de subir (continua legível): 3–5 MB viram ~0,5 MB. PDF vai igual.
           const file = await comprimirImagem(original)
-          const ext = file.name.split('.').pop()
+          const ext = extensaoDoArquivo(file)
           const path = `${pasta}/${employeeId}/${recordId}_${Date.now()}.${ext}` // nome único: o portal só pode criar arquivo (migração 070)
-          const { error: upErr } = await supabase.storage.from('arquivos').upload(path, file, { upsert: false, contentType: file.type || undefined })
+          const { error: upErr } = await comNovaTentativa(() => supabase.storage.from('arquivos').upload(path, file, { upsert: false, contentType: file.type || undefined }))
           if (upErr) throw upErr
           await rpc('portal_set_visit_file', { p_token: token, p_id: recordId, p_field: campo, p_url: path })
         } catch {
@@ -671,9 +671,9 @@ export default function PortalHome() {
     try {
       // Foto diminuída antes de subir (continua legível). PDF vai igual.
       const file = await comprimirImagem(original)
-      const ext = file.name.split('.').pop()
+      const ext = extensaoDoArquivo(file)
       const path = `receipts/${employeeId}/${expenseId}_${Date.now()}.${ext}` // nome único (migração 070)
-      const { error: upErr } = await supabase.storage.from('arquivos').upload(path, file, { upsert: false, contentType: file.type || undefined })
+      const { error: upErr } = await comNovaTentativa(() => supabase.storage.from('arquivos').upload(path, file, { upsert: false, contentType: file.type || undefined }))
       if (upErr) {
         console.error('[portal] comprovante', upErr)
         toast.error('O comprovante não foi enviado. Toque em "Anexar comprovante" no pedido e tente de novo.', { duration: 8000 })
@@ -1438,7 +1438,7 @@ export default function PortalHome() {
             </div>
 
             {/* Hidden file input for receipt upload */}
-            <input ref={expReceiptRef} type="file" className="hidden" accept=".pdf,.jpg,.jpeg,.png"
+            <input ref={expReceiptRef} type="file" className="hidden" accept="image/*,application/pdf,.pdf"
               onChange={e => {
                 const file = e.target.files?.[0]
                 if (file && pendingExpenseUpload) uploadReceipt(pendingExpenseUpload, file)
@@ -1462,7 +1462,7 @@ export default function PortalHome() {
                     <input className="input !text-base tnum" type="text" inputMode="decimal" placeholder="0,00" value={expenseForm.amount} onChange={e => setExpenseForm(p => ({ ...p, amount: e.target.value.replace(/[^0-9.,]/g, '') }))} />
                   </div>
                 </div>
-                <input ref={expFormFileRef} type="file" className="hidden" accept=".pdf,.jpg,.jpeg,.png,image/*"
+                <input ref={expFormFileRef} type="file" className="hidden" accept="image/*,application/pdf,.pdf"
                   onChange={e => { setExpenseFile(e.target.files?.[0] || null); e.target.value = '' }} />
                 <Anexo rotulo="Comprovante" dica="Foto ou PDF da nota" alerta={!expenseFile}
                   arquivo={expenseFile} onEscolher={() => expFormFileRef.current?.click()} onRemover={() => setExpenseFile(null)} />
@@ -2353,8 +2353,8 @@ export default function PortalHome() {
               ))}
 
               {/* Entradas de arquivo (escondidas) */}
-              <input ref={reportRef} type="file" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" className="hidden" onChange={e => setReportFile(e.target.files?.[0] || null)} />
-              <input ref={atestadoRef} type="file" accept=".pdf,.jpg,.jpeg,.png" className="hidden" onChange={e => setAtestadoFile(e.target.files?.[0] || null)} />
+              <input ref={reportRef} type="file" accept="image/*,application/pdf,.pdf,.doc,.docx" className="hidden" onChange={e => setReportFile(e.target.files?.[0] || null)} />
+              <input ref={atestadoRef} type="file" accept="image/*,application/pdf,.pdf" className="hidden" onChange={e => setAtestadoFile(e.target.files?.[0] || null)} />
             </div>
 
             {/* Rodapé fixo: o que vai ser salvo e o botão */}

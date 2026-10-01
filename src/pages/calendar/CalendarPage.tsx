@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { CalendarDays, ChevronLeft, ChevronRight, X, FileText, Clock, Plus } from 'lucide-react'
-import { supabase } from '../../lib/supabase'
+import { supabase, fetchAll } from '../../lib/supabase'
 import { formatDate, formatLocalTime, hojeISO } from '../../lib/utils'
 import toast from 'react-hot-toast'
 
@@ -83,11 +83,11 @@ export default function CalendarPage() {
   const { data: visits } = useQuery({
     queryKey: ['cal-visits', monthKey],
     queryFn: async () => {
-      const { data, error } = await supabase.from('nutritionist_visits')
+      // Paginado: o Supabase corta em 1000 linhas sem avisar (um mês de registros de todos passa disso)
+      return fetchAll(() => supabase.from('nutritionist_visits')
         .select('id, visit_date, check_in, check_out, break_start, break_end, unit_name, observations, report_url, is_unavailable, is_holiday, employee_id, client_id, employee:employees(full_name), client:clients(name)')
         .gte('visit_date', mStart).lte('visit_date', mEnd)
-      if (error) throw error
-      return data || []
+        .order('id'))
     },
   })
 
@@ -95,11 +95,11 @@ export default function CalendarPage() {
   const { data: agenda } = useQuery({
     queryKey: ['cal-agenda', monthKey],
     queryFn: async () => {
-      const { data, error } = await supabase.from('nutritionist_agenda')
+      // Paginado: o Supabase corta em 1000 linhas sem avisar (um mês de registros de todos passa disso)
+      return fetchAll(() => supabase.from('nutritionist_agenda')
         .select('*, employee:employees(full_name), client:clients!client_id(name), unit:client_units(name)')
         .gte('planned_date', mStart).lte('planned_date', mEnd)
-      if (error) throw error
-      return data || []
+        .order('id'))
     },
   })
 
@@ -131,9 +131,9 @@ export default function CalendarPage() {
   const { data: periodosVinculo } = useQuery({
     queryKey: ['cal-periodos-vinculo'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('employee_client_links').select('employee_id, client_id, start_date, contract_end_date')
-      if (error) throw error
-      return (data || []) as { employee_id: string; client_id: string; start_date: string | null; contract_end_date: string | null }[]
+      // Paginado: com consultores em todos os clientes, os vínculos passam de 1000 com o tempo
+      return fetchAll<{ employee_id: string; client_id: string; start_date: string | null; contract_end_date: string | null }>(() =>
+        supabase.from('employee_client_links').select('employee_id, client_id, start_date, contract_end_date').order('id'))
     },
   })
   const vinculoNoDia = (empId?: string | null, cliId?: string | null, dia?: string) => !periodosVinculo || !empId || !cliId || !dia

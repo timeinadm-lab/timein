@@ -158,8 +158,9 @@ async function carregarMes(mes: string, pessoa?: string): Promise<DadosMes> {
   const { inicio, fim } = limitesDoMes(mes)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const porPessoa = (q: any) => (pessoa ? q.eq('employee_id', pessoa) : q)
-  const [linksR, regs, agenda, avisosR] = await Promise.all([
-    porPessoa(supabase.from('employee_client_links').select('*, client:clients(name), employee:employees(id, full_name, status, cpf)')),
+  const [links, regs, agenda, avisosR] = await Promise.all([
+    // Paginado: consultores em todos os clientes fazem os vínculos passarem de 1000 com o tempo
+    fetchAll<DadosMes['links'][number]>(() => porPessoa(supabase.from('employee_client_links').select('*, client:clients(name), employee:employees(id, full_name, status, cpf)')).order('id')),
     fetchAll<DadosMes['regs'][number]>(() => porPessoa(supabase.from('nutritionist_visits')
       .select('id, employee_id, client_id, visit_date, check_in, check_out, break_start, break_end, is_extra, is_unavailable, is_holiday, is_swap, swapped_from, visit_rate, extra_approval, unit_name, observations, report_url, unavailability_reason, jornada_seen_at'))
       .gte('visit_date', inicio).lte('visit_date', fim).order('id')),
@@ -168,9 +169,8 @@ async function carregarMes(mes: string, pessoa?: string): Promise<DadosMes> {
     porPessoa(supabase.from('schedule_notices').select('*'))
       .or(`and(notice_date.gte.${inicio},notice_date.lte.${fim}),and(swap_work_date.gte.${inicio},swap_work_date.lte.${fim})`),
   ])
-  if (linksR.error) throw new Error('Vínculos: ' + linksR.error.message)
   return {
-    links: (linksR.data || []) as DadosMes['links'],
+    links,
     regs, agenda,
     avisos: (avisosR.error ? [] : avisosR.data || []) as DadosMes['avisos'],
   }
@@ -198,6 +198,9 @@ function resumosDaPessoa(d: DadosMes, pessoa: string, mes: string, hoje: string,
     .map(l => resumoDoVinculo(l, mes, hoje, regs, agenda, avisos, nomeCliente))
     .sort((a, b) => nomeCliente(a.link.client_id).localeCompare(nomeCliente(b.link.client_id)))
 }
+
+/** Consultor em muitos clientes: cartão só para quem tem agenda ou registro no mês */
+const temMovimento = (r: ResumoVinculo) => r.modo !== 'agenda' || (r.previstos ?? 0) > 0 || r.feitos > 0 || r.extras > 0 || r.dias.length > 0
 
 const temAtencao = (r: ResumoVinculo) => r.faltas.length > 0 || r.trocasNaoVistas > 0 || r.abaixoJornada > 0 || r.semValor > 0
 
@@ -362,7 +365,10 @@ function PerfilJornada({ pessoa, mes, voltar }: { pessoa: string; mes: string; v
     },
   })
 
-  const resumos = data ? resumosDaPessoa(data, pessoa, mes, hoje, nomeCliente) : []
+  const todosResumos = data ? resumosDaPessoa(data, pessoa, mes, hoje, nomeCliente) : []
+  const resumos = todosResumos.filter(temMovimento)
+  const semMovimento = todosResumos.filter(r => !temMovimento(r))
+  const [verSemMovimento, setVerSemMovimento] = useState(false)
   const nome = emp?.full_name || data?.links[0]?.employee?.full_name || 'Colaborador'
   const varios = resumos.length > 1
   const dias = resumos.flatMap(r => r.dias).sort((a, b) => a.data.localeCompare(b.data))
@@ -441,7 +447,8 @@ function PerfilJornada({ pessoa, mes, voltar }: { pessoa: string; mes: string; v
         <div className="flex-1 min-w-[10rem]">
           <p className="text-lg font-semibold text-ink-900 leading-tight">{nome}</p>
           <p className="text-xs text-ink-500 mt-0.5">
-            {resumos.length} vínculo{resumos.length !== 1 ? 's' : ''} no mês
+            {todosResumos.length} vínculo{todosResumos.length !== 1 ? 's' : ''} no mês
+            {semMovimento.length > 0 && ` · ${resumos.length} com agenda ou registro`}
             {emp?.status && emp.status !== 'Ativo' && <span className="text-red-600"> · {emp.status}</span>}
           </p>
         </div>
@@ -453,8 +460,21 @@ function PerfilJornada({ pessoa, mes, voltar }: { pessoa: string; mes: string; v
         </div>
       </div>
 
+      {/* Clientes sem agenda nem registro no mês: uma linha só (consultor em muitos clientes) */}
+      {!isLoading && semMovimento.length > 0 && (
+        <div className="card overflow-hidden">
+          <button type="button" onClick={() => setVerSemMovimento(v => !v)} className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left">
+            <span className="text-sm text-ink-700">{resumos.length > 0 ? 'Outros clientes' : 'Clientes'} sem agenda nem registro em {nomeDoMes(mes)} <span className="text-ink-400">· {semMovimento.length}</span></span>
+            <span className="text-xs text-ink-500">{verSemMovimento ? 'esconder' : 'ver'}</span>
+          </button>
+          {verSemMovimento && (
+            <p className="px-4 pb-3 text-xs text-ink-500 leading-relaxed">{semMovimento.map(r => nomeCliente(r.link.client_id) || 'Cliente').join(' · ')}</p>
+          )}
+        </div>
+      )}
+
       {isLoading ? <p className="text-sm text-ink-500">Carregando…</p> : resumos.length === 0 ? (
-        <div className="card p-8 text-center text-sm text-ink-500">Nenhum vínculo nem registro em {nomeDoMes(mes)}.</div>
+        <div className="card p-8 text-center text-sm text-ink-500">Nada na agenda nem registrado em {nomeDoMes(mes)}.</div>
       ) : (
         <>
           {/* Um cartão por vínculo: previsto × feito */}

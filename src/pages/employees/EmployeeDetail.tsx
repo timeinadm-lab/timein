@@ -1229,6 +1229,11 @@ export default function EmployeeDetail() {
       const consultSalario = vals.serviceType === 'ConsultoriaSalario'
       const isConsult = vals.serviceType === 'Consultoria' || consultSalario
         || (vals.serviceType === 'Volante' && vals.units.some(u => Number(u.visit_rate) > 0))
+      // Salário (fixo ou consultoria) precisa de dia de pagamento. Antes, salvar sem
+      // nenhum marcado apagava os dias e o pagamento caía no dia 5 ("avulsos") calado.
+      if ((!isConsult || consultSalario) && !vals.payDays.map(Number).some(d => [8, 15, 20].includes(d))) {
+        throw new Error('Escolha o dia de pagamento (8, 15 ou 20) — sem ele o pagamento sai do dia certo.')
+      }
       let monthly: number | null = null
       let linkUnits: unknown = null
       // Declarado FORA do bloco: a cota de horas mais abaixo também usa.
@@ -1314,12 +1319,15 @@ export default function EmployeeDetail() {
       // Consultoria por visita: dia 8 e 20. Salário (fixo ou consultoria): 8, 15 ou 20
       const allowedDays = isConsult && !consultSalario ? [8, 20] : vals.payDays.map(d => Number(d)).filter(d => [8, 15, 20].includes(d))
       const cleanDays = [...new Set(isConsult ? allowedDays : allowedDays)]
-      await supabase.from('employee_payment_dates').delete().eq('link_id', vals.linkId)
+      const { error: eDel } = await supabase.from('employee_payment_dates').delete().eq('link_id', vals.linkId)
+      if (eDel) throw new Error('Os valores foram salvos, mas os dias de pagamento não: ' + eDel.message)
       if (cleanDays.length) {
         const perDate = monthly != null ? Math.round((monthly / cleanDays.length) * 100) / 100 : null
-        await supabase.from('employee_payment_dates').insert(
+        const { error: eIns } = await supabase.from('employee_payment_dates').insert(
           cleanDays.map(d => ({ link_id: vals.linkId, day_of_month: d, amount: perDate }))
         )
+        // Sem isso o vínculo ficava sem dia de pagamento e ninguém sabia
+        if (eIns) throw new Error('Os dias de pagamento não foram salvos — abra o vínculo e salve de novo: ' + eIns.message)
       }
     },
     onSuccess: () => {

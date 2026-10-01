@@ -550,13 +550,13 @@ export default function Dashboard() {
   const { data: consultoriaVisits } = useQuery({
     queryKey: ['dashboard-consultoria-visits', currentMonthStr],
     queryFn: async () => {
-      const { data, error } = await supabase
+      // Paginado: o Supabase corta em 1000 linhas sem avisar (um mês de registros de todos passa disso)
+      return fetchAll(() => supabase
         .from('nutritionist_visits')
         .select('employee_id,client_id,visit_date,check_in,check_out,break_start,break_end,is_unavailable')
         .gte('visit_date', monthStartStr)
         .lte('visit_date', monthEndStr)
-      if (error) throw error
-      return data || []
+        .order('id'))
     },
     enabled: role === 'chefe',
   })
@@ -565,13 +565,13 @@ export default function Dashboard() {
   const { data: consultoriaPrevVisits } = useQuery({
     queryKey: ['dashboard-consultoria-prev-visits', prevMonthStr],
     queryFn: async () => {
-      const { data, error } = await supabase
+      // Paginado: o Supabase corta em 1000 linhas sem avisar (um mês de registros de todos passa disso)
+      return fetchAll(() => supabase
         .from('nutritionist_visits')
         .select('employee_id,client_id,visit_date,check_in,check_out,break_start,break_end,is_unavailable')
         .gte('visit_date', prevMonthStartStr)
         .lte('visit_date', prevMonthEndStr)
-      if (error) throw error
-      return data || []
+        .order('id'))
     },
     enabled: role === 'chefe' && isFirstOfMonth,
   })

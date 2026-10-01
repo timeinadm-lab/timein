@@ -48,6 +48,19 @@ export default function EmployeeForm() {
 
   const mutation = useMutation({
     mutationFn: async (payload: Record<string, unknown>) => {
+      // CPF repetido gerava dois cadastros da mesma pessoa (vínculos e pagamentos
+      // divididos entre os dois). Confere antes de gravar — com e sem pontuação.
+      const cpf = String(payload.cpf || '').replace(/\D/g, '')
+      if (cpf.length === 11) {
+        const comPontos = `${cpf.slice(0, 3)}.${cpf.slice(3, 6)}.${cpf.slice(6, 9)}-${cpf.slice(9)}`
+        let q = supabase.from('employees').select('id, full_name, status').or(`cpf.eq.${cpf},cpf.eq.${comPontos}`).limit(1)
+        if (isEdit) q = q.neq('id', id!)
+        const { data: mesmoCpf } = await q
+        if (mesmoCpf?.length) {
+          const outro = mesmoCpf[0] as { full_name: string; status?: string }
+          throw new Error(`Esse CPF já está no cadastro de ${outro.full_name}${outro.status && outro.status !== 'Ativo' ? ` (${outro.status})` : ''}. Abra esse cadastro em vez de criar outro.`)
+        }
+      }
       if (isEdit) {
         if (payload.status === 'Inativo') {
           const { data: emp } = await supabase.from('employees').select('status').eq('id', id!).single()
@@ -73,11 +86,17 @@ export default function EmployeeForm() {
         const { data, error } = await supabase.from('employees').insert(payload).select('id').single()
         if (error) throw error
 
+        // Com senha padrão definida (migração 054), a pessoa entra com ela — igual à
+        // contratação pela vaga. Antes criava sempre uma senha aleatória e a padrão
+        // não funcionava para ela. Sem senha padrão configurada, cria uma.
+        const { data: tipoSenha } = await supabase.rpc('portal_tipo_senha', { p_employee: data.id })
+        if (tipoSenha === 'padrao') {
+          toast.success('Colaborador criado! Acesso ao portal: CPF e a senha padrão.', { duration: 8000 })
+          return data.id
+        }
         const autoPin = String(Math.floor(100000 + Math.random() * 900000))
         const { error: pinErr } = await supabase.rpc('portal_set_pin', { p_employee: data.id, p_pin: autoPin })
         if (pinErr) {
-          // A pessoa foi criada; só a senha falhou. Dizer isso é melhor que
-          // sugerir que deu tudo errado — e o RH define a senha na ficha.
           toast.error('Colaborador criado, mas a senha do portal não foi definida. Crie na aba Portal da ficha.', { duration: 8000 })
         } else {
           toast.success(`Colaborador criado! Senha do portal: ${autoPin}`, { duration: 8000 })

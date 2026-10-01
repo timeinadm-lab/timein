@@ -38,6 +38,7 @@ const PaymentList = lazy(() => import('./pages/payments/PaymentList'))
 const PaymentForm = lazy(() => import('./pages/payments/PaymentForm'))
 
 const SupervisionDashboard = lazy(() => import('./pages/supervision/SupervisionDashboard'))
+const EquipePage = lazy(() => import('./pages/equipe/EquipePage'))
 
 const TemplateList = lazy(() => import('./pages/templates/TemplateList'))
 const TemplateEditor = lazy(() => import('./pages/templates/TemplateEditor'))
@@ -127,6 +128,7 @@ export default function App() {
 
               {/* Supervision (recrutador também acessa) */}
               <Route path="supervisao" element={<SupervisionDashboard />} />
+              <Route path="equipe" element={<EquipePage />} />
               <Route path="jornada" element={<JornadaPage />} />
 
               {/* Templates */}

@@ -65,6 +65,8 @@ export default function PortalHome() {
   const [reschedAgenda, setReschedAgenda] = useState<{ id: string; date: string } | null>(null)
   // Calendário único da agenda: dia aberto, filtro por cliente e a troca em andamento
   const [diaAgenda, setDiaAgenda] = useState<string | null>(null)
+  // Aba Ponto: lista dos clientes sem registro no mês fica fechada
+  const [verSemMovimento, setVerSemMovimento] = useState(false)
   const [agendaCliente, setAgendaCliente] = useState('')
   type AgendaItem = {
     id: string; planned_date: string; planned_time?: string | null; notes?: string | null; hours_expected?: number | null
@@ -1063,7 +1065,32 @@ export default function PortalHome() {
 
             {/* Resumo por cliente. Mostra o valor da visita por unidade (pedido em 29/09),
                 mas não a soma "a receber" do mês (decisão de 23/09). */}
-            {(folhaLinks as FolhaLink[] | undefined)?.map(link => {
+            {(() => {
+              // Quem atende muitos clientes tinha um cartão zerado para cada um.
+              // Cartão completo só para o cliente com movimento no mês (registro,
+              // visita na agenda ou fixo com escala); o resto vai para uma lista curta.
+              const todos = (folhaLinks as FolhaLink[] | undefined) || []
+              const agendaMes = (agendaDaFolha || []) as { client_id?: string; planned_date: string }[]
+              const temMovimento = (l: FolhaLink) => effectiveType(l) !== 'Consultoria'
+                || (folhaVisits || []).some(v => v.client_id === l.client?.id)
+                || agendaMes.some(a => a.client_id === l.client?.id)
+              const comMovimento = todos.filter(temMovimento)
+              const semMovimento = todos.filter(l => !temMovimento(l))
+              const feitas = (folhaVisits || []).filter(v => v.check_out && !(v as { is_unavailable?: boolean }).is_unavailable)
+              const clientesComRegistro = new Set(feitas.map(v => v.client_id)).size
+              return (
+                <>
+                  {todos.length > 3 && (
+                    <div className="card grid grid-cols-3 divide-x divide-ink-100 overflow-hidden">
+                      {([['Registros', feitas.length], ['Clientes atendidos', clientesComRegistro], ['Clientes', todos.length]] as const).map(([t, v]) => (
+                        <div key={t} className="px-3 py-3 text-center">
+                          <p className="text-2xl font-semibold text-ink-900 tnum leading-none">{v}</p>
+                          <p className="text-[11px] text-ink-500 mt-1">{t}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+            {comMovimento.map(link => {
               const client = link.client
               const clientVisits = folhaVisits?.filter(v => v.client_id === client?.id) ?? []
               const daysWorked = clientVisits.filter(v => v.check_out && !(v as { is_unavailable?: boolean }).is_unavailable).length
@@ -1244,6 +1271,31 @@ export default function PortalHome() {
                 </div>
               )
             })}
+                  {semMovimento.length > 0 && (
+                    <div className="card overflow-hidden">
+                      <button type="button" onClick={() => setVerSemMovimento(v => !v)}
+                        className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left">
+                        <span className="text-sm text-ink-700">
+                          {comMovimento.length > 0 ? 'Outros clientes' : 'Seus clientes'} sem registro neste mês
+                          <span className="text-ink-400"> · {semMovimento.length}</span>
+                        </span>
+                        {verSemMovimento ? <ChevronUp size={16} className="text-ink-400" /> : <ChevronDown size={16} className="text-ink-400" />}
+                      </button>
+                      {verSemMovimento && (
+                        <div className="divide-y divide-ink-100 border-t border-ink-100">
+                          {semMovimento.map(l => (
+                            <div key={l.id} className="flex items-center gap-3 px-4 py-2.5">
+                              <span className="flex-1 min-w-0 text-sm text-ink-800 truncate">{l.client?.name}</span>
+                              <button className="btn-ghost text-xs py-1.5 shrink-0" onClick={() => abrirRegistro(l.client?.id || '')}>Registrar</button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </>
+              )
+            })()}
 
             {/* Registros do mês */}
             {folhaVisits && folhaVisits.length > 0 && (

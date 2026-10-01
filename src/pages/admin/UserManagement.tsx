@@ -15,7 +15,6 @@ export default function UserManagement() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editRole, setEditRole] = useState<'chefe' | 'recrutador' | 'contabilidade'>('recrutador')
   const [showNewForm, setShowNewForm] = useState(false)
-  const [newForm, setNewForm] = useState({ full_name: '', email: '', password: '', role: 'recrutador' as 'chefe' | 'recrutador' | 'contabilidade' })
   const [pinValue, setPinValue] = useState('')
   const [pinConfirm, setPinConfirm] = useState('')
 
@@ -65,28 +64,15 @@ export default function UserManagement() {
     onError: (e: Error) => toast.error(e.message),
   })
 
-  const createUser = useMutation({
-    mutationFn: async () => {
-      const { data, error } = await supabase.auth.signUp({
-        email: newForm.email,
-        password: newForm.password,
-        options: { data: { full_name: newForm.full_name } },
-      })
+  // Liberar/bloquear o acesso de uma conta (migração 077)
+  const mudarAcesso = useMutation({
+    mutationFn: async ({ id, liberar }: { id: string; liberar: boolean }) => {
+      const { error } = await supabase.from('user_profiles').update({ acesso_liberado: liberar }).eq('id', id)
       if (error) throw error
-      if (data.user) {
-        await supabase.from('user_profiles').upsert({
-          id: data.user.id,
-          full_name: newForm.full_name,
-          email: newForm.email,
-          role: newForm.role,
-        })
-      }
     },
-    onSuccess: () => {
-      toast.success('Usuário criado! Lembre de verificar as configurações de e-mail no Supabase.')
+    onSuccess: (_d, v) => {
+      toast.success(v.liberar ? 'Acesso liberado' : 'Acesso bloqueado')
       qc.invalidateQueries({ queryKey: ['user-profiles'] })
-      setShowNewForm(false)
-      setNewForm({ full_name: '', email: '', password: '', role: 'recrutador' })
     },
     onError: (e: Error) => toast.error(e.message),
   })
@@ -106,10 +92,6 @@ export default function UserManagement() {
           <h1 className="page-title">Gestão de Usuários</h1>
         </div>
         <button onClick={() => setShowNewForm(true)} className="btn-primary text-sm"><Plus size={16} />Novo Usuário</button>
-      </div>
-
-      <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
-        <strong>Lembrete:</strong> Desative "Email Confirmation" em Authentication → Providers no Supabase para que novos usuários possam fazer login imediatamente.
       </div>
 
       {/* PIN de exclusão — só o chefe define */}
@@ -152,27 +134,17 @@ export default function UserManagement() {
       {role === 'chefe' && <SenhaPadraoPortal />}
 
       {showNewForm && (
-        <div className="card p-5 space-y-4">
-          <h3 className="font-medium">Novo Usuário</h3>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div><label className="label">Nome *</label><input className="input" required value={newForm.full_name} onChange={e => setNewForm(p => ({ ...p, full_name: e.target.value }))} /></div>
-            <div><label className="label">E-mail *</label><input className="input" type="email" required value={newForm.email} onChange={e => setNewForm(p => ({ ...p, email: e.target.value }))} /></div>
-            <div><label className="label">Senha *</label><input className="input" type="password" required value={newForm.password} onChange={e => setNewForm(p => ({ ...p, password: e.target.value }))} /></div>
-            <div>
-              <label className="label">Role *</label>
-              <select className="input" value={newForm.role} onChange={e => setNewForm(p => ({ ...p, role: e.target.value as 'chefe' | 'recrutador' | 'contabilidade' }))}>
-                <option value="recrutador">Recrutador</option>
-                <option value="chefe">Chefe</option>
-                <option value="contabilidade">Contabilidade</option>
-              </select>
-            </div>
+        <div className="card p-5 space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="font-medium">Novo usuário</h3>
+            <button className="btn-ghost p-1" onClick={() => setShowNewForm(false)}><X size={16} /></button>
           </div>
-          <div className="flex gap-3">
-            <button className="btn-primary" onClick={() => createUser.mutate()} disabled={!newForm.email || !newForm.password || !newForm.full_name || createUser.isPending}>
-              {createUser.isPending ? 'Criando...' : 'Criar Usuário'}
-            </button>
-            <button className="btn-secondary" onClick={() => setShowNewForm(false)}>Cancelar</button>
-          </div>
+          <p className="text-sm text-ink-600">Por segurança, o cadastro aberto do site fica desligado. Para criar uma conta da equipe:</p>
+          <ol className="text-sm text-ink-700 list-decimal pl-5 space-y-1">
+            <li>No Supabase, abra <b>Authentication → Users</b> e clique em <b>Add user → Create new user</b>.</li>
+            <li>Coloque o e-mail e a senha e marque <b>Auto Confirm User</b>.</li>
+            <li>Volte aqui: a pessoa aparece como <b>Bloqueada</b>. Escolha o papel e toque em <b>Liberar</b>.</li>
+          </ol>
         </div>
       )}
 
@@ -205,6 +177,16 @@ export default function UserManagement() {
                   ) : (
                     <>
                       <span className={`badge ${u.role === 'contabilidade' ? 'bg-emerald-100 text-emerald-700' : u.role === 'chefe' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>{u.role === 'contabilidade' ? 'Contabilidade' : u.role === 'chefe' ? 'Chefe' : 'Recrutador'}</span>
+                      {u.acesso_liberado === false && <span className="badge bg-red-100 text-red-700">Bloqueado</span>}
+                      {!isCurrent && u.acesso_liberado !== undefined && (
+                        <button onClick={async () => {
+                          const liberar = u.acesso_liberado === false
+                          if (!liberar && !(await confirmar({ titulo: `Bloquear o acesso de ${u.full_name}?`, texto: 'A pessoa não verá mais nada no sistema até ser liberada de novo.', confirmar: 'Bloquear' }))) return
+                          mudarAcesso.mutate({ id: u.id, liberar })
+                        }} className={`btn-ghost px-2 py-1 text-xs ${u.acesso_liberado === false ? 'text-emerald-700' : 'text-red-600'}`}>
+                          {u.acesso_liberado === false ? 'Liberar' : 'Bloquear'}
+                        </button>
+                      )}
                       {!isCurrent && (
                         <>
                           <button onClick={() => { setEditingId(u.id); setEditRole(u.role) }} className="btn-ghost p-2"><Edit size={14} /></button>

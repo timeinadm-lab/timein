@@ -6,6 +6,7 @@ export interface UserProfile {
   email: string
   role: Role
   photo_url?: string | null
+  acesso_liberado?: boolean // migração 077: conta nova nasce bloqueada até a chefia liberar
   created_at: string
   updated_at: string
 }

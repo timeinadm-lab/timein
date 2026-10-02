@@ -18,13 +18,13 @@ type Aviso = { chave: string; rotulo: string; n: number; caminho: string; icone:
  * Visitas) e só apareciam para quem abrisse a tela certa.
  */
 export default function AvisosSino() {
-  const { role } = useAuth()
+  const { role, isContabilidade } = useAuth()
   const chefe = role === 'chefe'
   const navigate = useNavigate()
   const [aberto, setAberto] = useState(false)
 
   const { data: avisos = [] } = useQuery({
-    queryKey: ['avisos-sino', chefe],
+    queryKey: ['avisos-sino', chefe, isContabilidade],
     refetchInterval: 60_000,
     queryFn: async (): Promise<Aviso[]> => {
       const conta = async (q: PromiseLike<{ count: number | null; error: unknown }>) => {
@@ -58,7 +58,8 @@ export default function AvisosSino() {
         // Espaço do plano gratuito (migração 074): só o chefe
         chefe ? Promise.resolve(supabase.rpc('uso_do_sistema')).then(r => (r.error ? null : (r.data as UsoDoSistema))).catch(() => null) : null,
         // Visita paga da equipe esperando aprovação (migração 076)
-        chefe ? conta(supabase.from('equipe_visitas').select('id', { count: 'exact', head: true }).eq('status', 'pendente')) : 0,
+        // Só a contabilidade aprova (migração 078); visita programada para o futuro não conta
+        isContabilidade ? conta(supabase.from('equipe_visitas').select('id', { count: 'exact', head: true }).eq('status', 'pendente').lte('data', hojeISO())) : 0,
       ])
       const espaco = uso ? Math.max(porcento(uso.arquivos_bytes, LIMITE_ARQUIVOS), porcento(uso.banco_bytes, LIMITE_BANCO)) : 0
       return ([

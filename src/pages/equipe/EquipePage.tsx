@@ -17,7 +17,7 @@ import type { Periodo, TipoPeriodo, LancamentoCaixa } from '../../lib/equipe'
  * Equipe — relatório de trabalho de quem tem login no sistema (pedido do
  * Gabriel, 01/10/2026). Junta sozinho o que a pessoa já registra
  * (atividades, reuniões/compromissos, supervisões) e o caixa de compras
- * (migração 075). Cada um vê o seu; chefe e contabilidade veem todos.
+ * (migração 075). Cada um vê o seu; só a contabilidade vê todos (migração 078).
  * A própria pessoa baixa o relatório (semana ou mês) e entrega para a chefe.
  */
 
@@ -30,12 +30,16 @@ type VisitaEquipe = {
   entrada?: string | null; saida?: string | null; valor: number | string; relatorio?: string | null; observacoes?: string | null
   status: 'pendente' | 'aprovada' | 'recusada'; motivo_recusa?: string | null; client?: { name?: string } | null
 }
+type ModeloVisita = { id: string; client_id: string | null; unidade?: string | null; valor: number | string; entrada?: string | null; saida?: string | null; observacoes?: string | null }
+type InicialVisita = { cliente?: string; unidade?: string; data?: string; entrada?: string; saida?: string; valor?: string; obs?: string }
 type Dados = { perfis: Perfil[]; atividades: Atividade[]; compromissos: Compromisso[]; supervisoes: Supervisao[]; caixa: LancamentoCaixa[]; caixaErro: boolean; visitas: VisitaEquipe[]; visitasErro: boolean }
 const SITUACAO_VISITA: Record<VisitaEquipe['status'], { rotulo: string; cor: string }> = {
   pendente: { rotulo: 'Aguardando aprovação', cor: 'bg-amber-50 text-amber-700' },
   aprovada: { rotulo: 'Aprovada', cor: 'bg-green-50 text-green-700' },
   recusada: { rotulo: 'Recusada', cor: 'bg-red-50 text-red-700' },
 }
+const programada = (v: VisitaEquipe) => v.status === 'pendente' && v.data > hojeISO()
+const situacaoVisita = (v: VisitaEquipe) => programada(v) ? { rotulo: 'Programada', cor: 'bg-sky-50 text-sky-700' } : SITUACAO_VISITA[v.status]
 const horasDaVisita = (v: VisitaEquipe) => {
   if (!v.entrada || !v.saida) return null
   const [h1, m1] = v.entrada.slice(0, 5).split(':').map(Number), [h2, m2] = v.saida.slice(0, 5).split(':').map(Number)
@@ -105,8 +109,9 @@ function resumoDe(d: Dados, uid: string, p: Periodo) {
 
 // ── Página ────────────────────────────────────────────────────────────────
 export default function EquipePage() {
-  const { profile, role } = useAuth()
-  const chefia = role === 'chefe' // chefe e contabilidade
+  const { profile, isContabilidade } = useAuth()
+  // Cada um vê só o seu — nem o chefe abre o dos outros. Só a contabilidade vê todos (pedido de 02/10).
+  const chefia = isContabilidade
   const [params, setParams] = useSearchParams()
   const tipo: TipoPeriodo = params.get('periodo') === 'mes' ? 'mes' : 'semana'
   const periodo = periodoDe(tipo, /^\d{4}-\d{2}(-\d{2})?$/.test(params.get('ref') || '') ? (params.get('ref')!.length === 7 ? params.get('ref') + '-01' : params.get('ref')!) : hojeISO())
@@ -123,7 +128,7 @@ export default function EquipePage() {
         <div>
           <p className="eyebrow mb-1">Operação</p>
           <h1 className="page-title">{chefia ? 'Equipe' : 'Meu trabalho'}</h1>
-          <p className="text-sm text-ink-500 mt-1">Atividades, reuniões, supervisões e compras — com relatório para entregar à chefe.</p>
+          <p className="text-sm text-ink-500 mt-1">Seu calendário, visitas, supervisões e compras — com relatório para entregar à chefe.</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <div className="flex rounded-xl border border-ink-200 bg-white p-0.5">
@@ -199,7 +204,7 @@ function PerfilEquipe({ uid, periodo, proprio, voltar, chefia }: { uid: string; 
   })
   const nomeCliente = (id?: string | null) => (id && clientes.find(c => c.id === id)?.name) || ''
   const [lancando, setLancando] = useState(false)
-  const [registrandoVisita, setRegistrandoVisita] = useState(false)
+  const [registrandoVisita, setRegistrandoVisita] = useState<InicialVisita | null>(null)
   const [recusando, setRecusando] = useState<{ id: string; motivo: string } | null>(null)
   const [comFotos, setComFotos] = useState(true)
   const [gerando, setGerando] = useState(false)
@@ -323,6 +328,10 @@ function PerfilEquipe({ uid, periodo, proprio, voltar, chefia }: { uid: string; 
         <button className="btn-primary text-sm" disabled={gerando} onClick={baixar}><FileDown size={15} />{gerando ? 'Gerando…' : 'Baixar relatório'}</button>
       </div>
 
+      {/* Calendário da pessoa: supervisões, visitas e compromissos */}
+      <CalendarioEquipe periodo={periodo} supervisoes={r.supervisoes} visitas={r.visitas} compromissos={r.compromissos}
+        nomeCliente={nomeCliente} aoTocarDia={proprio && !data.visitasErro ? dia => setRegistrandoVisita({ data: dia }) : undefined} />
+
       {/* Resumo */}
       <div className="card grid grid-cols-2 md:grid-cols-4 divide-x divide-ink-100 overflow-hidden">
         {([
@@ -408,11 +417,11 @@ function PerfilEquipe({ uid, periodo, proprio, voltar, chefia }: { uid: string; 
                 {colaboradores.filter(c => c.status === 'Ativo' || c.id === perfil?.employee_id).map(c => <option key={c.id} value={c.id}>Recebe como: {c.full_name}</option>)}
               </select>
             )}
-            {proprio && !data.visitasErro && <button className="btn-primary text-sm" onClick={() => setRegistrandoVisita(true)}><Plus size={15} />Registrar visita</button>}
+            {proprio && !data.visitasErro && <button className="btn-primary text-sm" onClick={() => setRegistrandoVisita({})}><Plus size={15} />Nova visita</button>}
           </div>
         </div>
         {data.visitasErro ? <p className="px-4 py-4 text-sm text-amber-700">Para registrar visita paga, rode a migração 076 no Supabase.</p>
-          : r.visitas.length === 0 ? <Vazio texto={proprio ? 'Nenhuma visita paga neste período. Fez uma visita a cliente? Toque em Registrar visita.' : 'Nenhuma visita paga neste período.'} />
+          : r.visitas.length === 0 ? <Vazio texto={proprio ? 'Nenhuma visita neste período. Toque em Nova visita ou num dia do calendário.' : 'Nenhuma visita paga neste período.'} />
           : (
             <div className="divide-y divide-ink-100">
               {r.visitas.map(v => (
@@ -423,13 +432,17 @@ function PerfilEquipe({ uid, periodo, proprio, voltar, chefia }: { uid: string; 
                     <p className="text-xs text-ink-500">{[horasDaVisita(v), v.observacoes].filter(Boolean).join(' · ')}</p>
                     {v.motivo_recusa && <p className="text-xs text-red-600">Recusada: {v.motivo_recusa}</p>}
                     <div className="flex items-center gap-2 mt-1 flex-wrap">
-                      <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${SITUACAO_VISITA[v.status].cor}`}>{SITUACAO_VISITA[v.status].rotulo}</span>
+                      <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${situacaoVisita(v).cor}`}>{situacaoVisita(v).rotulo}</span>
+                      {proprio && (
+                        <button className="text-[11px] underline text-ink-500" title="Programar de novo em outro dia com os mesmos dados"
+                          onClick={() => setRegistrandoVisita({ cliente: v.client_id || '', unidade: v.unidade || '', entrada: (v.entrada || '').slice(0, 5), saida: (v.saida || '').slice(0, 5), valor: String(v.valor).replace('.', ','), obs: v.observacoes || '' })}>repetir</button>
+                      )}
                       {v.relatorio && <SignedLink value={v.relatorio} bucket="arquivos" className="text-[11px] underline text-ink-500 inline-flex items-center gap-1"><FileText size={11} />relatório</SignedLink>}
                     </div>
                   </div>
                   <div className="flex flex-col items-end gap-1 shrink-0">
                     <p className="text-sm font-semibold tnum text-ink-900">{formatCurrency(Number(v.valor) || 0)}</p>
-                    {chefia && v.status === 'pendente' && (
+                    {chefia && v.status === 'pendente' && !programada(v) && (
                       <div className="flex gap-1">
                         <button className="btn-primary text-[11px] py-1 px-2" disabled={decidirVisita.isPending}
                           onClick={async () => { if (await confirmar({ titulo: `Aprovar a visita de ${formatCurrency(Number(v.valor) || 0)}?`, texto: 'Ela vira um lançamento em Pagamentos (dia 20 para visita até o dia 15; dia 8 do mês seguinte depois disso).', confirmar: 'Aprovar' })) decidirVisita.mutate({ id: v.id, aprovar: true }) }}>Aprovar</button>
@@ -487,7 +500,7 @@ function PerfilEquipe({ uid, periodo, proprio, voltar, chefia }: { uid: string; 
       </div>
 
       {lancando && <LancarCaixa uid={uid} clientes={clientes} fechar={() => setLancando(false)} />}
-      {registrandoVisita && <RegistrarVisita uid={uid} clientes={clientes} fechar={() => setRegistrandoVisita(false)} />}
+      {registrandoVisita && <RegistrarVisita uid={uid} clientes={clientes} inicial={registrandoVisita} fechar={() => setRegistrandoVisita(null)} />}
       {recusando && (
         <div className="modal-overlay" onClick={() => setRecusando(null)}>
           <div className="modal-box max-w-sm space-y-3" onClick={e => e.stopPropagation()}>
@@ -603,21 +616,49 @@ function LancarCaixa({ uid, clientes, fechar }: { uid: string; clientes: { id: s
 }
 
 // ── Registrar visita paga (a própria pessoa) ──────────────────────────────
-function RegistrarVisita({ uid, clientes, fechar }: { uid: string; clientes: { id: string; name: string }[]; fechar: () => void }) {
+function RegistrarVisita({ uid, clientes, inicial, fechar }: { uid: string; clientes: { id: string; name: string }[]; inicial: InicialVisita; fechar: () => void }) {
   const qc = useQueryClient()
-  const [cliente, setCliente] = useState('')
-  const [unidade, setUnidade] = useState('')
-  const [data, setData] = useState(hojeISO())
-  const [entrada, setEntrada] = useState('')
-  const [saida, setSaida] = useState('')
-  const [valor, setValor] = useState('')
-  const [obs, setObs] = useState('')
+  const [cliente, setCliente] = useState(inicial.cliente || '')
+  const [unidade, setUnidade] = useState(inicial.unidade || '')
+  const [data, setData] = useState(inicial.data || hojeISO())
+  const [entrada, setEntrada] = useState(inicial.entrada || '')
+  const [saida, setSaida] = useState(inicial.saida || '')
+  const [valor, setValor] = useState(inicial.valor || '')
+  const [obs, setObs] = useState(inicial.obs || '')
   const [arquivo, setArquivo] = useState<File | null>(null)
+  const [guardarModelo, setGuardarModelo] = useState(!inicial.cliente)
+
+  // Modelos de visita (migração 078): cliente, unidade, valor e horário prontos para repetir
+  const { data: modelos = [], error: modelosErro } = useQuery({
+    queryKey: ['equipe-modelos', uid],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('equipe_modelos_visita').select('*').eq('user_id', uid).order('criado_em')
+      if (error) throw error
+      return (data || []) as ModeloVisita[]
+    },
+    retry: false,
+  })
+  const nomeCli = (id?: string | null) => clientes.find(c => c.id === id)?.name || 'Cliente'
+  const usarModelo = (m: ModeloVisita) => {
+    setCliente(m.client_id || ''); setUnidade(m.unidade || ''); setValor(String(m.valor).replace('.', ','))
+    setEntrada((m.entrada || '').slice(0, 5)); setSaida((m.saida || '').slice(0, 5)); setObs(m.observacoes || '')
+    setGuardarModelo(false)
+  }
+  const apagarModelo = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from('equipe_modelos_visita').delete().eq('id', id)
+      if (error) throw error
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['equipe-modelos', uid] }),
+    onError: (e: Error) => toast.error(e.message),
+  })
+  const futura = data > hojeISO()
 
   const salvar = useMutation({
     mutationFn: async () => {
       if (!cliente) throw new Error('Escolha o cliente')
-      if (!entrada || !saida) throw new Error('Informe a entrada e a saída')
+      // Horário é opcional; se colocar, vai entrada e saída
+      if (!!entrada !== !!saida) throw new Error('Informe a entrada e a saída, ou deixe as duas em branco')
       const v = Number(valor.replace(/\./g, '').replace(',', '.'))
       if (!(v > 0)) throw new Error('Informe o valor da visita')
       let relatorio: string | null = null
@@ -631,12 +672,19 @@ function RegistrarVisita({ uid, clientes, fechar }: { uid: string; clientes: { i
         relatorio = caminho
       }
       const { error } = await supabase.from('equipe_visitas').insert({
-        user_id: uid, client_id: cliente, unidade: unidade.trim() || null, data, entrada, saida,
+        user_id: uid, client_id: cliente, unidade: unidade.trim() || null, data, entrada: entrada || null, saida: saida || null,
         valor: Math.round(v * 100) / 100, relatorio, observacoes: obs.trim() || null,
       })
       if (error) throw new Error(/equipe_visitas/.test(error.message) ? 'Falta rodar a migração 076 no Supabase.' : error.message)
+      if (guardarModelo && !modelosErro) {
+        await supabase.from('equipe_modelos_visita').insert({
+          user_id: uid, client_id: cliente, unidade: unidade.trim() || null, valor: Math.round(v * 100) / 100,
+          entrada: entrada || null, saida: saida || null, observacoes: obs.trim() || null,
+        })
+        qc.invalidateQueries({ queryKey: ['equipe-modelos', uid] })
+      }
     },
-    onSuccess: () => { toast.success('Visita registrada — aguardando aprovação da chefia'); qc.invalidateQueries({ queryKey: ['equipe'] }); qc.invalidateQueries({ queryKey: ['avisos-sino'] }); fechar() },
+    onSuccess: () => { toast.success(futura ? 'Visita programada' : 'Visita registrada — aguardando aprovação da contabilidade'); qc.invalidateQueries({ queryKey: ['equipe'] }); qc.invalidateQueries({ queryKey: ['avisos-sino'] }); fechar() },
     onError: (e: Error) => toast.error(e.message),
   })
 
@@ -644,9 +692,27 @@ function RegistrarVisita({ uid, clientes, fechar }: { uid: string; clientes: { i
     <div className="modal-overlay" onClick={fechar}>
       <div className="modal-box max-w-md space-y-4" onClick={e => e.stopPropagation()}>
         <div>
-          <h3 className="text-lg font-semibold text-ink-900">Registrar visita paga</h3>
-          <p className="text-xs text-ink-500">A chefia aprova e ela entra em Pagamentos.</p>
+          <h3 className="text-lg font-semibold text-ink-900">{futura ? 'Programar visita' : 'Visita'}</h3>
+          <p className="text-xs text-ink-500">Depois do dia, a contabilidade aprova e ela entra em Pagamentos.</p>
         </div>
+        {modelos.length > 0 && (
+          <div>
+            <label className="label">Usar um modelo</label>
+            <div className="flex flex-wrap gap-1.5">
+              {modelos.map(m => (
+                <span key={m.id} className="inline-flex items-center rounded-full border border-ink-200 bg-white text-xs">
+                  <button type="button" className="pl-3 pr-1.5 py-1.5 text-ink-800" onClick={() => usarModelo(m)}>
+                    {nomeCli(m.client_id)}{m.unidade ? ` · ${m.unidade}` : ''} · {formatCurrency(Number(m.valor) || 0)}{m.entrada && m.saida ? ` · ${m.entrada.slice(0, 5)}–${m.saida.slice(0, 5)}` : ''}
+                  </button>
+                  <button type="button" className="pr-2 pl-1 py-1.5 text-ink-400 hover:text-red-600" aria-label="Apagar modelo"
+                    onClick={async () => { if (await confirmar({ titulo: 'Apagar este modelo?', texto: 'As visitas já feitas continuam.', confirmar: 'Apagar' })) apagarModelo.mutate(m.id) }}>
+                    <X size={12} />
+                  </button>
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
         <div>
           <label className="label">Cliente *</label>
           <select className="input" value={cliente} onChange={e => setCliente(e.target.value)}>
@@ -659,9 +725,9 @@ function RegistrarVisita({ uid, clientes, fechar }: { uid: string; clientes: { i
           <input className="input" value={unidade} onChange={e => setUnidade(e.target.value)} placeholder="Ex.: Unidade Centro" />
         </div>
         <div className="grid grid-cols-3 gap-2">
-          <div><label className="label">Dia *</label><input className="input" type="date" value={data} max={hojeISO()} onChange={e => setData(e.target.value)} /></div>
-          <div><label className="label">Entrada *</label><input className="input" type="time" value={entrada} onChange={e => setEntrada(e.target.value)} /></div>
-          <div><label className="label">Saída *</label><input className="input" type="time" value={saida} onChange={e => setSaida(e.target.value)} /></div>
+          <div><label className="label">Dia *</label><input className="input" type="date" value={data} onChange={e => setData(e.target.value)} /></div>
+          <div><label className="label">Entrada <span className="text-ink-400 font-normal">opc.</span></label><input className="input" type="time" value={entrada} onChange={e => setEntrada(e.target.value)} /></div>
+          <div><label className="label">Saída <span className="text-ink-400 font-normal">opc.</span></label><input className="input" type="time" value={saida} onChange={e => setSaida(e.target.value)} /></div>
         </div>
         <div>
           <label className="label">Valor da visita *</label>
@@ -675,11 +741,71 @@ function RegistrarVisita({ uid, clientes, fechar }: { uid: string; clientes: { i
           <label className="label">Observações <span className="text-ink-400 font-normal">— opcional</span></label>
           <textarea className="input" rows={2} value={obs} onChange={e => setObs(e.target.value)} />
         </div>
+        {!modelosErro && (
+          <label className="flex items-center gap-2 text-sm text-ink-700">
+            <input type="checkbox" checked={guardarModelo} onChange={e => setGuardarModelo(e.target.checked)} />
+            Guardar como modelo para programar de novo
+          </label>
+        )}
         <div className="flex flex-col-reverse sm:flex-row gap-2">
           <button className="btn-secondary flex-1" onClick={fechar}>Cancelar</button>
-          <button className="btn-primary flex-1" disabled={salvar.isPending} onClick={() => salvar.mutate()}>{salvar.isPending ? 'Salvando…' : 'Registrar'}</button>
+          <button className="btn-primary flex-1" disabled={salvar.isPending} onClick={() => salvar.mutate()}>{salvar.isPending ? 'Salvando…' : futura ? 'Programar' : 'Salvar'}</button>
         </div>
       </div>
+    </div>
+  )
+}
+
+// ── Calendário da pessoa (semana ou mês) ─────────────────────────────────
+function CalendarioEquipe({ periodo, supervisoes, visitas, compromissos, nomeCliente, aoTocarDia }: {
+  periodo: Periodo; supervisoes: Supervisao[]; visitas: VisitaEquipe[]; compromissos: Compromisso[]
+  nomeCliente: (id?: string | null) => string; aoTocarDia?: (dia: string) => void
+}) {
+  const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  // Grade começa na segunda: no mês, completa as semanas das pontas
+  const ini = new Date(periodo.ini + 'T12:00:00'); ini.setDate(ini.getDate() - ((ini.getDay() + 6) % 7))
+  const fim = new Date(periodo.fim + 'T12:00:00'); fim.setDate(fim.getDate() + (6 - ((fim.getDay() + 6) % 7)))
+  const dias: string[] = []
+  for (const d = new Date(ini); d <= fim; d.setDate(d.getDate() + 1)) dias.push(iso(d))
+  const hoje = hojeISO()
+  type Item = { cor: string; texto: string }
+  const porDia = new Map<string, Item[]>()
+  const por = (dia: string, it: Item) => porDia.set(dia, [...(porDia.get(dia) || []), it])
+  supervisoes.forEach(s => por(s.visit_date, { cor: 'bg-violet-100 text-violet-800', texto: `Supervisão · ${s.client?.name || 'Cliente'}` }))
+  visitas.forEach(v => por(v.data, { cor: v.status === 'recusada' ? 'bg-red-100 text-red-700 line-through' : v.data > hoje ? 'bg-sky-100 text-sky-800' : 'bg-emerald-100 text-emerald-800', texto: `Visita · ${v.client?.name || nomeCliente(v.client_id) || 'Cliente'}${v.entrada ? ' ' + v.entrada.slice(0, 5) : ''}` }))
+  compromissos.forEach(c => por(c.scheduled_at.slice(0, 10), { cor: 'bg-amber-100 text-amber-800', texto: `${hora(c.scheduled_at)} ${c.title}` }))
+  return (
+    <div className="card overflow-hidden">
+      <div className="px-4 py-3 border-b border-ink-100 flex items-center justify-between gap-3 flex-wrap">
+        <p className="text-sm font-semibold text-ink-900">Meu calendário</p>
+        <div className="flex flex-wrap gap-2 text-[11px] text-ink-500">
+          <span className="inline-flex items-center gap-1"><i className="w-2 h-2 rounded-full bg-violet-400" />supervisão</span>
+          <span className="inline-flex items-center gap-1"><i className="w-2 h-2 rounded-full bg-emerald-400" />visita</span>
+          <span className="inline-flex items-center gap-1"><i className="w-2 h-2 rounded-full bg-sky-400" />programada</span>
+          <span className="inline-flex items-center gap-1"><i className="w-2 h-2 rounded-full bg-amber-400" />compromisso</span>
+        </div>
+      </div>
+      <div className="grid grid-cols-7 text-center text-[10px] uppercase tracking-wide text-ink-400 border-b border-ink-100">
+        {['seg', 'ter', 'qua', 'qui', 'sex', 'sáb', 'dom'].map(d => <div key={d} className="py-1.5">{d}</div>)}
+      </div>
+      <div className="grid grid-cols-7">
+        {dias.map(d => {
+          const fora = d < periodo.ini || d > periodo.fim
+          const itens = porDia.get(d) || []
+          return (
+            <button key={d} type="button" disabled={!aoTocarDia || fora} onClick={() => aoTocarDia?.(d)}
+              title={aoTocarDia && !fora ? 'Nova visita neste dia' : undefined}
+              className={`min-h-[4.5rem] sm:min-h-[5.5rem] border-b border-r border-ink-100 p-1 text-left align-top ${fora ? 'bg-ink-50/60 text-ink-300' : 'hover:bg-primary-50/40'}`}>
+              <span className={`text-[11px] font-semibold ${d === hoje ? 'inline-flex w-5 h-5 items-center justify-center rounded-full bg-primary-600 text-white' : ''}`}>{Number(d.slice(8))}</span>
+              <div className="mt-0.5 space-y-0.5">
+                {itens.slice(0, 3).map((it, i) => <p key={i} className={`truncate rounded px-1 text-[10px] leading-4 ${it.cor}`}>{it.texto}</p>)}
+                {itens.length > 3 && <p className="text-[10px] text-ink-500 px-1">+{itens.length - 3}</p>}
+              </div>
+            </button>
+          )
+        })}
+      </div>
+      {aoTocarDia && <p className="px-4 py-2 text-[11px] text-ink-400">Toque num dia para colocar ou programar uma visita.</p>}
     </div>
   )
 }

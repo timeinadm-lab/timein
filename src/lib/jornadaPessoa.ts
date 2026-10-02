@@ -29,6 +29,7 @@ export type VinculoPerfil = {
   cost_assistance?: number | null
   daily_hours?: number | null
   weekly_hours_quota?: number | null
+  monthly_hours_quota?: number | null
   visits_per_week?: number | null
   visit_frequency?: string | null
   work_schedule_type?: string | null

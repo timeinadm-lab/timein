@@ -496,6 +496,23 @@ function PerfilJornada({ pessoa, mes, voltar }: { pessoa: string; mes: string; v
         <div className="card p-8 text-center text-sm text-ink-500">Nada na agenda nem registrado em {nomeDoMes(mes)}.</div>
       ) : (
         <>
+          {/* Total de horas trabalhadas no mês (todos os clientes) */}
+          {(() => {
+            const total = resumos.reduce((s, r) => s + r.minutos, 0)
+            const cota = resumos.reduce((s, r) => s + (Number(r.link.monthly_hours_quota) || 0), 0)
+            if (!total && !cota) return null
+            return (
+              <div className="card px-4 py-3 flex flex-wrap items-center gap-x-6 gap-y-1">
+                <div>
+                  <p className="text-[11px] uppercase tracking-wide text-ink-500">Horas trabalhadas em {nomeDoMes(mes)}</p>
+                  <p className="text-2xl font-semibold text-ink-900 tnum">{horasTxt(total)}</p>
+                </div>
+                {cota > 0 && <p className="text-sm text-ink-600">Combinado nos clientes com total no mês: <strong className="tnum">{String(cota).replace('.', ',')}h</strong></p>}
+                {resumos.length > 1 && <p className="text-xs text-ink-500">{resumos.filter(r => r.minutos > 0).map(r => `${nomeCliente(r.link.client_id) || 'Cliente'} ${horasTxt(r.minutos)}`).join(' · ')}</p>}
+              </div>
+            )
+          })()}
+
           {/* Um cartão por vínculo: previsto × feito */}
           <div className={`grid gap-3 ${varios ? 'md:grid-cols-2' : ''}`}>
             {resumos.map(r => {
@@ -526,7 +543,15 @@ function PerfilJornada({ pessoa, mes, voltar }: { pessoa: string; mes: string; v
                     {r.faltas.length > 0 && <span className="px-2 py-0.5 rounded-full bg-red-50 text-red-700 font-medium">{r.faltas.length} {r.unidade === 'visitas' ? 'não registrada' : 'sem registro'}{r.faltas.length > 1 ? 's' : ''}: {r.faltas.map(diaCurto).join(', ')}</span>}
                     {r.restantes > 0 && <span className="px-2 py-0.5 rounded-full bg-ink-100 text-ink-600">{r.restantes} por vir</span>}
                     {r.trocas > 0 && <span className="px-2 py-0.5 rounded-full bg-pink-50 text-pink-700">{r.trocas} troca{r.trocas > 1 ? 's' : ''}{r.trocasNaoVistas ? ` · ${r.trocasNaoVistas} nova${r.trocasNaoVistas > 1 ? 's' : ''}` : ''}</span>}
-                    {r.minutos > 0 && <span className="px-2 py-0.5 rounded-full bg-ink-100 text-ink-600">{horasTxt(r.minutos)} no mês</span>}
+                    {(r.minutos > 0 || Number(r.link.monthly_hours_quota) > 0) && (() => {
+                      // Combinado em horas no mês: mostra quanto já fez do total
+                      const cota = Number(r.link.monthly_hours_quota) || 0
+                      if (!cota) return <span className="px-2 py-0.5 rounded-full bg-ink-100 text-ink-600">{horasTxt(r.minutos)} no mês</span>
+                      const falta = Math.max(0, cota * 60 - r.minutos)
+                      return <span className={`px-2 py-0.5 rounded-full font-medium ${falta ? 'bg-amber-50 text-amber-800' : 'bg-emerald-50 text-emerald-800'}`}>
+                        {horasTxt(r.minutos)} de {String(cota).replace('.', ',')}h no mês{falta ? ` · faltam ${horasTxt(falta)}` : ' · fechou'}
+                      </span>
+                    })()}
                     {r.abaixoJornada > 0 && <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-800">{r.abaixoJornada} abaixo da jornada</span>}
                     {r.acimaJornada > 0 && <span className="px-2 py-0.5 rounded-full bg-sky-50 text-sky-800">{r.acimaJornada} acima da jornada</span>}
                     {r.semValor > 0 && <span className="px-2 py-0.5 rounded-full bg-red-50 text-red-700 font-medium">{r.semValor} visita{r.semValor > 1 ? 's' : ''} sem valor</span>}

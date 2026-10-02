@@ -111,8 +111,10 @@ const EMPTY_COVERAGE = {
   visit_frequency: 'Avulso' as 'Semanal' | 'Quinzenal' | 'Mensal' | 'Avulso',
   // 'sim' = a visita tem tempo mínimo e o pagamento é proporcional às horas;
   // 'nao' = paga o valor cheio da unidade independente da duração.
-  horas_obrigatorias: '' as '' | 'sim' | 'nao',
+  horas_obrigatorias: '' as '' | 'sim' | 'mes' | 'nao',
   weekly_hours_quota: '',
+  // 'mes' = total de horas no mês, não importa quantas horas tem cada visita
+  horas_mes: '',
   // Comum
   // Sem daily_rate: no Fixo ela é derivada do mensal; na Consultoria não existe
   start_date: '', end_date: '', monthly_amount: '',
@@ -160,7 +162,7 @@ export default function EmployeeDetail() {
   const hojeStr = hojeISO()
   const [linkForm, setLinkForm] = useState({ client_id: '', service_type: 'Fixo' as 'Fixo' | 'Consultoria', monthly_amount: '', cost_assistance: '', weekly_hours_quota: '', visit_frequency: 'Semanal' as 'Semanal' | 'Quinzenal' | 'Mensal', contract_end_date: '', work_schedule_type: '', daily_hours: '', days_off: [] as number[], schedule_anchor_date: '' })
   type EditLinkUnit = { unit_id: string; unit_name: string; visit_rate: string }
-  type EditLinkState = { linkId: string; serviceType: string; clientId: string; monthly_amount: string; cost_assistance: string; weekly_hours: string; visit_frequency: string; visits_per_week: string; units: EditLinkUnit[]; work_schedule_type: string; daily_hours: string; days_off: number[]; schedule_anchor_date: string; start_date: string; payDays: string[]; pay_full_salary: boolean; expected_days_month: string; work_start: string; work_end: string; break_minutes: string }
+  type EditLinkState = { linkId: string; serviceType: string; clientId: string; monthly_amount: string; cost_assistance: string; weekly_hours: string; visit_frequency: string; visits_per_week: string; units: EditLinkUnit[]; work_schedule_type: string; daily_hours: string; days_off: number[]; schedule_anchor_date: string; start_date: string; payDays: string[]; pay_full_salary: boolean; expected_days_month: string; work_start: string; work_end: string; break_minutes: string; horas_modo: 'visita' | 'mes'; horas_mes: string }
   const [editLinkValues, setEditLinkValues] = useState<EditLinkState | null>(null)
   // Intervalo do contrato do cliente (o portal não pede intervalo; a conta das
   // horas desconta o do vínculo — mesma regra do portal e do aviso de jornada)
@@ -523,8 +525,9 @@ export default function EmployeeDetail() {
           schedule_anchor_date: coverageForm.work_schedule_type === '12x36' ? (coverageForm.schedule_anchor_date || null) : null,
         } : {
           visit_frequency: coverageForm.visit_frequency,
-          weekly_hours_quota: Number(coverageForm.weekly_hours_quota) || null,
-          monthly_hours_quota: monthlyHours,
+          // Total no mês: sem horas por visita (a visita paga cheia) e a cota é o total
+          weekly_hours_quota: coverageForm.horas_obrigatorias === 'mes' ? null : (Number(coverageForm.weekly_hours_quota) || null),
+          monthly_hours_quota: coverageForm.horas_obrigatorias === 'mes' ? (Number(coverageForm.horas_mes) || null) : monthlyHours,
         }),
       }
       // Cliente novo do consultor fixo: usa o contrato, o dia de pagamento e o
@@ -1012,6 +1015,9 @@ export default function EmployeeDetail() {
         work_start: ((l as { work_start?: string }).work_start || '').slice(0, 5),
         work_end: ((l as { work_end?: string }).work_end || '').slice(0, 5),
         break_minutes: String((l as { break_minutes?: number }).break_minutes || ''),
+        // Sem horas por visita e com total no mês = combinado pelo total do mês
+        horas_modo: !Number(l.weekly_hours_quota) && Number((l as { monthly_hours_quota?: number }).monthly_hours_quota) > 0 ? 'mes' : 'visita',
+        horas_mes: String((l as { monthly_hours_quota?: number }).monthly_hours_quota || ''),
       })
   }
 
@@ -1270,14 +1276,15 @@ export default function EmployeeDetail() {
         cost_assistance: vals.cost_assistance ? Number(vals.cost_assistance) : 0,
         link_units: linkUnits,
         visit_frequency: isConsult ? (vals.visit_frequency || 'Semanal') : undefined,
-        weekly_hours_quota: isConsult ? (vals.weekly_hours ? Number(vals.weekly_hours) : null) : undefined,
+        weekly_hours_quota: isConsult ? (vals.horas_modo !== 'mes' && vals.weekly_hours ? Number(vals.weekly_hours) : null) : undefined,
         // Cota de horas no mês só existe com frequência definida. "Em aberto"
         // não tem quantas visitas terá, então não há cota a cobrar.
         // Semanal com mais de uma visita por semana: horas por visita × visitas × 4
         // (antes ignorava as visitas por semana e metade das visitas de quem vai
         // 2x/semana caía em "aguardando aprovação")
         monthly_hours_quota: isConsult
-          ? (vals.weekly_hours && freqMultiplier > 0
+          ? vals.horas_modo === 'mes' ? (Number(vals.horas_mes) || null)
+          : (vals.weekly_hours && freqMultiplier > 0
               ? Number(vals.weekly_hours) * freqMultiplier * (vals.visit_frequency === 'Semanal' ? (Number(vals.visits_per_week) || 1) : 1)
               : null)
           : undefined,
@@ -1923,22 +1930,32 @@ export default function EmployeeDetail() {
               {coverageForm.coverage_type === 'Consultoria' && (
                 <div className="rounded-xl border-2 border-orange-300 bg-white p-3">
                   <label className="label !text-orange-800">{coverageForm.consult_salario ? 'Tem horas combinadas por visita? *' : 'A visita tem tempo mínimo? *'}</label>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                     {(coverageForm.consult_salario ? [
-                      { v: 'sim', t: '⏱ Sim', d: 'Fica registrado quantas horas ela faz em cada visita. Não muda o salário.' },
-                      { v: 'nao', t: '✓ Não', d: 'Sem horas definidas neste cliente.' },
+                      { v: 'sim', t: 'Por visita', d: 'Fica registrado quantas horas ela faz em cada visita. Não muda o salário.' },
+                      { v: 'mes', t: 'Total no mês', d: 'Ela precisa fechar X horas no mês, não importa quantas horas tem cada visita.' },
+                      { v: 'nao', t: 'Não', d: 'Sem horas definidas neste cliente.' },
                     ] as const : [
-                      { v: 'sim', t: '⏱ Sim, tem tempo certo', d: 'Se ela ficar menos que o combinado, recebe proporcional às horas feitas.' },
-                      { v: 'nao', t: '✓ Não, o que vale é a visita', d: 'Recebe o valor cheio da unidade, independente de quanto tempo ficar.' },
+                      { v: 'sim', t: 'Sim, por visita', d: 'Se ela ficar menos que o combinado, recebe proporcional às horas feitas.' },
+                      { v: 'mes', t: 'Total de horas no mês', d: 'Cada visita paga cheia; passando do total do mês, o excedente espera aprovação.' },
+                      { v: 'nao', t: 'Não, o que vale é a visita', d: 'Recebe o valor cheio da unidade, independente de quanto tempo ficar.' },
                     ] as const).map(o => (
                       <button key={o.v} type="button"
-                        onClick={() => setCoverageForm(p => ({ ...p, horas_obrigatorias: o.v, weekly_hours_quota: o.v === 'nao' ? '' : p.weekly_hours_quota }))}
+                        onClick={() => setCoverageForm(p => ({ ...p, horas_obrigatorias: o.v, weekly_hours_quota: o.v !== 'sim' ? '' : p.weekly_hours_quota, horas_mes: o.v !== 'mes' ? '' : p.horas_mes }))}
                         className={`text-left p-2.5 rounded-lg border-2 transition-colors ${coverageForm.horas_obrigatorias === o.v ? 'border-orange-500 bg-orange-50' : 'border-gray-200 hover:border-gray-300'}`}>
                         <p className="text-sm font-semibold text-gray-800">{o.t}</p>
                         <p className="text-xs text-gray-500 leading-snug mt-0.5">{o.d}</p>
                       </button>
                     ))}
                   </div>
+                  {coverageForm.horas_obrigatorias === 'mes' && (
+                    <div className="mt-2">
+                      <label className="label">Horas no mês *</label>
+                      <input className="input" type="number" step="0.5" min="0.5" placeholder="Ex: 48"
+                        value={coverageForm.horas_mes}
+                        onChange={e => setCoverageForm(p => ({ ...p, horas_mes: e.target.value }))} />
+                    </div>
+                  )}
                   {coverageForm.horas_obrigatorias === 'sim' && (
                     <div className="mt-2">
                       <label className="label">Horas por visita *</label>
@@ -2144,8 +2161,9 @@ export default function EmployeeDetail() {
                 const faltaRegraHoras = isConsult && !consultSalario && !coverageForm.horas_obrigatorias
                 // Escolheu "tem tempo certo" mas não disse quanto: o pagamento
                 // proporcional ficaria sem base de cálculo.
-                const faltaHoras = isConsult && coverageForm.horas_obrigatorias === 'sim'
-                  && !(Number(coverageForm.weekly_hours_quota) > 0)
+                const faltaHoras = isConsult && ((coverageForm.horas_obrigatorias === 'sim'
+                  && !(Number(coverageForm.weekly_hours_quota) > 0))
+                  || (coverageForm.horas_obrigatorias === 'mes' && !(Number(coverageForm.horas_mes) > 0)))
                 // A ESCALA É O QUE DIZ QUAIS DIAS SÃO DELA. Sem isso o portal não
                 // mostra dia nenhum pra bater ponto e a folha estima 22 dias no
                 // chute — foi assim que gente correta apareceu com falta na folha.
@@ -2172,7 +2190,7 @@ export default function EmployeeDetail() {
                     ? 'cadastrar as unidades deste cliente primeiro (não há nenhuma)'
                     : 'o valor da visita nas unidades do cliente (em Clientes → Unidades) — sem isso a visita vale R$ 0'),
                   faltaRegraHoras && 'se a visita tem tempo mínimo',
-                  faltaHoras && 'quantas horas tem a visita',
+                  faltaHoras && (coverageForm.horas_obrigatorias === 'mes' ? 'quantas horas no mês' : 'quantas horas tem a visita'),
                   faltaEscala && 'a escala de trabalho',
                   faltaFolgas && 'quais dias da semana são folga (sem isso ela não vê os dias no portal)',
                   faltaAncora && 'a data do primeiro plantão (é dela que sai o dia sim, dia não)',
@@ -2416,6 +2434,7 @@ export default function EmployeeDetail() {
                         )}
                         {(l as { cost_assistance?: number }).cost_assistance ? <span className="badge bg-blue-50 text-blue-600">+{formatCurrency((l as { cost_assistance?: number }).cost_assistance!)} aj.custo</span> : null}
                         {l.weekly_hours_quota && <span className="badge bg-gray-100 text-gray-600">{l.weekly_hours_quota}h/visita</span>}
+                        {!l.weekly_hours_quota && Number((l as { monthly_hours_quota?: number }).monthly_hours_quota) > 0 && <span className="badge bg-gray-100 text-gray-600">{(l as { monthly_hours_quota?: number }).monthly_hours_quota}h/mês</span>}
                         {(l as { visit_frequency?: string }).visit_frequency && l.service_type === 'Consultoria' && <span className="badge bg-orange-50 text-orange-600">{(l as { visit_frequency?: string }).visit_frequency}</span>}
                         {(l as { work_schedule_type?: string }).work_schedule_type && <span className="badge bg-gray-100 text-gray-600">{(l as { work_schedule_type?: string }).work_schedule_type}</span>}
                         {(l as { start_date?: string }).start_date && <span className="badge bg-green-50 text-green-700">Início: {formatDate((l as { start_date?: string }).start_date!)}</span>}
@@ -2546,6 +2565,27 @@ export default function EmployeeDetail() {
                                       <option value="Mensal">Mensal (1×/mês)</option>
                                     </select>
                                   </div>
+                                  <div className="sm:col-span-2">
+                                    <label className="label text-xs">Horas combinadas</label>
+                                    <div className="flex gap-2">
+                                      {([['visita', 'Por visita'], ['mes', 'Total no mês']] as const).map(([v, t]) => (
+                                        <button key={v} type="button"
+                                          onClick={() => setEditLinkValues(p => p ? { ...p, horas_modo: v } : p)}
+                                          className={`px-3 py-1.5 rounded-lg border text-sm ${editLinkValues.horas_modo === v ? 'border-primary-600 bg-primary-50 text-primary-800 font-medium' : 'border-gray-200 bg-white text-gray-600'}`}>
+                                          {t}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  </div>
+                                  {editLinkValues.horas_modo === 'mes' ? (
+                                    <div>
+                                      <label className="label text-xs">Horas no mês</label>
+                                      <input className="input text-sm" type="number" step="0.5" placeholder="Ex: 48"
+                                        value={editLinkValues.horas_mes}
+                                        onChange={e => setEditLinkValues(p => p ? { ...p, horas_mes: e.target.value } : p)} />
+                                      <p className="text-[11px] text-gray-500 mt-1">Não importa quantas horas tem cada visita; no mês ela precisa fechar esse total.</p>
+                                    </div>
+                                  ) : (<>
                                   <div>
                                     <label className="label text-xs">
                                       Horas por visita <span className="text-gray-400 font-normal">(opcional)</span>
@@ -2564,6 +2604,7 @@ export default function EmployeeDetail() {
                                       </div>
                                     </div>
                                   )}
+                                  </>)}
                                 </div>
                                 {emAberto && !consultSalario && (
                                   <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
@@ -3044,6 +3085,7 @@ export default function EmployeeDetail() {
                             const freq = campoFixo<string>(l, 'visit_frequency')
                             const horas = Number(l.weekly_hours_quota) || 0
                             const info = [freq === 'Avulso' ? 'Em aberto' : freq, horas ? `${String(horas).replace('.', ',')}h/visita` : null,
+                              !horas && Number((l as { monthly_hours_quota?: number }).monthly_hours_quota) > 0 ? `${String((l as { monthly_hours_quota?: number }).monthly_hours_quota).replace('.', ',')}h/mês` : null,
                               proprio ? `horário próprio ${h!.inicio}–${h!.fim}` : null].filter(Boolean).join(' · ')
                             return (
                               <div key={l.id} className="rounded-lg bg-white border border-ink-200">

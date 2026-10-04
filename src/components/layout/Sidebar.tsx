@@ -2,7 +2,7 @@ import { NavLink, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Building2, FileText, ShieldCheck, UserCheck,
   Wallet, Calendar, MessageSquare, Settings, LogOut,
-  ChevronLeft, ChevronRight, Briefcase, UserPlus, X, ClipboardCheck, ListChecks, CalendarDays, Landmark, Timer, Users,
+  ChevronLeft, ChevronRight, Briefcase, UserPlus, X, ClipboardCheck, ListChecks, CalendarDays, Landmark, Timer, Users, FileCheck2,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
@@ -23,6 +23,7 @@ const MENU: Grupo[] = [
       { icon: ClipboardCheck, label: 'Visitas', path: '/visitas' },
       { icon: Timer, label: 'Jornada', path: '/jornada' },
       { icon: ShieldCheck, label: 'Supervisão', path: '/supervisao' },
+      { icon: FileCheck2, label: 'Auditorias', path: '/auditorias' },
       { icon: Users, label: 'Equipe', path: '/equipe' },
     ],
   },

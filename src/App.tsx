@@ -39,6 +39,9 @@ const PaymentForm = lazy(() => import('./pages/payments/PaymentForm'))
 
 const SupervisionDashboard = lazy(() => import('./pages/supervision/SupervisionDashboard'))
 const EquipePage = lazy(() => import('./pages/equipe/EquipePage'))
+const AuditoriasPage = lazy(() => import('./pages/auditorias/AuditoriasPage'))
+const AuditoriaDetalhe = lazy(() => import('./pages/auditorias/AuditoriaDetalhe'))
+const ChecklistsAuditoria = lazy(() => import('./pages/auditorias/ChecklistsAuditoria'))
 
 const TemplateList = lazy(() => import('./pages/templates/TemplateList'))
 const TemplateEditor = lazy(() => import('./pages/templates/TemplateEditor'))
@@ -129,6 +132,9 @@ export default function App() {
               {/* Supervision (recrutador também acessa) */}
               <Route path="supervisao" element={<SupervisionDashboard />} />
               <Route path="equipe" element={<EquipePage />} />
+              <Route path="auditorias" element={<AuditoriasPage />} />
+              <Route path="auditorias/checklists" element={<ChecklistsAuditoria />} />
+              <Route path="auditorias/:id" element={<AuditoriaDetalhe />} />
               <Route path="jornada" element={<JornadaPage />} />
 
               {/* Templates */}

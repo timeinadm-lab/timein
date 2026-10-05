@@ -16,12 +16,14 @@ import PorDiaDePagamento from './PorDiaDePagamento'
 import { planoDaPrevisao, valorDoFechamento, correcoesDoVinculo } from '../../lib/planoLancamentos'
 import type { BasePlano, Correcao, LancamentoExistente } from '../../lib/planoLancamentos'
 import type { FolhaRel } from '../../lib/relatorioSaidas'
+import AjudaDeCusto from './AjudaDeCusto'
+import Comprovantes from './Comprovantes'
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend,
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
 } from 'recharts'
 
-type Tab = 'dias' | 'folha' | 'pagos'
+type Tab = 'dias' | 'folha' | 'pagos' | 'ajuda' | 'comprovantes'
 type WorkerGroup = 'consultoria' | 'fixo_plantao'
 
 // Freela acabou (migração 058): Consultoria ou Fixo (mensal ou por diária)
@@ -1527,7 +1529,7 @@ export default function PaymentList() {
       {/* Resumo do mês: quanto é a folha, quanto já saiu e quanto falta.
           Antes eram 4 cartões aqui e outros 4 iguais dentro da aba — e o
           "Folha do mês" somava o salário cheio mesmo de quem tinha falta. */}
-      {tab !== 'dias' && (() => {
+      {(tab === 'folha' || tab === 'pagos') && (() => {
         const folhaTotal = r2(linhas.reduce((s, l) => s + l.conta.total, 0))
         const outrosAbertos = unlinkedPayments.filter(p => p.status === 'Pendente').reduce((s, p) => s + (Number(p.amount) || 0), 0)
         const faltaPagar = r2(linhas.reduce((s, l) => s + l.aberto, 0) + outrosAbertos)
@@ -1648,14 +1650,16 @@ export default function PaymentList() {
             <ChevronRight size={18} />
           </button>
         </div>
-        <div className="flex gap-1.5 ml-auto">
+        <div className="flex flex-wrap gap-1.5 md:ml-auto w-full md:w-auto">
           {([
-            ['dias', 'Por dia de pagamento'],
+            ['dias', 'Por dia'],
             ['folha', 'Folha do mês'],
             ['pagos', 'Pagos'],
+            ['ajuda', 'Ajuda de custo'],
+            ['comprovantes', 'Comprovantes'],
           ] as const).map(([k, label]) => (
             <button key={k} onClick={() => setTab(k)}
-              className={`px-3.5 py-2 text-sm font-semibold whitespace-nowrap rounded-xl transition-all active:scale-95 ${tab === k ? 'bg-primary-600 text-white shadow-soft' : 'bg-white border border-ink-100 text-ink-500 hover:text-ink-800 hover:border-ink-200'}`}>
+              className={`px-3 md:px-3.5 py-2 text-[13px] md:text-sm font-semibold whitespace-nowrap rounded-xl transition-all active:scale-95 ${tab === k ? 'bg-primary-600 text-white shadow-soft' : 'bg-white border border-ink-100 text-ink-500 hover:text-ink-800 hover:border-ink-200'}`}>
               {label}
             </button>
           ))}
@@ -2335,6 +2339,10 @@ export default function PaymentList() {
       )}
 
       {/* ── PAGOS TAB ── */}
+      {/* ── AJUDA DE CUSTO (semanal/mensal, controle próprio) e COMPROVANTES ── */}
+      {tab === 'ajuda' && <AjudaDeCusto mes={filterMonth} />}
+      {tab === 'comprovantes' && <Comprovantes mes={filterMonth} />}
+
       {tab === 'pagos' && (
         <div className="space-y-4">
           {(() => {

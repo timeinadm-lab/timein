@@ -121,6 +121,47 @@ export async function gerarPdfAuditoria(d: DadosAuditoriaPdf): Promise<Blob> {
   y += 4.5
   expl.forEach(l => { t(l, L + 2, y, { tam: 8, cor: [100, 100, 100] }); y += 3.6 })
 
+  // ── Gráfico de pizza: conformes × não conformes (contagem de perguntas, N/A fora) ──
+  const avaliadas = r.conformes + r.naoConformes
+  if (avaliadas > 0) {
+    y += 4
+    const altP = 48
+    doc.setDrawColor(210, 212, 208); doc.setLineWidth(0.25); doc.rect(L, y, W, altP)
+    const cx = L + 48, cy = y + altP / 2, raio = 20
+    const AZUL: [number, number, number] = [51, 102, 204], VERMELHO: [number, number, number] = [220, 57, 18]
+    const pctC = Math.round((100 * r.conformes) / avaliadas), pctNC = 100 - pctC
+    // fatia como polígono (começa no topo, sentido horário)
+    const fatia = (de: number, ate: number, cor: [number, number, number]) => {
+      if (ate - de <= 0) return
+      if (ate - de >= 1) { doc.setFillColor(...cor); doc.circle(cx, cy, raio, 'F'); return }
+      const pts: [number, number][] = [[cx, cy]]
+      const passos = Math.max(2, Math.ceil((ate - de) * 120))
+      for (let i = 0; i <= passos; i++) {
+        const a = -Math.PI / 2 + 2 * Math.PI * (de + ((ate - de) * i) / passos)
+        pts.push([cx + raio * Math.cos(a), cy + raio * Math.sin(a)])
+      }
+      const rel = pts.slice(1).map((p, i) => [p[0] - pts[i][0], p[1] - pts[i][1]])
+      doc.setFillColor(...cor); doc.lines(rel, cx, cy, [1, 1], 'F', true)
+    }
+    const fracC = r.conformes / avaliadas
+    fatia(0, fracC, AZUL)
+    fatia(fracC, 1, VERMELHO)
+    // rótulo dentro de cada fatia
+    const rotulo = (meio: number, txt: string) => {
+      const a = -Math.PI / 2 + 2 * Math.PI * meio
+      t(txt, cx + raio * 0.6 * Math.cos(a), cy + raio * 0.6 * Math.sin(a) + 1.2, { tam: 8.5, negrito: true, centro: true, cor: [255, 255, 255] })
+    }
+    if (r.conformes) rotulo(fracC / 2, `${pctC}%`)
+    if (r.naoConformes) rotulo(fracC + (1 - fracC) / 2, `${pctNC}%`)
+    // legenda
+    const lx = L + 100
+    doc.setFillColor(...AZUL); doc.circle(lx, cy - 3.2, 1.6, 'F')
+    t(`${pctC}% conformes (${r.conformes})`, lx + 3.5, cy - 2.1, { tam: 9.5, cor: [70, 70, 70] })
+    doc.setFillColor(...VERMELHO); doc.circle(lx, cy + 3.8, 1.6, 'F')
+    t(`${pctNC}% não conformes (${r.naoConformes})`, lx + 3.5, cy + 4.9, { tam: 9.5, cor: [70, 70, 70] })
+    y += altP
+  }
+
   // ── Gráfico de barras: não conformidade por grupo ──
   y += 4
   const gruposG = r.grupos.filter(g => g.conformes + g.naoConformes > 0)

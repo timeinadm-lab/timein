@@ -60,7 +60,8 @@ export async function gerarPdfAuditoria(d: DadosAuditoriaPdf): Promise<Blob> {
       t('Fernanda Stinchi', L, 16, { tam: 13, negrito: true, cor: VERDE })
       t('qualidade + nutrição', L, 20.5, { tam: 7.5, cor: [110, 110, 110] })
     }
-    if (d.rascunho) t('PRÉVIA — auditoria não finalizada', R, 15, { tam: 8, negrito: true, cor: [200, 38, 38], direita: true })
+    // Aviso só quando o relatório está incompleto (todas respondidas = sai limpo, mesmo antes de finalizar)
+    if (d.rascunho && r.pendentes > 0) t(`PRÉVIA - faltam ${r.pendentes} pergunta(s)`, R, 15, { tam: 8, negrito: true, cor: [200, 38, 38], direita: true })
     doc.setDrawColor(220, 222, 218); doc.setLineWidth(0.3); doc.line(L, 25, R, 25)
   }
   const novaPagina = () => { doc.addPage(); cabecalho(); y = TOPO + 2 }

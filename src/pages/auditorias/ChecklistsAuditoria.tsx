@@ -80,16 +80,20 @@ export default function ChecklistsAuditoria() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-2 flex-wrap">
-        <button onClick={() => navigate('/auditorias')} className="btn-ghost p-2 -ml-2" aria-label="Voltar"><ChevronLeft size={18} /></button>
-        <div className="flex-1 min-w-0">
-          <h1 className="page-title">Checklists</h1>
-          <p className="text-sm text-ink-500">Mudanças valem para as próximas auditorias. As já feitas não mudam.</p>
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+        <div className="flex items-start gap-2 flex-1 min-w-0">
+          <button onClick={() => navigate('/auditorias')} className="btn-ghost p-2 -ml-2" aria-label="Voltar"><ChevronLeft size={18} /></button>
+          <div className="flex-1 min-w-0">
+            <h1 className="page-title">Checklists</h1>
+            <p className="text-sm text-ink-500">Mudanças valem para as próximas auditorias. As já feitas não mudam.</p>
+          </div>
         </div>
-        <select className="input w-auto" value={atual?.id || ''} onChange={e => setModeloId(e.target.value)}>
-          {modelos.map(m => <option key={m.id} value={m.id}>{m.nome}</option>)}
-        </select>
-        <button className="btn-secondary text-sm" onClick={duplicar} disabled={!atual}><Copy size={15} />Duplicar</button>
+        <div className="flex gap-2">
+          <select className="input flex-1 sm:w-auto" value={atual?.id || ''} onChange={e => setModeloId(e.target.value)}>
+            {modelos.map(m => <option key={m.id} value={m.id}>{m.nome}</option>)}
+          </select>
+          <button className="btn-secondary text-sm shrink-0" onClick={duplicar} disabled={!atual}><Copy size={15} />Duplicar</button>
+        </div>
       </div>
 
       {grupos.map(g => {
@@ -108,10 +112,10 @@ export default function ChecklistsAuditoria() {
               {lista.map(p => (
                 <div key={p.id} className="px-4 py-2 flex items-start gap-2">
                   <div className="flex-1 min-w-0 space-y-1">
-                    <textarea className="input text-sm !py-1.5" rows={1} defaultValue={p.texto} onBlur={e => e.target.value.trim() && e.target.value.trim() !== p.texto && salvar(p.id, { texto: e.target.value.trim() })} />
+                    <textarea className="input text-sm !py-1.5 resize-y" rows={4} defaultValue={p.texto} onBlur={e => e.target.value.trim() && e.target.value.trim() !== p.texto && salvar(p.id, { texto: e.target.value.trim() })} />
                     <input className="input text-xs !py-1 text-ink-500" placeholder="Seção (ex.: Recebimento e Armazenamento)" defaultValue={p.secao || ''} onBlur={e => (e.target.value.trim() || null) !== p.secao && salvar(p.id, { secao: e.target.value.trim() || null })} />
                   </div>
-                  <input className="input w-16 text-sm !py-1.5" type="number" step="0.5" min="0.5" title="Peso" defaultValue={p.peso} onBlur={e => Number(e.target.value) > 0 && Number(e.target.value) !== p.peso && salvar(p.id, { peso: Number(e.target.value) })} />
+                  <input className="input w-14 shrink-0 text-sm !py-1.5 !px-2 text-center" type="number" step="0.5" min="0.5" title="Peso" defaultValue={p.peso} onBlur={e => Number(e.target.value) > 0 && Number(e.target.value) !== p.peso && salvar(p.id, { peso: Number(e.target.value) })} />
                   <button className="p-2 text-ink-400 hover:text-red-600" onClick={() => tirar(p)} aria-label="Tirar pergunta"><Trash2 size={15} /></button>
                 </div>
               ))}

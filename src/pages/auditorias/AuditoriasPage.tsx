@@ -70,7 +70,7 @@ export default function AuditoriasPage() {
                   <p className="text-[10px] text-ink-400">{c?.rotulo || 'sem nota'}</p>
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-ink-900 truncate">{[a.client?.name, a.unidade].filter(Boolean).join(' · ') || a.titulo}</p>
+                  <p className="text-sm font-semibold text-ink-900 line-clamp-2 break-words">{[a.client?.name, a.unidade].filter(Boolean).join(' · ') || a.titulo}</p>
                   <p className="text-xs text-ink-500 truncate">{[a.titulo, a.concessionaria, a.auditor_nome].filter(Boolean).join(' · ')}</p>
                 </div>
                 <div className="text-right shrink-0">
@@ -181,8 +181,8 @@ function NovaAuditoria({ fechar }: { fechar: () => void }) {
         </div>
         <div><label className="label">Consultor(a) *</label><input className="input" value={auditor} onChange={e => setAuditor(e.target.value)} placeholder="Nome completo" /></div>
         <div><label className="label">E-mail *</label><input className="input" type="email" inputMode="email" autoCapitalize="none" value={email} onChange={e => setEmail(e.target.value)} placeholder="nome@email.com" /></div>
-        <div className="grid grid-cols-3 gap-3">
-          <div><label className="label">Data *</label><input className="input" type="date" value={data} onChange={e => setData(e.target.value)} /></div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          <div className="col-span-2 sm:col-span-1"><label className="label">Data *</label><input className="input" type="date" value={data} onChange={e => setData(e.target.value)} /></div>
           <div><label className="label">Das *</label><input className="input" type="time" value={inicio} onChange={e => setInicio(e.target.value)} /></div>
           <div><label className="label">Às</label><input className="input" type="time" value={fim} onChange={e => setFim(e.target.value)} /></div>
         </div>

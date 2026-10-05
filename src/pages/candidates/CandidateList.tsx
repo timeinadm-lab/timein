@@ -186,7 +186,7 @@ export default function CandidateList() {
 
     const stripAccents = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '')
     const normText = (s: string) => stripAccents(String(s || '')).trim().toLowerCase().replace(/\s+/g, ' ')
-    const normEmail = (s: string) => String(s || '').replace(/s+/g, '').toLowerCase()
+    const normEmail = (s: string) => String(s || '').replace(/\s+/g, '').toLowerCase()
     const normWa = (s: string) => {
       const d = String(s || '').replace(/\D/g, '')
       return d.startsWith('55') && d.length > 11 ? d.slice(2) : d

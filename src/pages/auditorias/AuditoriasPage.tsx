@@ -20,6 +20,7 @@ export type Modelo = { id: string; nome: string; descricao?: string | null; faix
 type AuditoriaLinha = {
   id: string; titulo: string; data: string; status: 'rascunho' | 'finalizada'; nota: number | null; faixas: Faixa[]
   unidade?: string | null; concessionaria?: string | null; auditor_nome?: string | null; client?: { name?: string } | null
+  origem?: string | null   // 'portal' = feita pela nutricionista (migração 082)
 }
 const erroTabela = (m: string) => /auditoria/.test(m) && /does not exist|schema cache|relation/i.test(m)
 
@@ -29,7 +30,10 @@ export default function AuditoriasPage() {
   const { data, isLoading, error } = useQuery({
     queryKey: ['auditorias'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('auditorias').select('id, titulo, data, status, nota, faixas, unidade, concessionaria, auditor_nome, client:clients(name)').order('data', { ascending: false }).order('criado_em', { ascending: false }).limit(300)
+      const colunas = 'id, titulo, data, status, nota, faixas, unidade, concessionaria, auditor_nome, client:clients(name)'
+      const buscar = (cols: string) => supabase.from('auditorias').select(cols).order('data', { ascending: false }).order('criado_em', { ascending: false }).limit(300)
+      let { data, error } = await buscar(colunas + ', origem')
+      if (error && /origem/.test(error.message)) ({ data, error } = await buscar(colunas))   // sem a migração 082
       if (error) throw new Error(error.message)
       return (data || []) as unknown as AuditoriaLinha[]
     },
@@ -71,7 +75,7 @@ export default function AuditoriasPage() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-semibold text-ink-900 line-clamp-2 break-words">{[a.client?.name, a.unidade].filter(Boolean).join(' · ') || a.titulo}</p>
-                  <p className="text-xs text-ink-500 truncate">{[a.titulo, a.concessionaria, a.auditor_nome].filter(Boolean).join(' · ')}</p>
+                  <p className="text-xs text-ink-500 truncate">{a.origem === 'portal' && <span className="inline-block mr-1 px-1.5 rounded bg-primary-50 text-primary-800 text-[10px] font-semibold align-[1px]">Portal</span>}{[a.titulo, a.concessionaria, a.auditor_nome].filter(Boolean).join(' · ')}</p>
                 </div>
                 <div className="text-right shrink-0">
                   <p className="text-xs text-ink-700">{formatDate(a.data)}</p>

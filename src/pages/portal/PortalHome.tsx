@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { LogOut, KeyRound, Eye, EyeOff, Clock, Calendar, Plus, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, X, CalendarDays, Trash2, CheckCircle2, Download, MessageCircle, Send, Home, CreditCard, TrendingUp, CheckCheck, AlertTriangle, Hourglass, Pencil, Repeat, Check, FileText, Paperclip } from 'lucide-react'
+import { LogOut, KeyRound, Eye, EyeOff, Clock, Calendar, Plus, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, X, CalendarDays, Trash2, CheckCircle2, Download, MessageCircle, Send, Home, CreditCard, TrendingUp, CheckCheck, AlertTriangle, Hourglass, Pencil, Repeat, Check, FileText, Paperclip, ClipboardCheck } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { formatDate, formatCurrency, getInitials, corDoAvatar, hojeISO, tipoDoVinculo, pagaPorDiaria, ehTemporario, recebeMensal, salarioConsultoria } from '../../lib/utils'
 import { format, getDaysInMonth, startOfMonth, endOfMonth } from 'date-fns'
@@ -13,13 +13,15 @@ import JornadaAviso from './JornadaAviso'
 import { linhaDoTempo } from '../../lib/chat'
 import { comprimirImagem, extensaoDoArquivo, comNovaTentativa } from '../../lib/imagem'
 import InstalarPortal from './InstalarPortal'
+import { CampoHora, horaAgora, temRelogioNativo } from './CampoHora'
+import PortalQualidade from './PortalQualidade'
 import { jornadaDoVinculo, desvioDoDia, textoDoDesvio, TOLERANCIA_MIN, minutosLiquidos } from '../../lib/jornada'
 import type { VinculoJornada } from '../../lib/jornada'
 
 // Ela desistiu num diálogo de confirmação: não é erro, não mostra aviso
 const CANCELADO = '__cancelado__'
 
-type Tab = 'home' | 'folha' | 'agenda' | 'gastos' | 'duvidas'
+type Tab = 'home' | 'folha' | 'agenda' | 'gastos' | 'qualidade' | 'duvidas'
 
 export default function PortalHome() {
   const navigate = useNavigate()
@@ -922,6 +924,7 @@ export default function PortalHome() {
             ['folha',   Clock,         'Ponto',    null],
             ['agenda',  CalendarDays,  'Agenda',   null],
             ['gastos',  CreditCard,    'Gastos',   null],
+            ['qualidade', ClipboardCheck, 'Qualidade', null],
             ['duvidas', MessageCircle, 'Chat',     unreadChats],
           ] as const).map(([key, Icon, label, badge]) => (
             <button
@@ -1516,6 +1519,15 @@ export default function PortalHome() {
         )}
 
         {/* ─── CHAT (DÚVIDAS) TAB ─── */}
+        {/* ─── QUALIDADE (checklists; depois relatórios, rotulagem, ficha técnica) ─── */}
+        {tab === 'qualidade' && token && (
+          <PortalQualidade token={token} rpc={rpc} clientes={(() => {
+            const vistos = new Map<string, string>()
+            for (const l of (links || [])) if (l?.client?.id) vistos.set(l.client.id, l.client.name)
+            return Array.from(vistos, ([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name))
+          })()} />
+        )}
+
         {tab === 'duvidas' && (
           <>
             <div>
@@ -2385,56 +2397,6 @@ function Chip({ ativo, pequeno, onClick, children }: { ativo?: boolean; pequeno?
         : 'border-ink-200 bg-white text-ink-700 active:bg-ink-50'}`}>
       {children}
     </button>
-  )
-}
-
-// Horário em bloco grande. Vazio mostra --:-- (o campo do iPhone mostrava a hora
-// atual como se já estivesse preenchido). O seletor nativo fica por cima, invisível.
-// iPhone: com o campo vazio, o relógio abre na hora atual, mas tocar em OK sem girar
-// não grava nada — quem marca a entrada na hora em que chegou ficava sem horário.
-// Por isso, ao abrir vazio, o campo já recebe a hora atual (e dá para girar e mudar).
-// Celular sem relógio nativo, ou relógio que não abre: vira campo de digitar (0830 → 08:30).
-const temRelogioNativo = (() => {
-  try { const i = document.createElement('input'); i.setAttribute('type', 'time'); return i.type === 'time' } catch { return false }
-})()
-const horaAgora = () => { const d = new Date(); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` }
-function mascaraHora(t: string): string {
-  const n = t.replace(/\D/g, '').slice(0, 4)
-  return n.length <= 2 ? n : `${n.slice(0, 2)}:${n.slice(2)}`
-}
-function horaValida(t: string): boolean {
-  const m = /^(\d{2}):(\d{2})$/.exec(t)
-  return !!m && +m[1] < 24 && +m[2] < 60
-}
-
-function CampoHora({ rotulo, valor, onChange, digitar }: { rotulo: string; valor: string; onChange: (v: string) => void; digitar?: boolean }) {
-  const [texto, setTexto] = useState(valor)
-  useEffect(() => { setTexto(valor) }, [valor])
-  if (digitar || !temRelogioNativo) {
-    const invalido = texto.length === 5 && !horaValida(texto)
-    return (
-      <label className={`relative flex-1 min-w-0 block rounded-xl border bg-white px-4 py-3 ${invalido ? 'border-red-400' : valor ? 'border-ink-200' : 'border-dashed border-ink-300'}`}>
-        <span className="block text-xs text-ink-500">{rotulo}</span>
-        <input type="text" inputMode="numeric" autoComplete="off" placeholder="--:--" maxLength={5} value={texto} aria-label={rotulo}
-          onChange={e => {
-            const t = mascaraHora(e.target.value)
-            setTexto(t)
-            if (horaValida(t)) onChange(t)
-            else if (!t) onChange('')
-          }}
-          className="block w-full bg-transparent p-0 border-0 outline-none text-[1.75rem] leading-tight font-semibold tnum text-ink-900 placeholder:text-ink-300" />
-        {invalido && <span className="block text-[11px] text-red-600">Hora inválida</span>}
-      </label>
-    )
-  }
-  return (
-    <label className={`relative flex-1 min-w-0 overflow-hidden block rounded-xl border bg-white px-4 py-3 cursor-pointer transition-colors ${valor ? 'border-ink-200' : 'border-dashed border-ink-300'}`}>
-      <span className="block text-xs text-ink-500">{rotulo}</span>
-      <span className={`block text-[1.75rem] leading-tight font-semibold tnum ${valor ? 'text-ink-900' : 'text-ink-300'}`}>{valor || '--:--'}</span>
-      <input type="time" value={valor} onChange={e => onChange(e.target.value)} aria-label={rotulo}
-        onFocus={() => { if (!valor) onChange(horaAgora()) }}
-        className="absolute inset-0 w-full h-full min-w-0 appearance-none opacity-0 cursor-pointer text-[16px]" />
-    </label>
   )
 }
 

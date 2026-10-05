@@ -15,6 +15,7 @@ type Auditoria = {
   id: string; titulo: string; faixas: Faixa[]; client_id: string | null; unidade: string | null; concessionaria: string | null
   auditor_nome: string | null; auditor_email?: string | null; data: string; inicio: string | null; fim: string | null; observacoes: string | null
   status: 'rascunho' | 'finalizada'; nota: number | null; client?: { name?: string } | null
+  origem?: string | null
 }
 type Item = {
   id: string; grupo: string; secao: string | null; texto: string; peso: number; ordem: number
@@ -142,6 +143,7 @@ export default function AuditoriaDetalhe() {
           <div className="flex-1 min-w-0">
             <p className="text-lg font-semibold text-ink-900 leading-tight">{[aud.client?.name, aud.unidade].filter(Boolean).join(' · ') || aud.titulo}</p>
             <p className="text-xs text-ink-500">{[aud.titulo, aud.concessionaria, aud.auditor_nome, formatDate(aud.data)].filter(Boolean).join(' · ')}</p>
+            {aud.origem === 'portal' && <p className="text-[11px] text-primary-800 mt-0.5">Feita pelo portal da nutricionista</p>}
           </div>
           <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full shrink-0 ${finalizada ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700'}`}>{finalizada ? 'Finalizada' : 'Em andamento'}</span>
         </div>

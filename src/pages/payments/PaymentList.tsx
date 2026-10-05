@@ -176,7 +176,11 @@ export default function PaymentList() {
     onError: (e: Error) => toast.error(e.message),
   })
   // Abre em "Por dia de pagamento": dia 8, 15, 20 e avulsos (pedido de 30/09/2026)
-  const [tab, setTab] = useState<Tab>('dias')
+  // ?aba=ajuda / ?aba=comprovantes abre direto na aba (link da ficha do colaborador)
+  const [tab, setTab] = useState<Tab>(() => {
+    const aba = new URLSearchParams(window.location.search).get('aba')
+    return aba === 'ajuda' || aba === 'comprovantes' || aba === 'folha' || aba === 'pagos' ? aba : 'dias'
+  })
   const [showCharts, setShowCharts] = useState(false)
   // Mês pode vir no link (?mes=aaaa-mm) — a Jornada abre Pagamentos no mês dela
   const [paramsUrl] = useSearchParams()

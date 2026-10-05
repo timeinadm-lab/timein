@@ -16,6 +16,7 @@ import { confirmar } from '../../components/ui/ConfirmDialog'
 import EncerrarVinculoModal, { QUEM_ENCERROU } from './EncerrarVinculoModal'
 import type { VinculoParaEncerrar } from './EncerrarVinculoModal'
 import HorarioVinculo from './HorarioVinculo'
+import { AjudaDaPessoa, LancamentosDaPessoa } from './PagamentosDaPessoa'
 import { format, startOfMonth, endOfMonth, getDaysInMonth, getDay, differenceInDays } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import type { EmployeeClientLink, EmployeePaymentDate } from '../../types'
@@ -141,6 +142,9 @@ export default function EmployeeDetail() {
   const vincularVagaId = searchParams.get('vaga') || ''
   const initialTab = (searchParams.get('tab') as Tab) || (vincularClientId ? 'vinculos' : 'visao')
   const [tab, setTab] = useState<Tab>(initialTab)
+  // Pagamentos separados em partes (pedido de 05/10/2026)
+  const [subPag, setSubPag] = useState<'mes' | 'reembolsos' | 'ajuda' | 'lancamentos'>('mes')
+  const vePagamentos = role === 'chefe' || (role as string) === 'contabilidade'
   const [payMonth, setPayMonth] = useState(format(new Date(), 'yyyy-MM'))
   const [agendaMonth, setAgendaMonth] = useState(format(new Date(), 'yyyy-MM'))
   const [visMonth, setVisMonth] = useState(format(new Date(), 'yyyy-MM'))
@@ -1543,20 +1547,20 @@ export default function EmployeeDetail() {
             </div>
           </div>
         </div>
-        <div className="flex gap-2 mt-4 pt-4 border-t border-ink-100">
+        <div className="grid grid-cols-6 md:flex gap-2 mt-4 pt-4 border-t border-ink-100">
           {/* Jornada do mês: tudo o que ela registra no portal, pagamentos e reembolsos */}
-          <button onClick={() => navigate(`/jornada?pessoa=${id}`)} className="btn-primary text-sm flex-1 md:flex-none"><Timer size={16} /><span>Jornada</span></button>
-          <button onClick={() => exportEmployeeToPDF(employee, docs ?? [])} className="btn-secondary text-sm flex-1 md:flex-none"><Download size={16} /><span className="hidden sm:inline">PDF</span></button>
-          <button onClick={() => navigate(`/colaboradores/${id}/editar`)} className="btn-secondary text-sm flex-1 md:flex-none"><Edit size={16} /><span className="hidden sm:inline">Editar</span></button>
+          <button onClick={() => navigate(`/jornada?pessoa=${id}`)} className="btn-primary text-sm col-span-2 md:flex-none"><Timer size={16} /><span>Jornada</span></button>
+          <button onClick={() => exportEmployeeToPDF(employee, docs ?? [])} className="btn-secondary text-sm min-w-0 px-0 md:px-4 md:flex-none"><Download size={16} /><span className="hidden sm:inline">PDF</span></button>
+          <button onClick={() => navigate(`/colaboradores/${id}/editar`)} className="btn-secondary text-sm min-w-0 px-0 md:px-4 md:flex-none"><Edit size={16} /><span className="hidden sm:inline">Editar</span></button>
           <button
             onClick={() => toggleFavorite.mutate(!(employee as { is_favorite?: boolean }).is_favorite)}
-            className={`btn-secondary text-sm flex-1 md:flex-none ${(employee as { is_favorite?: boolean }).is_favorite ? 'text-amber-500 border-amber-300 bg-amber-50 hover:bg-amber-100' : ''}`}
+            className={`btn-secondary text-sm min-w-0 px-0 md:px-4 md:flex-none ${(employee as { is_favorite?: boolean }).is_favorite ? 'text-amber-500 border-amber-300 bg-amber-50 hover:bg-amber-100' : ''}`}
             title={(employee as { is_favorite?: boolean }).is_favorite ? 'Remover dos favoritos' : 'Adicionar aos favoritos'}
           >
             <Star size={16} fill={(employee as { is_favorite?: boolean }).is_favorite ? 'currentColor' : 'none'} />
             <span className="hidden sm:inline">{(employee as { is_favorite?: boolean }).is_favorite ? 'Favorito' : 'Favoritar'}</span>
           </button>
-          <button onClick={() => setConfirmDelete(true)} className="btn-secondary text-sm flex-1 md:flex-none text-red-600 hover:bg-red-50 border-red-200"><Trash2 size={16} /><span className="hidden sm:inline">Excluir</span></button>
+          <button onClick={() => setConfirmDelete(true)} className="btn-secondary text-sm min-w-0 px-0 md:px-4 md:flex-none text-red-600 hover:bg-red-50 border-red-200"><Trash2 size={16} /><span className="hidden sm:inline">Excluir</span></button>
         </div>
       </div>
 
@@ -1586,15 +1590,33 @@ export default function EmployeeDetail() {
         onClose={() => setConfirmDelete(false)}
       />
 
-      {/* Tabs — pílulas roláveis */}
-      <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1 scrollbar-none">
-        {(['visao', 'ficha', 'vinculos', 'pagamentos', 'agenda', 'visitas', 'arquivos', 'historico', 'portal'] as Tab[]).filter(t => t !== 'pagamentos' || role === 'chefe').map(t => (
+      {/* Abas principais (7). Cadastro junta Dados + Documentos; Agenda junta
+          Agenda + Visitas feitas. Quebra linha no celular em vez de esconder. */}
+      <div className="flex flex-wrap gap-1.5">
+        {([
+          ['visao', 'Resumo', ['visao']],
+          ['ficha', 'Cadastro', ['ficha', 'arquivos']],
+          ['vinculos', 'Clientes', ['vinculos']],
+          ['pagamentos', 'Pagamentos', ['pagamentos']],
+          ['agenda', 'Agenda', ['agenda', 'visitas']],
+          ['portal', 'Portal', ['portal']],
+          ['historico', 'Histórico', ['historico']],
+        ] as [Tab, string, Tab[]][]).filter(([t]) => t !== 'pagamentos' || vePagamentos).map(([t, rotulo, grupo]) => (
           <button key={t} onClick={() => setTab(t)}
-            className={`px-3.5 py-2 text-sm font-semibold whitespace-nowrap rounded-xl transition-all active:scale-95 ${tab === t ? 'bg-primary-600 text-white shadow-soft' : 'bg-white border border-ink-100 text-ink-500 hover:text-ink-800 hover:border-ink-200'}`}>
-            {t === 'visao' ? 'Visão Geral' : t === 'vinculos' ? 'Vínculos' : t === 'agenda' ? 'Agenda' : t === 'visitas' ? 'Visitas' : t === 'arquivos' ? 'Documentos' : t === 'historico' ? 'Histórico' : t === 'portal' ? 'Portal' : t.charAt(0).toUpperCase() + t.slice(1)}
+            className={`px-3 md:px-3.5 py-2 text-[13px] md:text-sm font-semibold whitespace-nowrap rounded-xl transition-all active:scale-95 ${grupo.includes(tab) ? 'bg-primary-600 text-white shadow-soft' : 'bg-white border border-ink-100 text-ink-500 hover:text-ink-800 hover:border-ink-200'}`}>
+            {rotulo}
           </button>
         ))}
       </div>
+
+      {/* Sub-abas dos grupos */}
+      {(tab === 'ficha' || tab === 'arquivos' || tab === 'agenda' || tab === 'visitas') && (
+        <div className="flex gap-1 p-1 rounded-xl bg-ink-100/70 w-fit">
+          {((tab === 'ficha' || tab === 'arquivos') ? [['ficha', 'Dados'], ['arquivos', 'Documentos']] : [['agenda', 'Agenda'], ['visitas', 'Visitas feitas']]).map(([k, r]) => (
+            <button key={k} onClick={() => setTab(k as Tab)} className={`px-3 h-9 rounded-lg text-sm font-medium ${tab === k ? 'bg-white shadow-sm text-ink-900' : 'text-ink-500'}`}>{r}</button>
+          ))}
+        </div>
+      )}
 
       {/* VISÃO GERAL */}
       {tab === 'visao' && (
@@ -1715,8 +1737,8 @@ export default function EmployeeDetail() {
                 </div>
               ))}
             </div>
-            <div className="flex gap-2 mt-3">
-              <input className="input flex-1 text-sm" placeholder="Nome do documento..." value={newDocName} onChange={e => setNewDocName(e.target.value)} />
+            <div className="flex flex-wrap gap-2 mt-3">
+              <input className="input w-full sm:flex-1 sm:w-auto text-sm" placeholder="Nome do documento..." value={newDocName} onChange={e => setNewDocName(e.target.value)} />
               <div>
                 <input className="input text-sm w-40" type="date" title="Validade — deixe vazio se não vence"
                   value={newDocExpires} onChange={e => setNewDocExpires(e.target.value)} />
@@ -3175,39 +3197,30 @@ export default function EmployeeDetail() {
       )}
 
       {/* PAGAMENTOS (somente chefe) */}
-      {tab === 'pagamentos' && role === 'chefe' && (
+      {tab === 'pagamentos' && vePagamentos && (
         <div className="space-y-4">
-        <FolhaResumo employeeId={id!} employeeName={(employee as { full_name?: string })?.full_name || ''} links={links || []} payMonth={payMonth} onMonthChange={setPayMonth} />
-        <div className="card p-5 space-y-4">
-          <div className="flex items-center gap-3 flex-wrap">
-            <input className="input w-40" type="month" value={payMonth} onChange={e => setPayMonth(e.target.value)} />
-            <button className="btn-primary text-sm" onClick={() => generatePayChecks.mutate()}>Gerar Checklist</button>
-            <p className="text-sm text-gray-500">{paidCount}/{totalCount} pagos — Total: {formatCurrency(totalAmount)}</p>
-          </div>
-          <div className="space-y-2">
-            {payChecks?.map(c => (
-              <div key={c.id} className="flex items-center justify-between p-3 rounded-lg border border-gray-100">
-                <div>
-                  <p className="text-sm">Dia {c.payment_date?.day_of_month}</p>
-                  {c.payment_date?.amount && <p className="text-xs text-gray-500">{formatCurrency(c.payment_date.amount)}</p>}
-                </div>
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input type="checkbox" checked={c.paid} onChange={e => togglePaid.mutate({ checkId: c.id, paid: e.target.checked })} className="rounded" />
-                  <span className={`text-sm font-medium ${c.paid ? 'text-green-600' : 'text-amber-600'}`}>{c.paid ? 'Pago' : 'Pendente'}</span>
-                </label>
-              </div>
+        {/* Partes do pagamento: o mês (folha), reembolsos, ajuda de custo e o que já foi lançado */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex flex-wrap gap-1 p-1 rounded-xl bg-ink-100/70">
+            {([['mes', 'Mês'], ['reembolsos', 'Reembolsos'], ['ajuda', 'Ajuda de custo'], ['lancamentos', 'Lançamentos']] as const).map(([k, r]) => (
+              <button key={k} onClick={() => setSubPag(k)} className={`px-3 h-9 rounded-lg text-sm font-medium whitespace-nowrap ${subPag === k ? 'bg-white shadow-sm text-ink-900' : 'text-ink-500'}`}>{r}</button>
             ))}
-            {payChecks?.length === 0 && <p className="text-sm text-gray-400">Clique em "Gerar Checklist" para criar os registros do mês</p>}
           </div>
+          {subPag !== 'mes' && subPag !== 'lancamentos' && <input className="input w-40 ml-auto" type="month" value={payMonth} onChange={e => e.target.value && setPayMonth(e.target.value)} />}
+        </div>
+        {subPag === 'mes' && <FolhaResumo employeeId={id!} employeeName={(employee as { full_name?: string })?.full_name || ''} links={links || []} payMonth={payMonth} onMonthChange={setPayMonth} />}
+        {subPag === 'ajuda' && <div className="card p-5"><AjudaDaPessoa employeeId={id!} mes={payMonth} /></div>}
+        {subPag === 'lancamentos' && <div className="card p-5"><LancamentosDaPessoa employeeId={id!} /></div>}
+        {subPag === 'reembolsos' && <div className="card p-5 space-y-4">
 
           {/* ── Gastos / Reembolsos ── */}
-          <div className="border-t pt-4 space-y-3">
+          <div className="space-y-3">
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="font-medium text-sm">Gastos & Reembolsos</h3>
                 <p className="text-xs text-gray-400">Extras além do salário — reembolsos, ajuda de custo, etc.</p>
               </div>
-              <button className="btn-secondary text-sm flex items-center gap-1" onClick={() => setShowExpForm(p => !p)}>
+              <button className="btn-secondary text-sm flex items-center gap-1 whitespace-nowrap shrink-0" onClick={() => setShowExpForm(p => !p)}>
                 <Plus size={14} /> Novo Gasto
               </button>
             </div>
@@ -3291,7 +3304,7 @@ export default function EmployeeDetail() {
               <p className="text-sm text-gray-400">Nenhum gasto registrado em {payMonth}.</p>
             )}
           </div>
-        </div>
+        </div>}
         </div>
       )}
 

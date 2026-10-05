@@ -1333,6 +1333,13 @@ export default function PaymentList() {
     // botão "Lançar" que não levava a lugar nenhum. Se trabalhou até encerrar,
     // continua aparecendo para pagar esses dias.
     .filter(l => !(l.encerradoEm && l.row.visits.length === 0 && l.et.etapa === 'lancar' && l.conta.total <= 0))
+    // Consultoria POR VISITA sem nenhuma visita no mês, sem lançamento e sem
+    // gasto não tem nada a pagar: sai da folha. Quem tem vínculo com muitos
+    // clientes (ex.: Diego, 14+ clientes) aparecia com uma linha de R$ 0,00 por
+    // cliente, todo mês, e contava como "vínculo ativo" (pedido de 05/10/2026).
+    // No mês em que visitar o cliente, a linha volta sozinha.
+    .filter(l => !(porTrabalho(l.row) && !l.row.salarioConsult && l.row.visits.length === 0
+      && l.et.etapa === 'lancar' && l.conta.total <= 0 && lancamentosDaLinha(l.row).length === 0))
   type Linha = typeof linhas[number]
 
   // ── Lançamento pendente acompanha a conta (pedido do Gabriel, 01/10/2026) ──

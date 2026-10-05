@@ -5,7 +5,7 @@ import toast from 'react-hot-toast'
 import { ChevronLeft, ChevronRight, FileDown, Plus, Trash2, FileText, Check, X } from 'lucide-react'
 import { supabase, fetchAll } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
-import { formatCurrency, formatDate, corDoAvatar, hojeISO } from '../../lib/utils'
+import { formatCurrency, formatDate, corDoAvatar, hojeISO, formatLocalTime } from '../../lib/utils'
 import { getSignedUrl } from '../../lib/storage'
 import { SignedLink } from '../../components/ui/SignedFile'
 import { confirmar } from '../../components/ui/ConfirmDialog'
@@ -50,7 +50,9 @@ const horasDaVisita = (v: VisitaEquipe) => {
 const iniciais = (nome: string) => nome.split(' ').filter(Boolean).slice(0, 2).map(s => s[0]).join('').toUpperCase()
 const DIAS = ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado']
 const diaLongo = (ds: string) => `${DIAS[new Date(ds.slice(0, 10) + 'T12:00:00').getDay()]}, ${formatDate(ds.slice(0, 10))}`
-const hora = (ts: string) => new Date(ts).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+// Compromisso é gravado como "hora de parede" (cadastrou 11h → banco guarda 11:00, sem fuso).
+// new Date() convertia para Brasília e 11h virava 08h no relatório (05/10/2026).
+const hora = (ts: string) => formatLocalTime(ts)
 const situacaoSup = (s: Supervisao) => s.status === 'nao_realizada' ? 'Não realizada' : s.status === 'agendada' ? 'Agendada' : 'Realizada'
 const doUsuario = (c: Compromisso, uid: string) => c.recruiter_id === uid || (c.participant_ids || []).includes(uid)
 
@@ -67,7 +69,7 @@ async function carregar(p: Periodo, uid?: string): Promise<Dados> {
     fetchAll<Compromisso>(() => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let q: any = supabase.from('interviews').select('id, title, category, scheduled_at, status, notes, recruiter_id, participant_ids, client:clients(name)')
-        .gte('scheduled_at', `${p.ini}T00:00:00-03:00`).lte('scheduled_at', `${p.fim}T23:59:59-03:00`)
+        .gte('scheduled_at', `${p.ini}T00:00:00`).lte('scheduled_at', `${p.fim}T23:59:59`)   // hora de parede: sem fuso
       if (uid) q = q.or(`recruiter_id.eq.${uid},participant_ids.cs.{${uid}}`)
       return q.order('id')
     }),

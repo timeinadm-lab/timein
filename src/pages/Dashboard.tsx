@@ -1123,7 +1123,7 @@ export default function Dashboard() {
 
   // Minhas visitas chegando (~3 dias) — volta a lembrar
   ;(myUpcomingVisits || []).forEach(v => {
-    const d = new Date(v.scheduled_at as string)
+    const d = parseLocal(v.scheduled_at as string) ?? new Date(v.scheduled_at as string)   // hora de parede
     const dias = Math.max(0, Math.ceil((d.getTime() - now.getTime()) / 86400000))
     const cli = (v as { client?: { name: string } }).client?.name
     amberAlerts.push({

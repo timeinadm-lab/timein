@@ -1539,7 +1539,8 @@ export default function PortalHome() {
             {myDuvidas && myDuvidas.length > 0 ? (
               <div className="space-y-4">
                 {linhaDoTempo(myDuvidas).map(m => {
-                  const fmtTs = (ts: string) => new Date(ts).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+                  const fmtTs = (ts: string) => new Date(ts).toLocaleString('pt-BR', // fuso-ok: created_at é carimbo real
+                     { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
                   return m.de === 'pessoa' ? (
                     <div key={m.chave} className="flex flex-col items-end gap-1">
                       <div className="max-w-[80%] space-y-1">

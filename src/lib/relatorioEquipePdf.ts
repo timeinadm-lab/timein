@@ -6,6 +6,7 @@
 // seções por dia, caixa com saldo e anexo com as fotos dos comprovantes.
 // ============================================================
 import type { Periodo, SaldoCaixa } from './equipe'
+import { formatLocalTime } from './utils'
 
 export type DadosRelatorioEquipe = {
   nome: string
@@ -131,7 +132,7 @@ export async function gerarRelatorioEquipe(d: DadosRelatorioEquipe): Promise<Blo
   secao('Reuniões e compromissos', `${d.compromissos.length} no período`)
   if (!d.compromissos.length) vazio('Nenhuma reunião ou compromisso no período.')
   for (const c of [...d.compromissos].sort((a, b) => a.inicio.localeCompare(b.inicio))) {
-    const quando = `${nomeDia(c.inicio)} · ${new Date(c.inicio).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`
+    const quando = `${nomeDia(c.inicio)} · ${formatLocalTime(c.inicio)}`
     const comTipo = c.titulo.toLowerCase().startsWith(c.categoria.toLowerCase()) ? c.titulo : `${c.categoria} — ${c.titulo}`
     const titulo = quebra(`${comTipo}${c.cliente ? ` · ${c.cliente}` : ''}`, W - 50, 9.5)
     const notas = c.notas ? quebra(c.notas, W - 50, 8) : []

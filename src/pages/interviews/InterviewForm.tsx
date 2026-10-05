@@ -286,7 +286,7 @@ export default function InterviewForm() {
                     <label className="label">Nos dias</label>
                     <div className="flex gap-1">
                       {['D', 'S', 'T', 'Q', 'Q', 'S', 'S'].map((l, dia) => {
-                        const padrao = new Date(form.scheduled_at.slice(0, 10) + 'T12:00:00').getDay()
+                        const padrao = new Date(form.scheduled_at.slice(0, 10) + 'T12:00:00').getDay() // fuso-ok: só a data, ao meio-dia
                         const on = diasSemana.length ? diasSemana.includes(dia) : dia === padrao
                         return (
                           <button key={dia} type="button" title={['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'][dia]}

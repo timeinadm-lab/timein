@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Plus, Download, Check, RefreshCw, AlertTriangle, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, BarChart3, Trash2, FileSpreadsheet, X, Paperclip, Search, MoreHorizontal, Pencil, Wallet, ExternalLink, FileCheck2, FileX2 } from 'lucide-react'
+import { Plus, Download, Check, RefreshCw, AlertTriangle, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Trash2, FileSpreadsheet, X, Paperclip, Search, MoreHorizontal, Pencil, Wallet, ExternalLink, FileCheck2, FileX2 } from 'lucide-react'
 import { supabase, fetchAll } from '../../lib/supabase'
 import { formatDate, formatCurrency, hojeISO, semAcento, tipoDoVinculo, pagaPorDiaria, ehTemporario, salarioConsultoria } from '../../lib/utils'
 import { jornadaDoVinculo, desvioDoDia, TOLERANCIA_MIN } from '../../lib/jornada'
@@ -18,10 +18,6 @@ import type { BasePlano, Correcao, LancamentoExistente } from '../../lib/planoLa
 import type { FolhaRel } from '../../lib/relatorioSaidas'
 import AjudaDeCusto from './AjudaDeCusto'
 import Comprovantes from './Comprovantes'
-import {
-  PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend,
-  BarChart, Bar, XAxis, YAxis, CartesianGrid,
-} from 'recharts'
 
 type Tab = 'dias' | 'folha' | 'pagos' | 'ajuda' | 'comprovantes'
 type WorkerGroup = 'consultoria' | 'fixo_plantao'
@@ -181,7 +177,6 @@ export default function PaymentList() {
     const aba = new URLSearchParams(window.location.search).get('aba')
     return aba === 'ajuda' || aba === 'comprovantes' || aba === 'folha' || aba === 'pagos' ? aba : 'dias'
   })
-  const [showCharts, setShowCharts] = useState(false)
   // Mês pode vir no link (?mes=aaaa-mm) — a Jornada abre Pagamentos no mês dela
   const [paramsUrl] = useSearchParams()
   const [filterMonth, setFilterMonth] = useState(() => {
@@ -1738,78 +1733,8 @@ export default function PaymentList() {
                   Nenhum colaborador com vínculo ativo e valor definido — abaixo estão os lançamentos avulsos deste mês.
                 </div>
               )}
-              {/* Gráficos colapsáveis */}
-              <button
-                onClick={() => setShowCharts(!showCharts)}
-                className="flex items-center gap-2 text-sm font-medium text-ink-500 hover:text-ink-700 transition-colors"
-              >
-                <BarChart3 size={15} />
-                Gráficos
-                {showCharts ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-              </button>
-
-              {showCharts && (() => {
-                const groupTotals = [
-                  { name: 'Consultoria', value: (folhaData ?? []).filter(r => r.group === 'consultoria').reduce((s, r) => s + valorPrevisto(r), 0), color: '#f97316' },
-                  { name: 'Fixo / Plantão', value: (folhaData ?? []).filter(r => r.group === 'fixo_plantao').reduce((s, r) => s + valorPrevisto(r), 0), color: '#3b82f6' },
-                ].filter(g => g.value > 0)
-                const byEmployee = (folhaData ?? []).map(r => ({
-                  name: r.employee?.full_name?.split(' ').slice(0, 2).join(' ') || '-',
-                  Estimativa: r.monthly_amount,
-                  'Aj. Custo': r.cost_assistance,
-                })).sort((a, b) => (b.Estimativa + b['Aj. Custo']) - (a.Estimativa + a['Aj. Custo'])).slice(0, 8)
-                const totalGroups = groupTotals.reduce((s, g) => s + g.value, 0)
-                return (
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                    <div className="card p-4">
-                      <p className="font-semibold text-gray-900 text-sm mb-3">Distribuição por tipo</p>
-                      {groupTotals.length > 0 ? (
-                        <>
-                          <div className="h-40">
-                            <ResponsiveContainer width="100%" height="100%">
-                              <PieChart>
-                                <Pie data={groupTotals} cx="50%" cy="50%" innerRadius={45} outerRadius={68} dataKey="value" paddingAngle={3}>
-                                  {groupTotals.map((entry, i) => <Cell key={i} fill={entry.color} />)}
-                                </Pie>
-                                <Tooltip formatter={(v: number) => formatCurrency(v)} />
-                                <Legend iconType="circle" iconSize={8} formatter={(v) => <span className="text-xs text-gray-600">{v}</span>} />
-                              </PieChart>
-                            </ResponsiveContainer>
-                          </div>
-                          <div className="mt-2 space-y-1.5">
-                            {groupTotals.map((g, i) => (
-                              <div key={i} className="flex items-center gap-2">
-                                <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
-                                  <div className="h-2 rounded-full" style={{ width: `${(g.value / totalGroups) * 100}%`, backgroundColor: g.color }} />
-                                </div>
-                                <span className="text-xs font-medium text-gray-700 w-28 text-right">{formatCurrency(g.value)}</span>
-                              </div>
-                            ))}
-                          </div>
-                        </>
-                      ) : <p className="text-center text-sm text-gray-400 py-8">Sem dados</p>}
-                    </div>
-                    <div className="card p-4">
-                      <p className="font-semibold text-gray-900 text-sm mb-3">Top colaboradores</p>
-                      {byEmployee.length > 0 ? (
-                        <div className="h-52">
-                          <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={byEmployee} layout="vertical" margin={{ left: 0, right: 10 }}>
-                              <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-                              <XAxis type="number" tickFormatter={v => `R$${(v/1000).toFixed(0)}k`} tick={{ fontSize: 10 }} />
-                              <YAxis type="category" dataKey="name" tick={{ fontSize: 10 }} width={70} />
-                              <Tooltip formatter={(v: number) => formatCurrency(v)} />
-                              <Bar dataKey="Estimativa" fill="#6366f1" radius={[0, 4, 4, 0]} />
-                              <Bar dataKey="Aj. Custo" fill="#3b82f6" radius={[0, 4, 4, 0]} />
-                            </BarChart>
-                          </ResponsiveContainer>
-                        </div>
-                      ) : <p className="text-center text-sm text-gray-400 py-8">Sem dados</p>}
-                    </div>
-                  </div>
-                )
-              })()}
-
+              {/* Os gráficos (rosca e barras) saíram em 05/10/2026: não ajudavam a pagar
+                  ninguém e deixavam a tela carregada. Os números estão no resumo do topo. */}
               {/* Colaboradores agrupados por tipo. Cada linha mostra UMA próxima
                   ação (Lançar → Conferir → Pagar). Antes a mesma linha tinha
                   Gerar, Real, Pago e Editar juntos — fácil pagar a coisa errada. */}
@@ -1913,11 +1838,11 @@ export default function PaymentList() {
                                 </button>
                                 <div className="flex items-center gap-1.5 flex-wrap mt-1 text-xs text-ink-500">
                                   {row.client?.name && <span className="font-medium text-ink-600">{row.client.name}</span>}
-                                  {row.work_schedule && <span className="text-ink-400">· {row.work_schedule}</span>}
+                                  {contaVisivel && row.work_schedule && <span className="text-ink-400">· {row.work_schedule}</span>}
                                   {isFreela && !row.freelaConsultoria && <span className="text-ink-500">· por diária</span>}
                                   {isFreela && row.startDate
                                     ? <span className="text-ink-400">{formatDate(row.startDate)}{row.freelaEnd ? ` → ${formatDate(row.freelaEnd)}` : ''}</span>
-                                    : row.startDate && <span className="text-ink-400">desde {formatDate(row.startDate)}</span>}
+                                    : contaVisivel && row.startDate && <span className="text-ink-400">desde {formatDate(row.startDate)}</span>}
                                   {row.payFullSalary && !isConsultoria && <span className="text-ink-500">· salário inteiro</span>}
                                   {encerradoEm && <span className="text-red-600">· encerrado em {formatDate(encerradoEm)}</span>}
                                 </div>
@@ -1960,7 +1885,7 @@ export default function PaymentList() {
                                       </span>
                                     )
                                   })()}
-                                  {!row.salarioConsult && <>
+                                  {!row.salarioConsult && (row.faltas > 0 || contaVisivel) && <>
                                   <span className={row.faltas > 0 ? 'text-red-600 font-medium' : 'text-ink-500'}>
                                     {row.faltas > 0
                                       ? `${row.faltas} falta${row.faltas > 1 ? 's' : ''} · −${formatCurrency(row.faltas * row.valorDia)}`
@@ -1983,7 +1908,7 @@ export default function PaymentList() {
                                   {row.foraJornada.menos} dia(s) abaixo da jornada
                                 </button>
                               )}
-                              {row.foraJornada.mais > 0 && (
+                              {contaVisivel && row.foraJornada.mais > 0 && (
                                 <button type="button" onClick={() => navigate('/jornada')} className="text-sky-700 hover:underline">
                                   {row.foraJornada.mais} dia(s) acima da jornada
                                 </button>
@@ -1991,7 +1916,7 @@ export default function PaymentList() {
                               {row.reportRequired && row.semRelatorio > 0 && (
                                 <span className="text-red-600">{row.semRelatorio} sem relatório</span>
                               )}
-                              {row.reportRequired && row.semRelatorio === 0 && (row.actualVisits > 0 || row.actualDays > 0) && (
+                              {contaVisivel && row.reportRequired && row.semRelatorio === 0 && (row.actualVisits > 0 || row.actualDays > 0) && (
                                 <span className="text-ink-400">relatórios ok</span>
                               )}
                             </div>

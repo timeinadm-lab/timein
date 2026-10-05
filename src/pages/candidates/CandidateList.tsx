@@ -186,7 +186,7 @@ export default function CandidateList() {
 
     const stripAccents = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '')
     const normText = (s: string) => stripAccents(String(s || '')).trim().toLowerCase().replace(/\s+/g, ' ')
-    const normEmail = (s: string) => String(s || '').trim().toLowerCase()
+    const normEmail = (s: string) => String(s || '').replace(/s+/g, '').toLowerCase()
     const normWa = (s: string) => {
       const d = String(s || '').replace(/\D/g, '')
       return d.startsWith('55') && d.length > 11 ? d.slice(2) : d
@@ -217,7 +217,9 @@ export default function CandidateList() {
       }
     }
 
-    // 2) Percorre linhas, deduplica por: WhatsApp > e-mail > nome+cidade
+    // 2) Percorre linhas, deduplica por: WhatsApp, e-mail ou nome+cidade (qualquer um que bater).
+    //    Nome+cidade vale mesmo com telefone/e-mail diferentes: quem responde de novo
+    //    às vezes troca de número ou de e-mail (05/10/2026: 8 pessoas entraram 2x assim).
     const seenWa = new Set<string>()
     const seenEmail = new Set<string>()
     const seenNameCity = new Set<string>()
@@ -238,7 +240,7 @@ export default function CandidateList() {
       const isDup =
         (wa.length >= 10 && (existingWa.has(wa) || seenWa.has(wa))) ||
         (em && (existingEmail.has(em) || seenEmail.has(em))) ||
-        (!wa && !em && nm && ct && (existingNameCity.has(`${nm}|${ct}`) || seenNameCity.has(`${nm}|${ct}`)))
+        (nm && ct && (existingNameCity.has(`${nm}|${ct}`) || seenNameCity.has(`${nm}|${ct}`)))
       if (isDup) { dup++; continue }
 
       if (wa.length >= 10) seenWa.add(wa)

@@ -25,11 +25,12 @@ const textoBanco = (b?: DadosBanco | null) => b && (b.bank_name || b.bank_accoun
  * com PIX e banco. Base: lançamentos com VENCIMENTO no mês.
  * Pedido do Gabriel (30/09 e 01/10/2026).
  */
-export default function PorDiaDePagamento({ mes, nomeMes, aLancar, irParaFolha, reembolsos, folha }: {
+export default function PorDiaDePagamento({ mes, nomeMes, aLancar, irParaFolha, irParaFolhaDe, reembolsos, folha }: {
   mes: string
   nomeMes: string
   aLancar: number                 // vínculos do mês ainda sem lançamento
   irParaFolha: () => void
+  irParaFolhaDe: (mes: string) => void   // abre a Folha de outro mês (o anterior, para a 2ª quinzena)
   reembolsos: ReembolsoRel[]
   folha: FolhaRel[]
 }) {
@@ -73,6 +74,41 @@ export default function PorDiaDePagamento({ mes, nomeMes, aLancar, irParaFolha, 
       return new Map(((data || []) as DadosBanco[]).map(e => [e.id, e]))
     },
   })
+
+  // Dia 8 = 2ª quinzena da consultoria do mês ANTERIOR (visitas do dia 16 ao fim).
+  // Só aparece aqui depois de lançada na folha daquele mês. Pergunta de 05/10/2026:
+  // "por que só o Gabriel no dia 8?" — os outros ainda não tinham sido lançados.
+  // Aqui: quem tem visita com valor de 16 ao fim do mês anterior e nenhum
+  // lançamento vencendo no dia 8 deste mês.
+  const [anoM, mesM] = mes.split('-').map(Number)
+  const mesAnterior = mesM === 1 ? `${anoM - 1}-12` : `${anoM}-${String(mesM - 1).padStart(2, '0')}`
+  const { data: semLancarDia8 = [] } = useQuery({
+    queryKey: ['payments', 'dia8-faltando', mes],
+    queryFn: async () => {
+      const ini = `${mesAnterior}-16`, fimAnt = limitesDoMes(mesAnterior).fim
+      const visitas: { employee_id: string; visit_rate: number | null }[] = []
+      for (let de = 0; ; de += 1000) {
+        const { data, error } = await supabase.from('nutritionist_visits').select('employee_id, visit_rate')
+          .gte('visit_date', ini).lte('visit_date', fimAnt).gt('visit_rate', 0).not('check_in', 'is', null)
+          .range(de, de + 999)
+        if (error) throw error
+        visitas.push(...(data || []))
+        if (!data || data.length < 1000) break
+      }
+      const soma = new Map<string, number>()
+      for (const v of visitas) soma.set(v.employee_id, (soma.get(v.employee_id) || 0) + (Number(v.visit_rate) || 0))
+      if (!soma.size) return []
+      const { data: lanc } = await supabase.from('payments').select('employee_id')
+        .in('employee_id', [...soma.keys()]).eq('due_date', `${mes}-08`).neq('status', 'Cancelado')
+      const lancados = new Set((lanc || []).map(x => x.employee_id))
+      const faltam = [...soma.entries()].filter(([id]) => !lancados.has(id))
+      if (!faltam.length) return []
+      const { data: nomes } = await supabase.from('employees').select('id, full_name').in('id', faltam.map(([id]) => id))
+      const nome = new Map((nomes || []).map(e => [e.id, e.full_name as string]))
+      return faltam.map(([id, valor]) => ({ id, nome: nome.get(id) || '—', valor })).sort((a, b) => a.nome.localeCompare(b.nome))
+    },
+  })
+  const [verFaltando, setVerFaltando] = useState(false)
 
   const pagarVarios = useMutation({
     mutationFn: async (idsPagar: string[]) => {
@@ -202,6 +238,25 @@ export default function PorDiaDePagamento({ mes, nomeMes, aLancar, irParaFolha, 
           </span>
           <span className="text-xs font-medium text-amber-800 shrink-0">Lançar →</span>
         </button>
+      )}
+
+      {/* Dia 8: 2ª quinzena do mês anterior ainda sem lançamento */}
+      {semLancarDia8.length > 0 && (
+        <div className="card p-3 border-amber-200 bg-amber-50 space-y-2">
+          <div className="flex items-center gap-3">
+            <AlertTriangle size={16} className="text-amber-600 shrink-0" />
+            <button className="text-sm text-amber-900 flex-1 text-left" onClick={() => setVerFaltando(v => !v)}>
+              <strong>Dia 8: {semLancarDia8.length} pessoa{semLancarDia8.length > 1 ? 's' : ''}</strong> com visitas de 16 a {formatDate(limitesDoMes(mesAnterior).fim).slice(0, 5)} ainda sem lançamento
+              ({formatCurrency(semLancarDia8.reduce((t, x) => t + x.valor, 0))}). <span className="underline">{verFaltando ? 'esconder' : 'ver quem'}</span>
+            </button>
+            <button onClick={() => irParaFolhaDe(mesAnterior)} className="text-xs font-semibold text-amber-800 shrink-0 hover:underline">Lançar na folha de {mesCurto(mesAnterior)} →</button>
+          </div>
+          {verFaltando && (
+            <div className="pl-7 flex flex-wrap gap-1.5">
+              {semLancarDia8.map(x => <span key={x.id} className="text-xs bg-white border border-amber-200 rounded-lg px-2 py-1 text-amber-900">{x.nome} · <span className="tnum">{formatCurrency(x.valor)}</span></span>)}
+            </div>
+          )}
+        </div>
       )}
 
       {/* Os 4 dias lado a lado */}

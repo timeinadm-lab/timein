@@ -1713,6 +1713,7 @@ export default function PaymentList() {
           nomeMes={nomeDoMes}
           aLancar={contagem.lancar}
           irParaFolha={() => { setTab('folha'); setFiltroEtapa('lancar') }}
+          irParaFolhaDe={m => { setFilterMonth(m); setTab('folha'); setFiltroEtapa('') }}
           reembolsos={(expenses ?? []) as never}
           folha={folhaRel}
         />

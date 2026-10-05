@@ -13,7 +13,7 @@ import type { Faixa, Resposta } from '../../lib/auditoria'
 
 type Auditoria = {
   id: string; titulo: string; faixas: Faixa[]; client_id: string | null; unidade: string | null; concessionaria: string | null
-  auditor_nome: string | null; data: string; inicio: string | null; fim: string | null; observacoes: string | null
+  auditor_nome: string | null; auditor_email?: string | null; data: string; inicio: string | null; fim: string | null; observacoes: string | null
   status: 'rascunho' | 'finalizada'; nota: number | null; client?: { name?: string } | null
 }
 type Item = {
@@ -109,7 +109,7 @@ export default function AuditoriaDetalhe() {
       }
       const blob = await gerarPdfAuditoria({
         titulo: aud.titulo, faixas: aud.faixas, cliente: aud.client?.name, unidade: aud.unidade, concessionaria: aud.concessionaria,
-        auditor: aud.auditor_nome, data: aud.data, inicio: aud.inicio, fim: aud.fim, observacoes: aud.observacoes,
+        auditor: aud.auditor_nome, email: aud.auditor_email, data: aud.data, inicio: aud.inicio, fim: aud.fim, observacoes: aud.observacoes,
         rascunho: !finalizada, logo, itens: comFotos,
       })
       const url = URL.createObjectURL(blob)
@@ -161,6 +161,8 @@ export default function AuditoriaDetalhe() {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           <div><label className="label text-xs">Início</label><input className="input text-sm" type="time" disabled={finalizada} value={(aud.inicio || '').slice(0, 5)} onChange={e => salvarAud({ inicio: e.target.value || null })} /></div>
           <div><label className="label text-xs">Fim</label><input className="input text-sm" type="time" disabled={finalizada} value={(aud.fim || '').slice(0, 5)} onChange={e => salvarAud({ fim: e.target.value || null })} /></div>
+          <div className="col-span-2"><label className="label text-xs">Consultor(a)</label><input className="input text-sm" disabled={finalizada} defaultValue={aud.auditor_nome || ''} onBlur={e => e.target.value.trim() !== (aud.auditor_nome || '') && salvarAud({ auditor_nome: e.target.value.trim() || null })} /></div>
+          <div className="col-span-2"><label className="label text-xs">E-mail</label><input className="input text-sm" type="email" autoCapitalize="none" disabled={finalizada} defaultValue={aud.auditor_email || ''} onBlur={e => e.target.value.trim().toLowerCase() !== (aud.auditor_email || '') && salvarAud({ auditor_email: e.target.value.trim().toLowerCase() || null })} /></div>
           <div className="col-span-2"><label className="label text-xs">Concessionária</label><input className="input text-sm" disabled={finalizada} defaultValue={aud.concessionaria || ''} onBlur={e => e.target.value !== (aud.concessionaria || '') && salvarAud({ concessionaria: e.target.value.trim() || null })} /></div>
         </div>
         <div>

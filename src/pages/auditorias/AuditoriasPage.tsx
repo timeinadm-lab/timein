@@ -115,23 +115,38 @@ function NovaAuditoria({ fechar }: { fechar: () => void }) {
   const [concessionaria, setConcessionaria] = useState('')
   const [data, setData] = useState(hojeISO())
   const [auditor, setAuditor] = useState(profile?.full_name || '')
+  const [email, setEmail] = useState(profile?.email || '')
+  const agora = new Date()
+  const [inicio, setInicio] = useState(`${String(agora.getHours()).padStart(2, '0')}:${String(agora.getMinutes()).padStart(2, '0')}`)
+  const [fim, setFim] = useState('')
   const modeloEscolhido = modelo || modelos[0]?.id || ''
+  // Cabeçalho igual ao do relatório MELI: cliente, consultor(a), e-mail, data das… às…
+  const falta = !cliente ? 'Escolha o cliente.' : !auditor.trim() ? 'Informe o(a) consultor(a).'
+    : !email.trim() ? 'Informe o e-mail.' : !/^\S+@\S+\.\S+$/.test(email.trim()) ? 'E-mail inválido.'
+    : !data ? 'Informe a data.' : !inicio ? 'Informe o horário de início.'
+    : fim && fim <= inicio ? 'O horário final tem que ser depois do início.' : ''
 
   const criar = useMutation({
     mutationFn: async () => {
+      if (falta) throw new Error(falta)
       const m = modelos.find(x => x.id === modeloEscolhido)
       if (!m) throw new Error('Escolha o checklist')
       const { data: perguntas, error: ep } = await supabase.from('auditoria_perguntas').select('id, grupo, secao, texto, peso, ordem').eq('modelo_id', m.id).eq('ativo', true).order('ordem')
       if (ep) throw ep
       if (!perguntas?.length) throw new Error('Esse checklist não tem perguntas.')
-      const agora = new Date()
-      const { data: aud, error } = await supabase.from('auditorias').insert({
-        modelo_id: m.id, titulo: m.nome, faixas: m.faixas, client_id: cliente || null,
+      const linha = {
+        modelo_id: m.id, titulo: m.nome, faixas: m.faixas, client_id: cliente,
         unidade: unidade.trim() || null, concessionaria: concessionaria.trim() || null,
-        auditor_id: profile?.id || null, auditor_nome: auditor.trim() || null, data,
-        inicio: data === hojeISO() ? `${String(agora.getHours()).padStart(2, '0')}:${String(agora.getMinutes()).padStart(2, '0')}` : null,
-      }).select('id').single()
-      if (error) throw error
+        auditor_id: profile?.id || null, auditor_nome: auditor.trim(), auditor_email: email.trim().toLowerCase(),
+        data, inicio, fim: fim || null,
+      }
+      let { data: aud, error } = await supabase.from('auditorias').insert(linha).select('id').single()
+      // Sem a migração 080 ainda: grava sem o e-mail para não travar
+      if (error && /auditor_email/.test(error.message)) {
+        const { auditor_email: _, ...semEmail } = linha
+        ;({ data: aud, error } = await supabase.from('auditorias').insert(semEmail).select('id').single())
+      }
+      if (error || !aud) throw error || new Error('Não criou a auditoria.')
       // Cópia das perguntas: editar o checklist depois não muda esta auditoria
       const { error: er } = await supabase.from('auditoria_respostas').insert(perguntas.map(p => ({
         auditoria_id: aud.id, pergunta_id: p.id, grupo: p.grupo, secao: p.secao, texto: p.texto, peso: p.peso, ordem: p.ordem,
@@ -154,7 +169,7 @@ function NovaAuditoria({ fechar }: { fechar: () => void }) {
           </select>
         </div>
         <div>
-          <label className="label">Cliente</label>
+          <label className="label">Cliente *</label>
           <select className="input" value={cliente} onChange={e => setCliente(e.target.value)}>
             <option value="">— escolha —</option>
             {clientes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -164,13 +179,18 @@ function NovaAuditoria({ fechar }: { fechar: () => void }) {
           <div><label className="label">Unidade / CD</label><input className="input" value={unidade} onChange={e => setUnidade(e.target.value)} placeholder="Ex.: MG01" /></div>
           <div><label className="label">Concessionária</label><input className="input" value={concessionaria} onChange={e => setConcessionaria(e.target.value)} placeholder="Ex.: Sodexo" /></div>
         </div>
-        <div className="grid grid-cols-2 gap-3">
+        <div><label className="label">Consultor(a) *</label><input className="input" value={auditor} onChange={e => setAuditor(e.target.value)} placeholder="Nome completo" /></div>
+        <div><label className="label">E-mail *</label><input className="input" type="email" inputMode="email" autoCapitalize="none" value={email} onChange={e => setEmail(e.target.value)} placeholder="nome@email.com" /></div>
+        <div className="grid grid-cols-3 gap-3">
           <div><label className="label">Data *</label><input className="input" type="date" value={data} onChange={e => setData(e.target.value)} /></div>
-          <div><label className="label">Auditor(a)</label><input className="input" value={auditor} onChange={e => setAuditor(e.target.value)} /></div>
+          <div><label className="label">Das *</label><input className="input" type="time" value={inicio} onChange={e => setInicio(e.target.value)} /></div>
+          <div><label className="label">Às</label><input className="input" type="time" value={fim} onChange={e => setFim(e.target.value)} /></div>
         </div>
+        <p className="text-xs text-ink-500 -mt-2">Se deixar "Às" em branco, entra a hora em que você finalizar.</p>
+        {falta && <p className="text-xs text-amber-700">{falta}</p>}
         <div className="flex flex-col-reverse sm:flex-row gap-2">
           <button className="btn-secondary flex-1" onClick={fechar}>Cancelar</button>
-          <button className="btn-primary flex-1" disabled={criar.isPending || !modeloEscolhido} onClick={() => criar.mutate()}>{criar.isPending ? 'Criando…' : 'Começar'}</button>
+          <button className="btn-primary flex-1" disabled={criar.isPending || !modeloEscolhido || !!falta} onClick={() => criar.mutate()}>{criar.isPending ? 'Criando…' : 'Começar'}</button>
         </div>
       </div>
     </div>

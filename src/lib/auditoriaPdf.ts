@@ -18,6 +18,7 @@ export type DadosAuditoriaPdf = {
   unidade?: string | null
   concessionaria?: string | null
   auditor?: string | null
+  email?: string | null
   data: string                 // YYYY-MM-DD
   inicio?: string | null
   fim?: string | null
@@ -70,17 +71,26 @@ export async function gerarPdfAuditoria(d: DadosAuditoriaPdf): Promise<Blob> {
   y = TOPO + 6
   t(d.titulo, 105, y, { tam: 17, centro: true })
   y += 6
-  const linhasInfo: [string, string][] = [
-    ['Cliente', [d.cliente, d.unidade].filter(Boolean).join(' · ') || '-'],
-    ['Concessionária', d.concessionaria || '-'],
-    ['Auditor(a)', d.auditor || '-'],
+  // Cabeçalho no formato do relatório MELI: Cliente / Consultor(a) | E-mail / Data das… às…
+  const linhasInfo: [string, string, string?, string?][] = [
+    ['Cliente', [d.cliente, d.unidade].filter(Boolean).join(' - ') || '-'],
+    ['Consultor(a)', d.auditor || '-', 'E-mail', d.email || '-'],
+    ...(d.concessionaria ? [['Concessionária', d.concessionaria] as [string, string]] : []),
     ['Data', `${dataBr(d.data)}${d.inicio ? ` das ${d.inicio.slice(0, 5)}` : ''}${d.fim ? ` às ${d.fim.slice(0, 5)}h` : ''}`],
   ]
   doc.setDrawColor(210, 212, 208); doc.setLineWidth(0.25)
-  for (const [k, v] of linhasInfo) {
-    doc.rect(L, y, W, 7)
-    t(k + ':', L + 2, y + 4.8, { tam: 9.5, negrito: true })
-    t(v, L + 2 + doc.getTextWidth(limpo(k + ': ')) + 1.5, y + 4.8, { tam: 9.5 })
+  const campo = (k: string, v: string, x: number, larg: number) => {
+    doc.rect(x, y, larg, 7)
+    t(k + ':', x + 2, y + 4.8, { tam: 9.5, negrito: true })
+    const vx = x + 2 + doc.getTextWidth(limpo(k + ': ')) + 1.5
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5)
+    let val = limpo(v)
+    while (val.length > 3 && doc.getTextWidth(val) > x + larg - vx - 2) val = val.slice(0, -1)
+    t(val === limpo(v) ? val : val.trimEnd() + '...', vx, y + 4.8, { tam: 9.5 })
+  }
+  for (const [k, v, k2, v2] of linhasInfo) {
+    if (k2) { const corte = W * 0.55; campo(k, v, L, corte); campo(k2, v2 || '-', L + corte, W - corte) }
+    else campo(k, v, L, W)
     y += 7
   }
 

@@ -58,11 +58,24 @@ export default function AuditoriaDetalhe() {
     const { error } = await supabase.from('auditoria_respostas').update({ ...mudar, atualizado_em: new Date().toISOString() }).eq('id', itemId)
     if (error) toast.error('Não salvou: ' + error.message, { id: 'erro-aud' })
   }
-  const salvarAud = async (mudar: Partial<Auditoria>) => {
+  const salvarAud = async (mudar: Partial<Auditoria>, avisar = true) => {
     setAud(a => a ? { ...a, ...mudar } : a)
-    const { error } = await supabase.from('auditorias').update(mudar).eq('id', id)
+    // client (nome) é só para a tela; no banco vai client_id
+    const { client: _c, ...banco } = mudar
+    const { error } = await supabase.from('auditorias').update(banco).eq('id', id)
     if (error) toast.error('Não salvou: ' + error.message, { id: 'erro-aud' })
+    else if (avisar) toast.success('Salvo', { id: 'salvo-aud', duration: 1200 })
   }
+  // Clientes para trocar o cliente da auditoria
+  const { data: clientes = [] } = useQuery({
+    queryKey: ['clientes-lista-simples'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('clients').select('id, name').order('name')
+      if (error) throw error
+      return (data || []) as { id: string; name: string }[]
+    },
+    staleTime: 5 * 60_000,
+  })
 
   const finalizar = async () => {
     if (resumo.pendentes > 0) { toast.error(`Faltam ${resumo.pendentes} pergunta(s) sem resposta.`); setFiltro('pendentes'); return }
@@ -73,13 +86,13 @@ export default function AuditoriaDetalhe() {
       status: 'finalizada', nota: resumo.notaExata == null ? null : Math.round(resumo.notaExata * 10) / 10,
       fim: aud?.fim || `${String(agora.getHours()).padStart(2, '0')}:${String(agora.getMinutes()).padStart(2, '0')}`,
       ...({ finalizada_em: agora.toISOString() } as object),
-    })
+    }, false)
     qc.invalidateQueries({ queryKey: ['auditorias'] })
     toast.success('Auditoria finalizada')
   }
   const reabrir = async () => {
     if (!(await confirmar({ titulo: 'Reabrir a auditoria?', texto: 'Ela volta para "em andamento" e dá para mudar as respostas.', confirmar: 'Reabrir' }))) return
-    await salvarAud({ status: 'rascunho' }); qc.invalidateQueries({ queryKey: ['auditorias'] })
+    await salvarAud({ status: 'rascunho' }, false); qc.invalidateQueries({ queryKey: ['auditorias'] })
   }
   const excluir = async () => {
     if (!(await confirmar({ titulo: 'Excluir esta auditoria?', texto: 'Apaga as respostas e as fotos dela. Não tem como desfazer.', confirmar: 'Excluir', perigo: true }))) return
@@ -120,7 +133,9 @@ export default function AuditoriaDetalhe() {
       })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a'); a.href = url
-      a.download = `auditoria_${(aud.client?.name || aud.titulo).replace(/[^\p{L}\p{N}]+/gu, '_').toLowerCase()}${aud.unidade ? '_' + aud.unidade.replace(/[^\p{L}\p{N}]+/gu, '_').toLowerCase() : ''}_${aud.data}.pdf`
+      // Nome do arquivo = título do relatório + unidade + data (o título é editável na tela)
+      const limpaNome = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '')
+      a.download = `${[aud.titulo, aud.unidade].filter(Boolean).map(t => limpaNome(t!)).join('_')}_${aud.data.split('-').reverse().join('-')}.pdf`
       a.click(); setTimeout(() => URL.revokeObjectURL(url), 5000)
     } catch (e) {
       toast.error('Não consegui gerar o PDF: ' + (e as Error).message)
@@ -164,6 +179,23 @@ export default function AuditoriaDetalhe() {
         <div>
           <div className="flex justify-between text-[11px] text-ink-500 mb-1"><span>{respondidas} de {resumo.total} respondidas</span><span>{resumo.conformes} C · {resumo.naoConformes} NC · {resumo.na} N/A</span></div>
           <div className="h-2 bg-ink-100 rounded-full overflow-hidden"><div className="h-2 bg-primary-600 rounded-full" style={{ width: `${resumo.total ? (100 * respondidas) / resumo.total : 0}%` }} /></div>
+        </div>
+        {/* Tudo do cabeçalho do relatório é editável (pedido de 05/10/2026). Salva ao sair do campo. */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <div className="col-span-2 sm:col-span-4"><label className="label text-xs">Título do relatório <span className="text-ink-400 font-normal">— também é o nome do PDF</span></label>
+            <input className="input text-sm font-medium" disabled={finalizada} defaultValue={aud.titulo}
+              onBlur={e => e.target.value.trim() && e.target.value.trim() !== aud.titulo && salvarAud({ titulo: e.target.value.trim() })} /></div>
+          <div className="col-span-2"><label className="label text-xs">Cliente</label>
+            <select className="input text-sm" disabled={finalizada} value={aud.client_id || ''}
+              onChange={e => salvarAud({ client_id: e.target.value || null, client: { name: clientes.find(c => c.id === e.target.value)?.name } })}>
+              <option value="">— sem cliente —</option>
+              {clientes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select></div>
+          <div><label className="label text-xs">Unidade / CD</label>
+            <input className="input text-sm" disabled={finalizada} defaultValue={aud.unidade || ''}
+              onBlur={e => e.target.value.trim() !== (aud.unidade || '') && salvarAud({ unidade: e.target.value.trim() || null })} /></div>
+          <div><label className="label text-xs">Data</label>
+            <input className="input text-sm" type="date" disabled={finalizada} value={aud.data} onChange={e => e.target.value && salvarAud({ data: e.target.value })} /></div>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           <div><label className="label text-xs">Início</label><input className="input text-sm" type="time" disabled={finalizada} value={(aud.inicio || '').slice(0, 5)} onChange={e => salvarAud({ inicio: e.target.value || null })} /></div>

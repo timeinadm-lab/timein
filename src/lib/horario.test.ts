@@ -25,4 +25,5 @@ ok(compromissoNoDia('2026-10-06T00:30:00+00:00', null, '2026-10-06'), '00h30 do 
 ok(!compromissoNoDia('2026-10-06T00:30:00+00:00', null, '2026-10-05'), '00h30 do dia 6 não aparece no dia 5')
 ok(formatLocalTime(null) === '-' && parseLocal('') === null, 'vazio não quebra')
 
-if (falhas) { console.log(`\n${falhas} falha(s)`); process.exit(1) }
+console.log(falhas ? `\n${falhas} FALHA(S)` : '\nTodos os testes passaram')
+if (falhas) throw new Error(`${falhas} teste(s) de horário falharam`)

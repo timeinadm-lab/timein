@@ -131,7 +131,7 @@ function NovaAuditoria({ fechar }: { fechar: () => void }) {
       if (falta) throw new Error(falta)
       const m = modelos.find(x => x.id === modeloEscolhido)
       if (!m) throw new Error('Escolha o checklist')
-      const { data: perguntas, error: ep } = await supabase.from('auditoria_perguntas').select('id, grupo, secao, texto, peso, ordem').eq('modelo_id', m.id).eq('ativo', true).order('ordem')
+      const { data: perguntas, error: ep } = await supabase.from('auditoria_perguntas').select('*').eq('modelo_id', m.id).eq('ativo', true).order('ordem')
       if (ep) throw ep
       if (!perguntas?.length) throw new Error('Esse checklist não tem perguntas.')
       const linha = {
@@ -150,6 +150,7 @@ function NovaAuditoria({ fechar }: { fechar: () => void }) {
       // Cópia das perguntas: editar o checklist depois não muda esta auditoria
       const { error: er } = await supabase.from('auditoria_respostas').insert(perguntas.map(p => ({
         auditoria_id: aud.id, pergunta_id: p.id, grupo: p.grupo, secao: p.secao, texto: p.texto, peso: p.peso, ordem: p.ordem,
+        ...(p.foto_obrigatoria !== undefined ? { foto_obrigatoria: !!p.foto_obrigatoria } : {}), // migração 081
       })))
       if (er) { await supabase.from('auditorias').delete().eq('id', aud.id); throw er }
       return aud.id as string

@@ -122,47 +122,6 @@ export async function gerarPdfAuditoria(d: DadosAuditoriaPdf): Promise<Blob> {
   y += 4.5
   expl.forEach(l => { t(l, L + 2, y, { tam: 8, cor: [100, 100, 100] }); y += 3.6 })
 
-  // ── Gráfico de pizza: conformes × não conformes (contagem de perguntas, N/A fora) ──
-  const avaliadas = r.conformes + r.naoConformes
-  if (avaliadas > 0) {
-    y += 4
-    const altP = 48
-    doc.setDrawColor(210, 212, 208); doc.setLineWidth(0.25); doc.rect(L, y, W, altP)
-    const cx = L + 48, cy = y + altP / 2, raio = 20
-    const AZUL: [number, number, number] = [51, 102, 204], VERMELHO: [number, number, number] = [220, 57, 18]
-    const pctC = Math.round((100 * r.conformes) / avaliadas), pctNC = 100 - pctC
-    // fatia como polígono (começa no topo, sentido horário)
-    const fatia = (de: number, ate: number, cor: [number, number, number]) => {
-      if (ate - de <= 0) return
-      if (ate - de >= 1) { doc.setFillColor(...cor); doc.circle(cx, cy, raio, 'F'); return }
-      const pts: [number, number][] = [[cx, cy]]
-      const passos = Math.max(2, Math.ceil((ate - de) * 120))
-      for (let i = 0; i <= passos; i++) {
-        const a = -Math.PI / 2 + 2 * Math.PI * (de + ((ate - de) * i) / passos)
-        pts.push([cx + raio * Math.cos(a), cy + raio * Math.sin(a)])
-      }
-      const rel = pts.slice(1).map((p, i) => [p[0] - pts[i][0], p[1] - pts[i][1]])
-      doc.setFillColor(...cor); doc.lines(rel, cx, cy, [1, 1], 'F', true)
-    }
-    const fracC = r.conformes / avaliadas
-    fatia(0, fracC, AZUL)
-    fatia(fracC, 1, VERMELHO)
-    // rótulo dentro de cada fatia
-    const rotulo = (meio: number, txt: string) => {
-      const a = -Math.PI / 2 + 2 * Math.PI * meio
-      t(txt, cx + raio * 0.6 * Math.cos(a), cy + raio * 0.6 * Math.sin(a) + 1.2, { tam: 8.5, negrito: true, centro: true, cor: [255, 255, 255] })
-    }
-    if (r.conformes) rotulo(fracC / 2, `${pctC}%`)
-    if (r.naoConformes) rotulo(fracC + (1 - fracC) / 2, `${pctNC}%`)
-    // legenda
-    const lx = L + 100
-    doc.setFillColor(...AZUL); doc.circle(lx, cy - 3.2, 1.6, 'F')
-    t(`${pctC}% conformes (${r.conformes})`, lx + 3.5, cy - 2.1, { tam: 9.5, cor: [70, 70, 70] })
-    doc.setFillColor(...VERMELHO); doc.circle(lx, cy + 3.8, 1.6, 'F')
-    t(`${pctNC}% não conformes (${r.naoConformes})`, lx + 3.5, cy + 4.9, { tam: 9.5, cor: [70, 70, 70] })
-    y += altP
-  }
-
   // ── Gráfico de barras: não conformidade por grupo ──
   y += 4
   const gruposG = r.grupos.filter(g => g.conformes + g.naoConformes > 0)
@@ -200,36 +159,33 @@ export async function gerarPdfAuditoria(d: DadosAuditoriaPdf): Promise<Blob> {
   // ── Todas as perguntas ──
   const xC = R - 39, xNC = R - 26, xNA = R - 13, wCol = 13
   const wTxt = xC - L - 4
+  let paginaDoCabecalho = 0
   const cabTabela = (secao: string) => {
     doc.setFillColor(238, 239, 236); doc.rect(L, y, W, 6.5, 'F')
     doc.setDrawColor(210, 212, 208); doc.rect(L, y, W, 6.5)
     t(secao, L + 2, y + 4.5, { tam: 9.5, negrito: true })
+    paginaDoCabecalho = doc.getNumberOfPages()
     ;[['C', xC], ['N/C', xNC], ['N/A', xNA]].forEach(([s, x]) => t(String(s), Number(x) + wCol / 2, y + 4.5, { tam: 8.5, negrito: true, centro: true }))
     y += 6.5
   }
-  let grupoAtual = '', secaoAtual: string | null | undefined = undefined
+  // Na ordem do checklist, uma tabela por seção (padrão MELI: Estrutura e Boas
+  // Práticas misturadas dentro das seções; o peso aparece em cada pergunta)
+  let secaoAtual: string | undefined = undefined
   for (const it of d.itens) {
-    if (it.grupo !== grupoAtual) {
-      garantir(24)
-      y += grupoAtual ? 4 : 0
-      doc.setFillColor(...VERDE); doc.rect(L, y, W, 7.5, 'F')
-      t(it.grupo, L + 2, y + 5.2, { tam: 10.5, negrito: true, cor: [255, 255, 255] })
-      const g = r.grupos.find(x => x.grupo === it.grupo)
-      if (g) t(`${g.peso != null ? `peso ${pesoTxt(g.peso)} · ` : ''}${g.naoConformes} não conforme(s) de ${g.conformes + g.naoConformes}`, R - 2, y + 5.2, { tam: 8, direita: true, cor: [200, 230, 212] })
-      y += 7.5
-      grupoAtual = it.grupo; secaoAtual = undefined
-    }
-    if (it.secao !== secaoAtual) {
+    const nomeSecao = it.secao || it.grupo || 'Itens gerais'
+    if (nomeSecao !== secaoAtual) {
       garantir(16)
-      cabTabela(it.secao || 'Itens gerais')
-      secaoAtual = it.secao
+      y += secaoAtual === undefined ? 0 : 3
+      cabTabela(nomeSecao)
+      secaoAtual = nomeSecao
     }
     // O "(peso N)" quebra junto com o texto: nunca invade a coluna C
     const pesoS = `(peso ${pesoTxt(it.peso)})` // espaço que não quebra: "(peso 2)" fica inteiro
     const linhas = quebra(it.texto + ' ' + pesoS, wTxt, 9)
     const obs = it.observacao?.trim() ? quebra('Obs.: ' + it.observacao.trim(), wTxt, 8) : []
     const altTexto = Math.max(6.5, linhas.length * 4 + 2.5) + (obs.length ? obs.length * 3.6 + 1.5 : 0)
-    if (garantir(altTexto)) cabTabela(it.secao || 'Itens gerais')
+    // página nova (pela pergunta ou pelas fotos da anterior): repete o cabeçalho da tabela
+    if (garantir(altTexto) || paginaDoCabecalho !== doc.getNumberOfPages()) cabTabela(nomeSecao)
     const nc = it.resposta === 'NC'
     if (nc) { doc.setFillColor(254, 242, 242); doc.rect(L, y, W, altTexto, 'F') }
     doc.setDrawColor(215, 217, 213); doc.setLineWidth(0.2)

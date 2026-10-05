@@ -19,7 +19,10 @@ type Auditoria = {
 type Item = {
   id: string; grupo: string; secao: string | null; texto: string; peso: number; ordem: number
   resposta: Resposta | null; observacao: string | null; fotos: string[]
+  foto_obrigatoria?: boolean   // migração 081
 }
+// Respondeu C ou NC numa pergunta que exige foto e ainda não pôs nenhuma
+const faltaFoto = (i: Item) => !!i.foto_obrigatoria && (i.resposta === 'C' || i.resposta === 'NC') && i.fotos.length === 0
 type Filtro = 'todas' | 'pendentes' | 'nc'
 
 export default function AuditoriaDetalhe() {
@@ -31,7 +34,7 @@ export default function AuditoriaDetalhe() {
     queryFn: async () => {
       const [a, r] = await Promise.all([
         supabase.from('auditorias').select('*, client:clients(name)').eq('id', id).single(),
-        supabase.from('auditoria_respostas').select('id, grupo, secao, texto, peso, ordem, resposta, observacao, fotos').eq('auditoria_id', id).order('ordem'),
+        supabase.from('auditoria_respostas').select('*').eq('auditoria_id', id).order('ordem'),
       ])
       if (a.error) throw new Error(a.error.message)
       if (r.error) throw new Error(r.error.message)
@@ -47,6 +50,7 @@ export default function AuditoriaDetalhe() {
 
   const resumo = useMemo(() => resumoAuditoria(itens, aud?.faixas), [itens, aud?.faixas])
   const finalizada = aud?.status === 'finalizada'
+  const semFoto = itens.filter(faltaFoto).length
 
   const salvarItem = async (itemId: string, mudar: Partial<Item>) => {
     setItens(lista => lista.map(i => i.id === itemId ? { ...i, ...mudar } : i))
@@ -61,6 +65,7 @@ export default function AuditoriaDetalhe() {
 
   const finalizar = async () => {
     if (resumo.pendentes > 0) { toast.error(`Faltam ${resumo.pendentes} pergunta(s) sem resposta.`); setFiltro('pendentes'); return }
+    if (semFoto > 0) { toast.error(`Falta foto em ${semFoto} pergunta(s) com foto obrigatória.`); setFiltro('pendentes'); return }
     if (!(await confirmar({ titulo: 'Finalizar a auditoria?', texto: `Nota ${resumo.nota}% · ${resumo.classificacao?.rotulo}. Dá para reabrir depois, se precisar corrigir.`, confirmar: 'Finalizar' }))) return
     const agora = new Date()
     await salvarAud({
@@ -124,7 +129,7 @@ export default function AuditoriaDetalhe() {
   if (error) return <div className="card p-4 border-red-200 bg-red-50 text-sm text-red-700">Não carregou: {(error as Error).message}</div>
   if (isLoading || !aud) return <p className="text-sm text-ink-500">Carregando…</p>
 
-  const visiveis = itens.filter(i => filtro === 'todas' || (filtro === 'pendentes' ? !i.resposta : i.resposta === 'NC'))
+  const visiveis = itens.filter(i => filtro === 'todas' || (filtro === 'pendentes' ? !i.resposta || faltaFoto(i) : i.resposta === 'NC'))
   const cor = corDaFaixa(resumo.classificacao?.rotulo, aud.faixas)
   const respondidas = resumo.total - resumo.pendentes
 
@@ -173,25 +178,20 @@ export default function AuditoriaDetalhe() {
 
       {/* Filtro */}
       <div className="flex gap-1 p-1 rounded-xl bg-ink-100/70 w-fit">
-        {([['todas', `Todas (${resumo.total})`], ['pendentes', `Sem resposta (${resumo.pendentes})`], ['nc', `Não conformes (${resumo.naoConformes})`]] as const).map(([k, t]) => (
+        {([['todas', `Todas (${resumo.total})`], ['pendentes', `Pendentes (${resumo.pendentes + semFoto})`], ['nc', `Não conformes (${resumo.naoConformes})`]] as const).map(([k, t]) => (
           <button key={k} onClick={() => setFiltro(k)} className={`px-3 h-9 rounded-lg text-xs sm:text-sm font-medium ${filtro === k ? 'bg-white shadow-sm text-ink-900' : 'text-ink-500'}`}>{t}</button>
         ))}
       </div>
 
-      {/* Perguntas por grupo e seção */}
+      {/* Perguntas na ordem do checklist, por seção */}
       {visiveis.length === 0 ? <div className="card p-6 text-center text-sm text-ink-500">Nada aqui.</div> : (
         <div className="space-y-3">
-          {agrupar(visiveis).map(({ grupo, secoes }) => (
-            <div key={grupo} className="card overflow-hidden">
-              <div className="px-4 py-2.5 bg-primary-900 text-white text-sm font-semibold">{grupo}</div>
-              {secoes.map(({ secao, lista }) => (
-                <div key={secao}>
-                  <div className="px-4 py-2 bg-ink-50 border-b border-ink-100 text-xs font-semibold text-ink-600 uppercase tracking-wide">{secao}</div>
-                  <div className="divide-y divide-ink-100">
-                    {lista.map(it => <Pergunta key={it.id} it={it} audId={id} bloqueada={finalizada} salvar={m => salvarItem(it.id, m)} />)}
-                  </div>
-                </div>
-              ))}
+          {porSecao(visiveis).map(({ secao, lista }, k) => (
+            <div key={secao + k} className="card overflow-hidden">
+              <div className="px-4 py-2.5 bg-primary-900 text-white text-sm font-semibold">{secao}</div>
+              <div className="divide-y divide-ink-100">
+                {lista.map(it => <Pergunta key={it.id} it={it} audId={id} bloqueada={finalizada} salvar={m => salvarItem(it.id, m)} />)}
+              </div>
             </div>
           ))}
         </div>
@@ -208,17 +208,15 @@ export default function AuditoriaDetalhe() {
   )
 }
 
-function agrupar(lista: Item[]) {
-  const grupos: { grupo: string; secoes: { secao: string; lista: Item[] }[] }[] = []
+// Blocos de seção na ordem das perguntas (seção sem nome: o grupo)
+function porSecao(lista: Item[]) {
+  const blocos: { secao: string; lista: Item[] }[] = []
   for (const it of lista) {
-    let g = grupos.find(x => x.grupo === it.grupo)
-    if (!g) { g = { grupo: it.grupo, secoes: [] }; grupos.push(g) }
-    const nomeSecao = it.secao || 'Itens gerais'
-    let s = g.secoes.find(x => x.secao === nomeSecao)
-    if (!s) { s = { secao: nomeSecao, lista: [] }; g.secoes.push(s) }
-    s.lista.push(it)
+    const nome = it.secao || it.grupo || 'Itens gerais'
+    if (blocos.at(-1)?.secao !== nome) blocos.push({ secao: nome, lista: [] })
+    blocos.at(-1)!.lista.push(it)
   }
-  return grupos
+  return blocos
 }
 
 // ── Uma pergunta: C / NC / N/A, observação e fotos ────────────────────────
@@ -254,6 +252,11 @@ function Pergunta({ it, audId, bloqueada, salvar }: { it: Item; audId: string; b
   return (
     <div className={`px-4 py-3 space-y-2 ${nc ? 'bg-red-50/50' : ''}`}>
       <p className="text-sm text-ink-900 leading-snug">{it.texto} <span className="text-[11px] font-medium text-ink-400 whitespace-nowrap">(peso {String(it.peso).replace('.', ',')})</span></p>
+      {it.foto_obrigatoria && (
+        <p className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full ${faltaFoto(it) ? 'bg-red-100 text-red-700' : it.fotos.length ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-800'}`}>
+          <Camera size={12} />{it.fotos.length ? 'Foto obrigatória · ok' : faltaFoto(it) ? 'Foto obrigatória: anexe a foto' : 'Foto obrigatória'}
+        </p>
+      )}
       <div className="flex items-center gap-2 flex-wrap">
         {(['C', 'NC', 'NA'] as const).map(r => {
           const ativo = it.resposta === r
@@ -271,8 +274,8 @@ function Pergunta({ it, audId, bloqueada, salvar }: { it: Item; audId: string; b
             <button type="button" className={`h-10 px-3 rounded-lg border text-xs inline-flex items-center gap-1 ${obsAberta ? 'border-primary-300 text-primary-800' : 'border-ink-200 text-ink-500'}`} onClick={() => setObsAberta(v => !v)}>
               <MessageSquare size={15} /><span className="hidden sm:inline">Obs.</span>
             </button>
-            <button type="button" disabled={enviando} className="h-10 px-3 rounded-lg border border-ink-200 text-xs text-ink-500 inline-flex items-center gap-1" onClick={() => arquivoRef.current?.click()}>
-              <Camera size={15} /><span className={enviando ? '' : 'hidden sm:inline'}>{enviando ? 'Enviando…' : 'Foto'}</span>
+            <button type="button" disabled={enviando} className={`h-10 px-3 rounded-lg border text-xs inline-flex items-center gap-1 ${faltaFoto(it) ? 'border-red-400 text-red-700 bg-red-50' : 'border-ink-200 text-ink-500'}`} onClick={() => arquivoRef.current?.click()}>
+              <Camera size={15} />{enviando ? 'Enviando…' : it.fotos.length ? <span className="font-semibold">{it.fotos.length}</span> : <span className="hidden sm:inline">Foto</span>}
             </button>
             <input ref={arquivoRef} type="file" accept="image/*" multiple className="hidden" onChange={e => addFotos(e.target.files)} />
           </>

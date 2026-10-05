@@ -6,21 +6,23 @@
 -- MESMAS respostas, para comparar a nota do sistema com a do Food Checker.
 -- 130 perguntas na ordem do PDF: 80 C, 47 NC, 3 N/A.
 -- Faixas do PDF de teste (91/80/50) para a classificação ser comparável.
--- Só cria esta auditoria (já finalizada). Não mexe em nada mais.
--- Pode rodar mais de uma vez (apaga e recria só ela).
+-- Entra EM ANDAMENTO: dá para editar respostas, pôr observações e fotos
+-- e finalizar pela tela (Auditorias). Não mexe em nada mais.
+-- Pode rodar mais de uma vez: se já existe, NÃO apaga nem duplica (só reabre
+-- caso tenha sido criada finalizada pela versão anterior desta migração).
 -- Para tirar depois: DELETE FROM auditorias WHERE id = '7e1e0000-0000-4000-8000-0000000a0928';
 -- ============================================================
 
-DELETE FROM auditorias WHERE id = '7e1e0000-0000-4000-8000-0000000a0928';
-
-INSERT INTO auditorias (id, modelo_id, titulo, faixas, unidade, concessionaria, auditor_nome, auditor_email,
-                        data, inicio, fim, observacoes, status, finalizada_em)
+INSERT INTO auditorias (id, modelo_id, titulo, faixas, client_id, unidade, concessionaria, auditor_nome, auditor_email,
+                        data, inicio, fim, observacoes, status)
 VALUES ('7e1e0000-0000-4000-8000-0000000a0928', '7e1e0000-0000-4000-8000-000000000001', 'Checklist MELI (exemplo Food Checker 28/09)',
         '[{"min":91,"rotulo":"Excelente"},{"min":80,"rotulo":"Satisfatório"},{"min":50,"rotulo":"Insatisfatório"},{"min":0,"rotulo":"Crítico"}]'::jsonb,
+        (SELECT id FROM clients WHERE name ILIKE 'Mercado Livre%' OR name ILIKE 'MELI%' ORDER BY name LIMIT 1),
         'Cliente Teste', NULL, 'Fernanda Stinchi de Souza Valentim', 'fernanda.stinchi@uol.com.br',
         '2026-09-28', '18:07', '18:37',
         'Cópia do checklist de teste do Food Checker (nota lá: 49%, Crítico) para comparar com a nota do sistema.',
-        'finalizada', now());
+        'rascunho')
+ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO auditoria_respostas (auditoria_id, grupo, secao, texto, peso, ordem, resposta)
 SELECT '7e1e0000-0000-4000-8000-0000000a0928'::uuid, v.grupo, v.secao, v.texto, v.peso, v.ordem, v.resposta
@@ -155,18 +157,19 @@ SELECT '7e1e0000-0000-4000-8000-0000000a0928'::uuid, v.grupo, v.secao, v.texto, 
   ($q$Boas Práticas$q$, $q$Distribuição$q$, $q$Sobras de preparações são desprezadas e não são reutilizadas no próximo turno?$q$, 2, 128, 'C'),
   ($q$Boas Práticas$q$, $q$Distribuição$q$, $q$Ornamentos e plantas localizados na área de consumo ou refeitório não constituem fonte de contaminação para os alimentos preparados?$q$, 2, 129, 'C'),
   ($q$Boas Práticas$q$, $q$Distribuição$q$, $q$Não evidenciada a presença de pragas no salão de distribuição?$q$, 2, 130, 'C')
-  ) AS v(grupo, secao, texto, peso, ordem, resposta);
+  ) AS v(grupo, secao, texto, peso, ordem, resposta)
+ WHERE NOT EXISTS (SELECT 1 FROM auditoria_respostas r WHERE r.auditoria_id = '7e1e0000-0000-4000-8000-0000000a0928');
 
--- Nota do sistema: pontos das conformes ÷ pontos das avaliadas (N/A fora)
-UPDATE auditorias a SET nota = (
-  SELECT round(100 * sum(peso) FILTER (WHERE resposta = 'C') / nullif(sum(peso) FILTER (WHERE resposta IN ('C', 'NC')), 0), 1)
-    FROM auditoria_respostas WHERE auditoria_id = a.id)
- WHERE id = '7e1e0000-0000-4000-8000-0000000a0928';
+-- Criada finalizada pela versão anterior: reabre para editar
+UPDATE auditorias SET status = 'rascunho', nota = NULL, finalizada_em = NULL
+ WHERE id = '7e1e0000-0000-4000-8000-0000000a0928' AND status = 'finalizada' AND finalizada_em < '2026-10-06';
+
 
 -- Conferência: 130 perguntas · 80 C · 47 NC · 3 N/A e a nota
 SELECT count(*) AS perguntas,
        count(*) FILTER (WHERE resposta = 'C') AS conformes,
        count(*) FILTER (WHERE resposta = 'NC') AS nao_conformes,
        count(*) FILTER (WHERE resposta = 'NA') AS na,
-       (SELECT nota FROM auditorias WHERE id = '7e1e0000-0000-4000-8000-0000000a0928') AS nota_sistema
+       round(100 * sum(peso) FILTER (WHERE resposta = 'C') / nullif(sum(peso) FILTER (WHERE resposta IN ('C', 'NC')), 0), 1) AS nota_sistema,
+       (SELECT status FROM auditorias WHERE id = '7e1e0000-0000-4000-8000-0000000a0928') AS situacao
   FROM auditoria_respostas WHERE auditoria_id = '7e1e0000-0000-4000-8000-0000000a0928';

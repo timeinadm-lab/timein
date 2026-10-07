@@ -558,7 +558,7 @@ function PerfilJornada({ pessoa, mes, voltar }: { pessoa: string; mes: string; v
                   </div>
                   <div className="text-xs text-ink-600 border-t border-ink-100 pt-2 flex flex-wrap gap-x-4 gap-y-1">
                     {salario > 0 && <span>Salário <strong className="tnum">{formatCurrency(salario)}</strong></span>}
-                    {ajuda > 0 && <span>Ajuda de custo <strong className="tnum">{formatCurrency(ajuda)}</strong></span>}
+                    {ajuda > 0 && <span>Ajuda de custo <strong className="tnum">{formatCurrency(ajuda)}</strong>{(l as { cost_assistance_periodo?: string }).cost_assistance_periodo === 'semana' ? ' por semana' : ''}</span>}
                     {r.valorVisitas > 0 && <span>Visitas registradas <strong className="tnum">{formatCurrency(r.valorVisitas)}</strong></span>}
                     {salario <= 0 && r.valorVisitas <= 0 && ajuda <= 0 && <span className="text-ink-400">Sem valor definido no vínculo</span>}
                   </div>

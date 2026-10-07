@@ -27,7 +27,7 @@ export const TIPOS_AJUDA = [
 type Ajuda = {
   id: string; employee_id: string | null; client_id: string | null; periodo: 'semana' | 'mes'
   inicio: string; fim: string; tipo: string; descricao: string | null; valor: number
-  status: 'Pendente' | 'Pago'; pago_em: string | null; comprovante_url: string | null
+  status: 'Pendente' | 'Pago'; pago_em: string | null; comprovante_url: string | null; link_id?: string | null
 }
 type Nome = { id: string; nome: string }
 
@@ -35,12 +35,52 @@ const iso = (d: Date) => format(d, 'yyyy-MM-dd')
 const segunda = (ds: string) => iso(startOfWeek(parseISO(ds), { weekStartsOn: 1 }))
 const curto = (ds: string) => `${ds.slice(8, 10)}/${ds.slice(5, 7)}`
 
+/**
+ * Ajuda de custo SEMANAL do contrato (migração 085, pedido de 07/10/2026:
+ * "pagamos semanalmente, toda segunda-feira"). Cria uma linha por segunda-feira
+ * do mês para cada contrato semanal, para marcar pago aqui. Só cria o que
+ * falta: semana editada à mão fica como está. Mudar valor ou voltar a mensal
+ * (na ficha do colaborador) ajusta as semanas a pagar dali pra frente.
+ */
+async function sincronizarSemanasDoContrato(ini: string, fimMes: string) {
+  const { data: links, error } = await supabase.from('employee_client_links')
+    .select('id, employee_id, client_id, cost_assistance, cost_assistance_periodo, start_date, contract_end_date')
+    .gt('cost_assistance', 0).eq('cost_assistance_periodo', 'semana')
+  if (error || !links?.length) return   // sem a migração 085 ou sem contrato semanal
+  const esperadas: { link_id: string; employee_id: string; client_id: string; inicio: string; fim: string; valor: number }[] = []
+  for (const l of links || []) {
+    for (let d = parseISO(segunda(ini)); iso(d) <= fimMes; d = addDays(d, 7)) {
+      const seg = iso(d), dom = iso(addDays(d, 6))
+      if (seg < ini) continue                                         // segunda do mês anterior
+      if (l.start_date && l.start_date > dom) continue                // contrato ainda não começou
+      if (l.contract_end_date && l.contract_end_date < seg) continue  // contrato já acabou
+      esperadas.push({ link_id: l.id, employee_id: l.employee_id, client_id: l.client_id, inicio: seg, fim: dom, valor: Number(l.cost_assistance) })
+    }
+  }
+  if (!esperadas.length) return
+  const novas = esperadas.map(x => ({ ...x, periodo: 'semana', tipo: 'Outro', descricao: 'Ajuda de custo do contrato', status: 'Pendente' }))
+  // Já existe (link_id, inicio)? Não mexe — índice único da 085
+  await supabase.from('ajudas_custo').upsert(novas, { onConflict: 'link_id,inicio', ignoreDuplicates: true })
+}
+
+/** Ficha do colaborador mudou a ajuda do contrato: ajusta as semanas a pagar dali pra frente */
+export async function ajustarSemanasDoContrato(linkIds: string[], valorSemanal: number | null) {
+  if (!linkIds.length) return
+  const desde = segunda(hojeISO())
+  const q = supabase.from('ajudas_custo')
+  const { error } = valorSemanal && valorSemanal > 0
+    ? await q.update({ valor: valorSemanal }).in('link_id', linkIds).eq('status', 'Pendente').gte('inicio', desde)
+    : await q.delete().in('link_id', linkIds).eq('status', 'Pendente').gte('inicio', desde)
+  if (error && !/link_id/.test(error.message)) throw new Error(error.message)
+}
+
 export default function AjudaDeCusto({ mes }: { mes: string }) {
   const qc = useQueryClient()
   const ini = `${mes}-01`, fimMes = iso(endOfMonth(parseISO(ini)))
   const { data, isLoading, error } = useQuery({
     queryKey: ['ajudas-custo', mes],
     queryFn: async () => {
+      await sincronizarSemanasDoContrato(ini, fimMes)
       const [a, e, c, l] = await Promise.all([
         supabase.from('ajudas_custo').select('*').lte('inicio', fimMes).gte('fim', ini).order('inicio'),
         supabase.from('employees').select('id, full_name, status').order('full_name'),
@@ -152,12 +192,12 @@ export default function AjudaDeCusto({ mes }: { mes: string }) {
                           <span className="w-8 h-8 rounded-lg bg-ink-100 text-ink-600 flex items-center justify-center shrink-0"><T.Icone size={15} /></span>
                           <div className="flex-1 min-w-0">
                             <p className="text-sm font-medium text-ink-900 truncate">{data.todasPessoas.get(a.employee_id || '') || '—'}</p>
-                            <p className="text-xs text-ink-500 truncate">{a.tipo}{a.descricao ? ` · ${a.descricao}` : ''}</p>
+                            <p className="text-xs text-ink-500 truncate">{a.link_id ? 'Contrato · paga na segunda' : <>{a.tipo}{a.descricao ? ` · ${a.descricao}` : ''}</>}</p>
                           </div>
                           <div className="text-right shrink-0">
                             <p className="text-sm font-semibold tnum text-ink-900">{formatCurrency(a.valor)}</p>
-                            <p className={`text-[11px] font-medium ${a.status === 'Pago' ? 'text-green-700' : 'text-amber-700'}`}>
-                              {a.status === 'Pago' ? 'Pago' : 'A pagar'}{a.comprovante_url && <Paperclip size={10} className="inline ml-1 -mt-0.5" />}
+                            <p className={`text-[11px] font-medium ${a.status === 'Pago' ? 'text-green-700' : a.valor === 0 ? 'text-ink-400' : 'text-amber-700'}`}>
+                              {a.status === 'Pago' ? 'Pago' : a.valor === 0 ? 'Sem ajuda' : 'A pagar'}{a.comprovante_url && <Paperclip size={10} className="inline ml-1 -mt-0.5" />}
                             </p>
                           </div>
                         </button>
@@ -195,7 +235,8 @@ function FormAjuda({ inicial, pessoas, clientes, vinculos, fimMes, fechar, salvo
   const valor = Number(valorTxt.replace(/\./g, '').replace(',', '.'))
   const periodoDe = f.periodo === 'mes' ? `${(f.inicio || fimMes).slice(0, 7)}-01` : segunda(f.inicio || hojeISO())
   const periodoAte = f.periodo === 'mes' ? iso(endOfMonth(parseISO(periodoDe))) : iso(addDays(parseISO(periodoDe), 6))
-  const falta = !f.employee_id ? 'Escolha o colaborador.' : !f.client_id ? 'Escolha o cliente.' : !(valor > 0) ? 'Informe o valor.' : ''
+  const doContrato = !!f.link_id   // semana criada pelo contrato semanal (085)
+  const falta = !f.employee_id ? 'Escolha o colaborador.' : !f.client_id ? 'Escolha o cliente.' : !(valor > 0 || (doContrato && valor === 0)) ? 'Informe o valor.' : ''
 
   const salvar = async () => {
     if (falta) { toast.error(falta); return }
@@ -286,6 +327,12 @@ function FormAjuda({ inicial, pessoas, clientes, vinculos, fimMes, fechar, salvo
         </div>
         <div><label className="label">Descrição</label><input className="input" value={f.descricao || ''} onChange={e => muda({ descricao: e.target.value })} placeholder={TIPOS_AJUDA.find(t => t.nome === f.tipo)?.dica || 'Ex.: Airbnb Hellen'} /></div>
 
+        {doContrato ? (
+          <div className="rounded-xl bg-primary-50 border border-primary-100 px-3 py-2.5 text-sm text-primary-900">
+            <p className="font-medium">Ajuda de custo do contrato · semana de {formatDate(f.inicio!)} a {formatDate(f.fim!)}</p>
+            <p className="text-xs mt-0.5 text-primary-800">Criada sozinha toda semana (paga na segunda). Para não pagar esta semana, deixe o valor em 0. O valor fixo muda na ficha do colaborador.</p>
+          </div>
+        ) : (
         <div>
           <label className="label">Período</label>
           <div className="flex gap-1 p-1 rounded-xl bg-ink-100/70 mb-2">
@@ -308,6 +355,7 @@ function FormAjuda({ inicial, pessoas, clientes, vinculos, fimMes, fechar, salvo
             <input className="input" type="month" value={(f.inicio || '').slice(0, 7)} onChange={e => e.target.value && muda({ inicio: e.target.value + '-01' })} />
           )}
         </div>
+        )}
         <div><label className="label">Valor *</label>
           <div className="relative"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-ink-400">R$</span>
             <input className="input pl-9 tnum" inputMode="decimal" value={valorTxt} onChange={e => setValorTxt(e.target.value.replace(/[^\d,.]/g, ''))} placeholder="0,00" /></div></div>
@@ -321,7 +369,7 @@ function FormAjuda({ inicial, pessoas, clientes, vinculos, fimMes, fechar, salvo
         )}
 
         <div className="flex gap-2">
-          {editando && <button className="btn-ghost text-red-600 text-sm mr-auto" onClick={excluir}><Trash2 size={15} />Excluir</button>}
+          {editando && !doContrato && <button className="btn-ghost text-red-600 text-sm mr-auto" onClick={excluir}><Trash2 size={15} />Excluir</button>}
           <button className="btn-secondary flex-1" onClick={fechar}>Cancelar</button>
           <button className="btn-primary flex-1" disabled={salvando || !!falta} onClick={salvar}>{salvando ? 'Salvando…' : editando ? 'Salvar' : 'Lançar'}</button>
         </div>

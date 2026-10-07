@@ -17,6 +17,7 @@ import EncerrarVinculoModal, { QUEM_ENCERROU } from './EncerrarVinculoModal'
 import type { VinculoParaEncerrar } from './EncerrarVinculoModal'
 import HorarioVinculo from './HorarioVinculo'
 import { AjudaDaPessoa, LancamentosDaPessoa } from './PagamentosDaPessoa'
+import { ajustarSemanasDoContrato } from '../payments/AjudaDeCusto'
 import { format, startOfMonth, endOfMonth, getDaysInMonth, getDay, differenceInDays } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import type { EmployeeClientLink, EmployeePaymentDate } from '../../types'
@@ -925,9 +926,11 @@ export default function EmployeeDetail() {
       .sort((a, b) => (Number(b.monthly_amount) || 0) - (Number(a.monthly_amount) || 0))[0]
     const ajuda = Number((saindo as { cost_assistance?: number } | undefined)?.cost_assistance) || 0
     if (!saindo || (!valor && !ajuda) || !fica) return
+    const periodoSaindo = (saindo as { cost_assistance_periodo?: string }).cost_assistance_periodo
     const { error: e1 } = await supabase.from('employee_client_links').update({
       monthly_amount: (Number(fica.monthly_amount) || 0) + valor || null,
       cost_assistance: (Number((fica as { cost_assistance?: number }).cost_assistance) || 0) + ajuda,
+      ...(ajuda > 0 && periodoSaindo ? { cost_assistance_periodo: periodoSaindo } : {}),
     }).eq('id', fica.id)
     if (e1) throw e1
     const { error: e2 } = await supabase.from('employee_client_links').update({ monthly_amount: null, cost_assistance: 0 }).eq('id', saindo.id)
@@ -937,17 +940,26 @@ export default function EmployeeDetail() {
   // Ajuda de custo do consultor fixo: um valor por mês, no mesmo registro do
   // salário (a folha lê dele e soma no pagamento, igual ao Fixo)
   const ajudaDoFixo = grupoFixo.reduce((s, l) => s + (Number((l as { cost_assistance?: number }).cost_assistance) || 0), 0)
+  // Semanal (085): paga toda segunda em Pagamentos → Ajuda de custo, fora da folha
+  const periodoAjudaFixo: 'mes' | 'semana' = grupoFixo.some(l => Number((l as { cost_assistance?: number }).cost_assistance) > 0
+    && (l as { cost_assistance_periodo?: string }).cost_assistance_periodo === 'semana') ? 'semana' : 'mes'
   const [editandoAjudaFixo, setEditandoAjudaFixo] = useState<string | null>(null)
+  const [periodoEditAjuda, setPeriodoEditAjuda] = useState<'mes' | 'semana'>('mes')
   const salvarAjudaDoFixo = useMutation({
-    mutationFn: async (valor: number) => {
+    mutationFn: async ({ valor, periodo }: { valor: number; periodo: 'mes' | 'semana' }) => {
       if (!principalDoFixo) return
-      const { error } = await supabase.from('employee_client_links').update({ cost_assistance: valor > 0 ? valor : 0 }).eq('id', principalDoFixo.id)
-      if (error) throw error
+      const mudou: Record<string, unknown> = { cost_assistance: valor > 0 ? valor : 0 }
+      if (periodo === 'semana' || 'cost_assistance_periodo' in principalDoFixo) mudou.cost_assistance_periodo = periodo
+      const { error } = await supabase.from('employee_client_links').update(mudou).eq('id', principalDoFixo.id)
+      if (error) throw new Error(/cost_assistance_periodo/.test(error.message) ? 'Rode a migração 085 para usar ajuda de custo semanal.' : error.message)
       const outros = grupoFixo.filter(l => l.id !== principalDoFixo.id && Number((l as { cost_assistance?: number }).cost_assistance) > 0).map(l => l.id)
       if (outros.length) {
         const { error: e2 } = await supabase.from('employee_client_links').update({ cost_assistance: 0 }).in('id', outros)
         if (e2) throw e2
       }
+      // Semanas a pagar dali pra frente (Pagamentos → Ajuda de custo) seguem o novo valor; mensal tira
+      await ajustarSemanasDoContrato([principalDoFixo.id], periodo === 'semana' ? valor : null)
+      await ajustarSemanasDoContrato(grupoFixo.filter(l => l.id !== principalDoFixo.id).map(l => l.id), null)
     },
     onSuccess: () => {
       toast.success('Ajuda de custo atualizada')
@@ -2454,7 +2466,7 @@ export default function EmployeeDetail() {
                                 ~{formatCurrency(l.monthly_amount)}/mês estimado
                               </span>
                         )}
-                        {(l as { cost_assistance?: number }).cost_assistance ? <span className="badge bg-blue-50 text-blue-600">+{formatCurrency((l as { cost_assistance?: number }).cost_assistance!)} aj.custo</span> : null}
+                        {(l as { cost_assistance?: number }).cost_assistance ? <span className="badge bg-blue-50 text-blue-600">+{formatCurrency((l as { cost_assistance?: number }).cost_assistance!)}{(l as { cost_assistance_periodo?: string }).cost_assistance_periodo === 'semana' ? '/sem' : ''} aj.custo</span> : null}
                         {l.weekly_hours_quota && <span className="badge bg-gray-100 text-gray-600">{l.weekly_hours_quota}h/visita</span>}
                         {!l.weekly_hours_quota && Number((l as { monthly_hours_quota?: number }).monthly_hours_quota) > 0 && <span className="badge bg-gray-100 text-gray-600">{(l as { monthly_hours_quota?: number }).monthly_hours_quota}h/mês</span>}
                         {(l as { visit_frequency?: string }).visit_frequency && l.service_type === 'Consultoria' && <span className="badge bg-orange-50 text-orange-600">{(l as { visit_frequency?: string }).visit_frequency}</span>}
@@ -3006,16 +3018,25 @@ export default function EmployeeDetail() {
                           <div className="px-3 py-2.5 flex items-center justify-between gap-2 flex-wrap">
                             <span className="text-xs text-ink-500">Ajuda de custo</span>
                             {editandoAjudaFixo !== null ? (
-                              <div className="flex items-center gap-1.5">
+                              <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                                <div className="inline-flex rounded-lg border border-ink-200 p-0.5 text-xs">
+                                  {([['semana', 'Semanal'], ['mes', 'Mensal']] as const).map(([k, r]) => (
+                                    <button key={k} type="button" onClick={() => setPeriodoEditAjuda(k)}
+                                      className={`px-2 py-1 rounded-md ${periodoEditAjuda === k ? 'bg-primary-700 text-white' : 'text-ink-600'}`}>{r}</button>
+                                  ))}
+                                </div>
                                 <input className="input text-sm w-28 py-1" type="number" step="0.01" autoFocus value={editandoAjudaFixo}
-                                  onChange={e => setEditandoAjudaFixo(e.target.value)} placeholder="R$ 0,00" />
+                                  onChange={e => setEditandoAjudaFixo(e.target.value)} placeholder={periodoEditAjuda === 'semana' ? 'R$ por semana' : 'R$ por mês'} />
                                 <button className="btn-primary text-xs py-1" disabled={salvarAjudaDoFixo.isPending}
-                                  onClick={() => salvarAjudaDoFixo.mutate(Number(editandoAjudaFixo) || 0)}>Salvar</button>
+                                  onClick={() => salvarAjudaDoFixo.mutate({ valor: Number(editandoAjudaFixo) || 0, periodo: periodoEditAjuda })}>Salvar</button>
                                 <button className="text-xs text-ink-500 px-1" onClick={() => setEditandoAjudaFixo(null)}>✕</button>
+                                <p className="basis-full text-right text-[11px] text-ink-500">
+                                  {periodoEditAjuda === 'semana' ? 'Paga toda segunda-feira, em Pagamentos → Ajuda de custo. Não entra na folha.' : 'Paga junto com o salário, na folha do mês.'}
+                                </p>
                               </div>
                             ) : (
-                              <button className="flex items-baseline gap-2" onClick={() => setEditandoAjudaFixo(ajudaDoFixo > 0 ? String(ajudaDoFixo) : '')}>
-                                <span className="text-sm font-medium text-ink-900 tnum">{ajudaDoFixo > 0 ? `${formatCurrency(ajudaDoFixo)}/mês` : 'Não tem'}</span>
+                              <button className="flex items-baseline gap-2" onClick={() => { setPeriodoEditAjuda(periodoAjudaFixo); setEditandoAjudaFixo(ajudaDoFixo > 0 ? String(ajudaDoFixo) : '') }}>
+                                <span className="text-sm font-medium text-ink-900 tnum">{ajudaDoFixo > 0 ? (periodoAjudaFixo === 'semana' ? `${formatCurrency(ajudaDoFixo)}/semana · toda segunda` : `${formatCurrency(ajudaDoFixo)}/mês`) : 'Não tem'}</span>
                                 <span className="text-xs text-primary-700">editar</span>
                               </button>
                             )}

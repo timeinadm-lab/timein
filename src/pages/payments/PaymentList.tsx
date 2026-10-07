@@ -694,7 +694,9 @@ export default function PaymentList() {
           const rpLink = (rp as { link_id?: string }).link_id
           return rpLink ? rpLink === l.id : rp.employee_id === emp?.id
         }) ?? false
-        const costAssistanceCheia = Number((l as { cost_assistance?: number }).cost_assistance) || 0
+        // Ajuda semanal (085) é paga toda segunda em Pagamentos → Ajuda de custo: fora da folha
+        const costAssistanceCheia = (l as { cost_assistance_periodo?: string }).cost_assistance_periodo === 'semana'
+          ? 0 : Number((l as { cost_assistance?: number }).cost_assistance) || 0
         // Encerrou neste mês: ajuda de custo só até o último dia (dias ÷ 30)
         const fimNoMes = (l as { contract_end_date?: string }).contract_end_date
         const costAssistance = fimNoMes && fimNoMes >= monthStart && fimNoMes <= monthEnd

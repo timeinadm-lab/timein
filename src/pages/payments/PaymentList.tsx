@@ -181,7 +181,7 @@ export default function PaymentList() {
   const [paramsUrl] = useSearchParams()
   const [filterMonth, setFilterMonth] = useState(() => {
     const m = paramsUrl.get('mes')
-    return m && /^d{4}-d{2}$/.test(m) ? m : format(new Date(), 'yyyy-MM')
+    return m && /^\d{4}-\d{2}$/.test(m) ? m : format(new Date(), 'yyyy-MM')
   })
   // Filtro por etapa e busca da folha. O antigo filtro de status ia no banco e
   // escondia lançamentos: com "Pago" selecionado a linha achava que não havia

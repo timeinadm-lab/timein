@@ -988,7 +988,7 @@ export default function Dashboard() {
   type AlertItem = { text: string; action?: string; path?: string; key?: string; customId?: string }
   // Aviso de uma pessoa abre a Jornada dela no mês do acontecido (pedido de 01/10/2026)
   const jornadaDe = (empId: string, data?: string | null) =>
-    `/jornada?pessoa=${empId}&mes=${(data && /^d{4}-d{2}/.test(data) ? data : format(now, 'yyyy-MM')).slice(0, 7)}`
+    `/jornada?pessoa=${empId}&mes=${(data && /^\d{4}-\d{2}/.test(data) ? data : format(now, 'yyyy-MM')).slice(0, 7)}`
   const redAlerts: AlertItem[] = []
   const amberAlerts: AlertItem[] = []
 

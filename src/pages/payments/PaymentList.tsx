@@ -1877,6 +1877,12 @@ export default function PaymentList() {
                                     : contaVisivel && row.startDate && <span className="text-ink-400">desde {formatDate(row.startDate)}</span>}
                                   {row.payFullSalary && !isConsultoria && <span className="text-ink-500">· salário inteiro</span>}
                                   {encerradoEm && <span className="text-red-600">· encerrado em {formatDate(encerradoEm)}</span>}
+                                  {/* Sem dia marcado o lançamento vai para o dia 5 ("Avulsos"), fora do 8/15/20 */}
+                                  {!isConsultoria && !isFreela && !(row.payDaysAll || []).some(d => [8, 15, 20].includes(d)) && row.employee?.id && (
+                                    <button className="text-red-600 font-medium hover:underline" onClick={() => navigate(`/colaboradores/${row.employee!.id}`)}>
+                                      · sem dia de pagamento (8, 15 ou 20) — editar vínculo
+                                    </button>
+                                  )}
                                 </div>
                               </div>
                               <button

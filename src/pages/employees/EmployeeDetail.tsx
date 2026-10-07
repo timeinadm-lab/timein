@@ -162,10 +162,8 @@ export default function EmployeeDetail() {
   const [agendaForm, setAgendaForm] = useState({ client_id: '', unit_id: '', planned_date: '', planned_time: '', notes: '', hours_expected: '' })
   const [showHistoryForm, setShowHistoryForm] = useState(false)
   const [histForm, setHistForm] = useState({ type: 'Anotação', description: '', responsible: '' })
-  const [showLinkForm, setShowLinkForm] = useState(false)
   // Data de hoje em ISO — usada para saber se um vínculo já foi encerrado
   const hojeStr = hojeISO()
-  const [linkForm, setLinkForm] = useState({ client_id: '', service_type: 'Fixo' as 'Fixo' | 'Consultoria', monthly_amount: '', cost_assistance: '', weekly_hours_quota: '', visit_frequency: 'Semanal' as 'Semanal' | 'Quinzenal' | 'Mensal', contract_end_date: '', work_schedule_type: '', daily_hours: '', days_off: [] as number[], schedule_anchor_date: '' })
   type EditLinkUnit = { unit_id: string; unit_name: string; visit_rate: string }
   type EditLinkState = { linkId: string; serviceType: string; clientId: string; monthly_amount: string; cost_assistance: string; weekly_hours: string; visit_frequency: string; visits_per_week: string; units: EditLinkUnit[]; work_schedule_type: string; daily_hours: string; days_off: number[]; schedule_anchor_date: string; start_date: string; payDays: string[]; pay_full_salary: boolean; expected_days_month: string; work_start: string; work_end: string; break_minutes: string; horas_modo: 'visita' | 'mes'; horas_mes: string }
   const [editLinkValues, setEditLinkValues] = useState<EditLinkState | null>(null)
@@ -174,7 +172,6 @@ export default function EmployeeDetail() {
   const intervaloDoCliente = (cid?: string | null) =>
     Number((((links as unknown) as { client_id?: string; break_minutes?: number | null }[] | undefined) || [])
       .find(l => l.client_id === cid && Number(l.break_minutes) > 0)?.break_minutes) || 0
-  const [linkDates, setLinkDates] = useState<{ day_of_month: string; amount: string }[]>([{ day_of_month: '', amount: '' }])
   const [newDocName, setNewDocName] = useState('')
   // Validade do documento — vazio significa "não vence"
   const [newDocExpires, setNewDocExpires] = useState('')
@@ -560,12 +557,18 @@ export default function EmployeeDetail() {
       if (error) throw error
       // Dias de pagamento. Dois dias = quinzena: o que a pessoa fizer do dia 20 ao
       // dia 7 cai no pagamento do dia 8; do dia 8 ao 19 cai no do dia 20.
-      const dias = noFixo && diaPagtoFixo ? [diaPagtoFixo] : (coverageForm.pay_days.length ? coverageForm.pay_days : ['20'])
-        .map(Number).sort((a, b) => a - b)
+      // Consultoria por visita é sempre dia 20 (1ª quinzena) e dia 8 (2ª) — a folha
+      // usa isso de qualquer jeito; gravar o mesmo evita dia "escolhido" que não vale.
+      const porVisita = coverageForm.coverage_type === 'Consultoria' && !coverageForm.consult_salario
+      const dias = porVisita ? [8, 20]
+        : noFixo && diaPagtoFixo ? [diaPagtoFixo]
+        : (coverageForm.pay_days.length ? coverageForm.pay_days : ['20']).map(Number).sort((a, b) => a - b)
       if (newLink?.id) {
-        await supabase.from('employee_payment_dates').insert(
+        const { error: eDias } = await supabase.from('employee_payment_dates').insert(
           dias.map(d => ({ link_id: newLink.id, day_of_month: d }))
         )
+        // Sem dia o pagamento cairia no dia 5 ("Avulsos") calado
+        if (eDias) throw new Error('O vínculo foi criado, mas o dia de pagamento não foi salvo. Abra o vínculo em Editar e salve o dia: ' + eDias.message)
       }
       // Agenda o dia no calendário/portal (mesma lógica do "Escalar"):
       // sem isto o freela virava só um vínculo sem data e não aparecia em lugar nenhum.
@@ -836,68 +839,6 @@ export default function EmployeeDetail() {
       qc.invalidateQueries({ queryKey: ['employee-history', id] })
       setShowHistoryForm(false)
       setHistForm({ type: 'Anotação', description: '', responsible: '' })
-    },
-    onError: (e: Error) => toast.error(e.message),
-  })
-
-  const addLink = useMutation({
-    mutationFn: async () => {
-      const isConsultoria = linkForm.service_type === 'Consultoria'
-      // Consultoria: valores por unidade são configurados no Editar do vínculo; estimativa vem de lá
-      const monthlyAmt = isConsultoria ? null : (linkForm.monthly_amount ? Number(linkForm.monthly_amount) : null)
-      const { data: linkData, error } = await supabase.from('employee_client_links').insert({
-        employee_id: id,
-        client_id: linkForm.client_id,
-        service_type: linkForm.service_type,
-        monthly_amount: monthlyAmt,
-        cost_assistance: linkForm.cost_assistance ? Number(linkForm.cost_assistance) : 0,
-        visit_frequency: isConsultoria ? linkForm.visit_frequency : null,
-        weekly_hours_quota: linkForm.weekly_hours_quota ? Number(linkForm.weekly_hours_quota) : null,
-        monthly_hours_quota: isConsultoria && linkForm.weekly_hours_quota ? Number(linkForm.weekly_hours_quota) * (linkForm.visit_frequency === 'Mensal' ? 1 : linkForm.visit_frequency === 'Quinzenal' ? 2 : 4) : null,
-        contract_end_date: linkForm.contract_end_date || null,
-        // Escala (Fixo): sem ela o portal não cobra os dias nem calcula hora extra
-        work_schedule_type: !isConsultoria ? (linkForm.work_schedule_type || null) : null,
-        daily_hours: !isConsultoria && linkForm.daily_hours ? Number(linkForm.daily_hours) : null,
-        days_off: !isConsultoria && linkForm.days_off.length ? linkForm.days_off : null,
-        schedule_anchor_date: !isConsultoria && linkForm.work_schedule_type === '12x36' && linkForm.schedule_anchor_date ? linkForm.schedule_anchor_date : null,
-      }).select('id').single()
-      if (error) throw error
-      // Auto-set payment dates: Consultoria = dia 8 e 20, Fixo = dia 8 (default)
-      const autoDays = isConsultoria ? [8, 20] : [8]
-      const perDate = monthlyAmt ? Math.round((monthlyAmt / autoDays.length) * 100) / 100 : null
-      await supabase.from('employee_payment_dates').insert(
-        autoDays.map(d => ({ link_id: linkData.id, day_of_month: d, amount: perDate }))
-      )
-
-      // Auto-generate payment for current month — só chefe pode gravar em 'payments' (RLS).
-      // Se for recrutador, o insert é ignorado silenciosamente (o chefe gera depois).
-      if (monthlyAmt) {
-        const { data: empData } = await supabase.from('employees').select('full_name').eq('id', id!).single()
-        const { data: clientData } = await supabase.from('clients').select('name').eq('id', linkForm.client_id).single()
-        const now = new Date()
-        const dueDay = autoDays[0]
-        const dueDate = new Date(now.getFullYear(), now.getMonth(), dueDay)
-        if (dueDate < now) dueDate.setMonth(dueDate.getMonth() + 1)
-        const monthLabel = dueDate.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
-        await supabase.from('payments').insert({
-          description: `Honorários – ${empData?.full_name || ''}${clientData?.name ? ` (${clientData.name})` : ''} – ${monthLabel}`,
-          amount: monthlyAmt,
-          due_date: dueDate.toISOString().slice(0, 10),
-          status: 'Pendente',
-          recurrence: 'Mensal',
-          category: 'Salário',
-          type: 'Estimativa',
-          employee_id: id,
-          reference_month: dueDate.toISOString().slice(0, 7),
-        }) // erro de RLS (recrutador) não interrompe a criação do vínculo
-      }
-    },
-    onSuccess: () => {
-      toast.success('Vínculo adicionado!')
-      qc.invalidateQueries({ queryKey: ['employee-links', id] })
-      setShowLinkForm(false)
-      setLinkForm({ client_id: '', service_type: 'Fixo', monthly_amount: '', cost_assistance: '', weekly_hours_quota: '', visit_frequency: 'Semanal', contract_end_date: '', work_schedule_type: '', daily_hours: '', days_off: [], schedule_anchor_date: '' })
-      setLinkDates([{ day_of_month: '', amount: '' }])
     },
     onError: (e: Error) => toast.error(e.message),
   })
@@ -2107,7 +2048,11 @@ export default function EmployeeDetail() {
                     onChange={(i, f) => setCoverageForm(p => ({ ...p, work_start: i, work_end: f }))}
                     intervalo={coverageForm.break_minutes} onIntervalo={v => setCoverageForm(p => ({ ...p, break_minutes: v }))} />
                 )}
-                {!(coverageForm.coverage_type === 'Consultoria' && coverageForm.consult_salario && grupoFixo.length > 0) && <div>
+                {coverageForm.coverage_type === 'Consultoria' && !coverageForm.consult_salario ? (
+                  <p className="text-xs text-ink-600 bg-ink-50 rounded-lg px-3 py-2">
+                    <strong>Pagamento:</strong> visitas de 1 a 15 no dia 20; visitas de 16 ao fim do mês no dia 8 do mês seguinte.
+                  </p>
+                ) : !(coverageForm.coverage_type === 'Consultoria' && coverageForm.consult_salario && grupoFixo.length > 0) && <div>
                   <label className="label">Dia(s) de pagamento * <span className="text-gray-400 font-normal">— pode marcar dois</span></label>
                   <div className="flex gap-1.5">
                     {(['8', '15', '20'] as const).map(d => {
@@ -2190,7 +2135,7 @@ export default function EmployeeDetail() {
                   : false
                 // Freela sem data fim = por tempo indeterminado. Não bloqueia.
                 const entraNoFixo = consultSalario && grupoFixo.length > 0
-                const faltaPag = coverageForm.pay_days.length === 0 && !entraNoFixo
+                const faltaPag = coverageForm.pay_days.length === 0 && !entraNoFixo && !(coverageForm.coverage_type === 'Consultoria' && !consultSalario)
                 const isConsult = coverageForm.coverage_type === 'Consultoria'
                 const faltaRegraHoras = isConsult && !consultSalario && !coverageForm.horas_obrigatorias
                 // Escolheu "tem tempo certo" mas não disse quanto: o pagamento

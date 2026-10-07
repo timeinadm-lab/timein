@@ -239,7 +239,9 @@ export default function VacancyDetail() {
       }
       if (error) throw error
       if (newLink?.id) {
-        await supabase.from('employee_payment_dates').insert({ link_id: newLink.id, day_of_month: Number(escalarForm.pay_day) })
+        // Consultoria por visita: a folha paga dia 20 (visitas 1–15) e dia 8 (16–fim)
+        const { error: eDias } = await supabase.from('employee_payment_dates').insert([8, 20].map(d => ({ link_id: newLink.id, day_of_month: d })))
+        if (eDias) throw new Error('A pessoa foi escalada, mas o dia de pagamento não foi salvo: ' + eDias.message)
       }
       // 2) o dia na agenda da pessoa (fixado pelo RH: hora + observação)
       const { error: agErr } = await supabase.from('nutritionist_agenda').insert({
@@ -1066,10 +1068,8 @@ export default function VacancyDetail() {
                 <input className="input" type="number" step="0.01" placeholder="Ex: 300.00" value={escalarForm.value} onChange={e => setEscalarForm(p => ({ ...p, value: e.target.value }))} />
               </div>
               <div>
-                <label className="label">Dia de pagamento</label>
-                <select className="input" value={escalarForm.pay_day} onChange={e => setEscalarForm(p => ({ ...p, pay_day: e.target.value }))}>
-                  <option value="8">Dia 8</option><option value="15">Dia 15</option><option value="20">Dia 20</option>
-                </select>
+                <label className="label">Pagamento</label>
+                <p className="text-xs text-ink-600 bg-ink-50 rounded-lg px-3 py-2">Dia 20 se a visita for de 1 a 15; dia 8 do mês seguinte se for de 16 em diante.</p>
               </div>
               <div>
                 <label className="label">Data *</label>

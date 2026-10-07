@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { Plus, Search, MessageCircle, Trash2, LayoutGrid, Download, Upload, X, Check, SlidersHorizontal } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { formatWhatsApp, PIPELINE_COLORS, PIPELINE_STAGES, BRAZIL_STATES, AREA_INTEREST_OPTIONS, TOOLS_OPTIONS, EXPERIENCE_TIME_OPTIONS } from '../../lib/utils'
+import { format } from 'date-fns'
 import { exportToCSV } from '../../lib/exportUtils'
 import { parseCSV, parseXLSX } from '../../lib/xlsxImport'
 import Pagination from '../../components/ui/Pagination'
@@ -63,6 +64,12 @@ export default function CandidateList() {
   const [showFilters, setShowFilters] = useState(false)
   const [showHired, setShowHired] = useState(false)
   const [page, setPage] = useState(1)
+  // Ordem (07/10/2026): "mais recentes" = os últimos que chegaram (respondeu o
+  // formulário, foi importado ou cadastrado) primeiro. Guarda a escolha no aparelho.
+  const [ordem, setOrdem] = useState<'nome' | 'recentes' | 'antigos'>(() => {
+    try { const o = localStorage.getItem('candidatos-ordem'); return o === 'recentes' || o === 'antigos' ? o : 'nome' } catch { return 'nome' }
+  })
+  const mudarOrdem = (o: 'nome' | 'recentes' | 'antigos') => { setOrdem(o); setPage(1); try { localStorage.setItem('candidatos-ordem', o) } catch { /* sem armazenamento */ } }
   const PAGE_SIZE = 24
   const [totalCount, setTotalCount] = useState(0)
 
@@ -77,11 +84,17 @@ export default function CandidateList() {
   const fileRef = useRef<HTMLInputElement>(null)
 
   const { data: candidates, isLoading } = useQuery({
-    queryKey: ['candidates', search, filterStage, filterState, filterExperience, filterArea, filterTool, filterTravel, filterRelocation, page, showHired],
+    queryKey: ['candidates', search, filterStage, filterState, filterExperience, filterArea, filterTool, filterTravel, filterRelocation, page, showHired, ordem],
     queryFn: async () => {
       const from = (page - 1) * PAGE_SIZE
       const to = from + PAGE_SIZE - 1
-      let q = supabase.from('candidates').select('*', { count: 'exact' }).order('full_name').range(from, to)
+      // Na importação as linhas entram uma a uma na ordem da planilha (ordem de resposta),
+      // então a hora de entrada também segue quem respondeu por último
+      let q = supabase.from('candidates').select('*, notas:candidate_contacts(observations, created_at)', { count: 'exact' })
+        .order(ordem === 'nome' ? 'full_name' : 'created_at', { ascending: ordem !== 'recentes' })
+        .order('full_name')
+        .order('created_at', { referencedTable: 'candidate_contacts', ascending: false })
+        .range(from, to)
       if (search) q = q.or(`full_name.ilike.%${search}%,city.ilike.%${search}%,email.ilike.%${search}%,whatsapp.ilike.%${search}%`)
       if (filterStage) q = q.eq('pipeline_stage', filterStage)
       else if (!showHired) q = q.not('pipeline_stage', 'in', '("Contratado","Inativo")')
@@ -287,6 +300,7 @@ export default function CandidateList() {
 
     setImporting(false)
     setImportModal(false)
+    if (ok > 0) mudarOrdem('recentes')   // quem acabou de entrar aparece primeiro
     qc.invalidateQueries({ queryKey: ['candidates'] })
     const parts = [`${ok} importado(s)`]
     if (dup) parts.push(`${dup} já existiam`)
@@ -323,6 +337,11 @@ export default function CandidateList() {
           <select className="input w-44" value={filterStage} onChange={e => { setFilterStage(e.target.value); setPage(1) }}>
             <option value="">Todos os estágios</option>
             {PIPELINE_STAGES.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+          <select className="input w-44" value={ordem} onChange={e => mudarOrdem(e.target.value as 'nome' | 'recentes' | 'antigos')} aria-label="Ordem">
+            <option value="nome">Nome (A–Z)</option>
+            <option value="recentes">Mais recentes primeiro</option>
+            <option value="antigos">Mais antigos primeiro</option>
           </select>
           <select className="input w-28" value={filterState} onChange={e => { setFilterState(e.target.value); setPage(1) }}>
             <option value="">Todo Brasil</option>
@@ -409,6 +428,16 @@ export default function CandidateList() {
                     <h3 className="font-display font-bold text-ink-900 truncate">{c.full_name}</h3>
                     <p className="text-xs text-ink-500">{c.city}{c.city && c.state ? ', ' : ''}{c.state}</p>
                     <p className="text-xs text-ink-400 mt-0.5 truncate">{c.formation || '-'}</p>
+                    {c.created_at && (
+                      <p className="text-[11px] text-ink-400 mt-0.5">
+                        chegou em {format(new Date(c.created_at), 'dd/MM/yyyy')}
+                        {Date.now() - new Date(c.created_at).getTime() < 3 * 86400000 && <span className="ml-1.5 badge bg-primary-50 text-primary-700 text-[10px] py-0">Novo</span>}
+                      </p>
+                    )}
+                    {(() => {
+                      const n = ((c as { notas?: { observations: string | null }[] }).notas || [])[0]
+                      return n?.observations ? <p className="text-xs text-ink-600 mt-1.5 line-clamp-2 bg-amber-50/70 rounded px-1.5 py-1">{n.observations}</p> : null
+                    })()}
                   </div>
                   <span className={`badge flex-shrink-0 ${PIPELINE_COLORS[c.pipeline_stage] || 'bg-ink-100 text-ink-600'}`}>
                     {c.pipeline_stage}

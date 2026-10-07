@@ -1,18 +1,15 @@
 import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Edit, MessageCircle, Plus } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
+import { ArrowLeft, Edit, MessageCircle } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
-import { formatDate, formatWhatsApp, getInitials, PIPELINE_COLORS, hojeISO } from '../../lib/utils'
+import { formatWhatsApp, getInitials, PIPELINE_COLORS } from '../../lib/utils'
 import { SkeletonDetail } from '../../components/ui/Skeleton'
-import toast from 'react-hot-toast'
+import NotasCandidato from './NotasCandidato'
 
 export default function CandidateDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const qc = useQueryClient()
-  const [showContactForm, setShowContactForm] = useState(false)
-  const [contact, setContact] = useState({ contact_date: hojeISO(), responsible: '', observations: '' })
   const [showWAModal, setShowWAModal] = useState(false)
   const [waMessage, setWAMessage] = useState('')
 
@@ -22,15 +19,6 @@ export default function CandidateDetail() {
       const { data, error } = await supabase.from('candidates').select('*').eq('id', id).single()
       if (error) throw error
       return data
-    },
-  })
-
-  const { data: contacts } = useQuery({
-    queryKey: ['candidate-contacts', id],
-    queryFn: async () => {
-      const { data, error } = await supabase.from('candidate_contacts').select('*').eq('candidate_id', id).order('created_at', { ascending: false })
-      if (error) throw error
-      return data || []
     },
   })
 
@@ -45,20 +33,6 @@ export default function CandidateDetail() {
       if (error) throw error
       return data || []
     },
-  })
-
-  const addContact = useMutation({
-    mutationFn: async () => {
-      const { error } = await supabase.from('candidate_contacts').insert({ candidate_id: id, ...contact })
-      if (error) throw error
-    },
-    onSuccess: () => {
-      toast.success('Contato registrado!')
-      qc.invalidateQueries({ queryKey: ['candidate-contacts', id] })
-      setShowContactForm(false)
-      setContact({ contact_date: hojeISO(), responsible: '', observations: '' })
-    },
-    onError: (e: Error) => toast.error(e.message),
   })
 
   if (!candidate) return <SkeletonDetail />
@@ -159,38 +133,7 @@ export default function CandidateDetail() {
         </div>
       )}
 
-      {/* Contacts */}
-      <div className="card p-5 space-y-3">
-        <div className="flex items-center justify-between">
-          <h3 className="font-medium">Histórico de Contatos</h3>
-          <button onClick={() => setShowContactForm(true)} className="btn-secondary text-sm flex items-center gap-1"><Plus size={14} />Registrar</button>
-        </div>
-        {showContactForm && (
-          <div className="bg-gray-50 p-4 rounded-lg space-y-3">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div><label className="label">Data</label><input className="input" type="date" value={contact.contact_date} onChange={e => setContact(p => ({ ...p, contact_date: e.target.value }))} /></div>
-              <div><label className="label">Responsável</label><input className="input" value={contact.responsible} onChange={e => setContact(p => ({ ...p, responsible: e.target.value }))} /></div>
-              <div className="col-span-2"><label className="label">Observação</label><textarea className="input" rows={2} value={contact.observations} onChange={e => setContact(p => ({ ...p, observations: e.target.value }))} /></div>
-            </div>
-            <div className="flex gap-2">
-              <button className="btn-primary text-sm" onClick={() => addContact.mutate()}>Salvar</button>
-              <button className="btn-secondary text-sm" onClick={() => setShowContactForm(false)}>Cancelar</button>
-            </div>
-          </div>
-        )}
-        <div className="space-y-2">
-          {contacts?.map(c => (
-            <div key={c.id} className="p-3 rounded-lg border border-gray-100">
-              <div className="flex justify-between">
-                <span className="text-xs text-gray-400">{formatDate(c.contact_date)}</span>
-                {c.responsible && <span className="text-xs text-gray-500">{c.responsible}</span>}
-              </div>
-              {c.observations && <p className="text-sm mt-1">{c.observations}</p>}
-            </div>
-          ))}
-          {contacts?.length === 0 && <p className="text-sm text-gray-400">Nenhum contato registrado</p>}
-        </div>
-      </div>
+      <NotasCandidato candidateId={id!} />
 
       {/* WhatsApp modal */}
       {showWAModal && (

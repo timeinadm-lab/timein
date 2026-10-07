@@ -9,6 +9,7 @@ import { getCityRegion } from '../../lib/geoRegions'
 import { SignedLink } from '../../components/ui/SignedFile'
 import { SkeletonDetail } from '../../components/ui/Skeleton'
 import toast from 'react-hot-toast'
+import NotasCandidato from '../candidates/NotasCandidato'
 import { confirmar } from '../../components/ui/ConfirmDialog'
 
 type InterestStatus = 'Interessado' | 'Em contrato' | 'Contratado'
@@ -1488,8 +1489,10 @@ export default function VacancyDetail() {
             return (
               <div key={interest.id} className={`card p-4 border-l-4 ${interest.status === 'Contratado' ? 'border-green-500' : interest.status === 'Em contrato' ? (isOverdue ? 'border-red-500' : 'border-amber-400') : 'border-gray-200'}`}>
                 <div className="flex items-start justify-between gap-2 flex-wrap">
-                  <div>
-                    <p className="font-medium">{c?.full_name}</p>
+                  <div className="flex-1 min-w-0">
+                    {c?.id
+                      ? <button className="font-medium text-left hover:underline hover:text-primary-800" title="Abrir o perfil" onClick={() => navigate(`/candidatos/${c.id}`)}>{c.full_name}</button>
+                      : <p className="font-medium">{c?.full_name}</p>}
                     <p className="text-xs text-gray-500">{[c?.city, c?.state].filter(Boolean).join(', ')}</p>
 
                     {interest.status === 'Em contrato' && deadline && (
@@ -1613,6 +1616,7 @@ export default function VacancyDetail() {
                     )}
                   </div>
                 </div>
+                {c?.id && <NotasCandidato candidateId={c.id} compacta />}
               </div>
             )
           })}

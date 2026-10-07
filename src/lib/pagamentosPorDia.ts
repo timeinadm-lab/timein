@@ -61,7 +61,8 @@ export function agruparPorDia<T extends Lancamento>(lancamentos: T[], hoje: stri
     else {
       g.pendente += v
       g.qtdPendentes++
-      if (p.due_date < hoje) g.atrasado += v
+      // Aguardando o RH não é atraso de quem paga
+      if (p.due_date < hoje && !(p as { aguardando?: unknown }).aguardando) g.atrasado += v
     }
   }
   for (const g of grupos) {

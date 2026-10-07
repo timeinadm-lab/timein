@@ -135,7 +135,38 @@ export default function AjudaDeCusto({ mes }: { mes: string }) {
     const ws = XLSX.utils.aoa_to_sheet(linhas)
     ws['!cols'] = [{ wch: 22 }, { wch: 22 }, { wch: 26 }, { wch: 14 }, { wch: 30 }, { wch: 12 }, { wch: 10 }, { wch: 12 }]
     const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, 'Ajuda de custo')
+    XLSX.utils.book_append_sheet(wb, ws, 'Todos')
+    // Uma aba por cliente no formato da planilha do contador ("Custo Ponta Grossa"):
+    // custos do mês (Airbnb, carro…) e o CONTROLE de cada semana, nutri por nutri
+    const nomesUsados = new Set<string>(['Todos'])
+    for (const g of porCliente) {
+      const pessoa = (a: Ajuda) => data?.todasPessoas.get(a.employee_id || '') || ''
+      const soma = (xs: Ajuda[]) => xs.reduce((t, a) => t + a.valor, 0)
+      const custos = g.itens.filter(a => a.periodo === 'mes')
+      const l: (string | number)[][] = [[g.nome], []]
+      if (custos.length) {
+        l.push(['Custos do mês', '', '', '', ''], ['Descrição', 'Nutri', 'Tipo', 'Valor', 'Situação'])
+        for (const a of custos) l.push([a.descricao || a.tipo, pessoa(a), a.tipo, a.valor, a.status === 'Pago' ? 'Pago' : 'A pagar'])
+        l.push(['Total', '', '', soma(custos), ''], [])
+      }
+      semanas.forEach((sem, i) => {
+        const itens = g.itens.filter(a => a.periodo === 'semana' && a.inicio >= sem.de && a.inicio <= sem.ate)
+        if (!itens.length) return
+        l.push([`CONTROLE Semana ${i + 1} (${curto(sem.de)} a ${curto(sem.ate)})`, '', '', '', ''], ['DATA', 'NUTRI', 'TIPO', 'AJ DE CUSTO', 'SITUAÇÃO'])
+        for (const a of [...itens].sort((x, y) => pessoa(x).localeCompare(pessoa(y)))) {
+          l.push([curto(a.inicio), pessoa(a), a.link_id ? 'Contrato' : `${a.tipo}${a.descricao ? ' · ' + a.descricao : ''}`, a.valor, a.status === 'Pago' ? 'Pago' : a.valor === 0 ? 'Sem ajuda' : 'A pagar'])
+        }
+        l.push(['TOTAL', '', '', soma(itens), ''], [])
+      })
+      l.push(['TOTAL DO CLIENTE NO MÊS', '', '', soma(g.itens), ''])
+      const wsC = XLSX.utils.aoa_to_sheet(l)
+      wsC['!cols'] = [{ wch: 30 }, { wch: 24 }, { wch: 26 }, { wch: 14 }, { wch: 12 }]
+      for (const k of Object.keys(wsC)) { const c = wsC[k] as { t?: string; z?: string }; if (!k.startsWith('!') && c.t === 'n') c.z = '"R$" #,##0.00' }
+      let nome = g.nome.replace(/[\\/?*[\]:]/g, ' ').slice(0, 28).trim() || 'Sem cliente'
+      for (let n = 2; nomesUsados.has(nome); n++) nome = `${nome.slice(0, 26)} ${n}`
+      nomesUsados.add(nome)
+      XLSX.utils.book_append_sheet(wb, wsC, nome)
+    }
     XLSX.writeFile(wb, `ajuda_de_custo_${mes}.xlsx`)
   }
 
@@ -167,7 +198,7 @@ export default function AjudaDeCusto({ mes }: { mes: string }) {
       ) : porCliente.map(g => {
         const secoes = [
           ...semanas.map((s, i) => ({ titulo: `Semana ${i + 1}`, sub: `${curto(s.de)} a ${curto(s.ate)}`, itens: g.itens.filter(a => a.periodo === 'semana' && a.inicio >= s.de && a.inicio <= s.ate) })),
-          { titulo: 'Mês inteiro', sub: '', itens: g.itens.filter(a => a.periodo === 'mes') },
+          { titulo: 'Custos do mês', sub: 'Airbnb, carro e outros do mês', itens: g.itens.filter(a => a.periodo === 'mes') },
         ].filter(s => s.itens.length)
         const totalCli = g.itens.reduce((s, a) => s + a.valor, 0)
         return (

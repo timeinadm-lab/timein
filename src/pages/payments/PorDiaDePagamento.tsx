@@ -1,16 +1,22 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
-import { Check, FileSpreadsheet, FileDown, AlertTriangle, Copy, CheckCheck } from 'lucide-react'
+import { Check, FileSpreadsheet, FileDown, Copy, CheckCheck, Clock, Paperclip, Upload } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { formatCurrency, formatDate, hojeISO, corDoAvatar } from '../../lib/utils'
+import { getSignedUrl } from '../../lib/storage'
+import { extensaoDoArquivo, comprimirImagem } from '../../lib/imagem'
 import { confirmar } from '../../components/ui/ConfirmDialog'
 import { agruparPorDia, totaisDoMes, limitesDoMes, mesCurto } from '../../lib/pagamentosPorDia'
 import type { Lancamento, GrupoDia, ChaveDia } from '../../lib/pagamentosPorDia'
 import type { FolhaRel, ReembolsoRel } from '../../lib/relatorioSaidas'
 
-type Saida = Lancamento & { employee?: { full_name?: string } | null }
+// aguardando: ainda não pode pagar — o RH precisa lançar/conferir na Conferência
+type Saida = Lancamento & { employee?: { full_name?: string } | null; comprovante_url?: string | null; aguardando?: { motivo: string; irPara: () => void } }
+
+/** Quem recebe no mês mas ainda depende do RH (montado na PaymentList pela folha) */
+export type AguardandoRH = { linkId: string; employee_id: string; nome: string; client_id: string | null; due_date: string; valor: number; motivo: string; paymentId?: string }
 type DadosBanco = { id: string; full_name?: string; cpf?: string | null; pix?: string | null; bank_name?: string | null; bank_agency?: string | null; bank_account?: string | null; bank_account_type?: string | null }
 
 const DIA_SEMANA = ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado']
@@ -25,11 +31,11 @@ const textoBanco = (b?: DadosBanco | null) => b && (b.bank_name || b.bank_accoun
  * com PIX e banco. Base: lançamentos com VENCIMENTO no mês.
  * Pedido do Gabriel (30/09 e 01/10/2026).
  */
-export default function PorDiaDePagamento({ mes, nomeMes, aLancar, irParaFolha, irParaFolhaDe, reembolsos, folha }: {
+export default function PorDiaDePagamento({ mes, nomeMes, aguardando, irParaConferir, irParaFolhaDe, reembolsos, folha }: {
   mes: string
   nomeMes: string
-  aLancar: number                 // vínculos do mês ainda sem lançamento
-  irParaFolha: () => void
+  aguardando: AguardandoRH[]      // quem ainda depende do RH (aparece no dia, sem botão de pagar)
+  irParaConferir: (nome: string) => void
   irParaFolhaDe: (mes: string) => void   // abre a Folha de outro mês (o anterior, para a 2ª quinzena)
   reembolsos: ReembolsoRel[]
   folha: FolhaRel[]
@@ -63,18 +69,6 @@ export default function PorDiaDePagamento({ mes, nomeMes, aLancar, irParaFolha, 
     },
     staleTime: 5 * 60_000,
   })
-  // CPF, PIX e banco de quem recebe no mês — o que o contador precisa para pagar
-  const ids = Array.from(new Set(saidas.map(s => s.employee_id).filter(Boolean) as string[])).sort()
-  const { data: bancos } = useQuery({
-    queryKey: ['dados-bancarios', ids.join(',')],
-    enabled: ids.length > 0,
-    queryFn: async () => {
-      const { data } = await supabase.from('employees')
-        .select('id, full_name, cpf, pix, bank_name, bank_agency, bank_account, bank_account_type').in('id', ids)
-      return new Map(((data || []) as DadosBanco[]).map(e => [e.id, e]))
-    },
-  })
-
   // Dia 8 = 2ª quinzena da consultoria do mês ANTERIOR (visitas do dia 16 ao fim).
   // Só aparece aqui depois de lançada na folha daquele mês. Pergunta de 05/10/2026:
   // "por que só o Gabriel no dia 8?" — os outros ainda não tinham sido lançados.
@@ -108,7 +102,39 @@ export default function PorDiaDePagamento({ mes, nomeMes, aLancar, irParaFolha, 
       return faltam.map(([id, valor]) => ({ id, nome: nome.get(id) || '—', valor })).sort((a, b) => a.nome.localeCompare(b.nome))
     },
   })
-  const [verFaltando, setVerFaltando] = useState(false)
+
+  // Lista do dia = lançamentos + quem ainda depende do RH (igual à planilha do
+  // contador: todo mundo do dia aparece). Quem depende do RH não tem "Pagar".
+  const porPagamento = new Map(aguardando.filter(a => a.paymentId).map(a => [a.paymentId!, a]))
+  const fimAnterior = formatDate(limitesDoMes(mesAnterior).fim).slice(0, 5)
+  const saidasComRH: Saida[] = [
+    ...saidas.map(p => {
+      const a = porPagamento.get(p.id)
+      return a && p.status === 'Pendente' ? { ...p, aguardando: { motivo: a.motivo, irPara: () => irParaConferir(a.nome) } } : p
+    }),
+    ...aguardando.filter(a => !a.paymentId && a.due_date.slice(0, 7) === mes).map(a => ({
+      id: `rh-${a.linkId}`, description: a.motivo, amount: a.valor, due_date: a.due_date, status: 'Pendente', type: 'Aguardando',
+      employee_id: a.employee_id, client_id: a.client_id, employee: { full_name: a.nome },
+      aguardando: { motivo: a.motivo, irPara: () => irParaConferir(a.nome) },
+    })),
+    ...semLancarDia8.map(x => ({
+      id: `d8-${x.id}`, description: `Visitas de 16 a ${fimAnterior} · falta lançar`, amount: x.valor, due_date: `${mes}-08`, status: 'Pendente', type: 'Aguardando',
+      employee_id: x.id, client_id: null, reference_month: mesAnterior, employee: { full_name: x.nome },
+      aguardando: { motivo: `Visitas de 16 a ${fimAnterior} · falta lançar`, irPara: () => irParaFolhaDe(mesAnterior) },
+    })),
+  ]
+  // CPF, PIX e banco de quem recebe no mês — o que o contador precisa para pagar
+  const ids = Array.from(new Set(saidasComRH.map(s => s.employee_id).filter(Boolean) as string[])).sort()
+  const { data: bancos } = useQuery({
+    queryKey: ['dados-bancarios', ids.join(',')],
+    enabled: ids.length > 0,
+    queryFn: async () => {
+      const { data } = await supabase.from('employees')
+        .select('id, full_name, cpf, pix, bank_name, bank_agency, bank_account, bank_account_type').in('id', ids)
+      return new Map(((data || []) as DadosBanco[]).map(e => [e.id, e]))
+    },
+  })
+
 
   const pagarVarios = useMutation({
     mutationFn: async (idsPagar: string[]) => {
@@ -125,7 +151,10 @@ export default function PorDiaDePagamento({ mes, nomeMes, aLancar, irParaFolha, 
     onError: (e: Error) => toast.error(e.message),
   })
 
-  const grupos = agruparPorDia(saidas, hoje) as GrupoDia<Saida>[]
+  const grupos = agruparPorDia(saidasComRH, hoje) as GrupoDia<Saida>[]
+  const esperandoRH = (g: GrupoDia<Saida>) => g.itens.filter(p => p.aguardando)
+  const totalEsperando = grupos.reduce((t, g) => t + esperandoRH(g).reduce((s, p) => s + (Number(p.amount) || 0), 0), 0)
+  const qtdEsperando = grupos.reduce((t, g) => t + esperandoRH(g).length, 0)
   const t = totaisDoMes(grupos)
   const pessoa = (p: Saida) => p.employee?.full_name || ''
   const cliente = (p: Lancamento) => (p.client_id && clientes?.get(p.client_id)) || ''
@@ -149,11 +178,11 @@ export default function PorDiaDePagamento({ mes, nomeMes, aLancar, irParaFolha, 
     })) pagarVarios.mutate([p.id])
   }
   const pagarTodos = async (g: GrupoDia<Saida>) => {
-    const pend = g.itens.filter(p => p.status !== 'Pago')
+    const pend = g.itens.filter(p => p.status !== 'Pago' && !p.aguardando)
     if (!pend.length) return
     if (await confirmar({
       titulo: `Marcar ${pend.length} pagamento${pend.length > 1 ? 's' : ''} como pago${pend.length > 1 ? 's' : ''}?`,
-      texto: `${g.titulo}${dataDoGrupo(g) ? ` (${formatDate(dataDoGrupo(g)!)})` : ''} — total ${formatCurrency(g.pendente)}.\nUse só depois que o banco confirmar todos.`,
+      texto: `${g.titulo}${dataDoGrupo(g) ? ` (${formatDate(dataDoGrupo(g)!)})` : ''} — total ${formatCurrency(pend.reduce((s, p) => s + (Number(p.amount) || 0), 0))}.\nUse só depois que o banco confirmar todos.`,
       confirmar: 'Sim, todos foram pagos',
     })) pagarVarios.mutate(pend.map(p => p.id))
   }
@@ -215,7 +244,7 @@ export default function PorDiaDePagamento({ mes, nomeMes, aLancar, irParaFolha, 
               <FileDown size={16} />{gerando === 'pdf' ? 'Gerando…' : 'Lista do contador'}
             </button>
             <button onClick={baixarExcel} disabled={!!gerando} className="btn-secondary text-sm">
-              <FileSpreadsheet size={16} />{gerando === 'excel' ? 'Gerando…' : 'Relatório do mês'}
+              <FileSpreadsheet size={16} />{gerando === 'excel' ? 'Gerando…' : 'Planilha do mês'}
             </button>
           </div>
         </div>
@@ -229,33 +258,14 @@ export default function PorDiaDePagamento({ mes, nomeMes, aLancar, irParaFolha, 
         </div>
       </div>
 
-      {/* Quem ainda não foi lançado não aparece nos dias */}
-      {aLancar > 0 && (
-        <button onClick={irParaFolha} className="w-full card p-3 flex items-center gap-3 text-left border-amber-200 bg-amber-50 hover:bg-amber-100/60">
-          <AlertTriangle size={16} className="text-amber-600 shrink-0" />
-          <span className="text-sm text-amber-900 flex-1">
-            <strong>{aLancar} pessoa{aLancar > 1 ? 's' : ''}</strong> da folha de {nomeMes} ainda sem lançamento — só entram nos dias depois de lançadas.
-          </span>
-          <span className="text-xs font-medium text-amber-800 shrink-0">Lançar →</span>
-        </button>
-      )}
-
-      {/* Dia 8: 2ª quinzena do mês anterior ainda sem lançamento */}
-      {semLancarDia8.length > 0 && (
-        <div className="card p-3 border-amber-200 bg-amber-50 space-y-2">
-          <div className="flex items-center gap-3">
-            <AlertTriangle size={16} className="text-amber-600 shrink-0" />
-            <button className="text-sm text-amber-900 flex-1 text-left" onClick={() => setVerFaltando(v => !v)}>
-              <strong>Dia 8: {semLancarDia8.length} pessoa{semLancarDia8.length > 1 ? 's' : ''}</strong> com visitas de 16 a {formatDate(limitesDoMes(mesAnterior).fim).slice(0, 5)} ainda sem lançamento
-              ({formatCurrency(semLancarDia8.reduce((t, x) => t + x.valor, 0))}). <span className="underline">{verFaltando ? 'esconder' : 'ver quem'}</span>
-            </button>
-            <button onClick={() => irParaFolhaDe(mesAnterior)} className="text-xs font-semibold text-amber-800 shrink-0 hover:underline">Lançar na folha de {mesCurto(mesAnterior)} →</button>
-          </div>
-          {verFaltando && (
-            <div className="pl-7 flex flex-wrap gap-1.5">
-              {semLancarDia8.map(x => <span key={x.id} className="text-xs bg-white border border-amber-200 rounded-lg px-2 py-1 text-amber-900">{x.nome} · <span className="tnum">{formatCurrency(x.valor)}</span></span>)}
-            </div>
-          )}
+      {/* Quem depende do RH já está nos dias, sem botão de pagar */}
+      {qtdEsperando > 0 && (
+        <div className="card p-3 flex items-center gap-3 border-amber-200 bg-amber-50">
+          <Clock size={16} className="text-amber-600 shrink-0" />
+          <p className="text-sm text-amber-900 flex-1">
+            <strong>{qtdEsperando} pagamento{qtdEsperando > 1 ? 's' : ''}</strong> ({formatCurrency(totalEsperando)}) aguardando o RH conferir.
+            Eles já aparecem nos dias, mas só ficam liberados para pagar depois da conferência.
+          </p>
         </div>
       )}
 
@@ -282,6 +292,7 @@ export default function PorDiaDePagamento({ mes, nomeMes, aLancar, irParaFolha, 
                 <div className="h-1.5 rounded-full bg-green-600" style={{ width: `${pct}%` }} />
               </div>
               <p className="text-[11px] text-ink-500 mt-1">{g.itens.length === 0 ? 'nada neste dia' : `${pagos} de ${g.itens.length} pago${g.itens.length > 1 ? 's' : ''}`}</p>
+              {esperandoRH(g).length > 0 && <p className="text-[11px] text-amber-700">{esperandoRH(g).length} aguardando RH</p>}
             </button>
           )
         })}
@@ -305,7 +316,7 @@ export default function PorDiaDePagamento({ mes, nomeMes, aLancar, irParaFolha, 
             {aberto.itens.length > 0 && (
               <div className="flex gap-2">
                 <button className="btn-secondary text-xs" disabled={!!gerando} onClick={() => baixarLista(aberto)}><FileDown size={14} />Lista deste dia</button>
-                {aberto.qtdPendentes > 1 && (
+                {aberto.itens.filter(p => p.status !== 'Pago' && !p.aguardando).length > 1 && (
                   <button className="btn-secondary text-xs" disabled={pagarVarios.isPending} onClick={() => pagarTodos(aberto)}><CheckCheck size={14} />Pagar todos</button>
                 )}
               </div>
@@ -317,7 +328,7 @@ export default function PorDiaDePagamento({ mes, nomeMes, aLancar, irParaFolha, 
             <div className="divide-y divide-ink-100">
               {aberto.itens.map(p => {
                 const pago = p.status === 'Pago'
-                const atrasado = !pago && p.due_date < hoje
+                const atrasado = !pago && !p.aguardando && p.due_date < hoje
                 const nome = pessoa(p)
                 const b = banco(p)
                 const contaBanco = textoBanco(b)
@@ -349,9 +360,13 @@ export default function PorDiaDePagamento({ mes, nomeMes, aLancar, irParaFolha, 
                       ) : nome ? <p className="text-[11px] text-amber-700 mt-1">Sem PIX e sem conta no cadastro</p> : null}
                     </div>
                     <div className="text-right shrink-0">
-                      <p className={`text-base font-semibold tnum ${pago ? 'text-green-700' : atrasado ? 'text-red-600' : 'text-ink-900'}`}>{formatCurrency(Number(p.amount) || 0)}</p>
+                      <p className={`text-base font-semibold tnum ${pago ? 'text-green-700' : p.aguardando ? 'text-ink-400' : atrasado ? 'text-red-600' : 'text-ink-900'}`}>{formatCurrency(Number(p.amount) || 0)}</p>
                       {pago
-                        ? <p className="text-[11px] text-green-700 flex items-center justify-end gap-1 mt-1"><Check size={12} />pago{p.paid_at ? ` ${formatDate(String(p.paid_at).slice(0, 10))}` : ''}</p>
+                        ? <><p className="text-[11px] text-green-700 flex items-center justify-end gap-1 mt-1"><Check size={12} />pago{p.paid_at ? ` ${formatDate(String(p.paid_at).slice(0, 10))}` : ''}</p>
+                            <Comprovante p={p} /></>
+                        : p.aguardando
+                        ? <button className="mt-1 text-[11px] font-medium text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1 hover:bg-amber-100" onClick={p.aguardando.irPara}
+                            title={p.aguardando.motivo}>Aguardando RH →</button>
                         : <button className={`mt-1 text-xs py-1.5 px-3 ${atrasado ? 'btn-danger' : 'btn-primary'}`} disabled={pagarVarios.isPending} onClick={() => pagar(p)}>{atrasado ? 'Pagar (atrasado)' : 'Pagar'}</button>}
                     </div>
                   </div>
@@ -366,5 +381,36 @@ export default function PorDiaDePagamento({ mes, nomeMes, aLancar, irParaFolha, 
         Pelo vencimento: a 2ª quinzena da consultoria vence no dia 8 do mês seguinte ao trabalhado e aparece aqui com "trabalho de" o mês dela. Cancelados não entram.
       </p>
     </div>
+  )
+}
+
+/** Comprovante do pagamento, na própria linha (antes era uma aba separada) */
+function Comprovante({ p }: { p: Saida }) {
+  const qc = useQueryClient()
+  const ref = useRef<HTMLInputElement>(null)
+  const [enviando, setEnviando] = useState(false)
+  if (!('comprovante_url' in p)) return null   // sem a migração 083
+  const anexar = async (arq: File | undefined) => {
+    if (!arq) return
+    setEnviando(true)
+    try {
+      const file = arq.type.startsWith('image/') ? await comprimirImagem(arq) : arq
+      const caminho = `comprovantes/pagamentos/${p.id}_${Date.now()}.${extensaoDoArquivo(file)}`
+      const { error } = await supabase.storage.from('arquivos').upload(caminho, file, { upsert: false, contentType: file.type || undefined })
+      if (error) throw error
+      const { error: e2 } = await supabase.from('payments').update({ comprovante_url: caminho }).eq('id', p.id)
+      if (e2) throw e2
+      toast.success('Comprovante anexado'); qc.invalidateQueries({ queryKey: ['payments'] })
+    } catch (e) { toast.error('Não anexou: ' + (e as Error).message) } finally { setEnviando(false); if (ref.current) ref.current.value = '' }
+  }
+  const ver = async () => { const u = await getSignedUrl(p.comprovante_url!, 'arquivos'); if (u) window.open(u, '_blank') }
+  return (
+    <>
+      {p.comprovante_url
+        ? <button className="mt-1 text-[11px] text-primary-700 inline-flex items-center gap-1 hover:underline" onClick={ver}><Paperclip size={11} />comprovante</button>
+        : <button className="mt-1 text-[11px] text-ink-500 inline-flex items-center gap-1 hover:text-primary-700" disabled={enviando} onClick={() => ref.current?.click()}>
+            <Upload size={11} />{enviando ? 'enviando…' : 'anexar comprovante'}</button>}
+      <input ref={ref} type="file" accept="image/*,application/pdf" className="hidden" onChange={e => anexar(e.target.files?.[0])} />
+    </>
   )
 }

@@ -13,6 +13,7 @@ import { format, startOfMonth, endOfMonth, getDaysInMonth, addDays } from 'date-
 import toast from 'react-hot-toast'
 import { confirmar } from '../../components/ui/ConfirmDialog'
 import PorDiaDePagamento from './PorDiaDePagamento'
+import type { AguardandoRH } from './PorDiaDePagamento'
 import { planoDaPrevisao, valorDoFechamento, correcoesDoVinculo } from '../../lib/planoLancamentos'
 import type { BasePlano, Correcao, LancamentoExistente } from '../../lib/planoLancamentos'
 import type { FolhaRel } from '../../lib/relatorioSaidas'
@@ -1424,6 +1425,30 @@ export default function PaymentList() {
     aberto: l.aberto,
   }))
 
+  // Quem recebe neste mês mas o RH ainda não lançou (pedido de 07/10/2026: na aba
+  // Pagar aparece TODO MUNDO do dia, como na planilha do contador; só fica pagável
+  // depois que o RH confere). Só mostra — não cria nem muda pagamento nenhum.
+  const aguardandoRH: AguardandoRH[] = linhas.flatMap((l): AguardandoRH[] => {
+    const r = l.row
+    if (!r.employee?.id) return []
+    // Fixo com previsão lançada e mês ainda não conferido: a previsão espera o RH.
+    // Quem recebe em 2 dias (adiantamento) continua pagável como antes.
+    if (l.et.etapa === 'conferir' && (r.payDaysAll || []).length <= 1) {
+      return l.et.pendentes.map(p => ({ linkId: r.linkId, employee_id: r.employee!.id, nome: r.employee!.full_name || '', client_id: r.client?.id || null,
+        due_date: p.due_date, valor: Number(p.amount) || 0, motivo: 'Previsão · falta o RH conferir o mês', paymentId: p.id }))
+    }
+    if (l.et.etapa !== 'lancar' || l.conta.total <= 0) return []
+    const ehConsultoria = porTrabalho(r) && !r.salarioConsult
+    // Consultoria: aqui é só a 1ª quinzena (dia 20); a 2ª vence dia 8 do mês seguinte
+    const valor = ehConsultoria
+      ? r2(r.visits.filter(v => Number(v.visit_date.slice(8, 10)) <= 15).reduce((s, v) => s + (Number(v.visit_rate) || 0), 0))
+      : l.conta.total
+    const dia = ehConsultoria ? 20 : (r.payDay || 5)
+    if (valor <= 0) return []
+    return [{ linkId: r.linkId, employee_id: r.employee.id, nome: r.employee.full_name || '', client_id: r.client?.id || null,
+      due_date: `${filterMonth}-${String(dia).padStart(2, '0')}`, valor, motivo: ehConsultoria ? 'Visitas de 1 a 15 · falta lançar' : 'Falta conferir o mês' }]
+  })
+
   // Unlinked payment records (manual, no vínculo)
   const linkedEmpIds = new Set((folhaData ?? []).map(r => r.employee?.id).filter(Boolean))
   const unlinkedPayments = (payments ?? []).filter(p => {
@@ -1525,11 +1550,14 @@ export default function PaymentList() {
           <h1 className="page-title">Pagamentos</h1>
         </div>
         <div className="flex gap-2">
+          {/* Exportações da folha só na Conferência; a aba Pagar tem a planilha do contador */}
+          {tab === 'folha' && <>
           <button onClick={baixarExcel} disabled={baixando} className="btn-secondary text-sm"
             title="Planilha com resumo, dia a dia, reembolsos e o histórico de pagamentos de todos os meses">
             <FileSpreadsheet size={16} /><span className="hidden sm:inline">{baixando ? 'Gerando...' : 'Baixar Excel'}</span>
           </button>
           <button onClick={() => exportToCSV(payments ?? [], 'pagamentos.csv')} className="btn-ghost text-sm hidden sm:inline-flex"><Download size={16} />CSV</button>
+          </>}
           <button onClick={() => navigate('/pagamentos/novo')} className="btn-primary text-sm"><Plus size={16} />Novo</button>
         </div>
       </div>
@@ -1659,12 +1687,13 @@ export default function PaymentList() {
           </button>
         </div>
         <div className="flex flex-wrap gap-1.5 md:ml-auto w-full md:w-auto">
+          {/* Três abas (07/10/2026): Pagar = planilha do contador por dia; Ajuda de custo =
+              planilha semanal por projeto; Conferência = onde o RH fecha o mês.
+              "Pagos" e "Comprovantes" viraram parte da aba Pagar (?aba= antigo ainda abre). */}
           {([
-            ['dias', 'Por dia'],
-            ['folha', 'Folha do mês'],
-            ['pagos', 'Pagos'],
+            ['dias', 'Pagar'],
             ['ajuda', 'Ajuda de custo'],
-            ['comprovantes', 'Comprovantes'],
+            ['folha', 'Conferência (RH)'],
           ] as const).map(([k, label]) => (
             <button key={k} onClick={() => setTab(k)}
               className={`px-3 md:px-3.5 py-2 text-[13px] md:text-sm font-semibold whitespace-nowrap rounded-xl transition-all active:scale-95 ${tab === k ? 'bg-primary-600 text-white shadow-soft' : 'bg-white border border-ink-100 text-ink-500 hover:text-ink-800 hover:border-ink-200'}`}>
@@ -1713,8 +1742,8 @@ export default function PaymentList() {
         <PorDiaDePagamento
           mes={filterMonth}
           nomeMes={nomeDoMes}
-          aLancar={contagem.lancar}
-          irParaFolha={() => { setTab('folha'); setFiltroEtapa('lancar') }}
+          aguardando={folhaOk ? aguardandoRH : []}
+          irParaConferir={nome => { setTab('folha'); setFiltroEtapa(''); setBusca(nome) }}
           irParaFolhaDe={m => { setFilterMonth(m); setTab('folha'); setFiltroEtapa('') }}
           reembolsos={(expenses ?? []) as never}
           folha={folhaRel}

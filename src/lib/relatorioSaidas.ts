@@ -1,9 +1,11 @@
 // ============================================================
 // Relatório do mês de pagamentos (Excel) — pedido do Gabriel, 30/09/2026.
-// Quatro abas:
-//   Resumo       · Dia 8 / 15 / 20 / Avulsos com total, pago, falta e atraso;
-//                  e o mesmo total aberto por categoria e por situação
-//   Saídas       · cada lançamento com vencimento no mês
+// Abas no formato da planilha do contador (07/10/2026: "Controle pagamentos"):
+//   DIA 8 · DIA 15 · DIA 20 · Avulsos — DATA, NOME, PIX, CARGA HORÁRIA REALIZADA,
+//                  OBSERVAÇÃO, TOTAL A PAGAR (+ situação)
+//   Total        · cada dia com total, pago, a pagar e aguardando o RH
+// E, para conferência:
+//   Detalhado    · cada lançamento com CPF, banco, categoria e tipo
 //   Reembolsos   · pedidos do mês (aprovado, pendente, negado)
 //   Folha        · cada vínculo do mês trabalhado: a conta, o lançado e o pago
 // ============================================================
@@ -52,48 +54,47 @@ export async function exportRelatorioSaidas(opts: {
     return ws
   }
 
-  // ── Resumo ──
+  // ── Um aba por dia, igual à planilha do contador ──
   const t = totaisDoMes(opts.grupos)
-  const todos = opts.grupos.flatMap(g => g.itens)
-  const somaPor = (chave: (p: Lancamento) => string) => {
-    const m = new Map<string, { qtd: number; total: number }>()
-    for (const p of todos) {
-      const k = chave(p) || '—'
-      const x = m.get(k) || { qtd: 0, total: 0 }
-      x.qtd++; x.total = n2(x.total + n2(p.amount)); m.set(k, x)
-    }
-    return Array.from(m.entries()).sort((a, b) => b[1].total - a[1].total)
+  const esperando = (p: Lancamento) => !!(p as { aguardando?: unknown }).aguardando
+  const situacao = (p: Lancamento) => p.status === 'Pago' ? `Pago${p.paid_at ? ' ' + dataBR(String(p.paid_at).slice(0, 10)) : ''}`
+    : esperando(p) ? 'Aguardando RH' : 'A pagar'
+  for (const g of opts.grupos) {
+    if (g.chave === 'avulso' && !g.itens.length) continue
+    const itens = [...g.itens].sort((x, y) => opts.nomePessoa(x).localeCompare(opts.nomePessoa(y)))
+    aba(g.chave === 'avulso' ? 'Avulsos' : `DIA ${g.chave.slice(1)}`, [
+      ['DATA', 'NOME', 'PIX', 'CARGA HORÁRIA REALIZADA', 'OBSERVAÇÃO', 'TOTAL A PAGAR', 'SITUAÇÃO'],
+      ...itens.map(p => [
+        g.chave === 'avulso' ? dataBR(p.due_date) : g.chave.slice(1),   // texto: número viraria R$
+        opts.nomePessoa(p) || p.description || '', opts.dadosBancarios?.(p).pix || '', opts.nomeCliente(p),
+        [p.description, p.reference_month && p.reference_month !== opts.mes ? `trabalho de ${mesCurto(p.reference_month)}` : ''].filter(Boolean).join(' · '),
+        n2(p.amount), situacao(p),
+      ]),
+      [],
+      ['', 'TOTAL', '', '', '', g.total, ''],
+    ])
   }
-  const resumo: unknown[][] = [
-    [`Saídas com vencimento em ${opts.nomeMes}`],
-    [`Gerado em ${new Date().toLocaleString('pt-BR')}`],
+  const somaEsperando = (g: GrupoDia) => n2(g.itens.filter(esperando).reduce((s, p) => s + n2(p.amount), 0))
+  aba('Total', [
+    [`Pagamentos com vencimento em ${opts.nomeMes}`],
     [],
-    ['Dia de pagamento', 'Qtd', 'Total', 'Pago', 'Falta pagar', 'Atrasado'],
-    ...opts.grupos.map(g => [g.titulo, g.itens.length, g.total, g.pago, g.pendente, g.atrasado]),
-    ['TOTAL DO MÊS', t.qtd, t.total, t.pago, t.pendente, t.atrasado],
-    [],
-    ['Por categoria', 'Qtd', 'Total'],
-    ...somaPor(p => p.category || 'Outro').map(([k, v]) => [k, v.qtd, v.total]),
-    [],
-    ['Por situação', 'Qtd', 'Total'],
-    ...somaPor(p => p.status).map(([k, v]) => [k, v.qtd, v.total]),
-    [],
-    ['Por tipo de lançamento', 'Qtd', 'Total'],
-    ...somaPor(p => p.type === 'Real' ? 'Fechado pelo realizado' : p.type === 'Estimativa' ? 'Previsão' : 'Manual').map(([k, v]) => [k, v.qtd, v.total]),
+    ['Dia', 'Qtd', 'Total', 'Pago', 'A pagar', 'Aguardando RH'],
+    ...opts.grupos.map(g => [g.titulo, g.itens.length, g.total, g.pago, n2(g.pendente - somaEsperando(g)), somaEsperando(g)]),
+    ['TOTAL DO MÊS', t.qtd, t.total, t.pago, n2(t.pendente - opts.grupos.reduce((s, g) => s + somaEsperando(g), 0)), n2(opts.grupos.reduce((s, g) => s + somaEsperando(g), 0))],
     [],
     ['Cancelados não entram. A 2ª quinzena da consultoria vence no dia 8 do mês seguinte ao trabalhado.'],
-  ]
-  aba('Resumo', resumo)
+    ['"Aguardando RH": ainda falta o RH lançar ou conferir na aba Conferência antes de pagar.'],
+  ])
 
-  // ── Saídas ──
-  aba('Saídas', [
-    ['Dia de pagamento', 'Vencimento', 'Colaborador', 'CPF', 'Chave PIX', 'Banco / agência / conta', 'Cliente', 'Descrição', 'Categoria', 'Tipo', 'Mês trabalhado', 'Valor', 'Situação', 'Pago em'],
+  // ── Detalhado (conferência) ──
+  aba('Detalhado', [
+    ['Dia de pagamento', 'Vencimento', 'Colaborador', 'CPF', 'Chave PIX', 'Banco / agência / conta', 'Cliente', 'Descrição', 'Categoria', 'Tipo', 'Mês trabalhado', 'Valor', 'Situação'],
     ...opts.grupos.flatMap(g => g.itens.map(p => [
       g.titulo, dataBR(p.due_date), opts.nomePessoa(p),
       opts.dadosBancarios?.(p).cpf || '', opts.dadosBancarios?.(p).pix || '', opts.dadosBancarios?.(p).banco || '',
       opts.nomeCliente(p), p.description || '', p.category || '',
-      p.type === 'Real' ? 'Realizado' : p.type === 'Estimativa' ? 'Previsão' : 'Manual',
-      mesCurto(p.reference_month), n2(p.amount), p.status, p.paid_at ? dataBR(String(p.paid_at).slice(0, 10)) : '',
+      p.type === 'Real' ? 'Realizado' : p.type === 'Estimativa' ? 'Previsão' : esperando(p) ? 'Aguardando RH' : 'Manual',
+      mesCurto(p.reference_month), n2(p.amount), situacao(p),
     ])),
   ])
 
@@ -114,5 +115,5 @@ export async function exportRelatorioSaidas(opts: {
     ...opts.folha.map(f => [f.pessoa, f.cliente, f.tipo, f.diaPagamento, f.etapa, n2(f.conta), n2(f.lancado), n2(f.pago), n2(f.aberto)]),
   ])
 
-  XLSX.writeFile(wb, `relatorio_pagamentos_${opts.mes}.xlsx`)
+  XLSX.writeFile(wb, `controle_pagamentos_${opts.mes}.xlsx`)
 }

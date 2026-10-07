@@ -5,6 +5,9 @@ import { Plus, Search, MessageCircle, Trash2, LayoutGrid, Download, Upload, X, C
 import { supabase } from '../../lib/supabase'
 import { formatWhatsApp, PIPELINE_COLORS, PIPELINE_STAGES, BRAZIL_STATES, AREA_INTEREST_OPTIONS, TOOLS_OPTIONS, EXPERIENCE_TIME_OPTIONS } from '../../lib/utils'
 import { format } from 'date-fns'
+import { lerCarimbo, ultimaRespostaDeCada } from '../../lib/candidatosImport'
+import type { Chaves } from '../../lib/candidatosImport'
+import { camposParaAtualizar } from '../../lib/candidatosImport'
 import { exportToCSV } from '../../lib/exportUtils'
 import { parseCSV, parseXLSX } from '../../lib/xlsxImport'
 import Pagination from '../../components/ui/Pagination'
@@ -23,6 +26,7 @@ const EXPERIENCE_FILTER_MAP: Record<string, string[]> = {
 const FIELD_OPTIONS = [
   { value: '', label: '-- Ignorar --' },
   { value: 'full_name', label: 'Nome *' },
+  { value: 'respondido_em', label: 'Data da resposta (carimbo)' },
   { value: 'state', label: 'Estado' },
   { value: 'city', label: 'Cidade' },
   { value: 'sp_region', label: 'Região SP' },
@@ -88,29 +92,35 @@ export default function CandidateList() {
     queryFn: async () => {
       const from = (page - 1) * PAGE_SIZE
       const to = from + PAGE_SIZE - 1
-      // Na importação as linhas entram uma a uma na ordem da planilha (ordem de resposta),
-      // então a hora de entrada também segue quem respondeu por último
-      let q = supabase.from('candidates').select('*, notas:candidate_contacts(observations, created_at)', { count: 'exact' })
-        .order(ordem === 'nome' ? 'full_name' : 'created_at', { ascending: ordem !== 'recentes' })
-        .order('full_name')
-        .order('created_at', { referencedTable: 'candidate_contacts', ascending: false })
-        .range(from, to)
-      if (search) q = q.or(`full_name.ilike.%${search}%,city.ilike.%${search}%,email.ilike.%${search}%,whatsapp.ilike.%${search}%`)
-      if (filterStage) q = q.eq('pipeline_stage', filterStage)
-      else if (!showHired) q = q.not('pipeline_stage', 'in', '("Contratado","Inativo")')
-      if (filterState) q = q.eq('state', filterState)
-      if (filterExperience) {
-        const expValues = EXPERIENCE_FILTER_MAP[filterExperience]
-        if (expValues) q = q.in('experience_time', expValues)
+      // Ordem de chegada = data da resposta do formulário (migração 086); quem não
+      // tem data (antes da próxima importação) vem depois, pela entrada no sistema
+      const montar = (porData: boolean) => {
+        let q = supabase.from('candidates').select('*, notas:candidate_contacts(observations, created_at)', { count: 'exact' })
+        if (ordem === 'nome') q = q.order('full_name')
+        else {
+          if (porData) q = q.order('respondido_em', { ascending: ordem === 'antigos', nullsFirst: false })
+          q = q.order('created_at', { ascending: ordem === 'antigos' }).order('full_name')
+        }
+        q = q.order('created_at', { referencedTable: 'candidate_contacts', ascending: false }).range(from, to)
+        if (search) q = q.or(`full_name.ilike.%${search}%,city.ilike.%${search}%,email.ilike.%${search}%,whatsapp.ilike.%${search}%`)
+        if (filterStage) q = q.eq('pipeline_stage', filterStage)
+        else if (!showHired) q = q.not('pipeline_stage', 'in', '("Contratado","Inativo")')
+        if (filterState) q = q.eq('state', filterState)
+        if (filterExperience) {
+          const expValues = EXPERIENCE_FILTER_MAP[filterExperience]
+          if (expValues) q = q.in('experience_time', expValues)
+        }
+        if (filterArea) q = q.eq('experience_area', filterArea)
+        if (filterTool) q = q.contains('tools', [filterTool])
+        if (filterTravel) q = q.eq('requires_travel', true)
+        if (filterRelocation) q = q.eq('requires_relocation', true)
+        return q
       }
-      if (filterArea) q = q.eq('experience_area', filterArea)
-      if (filterTool) q = q.contains('tools', [filterTool])
-      if (filterTravel) q = q.eq('requires_travel', true)
-      if (filterRelocation) q = q.eq('requires_relocation', true)
-      const { data, error, count } = await q
-      if (error) throw error
-      setTotalCount(count ?? 0)
-      return data || []
+      let r = await montar(true)
+      if (r.error && /respondido_em/.test(r.error.message)) r = await montar(false)   // sem a migração 086
+      if (r.error) throw r.error
+      setTotalCount(r.count ?? 0)
+      return r.data || []
     },
   })
 
@@ -147,6 +157,7 @@ export default function CandidateList() {
       setImportRows(result.rows)
       // Mapeamento explícito para colunas do Google Forms
       const FORMS_MAP: Record<string, string> = {
+        'carimbo de data/hora': 'respondido_em',
         'nome completo': 'full_name',
         'estado que reside': 'state',
         'cidade que reside': 'city',
@@ -205,40 +216,37 @@ export default function CandidateList() {
       return d.startsWith('55') && d.length > 11 ? d.slice(2) : d
     }
 
-    // 1) Carrega candidatos existentes pra comparar
-    const existingWa = new Set<string>()
-    const existingEmail = new Set<string>()
-    const existingNameCity = new Set<string>()
+    // 1) Quem já existe: chave (WhatsApp, e-mail, nome + cidade) → id e data da resposta
+    type Existe = { id: string; resp: string | null }
+    const porWa = new Map<string, Existe>(), porEmail = new Map<string, Existe>(), porNomeCidade = new Map<string, Existe>()
+    let temData = true   // sem a migração 086 não há coluna respondido_em
     {
       let from = 0
       const pageSize = 1000
       while (true) {
-        const { data, error: fetchErr } = await supabase
-          .from('candidates')
-          .select('full_name,city,email,whatsapp')
-          .range(from, from + pageSize - 1)
-        if (fetchErr) { toast.error('Erro ao ler base: ' + fetchErr.message); setImporting(false); return }
-        if (!data?.length) break
+        const buscar = (cols: string) => supabase.from('candidates').select(cols).order('id').range(from, from + pageSize - 1)
+        let r = await buscar('id,full_name,city,email,whatsapp' + (temData ? ',respondido_em' : ''))
+        if (r.error && temData && /respondido_em/.test(r.error.message)) { temData = false; r = await buscar('id,full_name,city,email,whatsapp') }
+        if (r.error) { toast.error('Erro ao ler base: ' + r.error.message); setImporting(false); return }
+        const data = (r.data || []) as unknown as { id: string; full_name?: string; city?: string; email?: string; whatsapp?: string; respondido_em?: string | null }[]
+        if (!data.length) break
         for (const c of data) {
-          const wa = normWa(c.whatsapp || ''); if (wa.length >= 10) existingWa.add(wa)
-          const em = normEmail(c.email || ''); if (em) existingEmail.add(em)
-          const nm = normText(c.full_name || ''); const ct = normText((c as { city?: string }).city || '')
-          if (nm && ct) existingNameCity.add(`${nm}|${ct}`)
+          const ex = { id: c.id, resp: c.respondido_em || null }
+          const wa = normWa(c.whatsapp || ''); if (wa.length >= 10) porWa.set(wa, ex)
+          const em = normEmail(c.email || ''); if (em) porEmail.set(em, ex)
+          const nm = normText(c.full_name || ''); const ct = normText(c.city || '')
+          if (nm && ct) porNomeCidade.set(`${nm}|${ct}`, ex)
         }
         if (data.length < pageSize) break
         from += pageSize
       }
     }
 
-    // 2) Percorre linhas, deduplica por: WhatsApp, e-mail ou nome+cidade (qualquer um que bater).
-    //    Nome+cidade vale mesmo com telefone/e-mail diferentes: quem responde de novo
-    //    às vezes troca de número ou de e-mail (05/10/2026: 8 pessoas entraram 2x assim).
-    const seenWa = new Set<string>()
-    const seenEmail = new Set<string>()
-    const seenNameCity = new Set<string>()
+    // 2) Monta o registro de cada linha
     const splitField = (v: string) => v ? v.split(/[;,]\s*/).map(s => s.trim()).filter(Boolean) : []
     const toBool = (v: string) => v?.toLowerCase().startsWith('sim')
     const safeInt = (v: string) => { const n = parseInt(v); return isNaN(n) ? null : n }
+    const linhas: { rec: Record<string, unknown>; ch: Chaves; quando: string | null }[] = []
 
     for (const row of importRows) {
       const obj: Record<string, string> = {}
@@ -250,60 +258,74 @@ export default function CandidateList() {
       const nm = normText(obj.full_name)
       const ct = normText(obj.city || '')
 
-      const isDup =
-        (wa.length >= 10 && (existingWa.has(wa) || seenWa.has(wa))) ||
-        (em && (existingEmail.has(em) || seenEmail.has(em))) ||
-        (nm && ct && (existingNameCity.has(`${nm}|${ct}`) || seenNameCity.has(`${nm}|${ct}`)))
-      if (isDup) { dup++; continue }
-
-      if (wa.length >= 10) seenWa.add(wa)
-      if (em) seenEmail.add(em)
-      if (nm && ct) seenNameCity.add(`${nm}|${ct}`)
-
       const rawState = obj.state || ''
       const stateMatch = rawState.match(/\(([A-Z]{2})\)$/)
       const stateCode = stateMatch ? stateMatch[1] : (rawState.length === 2 ? rawState.toUpperCase() : null)
 
-      const record = {
-        full_name: obj.full_name.trim(),
-        state: stateCode || null,
-        city: obj.city?.trim() || null,
-        sp_region: obj.sp_region || null,
-        whatsapp: wa.length >= 10 ? wa : null,
-        email: obj.email?.trim() || null,
-        crn_number: obj.crn_number || null,
-        requires_travel: obj.requires_travel ? toBool(obj.requires_travel) : false,
-        requires_relocation: obj.requires_relocation ? toBool(obj.requires_relocation) : false,
-        has_vehicle: obj.has_vehicle ? toBool(obj.has_vehicle) : false,
-        formation: obj.formation || null,
-        graduation_year: safeInt(obj.graduation_year || ''),
-        institution: obj.institution?.trim() || null,
-        postgrad_options: obj.postgrad_options ? splitField(obj.postgrad_options) : [],
-        experience_area: obj.experience_area || null,
-        experience_time: obj.experience_time || null,
-        segments: splitField(obj.segments),
-        uan_areas: splitField(obj.uan_areas),
-        max_meals_volume: safeInt(obj.max_meals_volume || ''),
-        available_weekends: obj.available_weekends ? toBool(obj.available_weekends) : false,
-        work_shift: obj.work_shift || null,
-        work_hours: obj.work_hours || null,
-        contract_types: splitField(obj.contract_types),
-        tools: splitField(obj.tools),
-        pipeline_stage: obj.pipeline_stage || 'Banco',
-      }
+      linhas.push({
+        ch: { wa: wa.length >= 10 ? wa : '', email: em, nomeCidade: nm && ct ? `${nm}|${ct}` : '' },
+        quando: lerCarimbo(obj.respondido_em),
+        rec: {
+          full_name: obj.full_name.trim(),
+          state: stateCode || null,
+          city: obj.city?.trim() || null,
+          sp_region: obj.sp_region || null,
+          whatsapp: wa.length >= 10 ? wa : null,
+          email: obj.email?.trim() || null,
+          crn_number: obj.crn_number || null,
+          requires_travel: obj.requires_travel ? toBool(obj.requires_travel) : false,
+          requires_relocation: obj.requires_relocation ? toBool(obj.requires_relocation) : false,
+          has_vehicle: obj.has_vehicle ? toBool(obj.has_vehicle) : false,
+          formation: obj.formation || null,
+          graduation_year: safeInt(obj.graduation_year || ''),
+          institution: obj.institution?.trim() || null,
+          postgrad_options: obj.postgrad_options ? splitField(obj.postgrad_options) : [],
+          experience_area: obj.experience_area || null,
+          experience_time: obj.experience_time || null,
+          segments: splitField(obj.segments),
+          uan_areas: splitField(obj.uan_areas),
+          max_meals_volume: safeInt(obj.max_meals_volume || ''),
+          available_weekends: obj.available_weekends ? toBool(obj.available_weekends) : false,
+          work_shift: obj.work_shift || null,
+          work_hours: obj.work_hours || null,
+          contract_types: splitField(obj.contract_types),
+          tools: splitField(obj.tools),
+          pipeline_stage: obj.pipeline_stage || 'Banco',
+        },
+      })
+    }
 
-      // 3) Insere um por um — se um falhar, só ele é perdido
-      const { error: insErr } = await supabase.from('candidates').insert(record)
-      if (insErr) { console.error('Insert fail:', obj.full_name, insErr.message); err++ }
+    // 3) A mesma pessoa várias vezes na planilha: fica só a resposta mais nova
+    //    (pedido de 07/10/2026: "colocou quatro vezes… aparece só o último")
+    const finais = ultimaRespostaDeCada(linhas, l => l.ch, l => l.quando)
+    const repetidas = linhas.length - finais.length
+
+    // 4) Grava. Já existe no banco → atualiza com a resposta nova (sobe para os
+    //    recentes); estágio e notas não mudam. Resposta mais velha que a do banco: deixa.
+    let atualizados = 0
+    for (const l of finais) {
+      const ex = (l.ch.wa && porWa.get(l.ch.wa)) || (l.ch.email && porEmail.get(l.ch.email)) || (l.ch.nomeCidade && porNomeCidade.get(l.ch.nomeCidade)) || null
+      if (ex) {
+        if (!temData || !l.quando || (ex.resp && l.quando <= ex.resp)) { dup++; continue }
+        const { error: upErr } = await supabase.from('candidates').update({ ...camposParaAtualizar(l.rec), respondido_em: l.quando }).eq('id', ex.id)
+        if (upErr) { console.error('Update fail:', l.rec.full_name, upErr.message); err++ }
+        else { atualizados++; ex.resp = l.quando }
+        continue
+      }
+      // Novo — um por um: se um falhar, só ele é perdido
+      const { error: insErr } = await supabase.from('candidates').insert(temData && l.quando ? { ...l.rec, respondido_em: l.quando } : l.rec)
+      if (insErr) { console.error('Insert fail:', l.rec.full_name, insErr.message); err++ }
       else ok++
     }
 
     setImporting(false)
     setImportModal(false)
-    if (ok > 0) mudarOrdem('recentes')   // quem acabou de entrar aparece primeiro
+    if (ok > 0 || atualizados > 0) mudarOrdem('recentes')   // quem acabou de entrar aparece primeiro
     qc.invalidateQueries({ queryKey: ['candidates'] })
-    const parts = [`${ok} importado(s)`]
-    if (dup) parts.push(`${dup} já existiam`)
+    const parts = [`${ok} novo(s)`]
+    if (atualizados) parts.push(`${atualizados} atualizado(s) (refizeram o formulário)`)
+    if (dup) parts.push(`${dup} já estavam em dia`)
+    if (repetidas) parts.push(`${repetidas} resposta(s) repetida(s) na planilha — ficou a mais nova`)
     if (err) parts.push(`${err} erro(s)`)
     toast.success(parts.join(' · '), { duration: 6000 })
   }
@@ -428,12 +450,18 @@ export default function CandidateList() {
                     <h3 className="font-display font-bold text-ink-900 truncate">{c.full_name}</h3>
                     <p className="text-xs text-ink-500">{c.city}{c.city && c.state ? ', ' : ''}{c.state}</p>
                     <p className="text-xs text-ink-400 mt-0.5 truncate">{c.formation || '-'}</p>
-                    {c.created_at && (
-                      <p className="text-[11px] text-ink-400 mt-0.5">
-                        chegou em {format(new Date(c.created_at), 'dd/MM/yyyy')}
-                        {Date.now() - new Date(c.created_at).getTime() < 3 * 86400000 && <span className="ml-1.5 badge bg-primary-50 text-primary-700 text-[10px] py-0">Novo</span>}
-                      </p>
-                    )}
+                    {(() => {
+                      // Data da resposta do formulário; sem ela, a entrada no sistema
+                      const resp = (c as { respondido_em?: string | null }).respondido_em
+                      const quando = resp || c.created_at
+                      if (!quando) return null
+                      return (
+                        <p className="text-[11px] text-ink-400 mt-0.5">
+                          {resp ? 'respondeu em' : 'chegou em'} {format(new Date(quando), 'dd/MM/yyyy')}
+                          {Date.now() - new Date(quando).getTime() < 3 * 86400000 && <span className="ml-1.5 badge bg-primary-50 text-primary-700 text-[10px] py-0">Novo</span>}
+                        </p>
+                      )
+                    })()}
                     {(() => {
                       const n = ((c as { notas?: { observations: string | null }[] }).notas || [])[0]
                       return n?.observations ? <p className="text-xs text-ink-600 mt-1.5 line-clamp-2 bg-amber-50/70 rounded px-1.5 py-1">{n.observations}</p> : null

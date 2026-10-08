@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
-import { Plus, ListChecks, ChevronRight } from 'lucide-react'
+import { Plus, ListChecks, ChevronRight, Truck } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { formatDate, hojeISO } from '../../lib/utils'
@@ -48,7 +48,8 @@ export default function AuditoriasPage() {
           <h1 className="page-title">Auditorias</h1>
           <p className="text-sm text-ink-500 mt-1">Checklist com peso, fotos e relatório pronto para o cliente.</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
+          <button className="btn-secondary text-sm" onClick={() => navigate('/auditorias/fornecedores')}><Truck size={15} />Fornecedores GRSA</button>
           <button className="btn-secondary text-sm" onClick={() => navigate('/auditorias/checklists')}><ListChecks size={15} />Checklists</button>
           <button className="btn-primary text-sm" disabled={!!semMigracao} onClick={() => setNova(true)}><Plus size={15} />Nova auditoria</button>
         </div>

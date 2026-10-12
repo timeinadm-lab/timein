@@ -343,7 +343,9 @@ function FormAjuda({ inicial, pessoas, clientes, vinculos, fimMes, fechar, salvo
             <option value="">Escolha…</option>
             {clientesOrdem.map((c, i) => <option key={c.id} value={c.id}>{c.nome}{i < daPessoa.size ? ' ★' : ''}</option>)}
           </select>
-          {f.employee_id && daPessoa.size > 0 && <p className="text-[11px] text-ink-400 mt-1">★ clientes em que a pessoa tem vínculo</p>}</div>
+          {f.employee_id && f.client_id && daPessoa.size > 0 && !daPessoa.has(f.client_id)
+            ? <p className="text-[11px] text-amber-700 mt-1">A pessoa não tem vínculo com este cliente. Confira: os clientes dela têm ★.</p>
+            : f.employee_id && daPessoa.size > 0 && <p className="text-[11px] text-ink-400 mt-1">★ clientes em que a pessoa tem vínculo</p>}</div>
 
         <div>
           <label className="label">Tipo</label>

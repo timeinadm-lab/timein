@@ -120,6 +120,8 @@ const EMPTY_COVERAGE = {
   // Comum
   // Sem daily_rate: no Fixo ela é derivada do mensal; na Consultoria não existe
   start_date: '', end_date: '', monthly_amount: '',
+  // Ajuda de custo já no vínculo (pedido de 12/10/2026): vazio = sem ajuda
+  ajuda_valor: '', ajuda_periodo: 'mes' as 'mes' | 'semana',
   pay_days: ['20'] as string[],
   agenda_mode: '' as '' | 'colaborador' | 'gestor',
   // Marcar já o 1º dia na agenda? Antes era automático: vincular depois de uma
@@ -515,6 +517,9 @@ export default function EmployeeDetail() {
         contract_end_date: isTemporario ? (coverageForm.end_date || null) : (coverageForm.end_date || null),
         monthly_amount: isFixo || coverageForm.consult_salario ? mensal : null,
         link_units: linkUnits,
+        // Ajuda de custo: mensal vai junto com o salário; semanal sai toda segunda na aba Ajuda de custo
+        ...(Number(coverageForm.ajuda_valor) > 0 && (isFixo || coverageForm.consult_salario)
+          ? { cost_assistance: Number(coverageForm.ajuda_valor), cost_assistance_periodo: coverageForm.ajuda_periodo } : {}),
         // Horário definido só entra se preenchido (antes da migração 067 a coluna não existe)
         ...((isFixo || coverageForm.consult_salario) && coverageForm.work_start && coverageForm.work_end
           ? { work_start: coverageForm.work_start, work_end: coverageForm.work_end } : {}),
@@ -540,6 +545,9 @@ export default function EmployeeDetail() {
         registroVinculo.contract_deadline = null
         if (contratoDoFixo) registroVinculo.contract_file_url = contratoDoFixo
         if (salarioDoFixo > 0) registroVinculo.monthly_amount = null
+        // A ajuda do consultor fixo fica no cartão dele, não em cada cliente
+        delete registroVinculo.cost_assistance
+        delete registroVinculo.cost_assistance_periodo
         if (!(coverageForm.work_start && coverageForm.work_end) && horarioPadraoFixo) {
           registroVinculo.work_start = horarioPadraoFixo.inicio
           registroVinculo.work_end = horarioPadraoFixo.fim
@@ -2076,6 +2084,29 @@ export default function EmployeeDetail() {
                   )}
                 </div>}
               </div>
+
+              {/* Ajuda de custo já na hora de vincular (pedido de 12/10/2026). Antes só
+                  dava para pôr depois, editando o vínculo, e acabavam lançando à mão. */}
+              {(coverageForm.coverage_type === 'Fixo' || (coverageForm.coverage_type === 'Consultoria' && coverageForm.consult_salario && grupoFixo.length === 0)) && (
+                <div className="rounded-lg border border-ink-200 bg-white p-3 space-y-2">
+                  <label className="label !mb-0">Ajuda de custo <span className="text-gray-400 font-normal">(vazio = sem ajuda)</span></label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <input className="input" type="number" step="0.01" min="0" placeholder="R$ 0,00" value={coverageForm.ajuda_valor}
+                      onChange={e => setCoverageForm(p => ({ ...p, ajuda_valor: e.target.value }))} />
+                    <div className="flex gap-1.5">
+                      {([['mes', 'Mensal'], ['semana', 'Semanal']] as const).map(([v, t]) => (
+                        <button key={v} type="button" onClick={() => setCoverageForm(p => ({ ...p, ajuda_periodo: v }))}
+                          className={`flex-1 py-2 text-sm rounded-lg border font-medium transition-colors ${coverageForm.ajuda_periodo === v ? 'bg-orange-500 text-white border-orange-500' : 'bg-white text-gray-600 border-gray-300 hover:border-orange-300'}`}>{t}</button>
+                      ))}
+                    </div>
+                  </div>
+                  {Number(coverageForm.ajuda_valor) > 0 && (
+                    <p className="text-xs text-ink-600">{coverageForm.ajuda_periodo === 'mes'
+                      ? <>Mensal: <b>{formatCurrency(Number(coverageForm.ajuda_valor))}</b> vai junto com o salário, no dia do pagamento.</>
+                      : <>Semanal: <b>{formatCurrency(Number(coverageForm.ajuda_valor))}</b> por semana, paga toda segunda em Pagamentos → Ajuda de custo. Não precisa lançar à mão.</>}</p>
+                  )}
+                </div>
+              )}
 
               {/* Contrato assinado. Vale igual para freela e permanente. Enquanto
                   não for anexado, o portal da pessoa não abre. */}

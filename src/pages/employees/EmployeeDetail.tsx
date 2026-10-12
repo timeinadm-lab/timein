@@ -167,7 +167,7 @@ export default function EmployeeDetail() {
   // Data de hoje em ISO — usada para saber se um vínculo já foi encerrado
   const hojeStr = hojeISO()
   type EditLinkUnit = { unit_id: string; unit_name: string; visit_rate: string }
-  type EditLinkState = { linkId: string; serviceType: string; clientId: string; monthly_amount: string; cost_assistance: string; weekly_hours: string; visit_frequency: string; visits_per_week: string; units: EditLinkUnit[]; work_schedule_type: string; daily_hours: string; days_off: number[]; schedule_anchor_date: string; start_date: string; payDays: string[]; pay_full_salary: boolean; expected_days_month: string; work_start: string; work_end: string; break_minutes: string; horas_modo: 'visita' | 'mes'; horas_mes: string }
+  type EditLinkState = { linkId: string; serviceType: string; clientId: string; monthly_amount: string; cost_assistance: string; ajuda_periodo: 'mes' | 'semana'; weekly_hours: string; visit_frequency: string; visits_per_week: string; units: EditLinkUnit[]; work_schedule_type: string; daily_hours: string; days_off: number[]; schedule_anchor_date: string; start_date: string; payDays: string[]; pay_full_salary: boolean; expected_days_month: string; work_start: string; work_end: string; break_minutes: string; horas_modo: 'visita' | 'mes'; horas_mes: string }
   const [editLinkValues, setEditLinkValues] = useState<EditLinkState | null>(null)
   // Intervalo do contrato do cliente (o portal não pede intervalo; a conta das
   // horas desconta o do vínculo — mesma regra do portal e do aviso de jornada)
@@ -518,7 +518,7 @@ export default function EmployeeDetail() {
         monthly_amount: isFixo || coverageForm.consult_salario ? mensal : null,
         link_units: linkUnits,
         // Ajuda de custo: mensal vai junto com o salário; semanal sai toda segunda na aba Ajuda de custo
-        ...(Number(coverageForm.ajuda_valor) > 0 && (isFixo || coverageForm.consult_salario)
+        ...(Number(coverageForm.ajuda_valor) > 0
           ? { cost_assistance: Number(coverageForm.ajuda_valor), cost_assistance_periodo: coverageForm.ajuda_periodo } : {}),
         // Horário definido só entra se preenchido (antes da migração 067 a coluna não existe)
         ...((isFixo || coverageForm.consult_salario) && coverageForm.work_start && coverageForm.work_end
@@ -965,6 +965,7 @@ export default function EmployeeDetail() {
         clientId,
         monthly_amount: String(l.monthly_amount || ''),
         cost_assistance: String((l as { cost_assistance?: number }).cost_assistance || ''),
+        ajuda_periodo: (l as { cost_assistance_periodo?: string }).cost_assistance_periodo === 'semana' ? 'semana' : 'mes',
         weekly_hours: String(l.weekly_hours_quota || ''),
         visit_frequency: (l as { visit_frequency?: string }).visit_frequency || 'Semanal',
         visits_per_week: String((l as { visits_per_week?: number }).visits_per_week || ''),
@@ -1239,6 +1240,8 @@ export default function EmployeeDetail() {
         daily_rate: mensalParaDiaria,
         monthly_amount: monthly,
         cost_assistance: vals.cost_assistance ? Number(vals.cost_assistance) : 0,
+        // Semanal = sai toda segunda na Ajuda de custo; mensal = junto com o salário (085)
+        cost_assistance_periodo: Number(vals.cost_assistance) > 0 ? vals.ajuda_periodo : 'mes',
         link_units: linkUnits,
         visit_frequency: isConsult ? (vals.visit_frequency || 'Semanal') : undefined,
         weekly_hours_quota: isConsult ? (vals.horas_modo !== 'mes' && vals.weekly_hours ? Number(vals.weekly_hours) : null) : undefined,
@@ -1277,6 +1280,7 @@ export default function EmployeeDetail() {
       }
       let { error } = await supabase.from('employee_client_links').update(atualizacao).eq('id', vals.linkId)
       if (error && /work_start|work_end|break_minutes/.test(error.message)) throw new Error('Falta rodar a migração 067 no Supabase para gravar o horário.')
+      if (error && /cost_assistance_periodo/.test(error.message)) throw new Error('Rode a migração 085 para usar ajuda de custo semanal.')
       // Migração 058 ainda não rodada: diária volta a ser gravada como Volante
       if (error && consultSalario && /pay_mode|check/i.test(error.message)) throw new Error('Falta rodar a migração 060 no Supabase para usar consultoria com salário fixo.')
       if (error && /pay_mode/i.test(error.message)) {
@@ -1301,6 +1305,9 @@ export default function EmployeeDetail() {
         // Sem isso o vínculo ficava sem dia de pagamento e ninguém sabia
         if (eIns) throw new Error('Os dias de pagamento não foram salvos — abra o vínculo e salve de novo: ' + eIns.message)
       }
+      // Ajuda semanal mudou (valor, ou virou mensal/zero): ajusta as segundas a pagar daqui pra frente
+      const valorAjuda = Number(vals.cost_assistance) || 0
+      await ajustarSemanasDoContrato([vals.linkId], valorAjuda > 0 && vals.ajuda_periodo === 'semana' ? valorAjuda : null)
     },
     onSuccess: () => {
       toast.success('Valores atualizados!')
@@ -2087,24 +2094,11 @@ export default function EmployeeDetail() {
 
               {/* Ajuda de custo já na hora de vincular (pedido de 12/10/2026). Antes só
                   dava para pôr depois, editando o vínculo, e acabavam lançando à mão. */}
-              {(coverageForm.coverage_type === 'Fixo' || (coverageForm.coverage_type === 'Consultoria' && coverageForm.consult_salario && grupoFixo.length === 0)) && (
-                <div className="rounded-lg border border-ink-200 bg-white p-3 space-y-2">
-                  <label className="label !mb-0">Ajuda de custo <span className="text-gray-400 font-normal">(vazio = sem ajuda)</span></label>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    <input className="input" type="number" step="0.01" min="0" placeholder="R$ 0,00" value={coverageForm.ajuda_valor}
-                      onChange={e => setCoverageForm(p => ({ ...p, ajuda_valor: e.target.value }))} />
-                    <div className="flex gap-1.5">
-                      {([['mes', 'Mensal'], ['semana', 'Semanal']] as const).map(([v, t]) => (
-                        <button key={v} type="button" onClick={() => setCoverageForm(p => ({ ...p, ajuda_periodo: v }))}
-                          className={`flex-1 py-2 text-sm rounded-lg border font-medium transition-colors ${coverageForm.ajuda_periodo === v ? 'bg-orange-500 text-white border-orange-500' : 'bg-white text-gray-600 border-gray-300 hover:border-orange-300'}`}>{t}</button>
-                      ))}
-                    </div>
-                  </div>
-                  {Number(coverageForm.ajuda_valor) > 0 && (
-                    <p className="text-xs text-ink-600">{coverageForm.ajuda_periodo === 'mes'
-                      ? <>Mensal: <b>{formatCurrency(Number(coverageForm.ajuda_valor))}</b> vai junto com o salário, no dia do pagamento.</>
-                      : <>Semanal: <b>{formatCurrency(Number(coverageForm.ajuda_valor))}</b> por semana, paga toda segunda em Pagamentos → Ajuda de custo. Não precisa lançar à mão.</>}</p>
-                  )}
+              {!(coverageForm.coverage_type === 'Consultoria' && coverageForm.consult_salario && grupoFixo.length > 0) && (
+                <div>
+                  <CampoAjuda valor={coverageForm.ajuda_valor} periodo={coverageForm.ajuda_periodo}
+                    onValor={v => setCoverageForm(p => ({ ...p, ajuda_valor: v }))}
+                    onPeriodo={v => setCoverageForm(p => ({ ...p, ajuda_periodo: v }))} />
                 </div>
               )}
 
@@ -2430,60 +2424,62 @@ export default function EmployeeDetail() {
                   })()}
                   <div className="flex items-start justify-between">
                     <div className={`flex-1 min-w-0 ${encerrado ? 'opacity-70' : ''}`}>
-                      <p className="font-medium">{(l as { client?: { name: string } }).client?.name}</p>
-                      <div className="flex gap-2 mt-1 flex-wrap items-center">
-                        <span className={`badge ${l.service_type === 'Consultoria' ? 'bg-orange-100 text-orange-700' : l.service_type === 'Volante' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'}`}>{rotuloDoVinculo(l)}</span>
-                        {/* Consultoria/Freela: o valor real vem da folha de ponto — marcado como
-                            estimativa em âmbar pra não ser lido como combinado (cinza). */}
-                        {l.monthly_amount && role === 'chefe' && !noFixo && (
-                          l.service_type === 'Fixo'
-                            ? <span className="badge bg-gray-100 text-gray-600" title="Valor combinado em contrato">{formatCurrency(l.monthly_amount)}/mês</span>
-                            : <span className="badge bg-amber-100 text-amber-800" title="Estimativa — o valor real é calculado pelas horas da folha de ponto">
-                                ~{formatCurrency(l.monthly_amount)}/mês estimado
-                              </span>
-                        )}
-                        {(l as { cost_assistance?: number }).cost_assistance ? <span className="badge bg-blue-50 text-blue-600">+{formatCurrency((l as { cost_assistance?: number }).cost_assistance!)}{(l as { cost_assistance_periodo?: string }).cost_assistance_periodo === 'semana' ? '/sem' : ''} aj.custo</span> : null}
-                        {l.weekly_hours_quota && <span className="badge bg-gray-100 text-gray-600">{l.weekly_hours_quota}h/visita</span>}
-                        {!l.weekly_hours_quota && Number((l as { monthly_hours_quota?: number }).monthly_hours_quota) > 0 && <span className="badge bg-gray-100 text-gray-600">{(l as { monthly_hours_quota?: number }).monthly_hours_quota}h/mês</span>}
-                        {(l as { visit_frequency?: string }).visit_frequency && l.service_type === 'Consultoria' && <span className="badge bg-orange-50 text-orange-600">{(l as { visit_frequency?: string }).visit_frequency}</span>}
-                        {(l as { work_schedule_type?: string }).work_schedule_type && <span className="badge bg-gray-100 text-gray-600">{(l as { work_schedule_type?: string }).work_schedule_type}</span>}
-                        {(l as { start_date?: string }).start_date && <span className="badge bg-green-50 text-green-700">Início: {formatDate((l as { start_date?: string }).start_date!)}</span>}
-                        {(l as { pay_full_salary?: boolean }).pay_full_salary && <span className="badge bg-purple-50 text-purple-700">Salário inteiro</span>}
-                        {contractPendingHours !== null && (
-                          <span className={`badge text-xs font-semibold ${contractRed ? 'bg-red-100 text-red-700 animate-pulse' : contractYellow ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-500'}`}>
-                            {contractRed
-                              ? `⚠ Contrato URGENTE — anexar (${contractPendingHours}h atrás)`
-                              : contractYellow
-                              ? `⏳ Contrato pendente — anexar (${contractPendingHours}h atrás)`
-                              : `📎 Anexar contrato (${contractPendingHours}h)`}
-                          </span>
-                        )}
-                        {contractFile && !noFixo && (
-                          <span className="badge bg-green-100 text-green-700">✓ Contrato anexado</span>
-                        )}
-                        {(l as { visits_per_week?: number }).visits_per_week ? (
-                          <span className="badge bg-orange-50 text-orange-600">
-                            {(l as { visits_per_week?: number }).visits_per_week} visita(s)/sem
-                          </span>
-                        ) : null}
-                        {encerrado ? (
-                          <span className="badge text-xs bg-ink-200 text-ink-700">
-                            Encerrado em {formatDate(contractEnd!)}
-                          </span>
-                        ) : daysLeft !== null ? (
-                          <span className={`badge text-xs ${expired ? 'bg-red-100 text-red-700' : expiringSoon ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700'}`}>
-                            {expired ? `Contrato vencido há ${Math.abs(daysLeft)}d` : `Contrato: ${daysLeft}d restantes`}
-                          </span>
-                        ) : !noFixo && !contractEnd && (l.service_type === 'Fixo' || l.service_type === 'Consultoria') ? (
-                          <span className="badge text-xs bg-gray-100 text-gray-500">Contrato indeterminado</span>
-                        ) : null}
-                        <button
-                          className="text-xs text-primary-600 hover:underline flex items-center gap-0.5 ml-1"
-                          onClick={() => abrirEdicaoDoVinculo(l)}
-                        >
-                          ✏️ Editar
-                        </button>
-                      </div>
+                      {(() => {
+                        // Cartão do vínculo em blocos (pedido de 12/10/2026: "o vínculo tem que ser
+                        // melhor apresentado"). Antes era uma fileira de 10+ etiquetas soltas.
+                        const x = l as { cost_assistance?: number; cost_assistance_periodo?: string; visit_frequency?: string; work_schedule_type?: string; start_date?: string; pay_full_salary?: boolean; visits_per_week?: number; monthly_hours_quota?: number; work_start?: string; work_end?: string; pay_mode?: string }
+                        const ajuda = Number(x.cost_assistance) || 0
+                        const semanal = x.cost_assistance_periodo === 'semana'
+                        const porVisita = ehConsult && x.pay_mode !== 'salario_fixo'
+                        const dias = (l.payment_dates || []).map(d => Number(d.day_of_month)).sort((a, b) => a - b)
+                        const horario = x.work_start && x.work_end ? `${x.work_start.slice(0, 5)}–${x.work_end.slice(0, 5)}` : ''
+                        const rotina = ehConsult
+                          ? [x.visit_frequency === 'Avulso' ? 'Em aberto' : x.visit_frequency, x.visits_per_week ? `${x.visits_per_week}x/sem` : '', l.weekly_hours_quota ? `${l.weekly_hours_quota}h/visita` : Number(x.monthly_hours_quota) > 0 ? `${x.monthly_hours_quota}h/mês` : '', horario].filter(Boolean).join(' · ')
+                          : [x.work_schedule_type, horario].filter(Boolean).join(' · ')
+                        const statusContrato = encerrado ? { t: `Encerrado em ${formatDate(contractEnd!)}`, c: 'bg-ink-200 text-ink-700' }
+                          : daysLeft !== null ? { t: expired ? `Vencido há ${Math.abs(daysLeft)}d` : `Vence em ${daysLeft}d`, c: expired ? 'bg-red-100 text-red-700' : expiringSoon ? 'bg-amber-100 text-amber-700' : 'bg-green-50 text-green-700' }
+                          : !noFixo && (l.service_type === 'Fixo' || l.service_type === 'Consultoria') ? { t: 'Sem data de fim', c: 'bg-ink-100 text-ink-500' } : null
+                        return (
+                          <>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <p className="font-semibold text-ink-900">{(l as { client?: { name: string } }).client?.name}</p>
+                              <span className={`badge ${ehConsult ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'}`}>{rotuloDoVinculo(l)}</span>
+                              {statusContrato && <span className={`badge text-xs ${statusContrato.c}`}>{statusContrato.t}</span>}
+                            </div>
+                            <div className={`mt-3 grid grid-cols-2 ${noFixo ? '' : 'lg:grid-cols-4'} gap-2`}>
+                              {!noFixo && (
+                                <InfoVinculo rotulo={porVisita ? 'Valor' : 'Salário'}
+                                  valor={role !== 'chefe' ? '—' : porVisita ? 'Por visita' : l.monthly_amount ? `${formatCurrency(l.monthly_amount)}/mês` : 'Não informado'}
+                                  sub={porVisita ? (l.monthly_amount && role === 'chefe' ? `~${formatCurrency(l.monthly_amount)}/mês estimado` : 'pelas visitas e horas') : x.pay_full_salary ? 'salário inteiro (sem proporcional)' : undefined} />
+                              )}
+                              {!noFixo && !(ehConsult && x.pay_mode === 'salario_fixo' && grupoFixo.length > 0) && (
+                                <InfoVinculo rotulo="Ajuda de custo" destaque={ajuda > 0}
+                                  valor={ajuda > 0 ? `${formatCurrency(ajuda)}/${semanal ? 'semana' : 'mês'}` : 'Sem ajuda'}
+                                  sub={ajuda > 0 ? (semanal ? 'toda segunda, na aba Ajuda de custo' : 'junto com o salário') : undefined}
+                                  acao={encerrado ? undefined : { texto: ajuda > 0 ? 'Alterar' : '+ Adicionar', onClick: () => abrirEdicaoDoVinculo(l) }} />
+                              )}
+                              {!noFixo && (
+                                <InfoVinculo rotulo="Pagamento"
+                                  valor={porVisita ? 'Dias 8 e 20' : dias.length ? `Dia${dias.length > 1 ? 's' : ''} ${dias.join(' e ')}` : 'Sem dia'}
+                                  sub={porVisita ? '1–15 no dia 20 · 16–fim no dia 8' : undefined} alerta={!porVisita && !dias.length} />
+                              )}
+                              <InfoVinculo rotulo={ehConsult ? 'Visitas' : 'Escala'} valor={rotina || 'Não informado'}
+                                sub={x.start_date ? `início ${formatDate(x.start_date)}` : undefined} />
+                            </div>
+                            <div className="flex gap-2 mt-2.5 flex-wrap items-center">
+                              {contractPendingHours !== null && (
+                                <span className={`badge text-xs font-semibold ${contractRed ? 'bg-red-100 text-red-700' : contractYellow ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-500'}`}>
+                                  {contractRed ? `Contrato urgente — anexar (${contractPendingHours}h)` : contractYellow ? `Contrato pendente (${contractPendingHours}h)` : `Anexar contrato (${contractPendingHours}h)`}
+                                </span>
+                              )}
+                              {contractFile && !noFixo && <span className="badge bg-green-50 text-green-700">Contrato anexado</span>}
+                              <button className="btn-secondary text-xs py-1.5 px-2.5 ml-auto" onClick={() => abrirEdicaoDoVinculo(l)}>
+                                <Edit size={13} />Editar vínculo
+                              </button>
+                            </div>
+                          </>
+                        )
+                      })()}
 
                       {/* Inline edit */}
                       {editLinkValues?.linkId === l.id && (() => {
@@ -2506,7 +2502,7 @@ export default function EmployeeDetail() {
                         // Visitas por semana (só na frequência semanal) entram nas horas do mês
                         const visitasSemana = editLinkValues.visit_frequency === 'Semanal' ? (Number(editLinkValues.visits_per_week) || 1) : 1
                         const consultTotal = avgRate * freqMultiplier * visitasSemana
-                        const fixoTotal = !isConsult ? (Number(editLinkValues.monthly_amount) || 0) + (Number(editLinkValues.cost_assistance) || 0) : 0
+                        const fixoTotal = !isConsult ? (Number(editLinkValues.monthly_amount) || 0) + (editLinkValues.ajuda_periodo === 'mes' ? Number(editLinkValues.cost_assistance) || 0 : 0) : 0
 
                         return (
                           <div className={`mt-3 p-3 rounded-lg space-y-3 border ${isConsult ? 'bg-orange-50 border-orange-200' : 'bg-blue-50 border-blue-200'}`}>
@@ -2694,14 +2690,14 @@ export default function EmployeeDetail() {
                                   <input className="input" type="number" value={editLinkValues.monthly_amount}
                                     onChange={e => setEditLinkValues(p => p ? { ...p, monthly_amount: e.target.value } : p)} />
                                 </div>
-                                <div>
-                                  <label className="label text-xs">Ajuda de Custo (R$)</label>
-                                  <input className="input" type="number" placeholder="0,00" value={editLinkValues.cost_assistance}
-                                    onChange={e => setEditLinkValues(p => p ? { ...p, cost_assistance: e.target.value } : p)} />
+                                <div className="sm:col-span-2">
+                                  <CampoAjuda valor={editLinkValues.cost_assistance} periodo={editLinkValues.ajuda_periodo}
+                                    onValor={v => setEditLinkValues(p => p ? { ...p, cost_assistance: v } : p)}
+                                    onPeriodo={v => setEditLinkValues(p => p ? { ...p, ajuda_periodo: v } : p)} />
                                 </div>
-                                {fixoTotal > 0 && (
+                                {fixoTotal > 0 && editLinkValues.ajuda_periodo === 'mes' && (
                                   <div className="col-span-2 text-xs text-blue-700 font-medium">
-                                    Total: R$ {fixoTotal.toFixed(2)}/mês
+                                    Total: {formatCurrency(fixoTotal)}/mês (salário + ajuda)
                                   </div>
                                 )}
 
@@ -2782,13 +2778,14 @@ export default function EmployeeDetail() {
                               </div>
                             )}
 
-                            {/* Cost assistance for Consultoria */}
-                            {isConsult && (
-                              <div>
-                                <label className="label text-xs">Ajuda de Custo (R$) — opcional</label>
-                                <input className="input" type="number" placeholder="0,00" value={editLinkValues.cost_assistance}
-                                  onChange={e => setEditLinkValues(p => p ? { ...p, cost_assistance: e.target.value } : p)} />
-                              </div>
+                            {/* Ajuda de custo da consultoria. No consultor fixo ela fica no cartão dele (vale para todos os clientes) */}
+                            {isConsult && !consultSalario && (
+                              <CampoAjuda valor={editLinkValues.cost_assistance} periodo={editLinkValues.ajuda_periodo}
+                                onValor={v => setEditLinkValues(p => p ? { ...p, cost_assistance: v } : p)}
+                                onPeriodo={v => setEditLinkValues(p => p ? { ...p, ajuda_periodo: v } : p)} />
+                            )}
+                            {consultSalario && (
+                              <p className="text-xs text-ink-500">Ajuda de custo do consultor fixo: no cartão do consultor fixo, acima (vale para todos os clientes dele).</p>
                             )}
 
                             {/* Datas de pagamento — dia 8, 15 e 20 */}
@@ -2838,24 +2835,6 @@ export default function EmployeeDetail() {
                               </button>
                               <button className="btn-secondary text-xs" onClick={() => setEditLinkValues(null)}>Cancelar</button>
                             </div>
-                          </div>
-                        )
-                      })()}
-                      {!noFixo && l.payment_dates?.length > 0 && (() => {
-                        // Consultoria/Freela não têm valor fixo por data: o que cai é o
-                        // que as visitas somarem. Mostrar "Dia 8 — R$ 260,00" fazia um
-                        // rateio da estimativa parecer valor combinado.
-                        const valorFixo = l.service_type === 'Fixo'
-                        return (
-                          <div className="flex flex-wrap items-center gap-1 mt-2">
-                            {l.payment_dates.map(d => (
-                              <span key={d.id} className="px-2 py-0.5 bg-primary-50 text-primary-700 rounded-full text-xs">
-                                Dia {d.day_of_month}{valorFixo && d.amount ? ` — ${formatCurrency(d.amount)}` : ''}
-                              </span>
-                            ))}
-                            {!valorFixo && (
-                              <span className="text-xs text-ink-400">— valor conforme as visitas do período</span>
-                            )}
                           </div>
                         )
                       })()}
@@ -4916,6 +4895,52 @@ function PortalTab({ employeeId, employee }: { employeeId: string; employee: Rec
           ))}
         </div>
       </div>
+    </div>
+  )
+}
+
+/**
+ * Ajuda de custo do vínculo: valor + Mensal/Semanal (pedido de 12/10/2026).
+ * Mensal vai junto com o salário; semanal sai toda segunda em Pagamentos →
+ * Ajuda de custo, sem lançar à mão. Mesmo campo ao vincular e ao editar.
+ */
+function CampoAjuda({ valor, periodo, onValor, onPeriodo }: {
+  valor: string; periodo: 'mes' | 'semana'; onValor: (v: string) => void; onPeriodo: (v: 'mes' | 'semana') => void
+}) {
+  const n = Number(valor) || 0
+  return (
+    <div className="rounded-lg border border-ink-200 bg-white p-3 space-y-2">
+      <label className="label !mb-0">Ajuda de custo <span className="text-gray-400 font-normal">(vazio = sem ajuda)</span></label>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        <input className="input" type="number" step="0.01" min="0" inputMode="decimal" placeholder="R$ 0,00" value={valor} onChange={e => onValor(e.target.value)} />
+        <div className="flex rounded-lg border border-ink-200 p-0.5 bg-ink-50">
+          {([['mes', 'Mensal'], ['semana', 'Semanal']] as const).map(([v, t]) => (
+            <button key={v} type="button" onClick={() => onPeriodo(v)}
+              className={`flex-1 py-1.5 text-sm rounded-md font-medium transition-colors ${periodo === v ? 'bg-white text-ink-900 shadow-sm' : 'text-ink-500 hover:text-ink-700'}`}>{t}</button>
+          ))}
+        </div>
+      </div>
+      {n > 0 && (
+        <p className="text-xs text-ink-600">{periodo === 'mes'
+          ? <><b>{formatCurrency(n)}/mês</b>, junto com o salário, no dia do pagamento.</>
+          : <><b>{formatCurrency(n)}/semana</b>, paga toda segunda em Pagamentos → Ajuda de custo. Não precisa lançar à mão.</>}</p>
+      )}
+    </div>
+  )
+}
+
+/** Um bloco do cartão do vínculo: rótulo pequeno, valor e uma linha de explicação */
+function InfoVinculo({ rotulo, valor, sub, destaque, alerta, acao }: {
+  rotulo: string; valor: string; sub?: string; destaque?: boolean; alerta?: boolean; acao?: { texto: string; onClick: () => void }
+}) {
+  return (
+    <div className={`rounded-lg border px-3 py-2 min-w-0 ${alerta ? 'border-amber-300 bg-amber-50' : destaque ? 'border-blue-200 bg-blue-50/50' : 'border-ink-100 bg-ink-50/50'}`}>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[11px] text-ink-500">{rotulo}</p>
+        {acao && <button className="text-[11px] font-medium text-primary-700 hover:underline shrink-0" onClick={acao.onClick}>{acao.texto}</button>}
+      </div>
+      <p className={`text-sm font-semibold truncate ${alerta ? 'text-amber-800' : 'text-ink-900'}`} title={valor}>{valor}</p>
+      {sub && <p className="text-[11px] text-ink-500 leading-snug">{sub}</p>}
     </div>
   )
 }

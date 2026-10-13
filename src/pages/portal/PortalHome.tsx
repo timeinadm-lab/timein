@@ -684,6 +684,11 @@ export default function PortalHome() {
       await rpc('portal_set_expense_receipt', { p_token: token, p_id: expenseId, p_url: path })
       qc.invalidateQueries({ queryKey: ['portal-month', employeeId] })
       toast.success('Comprovante enviado!')
+    } catch (e) {
+      // Antes, falha ao ligar o arquivo ao pedido (ou ao diminuir a foto) sumia calada
+      // quando o anexo era feito pela lista: a pessoa achava que tinha ido
+      console.error('[portal] comprovante', e)
+      toast.error('O comprovante não foi enviado. Toque em "Anexar comprovante" no pedido e tente de novo.', { duration: 8000 })
     } finally {
       setUploadingExpId(null)
       setPendingExpenseUpload(null)

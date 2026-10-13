@@ -80,6 +80,17 @@ export function sugerirParcelas(ini: string, fim: string, mensal: number, dia: n
   return datas.map((data, i) => ({ data, valor: i === datas.length - 1 ? r2(total - cada * (datas.length - 1)) : cada }))
 }
 
+/**
+ * Datas combinadas não pedem salário: o "mensal" equivalente sai delas (total ÷
+ * quantos salários vale o contrato). É a base de falta e de dia extra (÷ 30).
+ * R$ 5.000 em 13/10 a 12/11 → 5.000. R$ 15.000 em 3 meses → 5.000.
+ */
+export function mensalDasParcelas(parcelas: Parcela[], ini: string, fim: string): number | null {
+  const total = parcelas.reduce((t, p) => t + (Number(p.valor) || 0), 0)
+  const fator = ini && fim ? salariosDoContrato(ini, fim) : 0
+  return total > 0 && fator > 0 ? r2(total / fator) : null
+}
+
 /** O que está errado na lista (vazio = ok) */
 export function problemasDasParcelas(parcelas: Parcela[], fim?: string | null): string[] {
   const p: string[] = []

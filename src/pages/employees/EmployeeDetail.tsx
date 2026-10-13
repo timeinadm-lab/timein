@@ -6,7 +6,7 @@ import { supabase } from '../../lib/supabase'
 import { formatDate, formatCurrency, getInitials, serviceTypeLabel, hojeISO, corDoAvatar, pagaPorDiaria, ehTemporario, rotuloDoVinculo, pendenciasDoVinculo, salarioConsultoria } from '../../lib/utils'
 import type { VinculoCadastro } from '../../lib/utils'
 import { minutosLiquidos } from '../../lib/jornada'
-import { sugerirParcelas, problemasDasParcelas, parcelasDoVinculo, ordenarParcelas, valorDoContrato } from '../../lib/contrato'
+import { sugerirParcelas, problemasDasParcelas, parcelasDoVinculo, ordenarParcelas, mensalDasParcelas } from '../../lib/contrato'
 import type { Parcela } from '../../lib/contrato'
 import { exportEmployeeToPDF } from '../../lib/exportUtils'
 import { SignedLink, SignedImage } from '../../components/ui/SignedFile'
@@ -494,7 +494,9 @@ export default function EmployeeDetail() {
       // Permanente entra como o tipo real (Fixo/Consultoria) e fica no portal pra
       // sempre. Temporário entra como Volante, que o portal esconde depois da data fim.
       const isTemporario = coverageForm.vinculo_tipo === 'temporario'
-      const mensal = Number(coverageForm.monthly_amount) || null
+      const usaDatas = isFixo && coverageForm.vinculo_tipo !== 'temporario' && !!coverageForm.end_date && !!coverageForm.parcelas?.length
+      // Datas combinadas: o salário não é digitado — sai das datas (base de faltas e dia extra)
+      const mensal = usaDatas ? mensalDasParcelas(coverageForm.parcelas!, coverageForm.start_date || hojeISO(), coverageForm.end_date) : Number(coverageForm.monthly_amount) || null
       // Fixo: diária = mensal ÷ 30. Consultoria não tem diária — o valor está
       // na unidade (link_units.visit_rate), então fica nulo mesmo.
       const diaria = isFixo ? diariaFromMensal(coverageForm.monthly_amount) : null
@@ -1239,6 +1241,9 @@ export default function EmployeeDetail() {
         monthly = consultSalario
           ? (vals.monthly_amount ? Number(vals.monthly_amount) : null)
           : avgRate > 0 && freqMultiplier > 0 ? Math.round(avgRate * freqMultiplier * 100) / 100 : null
+      } else if (!isConsult && vals.parcelas?.length && vals.contract_end_date) {
+        // Datas combinadas: o salário sai das datas (base de faltas e dia extra)
+        monthly = mensalDasParcelas(vals.parcelas, vals.start_date || hojeISO(), vals.contract_end_date)
       } else {
         monthly = vals.monthly_amount ? Number(vals.monthly_amount) : null
       }
@@ -1291,6 +1296,7 @@ export default function EmployeeDetail() {
       if (datasAgora) {
         const prob = problemasDasParcelas(datasAgora, vals.contract_end_date || null)
         if (!datasAgora.length || prob.length) throw new Error('Datas de pagamento: ' + (prob[0] || 'adicione pelo menos uma data.'))
+        if (vals.ajuda_periodo === 'mes' && Number(vals.cost_assistance) > 0) throw new Error('Com datas combinadas a ajuda de custo é semanal. A mensal some no valor das datas.')
       }
       if (datasAgora || tinhaDatas) atualizacao.parcelas = datasAgora
       // A caixinha antiga (088) vira a lista: desliga para não valer duas regras
@@ -2080,7 +2086,7 @@ export default function EmployeeDetail() {
                     <p className="text-xs text-ink-500 mt-0.5">Aqui você só define o cliente, o horário e as horas (se tiver). Para mudar o salário, use o cartão do consultor fixo.</p>
                   </div>
                 )}
-                {(coverageForm.coverage_type === 'Fixo' || (coverageForm.coverage_type === 'Consultoria' && coverageForm.consult_salario && !(salarioDoFixo > 0))) && (
+                {!(coverageForm.coverage_type === 'Fixo' && coverageForm.parcelas) && (coverageForm.coverage_type === 'Fixo' || (coverageForm.coverage_type === 'Consultoria' && coverageForm.consult_salario && !(salarioDoFixo > 0))) && (
                   <div>
                     <label className="label">Salário mensal (R$) *</label>
                     <input className="input" type="number" step="0.01" placeholder="Ex: 3000.00"
@@ -2113,13 +2119,12 @@ export default function EmployeeDetail() {
                     <ComoRecebe datas={!!coverageForm.parcelas} podeDatas={!!coverageForm.end_date}
                       onDatas={on => setCoverageForm(p => ({
                         ...p,
-                        parcelas: on ? sugerirOuVazio(p.start_date || hojeISO(), p.end_date,
-                          (Number(p.monthly_amount) || 0) + (p.ajuda_periodo === 'mes' ? Number(p.ajuda_valor) || 0 : 0), Number(p.pay_days[0]) || 15) : null,
+                        parcelas: on ? sugerirOuVazio(p.start_date || hojeISO(), p.end_date, Number(p.monthly_amount) || 0, Number(p.pay_days[0]) || 15) : null,
+                        ajuda_periodo: on && !(Number(p.ajuda_valor) > 0) ? 'semana' : p.ajuda_periodo,
                       }))} />
                   )}
                   {coverageForm.parcelas ? (
                     <CampoDatasCombinadas parcelas={coverageForm.parcelas} ini={coverageForm.start_date || hojeISO()} fim={coverageForm.end_date}
-                      mensal={(Number(coverageForm.monthly_amount) || 0) + (coverageForm.ajuda_periodo === 'mes' ? Number(coverageForm.ajuda_valor) || 0 : 0)}
                       dia={Number(coverageForm.pay_days[0]) || 15}
                       onChange={v => setCoverageForm(p => ({ ...p, parcelas: v }))} />
                   ) : <>
@@ -2152,7 +2157,7 @@ export default function EmployeeDetail() {
                   dava para pôr depois, editando o vínculo, e acabavam lançando à mão. */}
               {!(coverageForm.coverage_type === 'Consultoria' && coverageForm.consult_salario && grupoFixo.length > 0) && (
                 <div>
-                  <CampoAjuda valor={coverageForm.ajuda_valor} periodo={coverageForm.ajuda_periodo}
+                  <CampoAjuda valor={coverageForm.ajuda_valor} periodo={coverageForm.ajuda_periodo} comDatas={!!coverageForm.parcelas}
                     onValor={v => setCoverageForm(p => ({ ...p, ajuda_valor: v }))}
                     onPeriodo={v => setCoverageForm(p => ({ ...p, ajuda_periodo: v }))} />
                 </div>
@@ -2200,7 +2205,9 @@ export default function EmployeeDetail() {
                 // Se já está em outro vínculo, aqui fica em branco (a folha soma tudo).
                 const jaTemSalario = (links || []).some(o => salarioConsultoria(o as VinculoCadastro) && Number(o.monthly_amount) > 0
                   && !((o as { contract_end_date?: string | null }).contract_end_date && (o as { contract_end_date?: string }).contract_end_date! < hojeStr))
-                const faltaValor = (coverageForm.coverage_type === 'Fixo' || (consultSalario && !jaTemSalario)) && !coverageForm.monthly_amount
+                const faltaValor = (coverageForm.coverage_type === 'Fixo' || (consultSalario && !jaTemSalario)) && !coverageForm.monthly_amount && !coverageForm.parcelas
+                // Datas combinadas + ajuda MENSAL diriam duas coisas: a ajuda mensal iria junto de qual data?
+                const ajudaMensalComDatas = !!coverageForm.parcelas && coverageForm.ajuda_periodo === 'mes' && Number(coverageForm.ajuda_valor) > 0
                 // Unidade é obrigatória nos dois: no Fixo é o local de trabalho;
                 // na Consultoria é de onde sai o valor da visita (sem ela vale R$ 0).
                 // Salário fixo: basta marcar as unidades (o valor por visita não existe)
@@ -2243,10 +2250,11 @@ export default function EmployeeDetail() {
                 const datasComProblema = !!coverageForm.parcelas && (!coverageForm.parcelas.length || problemasDasParcelas(coverageForm.parcelas, coverageForm.end_date).length > 0)
                 const bloqueado = !coverageForm.vinculo_tipo || !coverageForm.agenda_mode
                   || !coverageForm.client_id || faltaValor || faltaUnidade || faltaPag || (!coverageForm.contrato && !entraNoFixo)
-                  || faltaRegraHoras || faltaHoras || faltaEscala || faltaFolgas || faltaAncora || fimAntesDoInicio || datasComProblema
+                  || faltaRegraHoras || faltaHoras || faltaEscala || faltaFolgas || faltaAncora || fimAntesDoInicio || datasComProblema || ajudaMensalComDatas
                 const pendencias = [
                   fimAntesDoInicio && 'a data fim (está antes do início)',
                   datasComProblema && 'acertar as datas de pagamento combinadas',
+                  ajudaMensalComDatas && 'a ajuda de custo (com datas combinadas ela é semanal — a mensal some no valor das datas)',
                   !coverageForm.vinculo_tipo && 'o tipo do vínculo',
                   !coverageForm.client_id && 'o cliente',
                   !coverageForm.agenda_mode && 'quem monta os dias',
@@ -2793,17 +2801,17 @@ export default function EmployeeDetail() {
                               </>
                             ) : (
                               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                <div>
+                                {!editLinkValues.parcelas && <div>
                                   <label className="label text-xs">Salário Mensal (R$)</label>
                                   <input className="input" type="number" value={editLinkValues.monthly_amount}
                                     onChange={e => setEditLinkValues(p => p ? { ...p, monthly_amount: e.target.value } : p)} />
-                                </div>
+                                </div>}
                                 <div className="sm:col-span-2">
-                                  <CampoAjuda valor={editLinkValues.cost_assistance} periodo={editLinkValues.ajuda_periodo}
+                                  <CampoAjuda valor={editLinkValues.cost_assistance} periodo={editLinkValues.ajuda_periodo} comDatas={!!editLinkValues.parcelas}
                                     onValor={v => setEditLinkValues(p => p ? { ...p, cost_assistance: v } : p)}
                                     onPeriodo={v => setEditLinkValues(p => p ? { ...p, ajuda_periodo: v } : p)} />
                                 </div>
-                                {fixoTotal > 0 && editLinkValues.ajuda_periodo === 'mes' && (
+                                {fixoTotal > 0 && editLinkValues.ajuda_periodo === 'mes' && !editLinkValues.parcelas && (
                                   <div className="col-span-2 text-xs text-blue-700 font-medium">
                                     Total: {formatCurrency(fixoTotal)}/mês (salário + ajuda)
                                   </div>
@@ -2919,7 +2927,6 @@ export default function EmployeeDetail() {
                                 <>
                                   {!isConsult && <ComoRecebe datas podeDatas onDatas={() => setEditLinkValues(p => p ? { ...p, parcelas: null } : p)} />}
                                   <CampoDatasCombinadas parcelas={editLinkValues.parcelas} ini={editLinkValues.start_date || hojeISO()} fim={editLinkValues.contract_end_date}
-                                    mensal={(Number(editLinkValues.monthly_amount) || 0) + (editLinkValues.ajuda_periodo === 'mes' ? Number(editLinkValues.cost_assistance) || 0 : 0)}
                                     dia={Number(editLinkValues.payDays[0]) || 15}
                                     onChange={v => setEditLinkValues(p => p ? { ...p, parcelas: v } : p)} />
                                 </>
@@ -2927,8 +2934,8 @@ export default function EmployeeDetail() {
                                 <>
                                 {!isConsult && (
                                   <ComoRecebe datas={false} podeDatas={!!editLinkValues.contract_end_date}
-                                    onDatas={() => setEditLinkValues(p => p ? { ...p, parcelas: sugerirOuVazio(p.start_date || hojeISO(), p.contract_end_date,
-                                      (Number(p.monthly_amount) || 0) + (p.ajuda_periodo === 'mes' ? Number(p.cost_assistance) || 0 : 0), Number(p.payDays[0]) || 15) } : p)} />
+                                    onDatas={() => setEditLinkValues(p => p ? { ...p, parcelas: sugerirOuVazio(p.start_date || hojeISO(), p.contract_end_date, Number(p.monthly_amount) || 0, Number(p.payDays[0]) || 15),
+                                      ajuda_periodo: !(Number(p.cost_assistance) > 0) ? 'semana' : p.ajuda_periodo } : p)} />
                                 )}
                                 <div className="flex gap-3">
                                   {[8, 15, 20].map(day => {
@@ -4953,8 +4960,9 @@ function PortalTab({ employeeId, employee }: { employeeId: string; employee: Rec
  * Mensal vai junto com o salário; semanal sai toda segunda em Pagamentos →
  * Ajuda de custo, sem lançar à mão. Mesmo campo ao vincular e ao editar.
  */
-function CampoAjuda({ valor, periodo, onValor, onPeriodo }: {
+function CampoAjuda({ valor, periodo, onValor, onPeriodo, comDatas }: {
   valor: string; periodo: 'mes' | 'semana'; onValor: (v: string) => void; onPeriodo: (v: 'mes' | 'semana') => void
+  comDatas?: boolean   // datas combinadas: só semanal (a mensal vai no valor das datas)
 }) {
   const n = Number(valor) || 0
   return (
@@ -4964,12 +4972,14 @@ function CampoAjuda({ valor, periodo, onValor, onPeriodo }: {
         <input className="input" type="number" step="0.01" min="0" inputMode="decimal" placeholder="R$ 0,00" value={valor} onChange={e => onValor(e.target.value)} />
         <div className="flex rounded-lg border border-ink-200 p-0.5 bg-ink-50">
           {([['mes', 'Mensal'], ['semana', 'Semanal']] as const).map(([v, t]) => (
-            <button key={v} type="button" onClick={() => onPeriodo(v)}
-              className={`flex-1 py-1.5 text-sm rounded-md font-medium transition-colors ${periodo === v ? 'bg-white text-ink-900 shadow-sm' : 'text-ink-500 hover:text-ink-700'}`}>{t}</button>
+            <button key={v} type="button" onClick={() => onPeriodo(v)} disabled={comDatas && v === 'mes' && periodo !== 'mes'}
+              className={`flex-1 py-1.5 text-sm rounded-md font-medium transition-colors disabled:opacity-40 ${periodo === v ? 'bg-white text-ink-900 shadow-sm' : 'text-ink-500 hover:text-ink-700'}`}>{t}</button>
           ))}
         </div>
       </div>
-      {n > 0 && (
+      {comDatas && periodo === 'mes' && n > 0 ? (
+        <p className="text-xs text-amber-800">Com datas combinadas, a ajuda mensal não sai à parte: troque para <b>Semanal</b> ou some esse valor nas datas.</p>
+      ) : n > 0 && (
         <p className="text-xs text-ink-600">{periodo === 'mes'
           ? <><b>{formatCurrency(n)}/mês</b>, junto com o salário, no dia do pagamento.</>
           : <><b>{formatCurrency(n)}/semana</b>, paga toda segunda em Pagamentos → Ajuda de custo. Não precisa lançar à mão.</>}</p>
@@ -4999,15 +5009,14 @@ function InfoVinculo({ rotulo, valor, sub, destaque, alerta, acao }: {
  * receber só nesse dia". O sistema sugere (uma data por mês de contrato, total =
  * salário + ajuda mensal × meses) e o RH muda data e valor à vontade.
  */
-function CampoDatasCombinadas({ parcelas, ini, fim, mensal, dia, onChange }: {
-  parcelas: Parcela[] | null; ini: string; fim: string; mensal: number; dia: number; onChange: (p: Parcela[] | null) => void
+function CampoDatasCombinadas({ parcelas, ini, fim, dia, onChange }: {
+  parcelas: Parcela[] | null; ini: string; fim: string; dia: number; onChange: (p: Parcela[] | null) => void
 }) {
   const ligado = !!parcelas
   // Dia das datas que já estão na lista (é o que a sugestão repete)
   const diaAtual = Number((parcelas || []).find(p => p.data)?.data.slice(8, 10)) || dia
   const lista = parcelas || []
   const total = lista.reduce((t, p) => t + (Number(p.valor) || 0), 0)
-  const contrato = fim >= ini && mensal > 0 ? valorDoContrato(ini, fim, mensal) : 0
   const problemas = ligado ? problemasDasParcelas(lista, fim) : []
   const muda = (i: number, m: Partial<Parcela>) => onChange(lista.map((p, j) => j === i ? { ...p, ...m } : p))
   return (
@@ -5029,28 +5038,36 @@ function CampoDatasCombinadas({ parcelas, ini, fim, mensal, dia, onChange }: {
           ))}
           <div className="flex items-center gap-3 flex-wrap pt-0.5">
             <button type="button" className="font-medium text-primary-700 hover:underline" onClick={() => onChange([...lista, { data: '', valor: 0 }])}>+ Adicionar data</button>
-            <span className="inline-flex items-center gap-1 text-ink-500">Refazer sugestão no dia
+            <span className="inline-flex items-center gap-1 text-ink-500">Datas no dia
               {[8, 15, 20].map(d => (
                 <button key={d} type="button" className={`px-1.5 py-0.5 rounded border font-medium ${d === diaAtual ? 'border-primary-600 text-primary-700 bg-white' : 'border-ink-200 hover:border-primary-400'}`}
-                  onClick={() => onChange(sugerirOuVazio(ini, fim, mensal, d))}>{d}</button>
+                  onClick={() => onChange(moverDatas(lista, ini, fim, d))}>{d}</button>
               ))}
             </span>
-            <span className="ml-auto text-ink-600">Total: <strong className="tnum">{formatCurrency(total)}</strong>
-              {contrato > 0 && Math.abs(contrato - total) >= 0.01 && <span className="text-amber-700"> · contrato inteiro daria {formatCurrency(contrato)}</span>}</span>
+            <span className="ml-auto text-ink-600">Total do contrato: <strong className="tnum">{formatCurrency(total)}</strong></span>
           </div>
           {problemas.length > 0 && <ul className="text-amber-800 list-disc list-inside">{problemas.map((x, i) => <li key={i}>{x}</li>)}</ul>}
-          {mensal > 0 && total === 0 && <p className="text-amber-800">Sem valor ainda: toque no dia em <strong>Refazer sugestão</strong> para preencher com o salário.</p>}
-          <p className="text-ink-500">Dias 8, 15 ou 20, uma data por mês. O salário mensal é a base: faltas do período de cada data descontam nela (salário ÷ 30). Ajuda de custo mensal já entra no valor das datas; a semanal sai toda segunda em Pagamentos → Ajuda de custo, onde dá para mudar cada semana.</p>
+          {total === 0 && <p className="text-amber-800">Digite quanto ela recebe em cada data.</p>}
+          <p className="text-ink-500">Dias 8, 15 ou 20, uma data por mês. Não precisa de salário: o valor está nas datas. Falta desconta na data do período dela (valor do contrato ÷ dias). Ajuda de custo semanal sai toda segunda em Pagamentos → Ajuda de custo.</p>
         </div>
       )}
     </div>
   )
 }
 
+/** Mesmas datas noutro dia (8/15/20) e na quantidade do contrato, mantendo os valores digitados */
+function moverDatas(lista: Parcela[], ini: string, fim: string, dia: number): Parcela[] {
+  const datas = fim ? sugerirParcelas(ini, fim, 1, dia).map(p => p.data) : []
+  if (!datas.length) return lista
+  const ultimo = [...lista].reverse().find(p => p.valor > 0)?.valor || 0
+  return datas.map((data, i) => ({ data, valor: lista[i]?.valor || ultimo }))
+}
+
 /** Sugestão das datas, ou uma linha em branco para preencher */
 function sugerirOuVazio(ini: string, fim: string, mensal: number, dia: number): Parcela[] {
-  const p = fim ? sugerirParcelas(ini, fim, mensal, dia) : []
-  return p.length ? p : [{ data: '', valor: 0 }]
+  // Sem salário digitado: as datas já vêm, o valor fica para preencher
+  const p = fim ? sugerirParcelas(ini, fim, mensal > 0 ? mensal : 1, dia) : []
+  return p.length ? p.map(x => ({ ...x, valor: mensal > 0 ? x.valor : 0 })) : [{ data: '', valor: 0 }]
 }
 
 /** Uma pergunta só para o pagamento do Fixo: todo mês (8/15/20) ou em datas combinadas */

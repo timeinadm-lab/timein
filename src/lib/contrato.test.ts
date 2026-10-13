@@ -1,5 +1,5 @@
 // Teste do contrato com datas de pagamento combinadas. Rodar: npm run testes
-import { diasDoContrato, salariosDoContrato, sugerirParcelas, problemasDasParcelas, parcelaDoMes, proximaParcela } from './contrato'
+import { diasDoContrato, salariosDoContrato, sugerirParcelas, mensalDasParcelas, problemasDasParcelas, parcelaDoMes, proximaParcela } from './contrato'
 
 let falhas = 0
 const ok = (cond: boolean, nome: string) => {
@@ -32,6 +32,11 @@ ok(problemasDasParcelas([{ data: '2026-11-14', valor: 100 }]).some(p => p.includ
 ok(problemasDasParcelas([{ data: '2026-11-08', valor: 1 }, { data: '2026-11-20', valor: 1 }]).some(p => p.includes('mesmo mês')), 'duas no mesmo mês não vale')
 ok(problemasDasParcelas([{ data: '2026-11-08', valor: 0 }]).some(p => p.includes('valor')), 'valor zero não vale')
 ok(problemasDasParcelas([{ data: '2026-11-08', valor: 10 }], '2026-11-12').some(p => p.includes('depois do fim')), 'avisa se nada cai depois do fim')
+
+// Sem salário digitado: o mensal sai das datas (base de falta ÷ 30)
+ok(mensalDasParcelas(um, '2026-10-13', '2026-11-12') === 5000, '1 data de R$ 5.000 em 1 mês = R$ 5.000/mês (falta = 166,67)')
+ok(mensalDasParcelas(tres, '2026-10-13', '2027-01-12') === 5000, '3 datas de R$ 5.000 em 3 meses = R$ 5.000/mês')
+ok(mensalDasParcelas([{ data: '2026-11-15', valor: 0 }], '2026-10-13', '2026-11-12') === null, 'sem valor: sem mensal')
 
 // Folha: qual parcela cai no mês
 ok(parcelaDoMes(um, '2026-10', '2026-10-13', '2026-11-12') === null, 'outubro: nada')

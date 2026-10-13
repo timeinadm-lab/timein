@@ -1156,7 +1156,9 @@ export default function EmployeeDetail() {
       // mudava de cliente mesmo quando o apagar era recusado logo abaixo
       await passarSalarioDoFixo(linkId)
       // Semanas a pagar da ajuda deste vínculo ficariam soltas, sem contrato
-      await limparSemanasForaDoContrato(linkId, null, '0000-01-01')
+      // (antes passava a data "0000-01-01", que o banco recusa, e o apagar travava)
+      const { error: eSem } = await supabase.from('ajudas_custo').delete().eq('link_id', linkId).eq('status', 'Pendente')
+      if (eSem && !/link_id/.test(eSem.message)) throw new Error(eSem.message)
       const { error } = await supabase.from('employee_client_links').delete().eq('id', linkId)
       if (error) throw error
     },

@@ -1,5 +1,5 @@
 // Testes da Jornada por pessoa. Rodar todos: npm run testes
-import { resumoDoVinculo, textoDoResumo, diasDoVinculoNoMes, folgaPelaEscala, temEscala, feriadosNacionais, feriadoNacional } from './jornadaPessoa'
+import { resumoDoVinculo, textoDoResumo, semanasDeHoras, segundaDa, diasDoVinculoNoMes, folgaPelaEscala, temEscala, feriadosNacionais, feriadoNacional } from './jornadaPessoa'
 import type { VinculoPerfil, RegistroPerfil, AgendaPerfil, AvisoPerfil } from './jornadaPessoa'
 
 let falhas = 0
@@ -122,6 +122,41 @@ const ag = (id: string, dia: string, extra: Partial<AgendaPerfil> = {}): AgendaP
   // Visita em outro cliente não conta aqui
   const r = resumoDoVinculo(consult, MES, '2026-10-30', [{ ...reg('v9', '05'), client_id: 'outro' }], [ag('a1', '05')], [])
   ok(r.feitos === 0 && r.faltas.length === 1, 'registro de outro cliente não cumpre a agenda deste')
+}
+
+// ── Horas na semana: 30h, ela escolhe os dias ──
+console.log('Fixo 30h por semana (dias livres)')
+{
+  const h30: VinculoPerfil = { id: 'L9', client_id: C, service_type: 'Fixo', pay_mode: 'mensal', work_schedule_type: 'horas', horas_semana: 30, monthly_amount: 3000 }
+  const dez = (id: string, data: string, ent = '08:00', sai = '18:00'): RegistroPerfil => ({ id, client_id: C, visit_date: data, check_in: ent, check_out: sai })
+  ok(segundaDa('2026-10-01') === '2026-09-28' && segundaDa('2026-10-05') === '2026-10-05' && segundaDa('2026-10-11') === '2026-10-05', 'segunda da semana (qui 01/10 → 28/09; dom 11/10 → 05/10)')
+  // Semana 05–11/10: 10h seg, 10h qua, 10h sex = 30h
+  // Semana 12–18/10: 8h + 8h + 8h = 24h → faltam 6h
+  // Semana 28/09–04/10: 10h em 30/09 (setembro!) + 10h + 10h = 30h — a semana conta inteira
+  const regs = [
+    dez('a', '2026-10-05'), dez('b', '2026-10-07'), dez('c', '2026-10-09'),
+    dez('d', '2026-10-12', '08:00', '16:00'), dez('e', '2026-10-14', '08:00', '16:00'), dez('f', '2026-10-16', '08:00', '16:00'),
+    dez('g', '2026-09-30'), dez('h', '2026-10-01'), dez('i', '2026-10-02'),
+    { id: 'x', client_id: 'outro', visit_date: '2026-10-13', check_in: '08:00', check_out: '18:00' },
+  ]
+  const sem = semanasDeHoras(h30, MES, '2026-10-20', regs)
+  ok(sem.length === 5 && sem[0].ini === '2026-09-28' && sem[4].fim === '2026-11-01', 'outubro tem 5 semanas (28/09 a 01/11)', sem.map(x => x.ini))
+  ok(sem[0].feitoMin === 1800 && sem[0].status === 'cumpriu', 'semana que vira o mês soma setembro também: 30h, cumpriu', sem[0])
+  ok(sem[1].feitoMin === 1800 && sem[1].status === 'cumpriu', '10h seg + 10h qua + 10h sex = cumpriu', sem[1])
+  ok(sem[2].feitoMin === 1440 && sem[2].faltaMin === 360 && sem[2].status === 'faltou', '24h de 30h: faltaram 6h (outro cliente não conta)', sem[2])
+  ok(sem[3].status === 'andamento' && sem[4].status === 'futura', 'semana de hoje em andamento, a próxima futura')
+  const picado = semanasDeHoras(h30, MES, '2026-10-20', Array.from({ length: 6 }, (_, i) => dez('p' + i, `2026-10-${String(5 + i).padStart(2, '0')}`, '08:00', '13:00')))
+  ok(picado[1].feitoMin === 1800 && picado[1].status === 'cumpriu', 'picado: 5h × 6 dias = 30h, cumpriu')
+  const quase = semanasDeHoras(h30, MES, '2026-10-20', [dez('q1', '2026-10-05', '08:00', '17:55'), dez('q2', '2026-10-07'), dez('q3', '2026-10-09')])
+  ok(quase[1].status === 'cumpriu', '5 min a menos fica na tolerância')
+  // Começou quarta 07/10: meta da semana = 30 × 5/7 = 21h26
+  const comeco = semanasDeHoras({ ...h30, start_date: '2026-10-07' }, MES, '2026-10-20', regs)
+  ok(comeco[0].ini === '2026-10-05' && comeco[0].metaMin === Math.round(1800 * 5 / 7) && comeco[0].feitoMin === 1200, 'começou na quarta: meta 5/7 e só conta a partir dela', comeco[0])
+  const r = resumoDoVinculo(h30, MES, '2026-10-20', regs, [], [])
+  ok(r.modo === 'horas' && r.jornada === null && r.abaixoJornada === 0, 'sem jornada por dia: 10h num dia não é "acima da jornada"')
+  ok(textoDoResumo(r) === '2 de 3 semanas com 30h · 1 abaixo', 'texto do resumo', textoDoResumo(r))
+  ok(r.minutos === 600 * 5 + 480 * 3 && r.faltas.length === 0, 'horas do mês só contam outubro e nenhum dia vira falta', r.minutos)
+  ok(semanasDeHoras({ ...h30, service_type: 'Consultoria' }, MES, '2026-10-20', regs).length === 0, 'consultoria não usa')
 }
 
 console.log(falhas ? `\n${falhas} FALHA(S)` : '\nTodos os testes passaram')

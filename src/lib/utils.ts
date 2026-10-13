@@ -265,7 +265,7 @@ export function recebeMensal(l?: VinculoTipo | null): boolean {
 export type VinculoCadastro = VinculoTipo & {
   monthly_amount?: number | null; daily_rate?: number | null; daily_hours?: number | null
   work_schedule_type?: string | null; days_off?: number[] | null; schedule_anchor_date?: string | null
-  work_start?: string | null; work_end?: string | null
+  work_start?: string | null; work_end?: string | null; horas_semana?: number | null
   link_units?: { visit_rate?: number | null }[] | null
 }
 export function pendenciasDoVinculo(l: VinculoCadastro, ctx: { unidadesComValor: boolean; salarioNoGrupo?: boolean }): string[] {
@@ -284,6 +284,11 @@ export function pendenciasDoVinculo(l: VinculoCadastro, ctx: { unidadesComValor:
   }
   if (!(Number(l.monthly_amount) > 0)) out.push('sem salário — o pagamento sai R$ 0,00')
   const escala = l.work_schedule_type || ''
+  // Horas na semana (091): sem folga e sem horas por dia — só a meta da semana
+  if (escala === 'horas') {
+    if (!(Number(l.horas_semana) > 0)) out.push('sem as horas da semana — a Jornada não confere')
+    return out
+  }
   if (!escala) out.push('sem escala definida — a folha estima 22 dias no chute')
   else if (['5x2', '6x1'].includes(escala) && !(l.days_off || []).length) out.push('sem dias de folga — ela não vê os dias no portal')
   else if (escala === '12x36' && !l.schedule_anchor_date) out.push('sem a data do primeiro plantão — ela não vê os dias no portal')

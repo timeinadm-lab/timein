@@ -106,6 +106,8 @@ const EMPTY_COVERAGE = {
   coverage_type: 'Fixo' as 'Fixo' | 'Consultoria',
   // Fixo
   unit_id: '', work_schedule_type: '', daily_hours: '', days_off: [] as number[], schedule_anchor_date: '',
+  // Escala 'horas' (091): X horas por semana, ela escolhe os dias
+  horas_semana: '',
   // Horário definido (vazio = livre) — Fixo e consultoria com salário
   work_start: '', work_end: '', break_minutes: '',
   // Consultoria
@@ -171,7 +173,7 @@ export default function EmployeeDetail() {
   // Data de hoje em ISO — usada para saber se um vínculo já foi encerrado
   const hojeStr = hojeISO()
   type EditLinkUnit = { unit_id: string; unit_name: string; visit_rate: string }
-  type EditLinkState = { linkId: string; serviceType: string; clientId: string; monthly_amount: string; cost_assistance: string; ajuda_periodo: 'mes' | 'semana'; parcelas: Parcela[] | null; contract_end_date: string; weekly_hours: string; visit_frequency: string; visits_per_week: string; units: EditLinkUnit[]; work_schedule_type: string; daily_hours: string; days_off: number[]; schedule_anchor_date: string; start_date: string; payDays: string[]; pay_full_salary: boolean; expected_days_month: string; work_start: string; work_end: string; break_minutes: string; horas_modo: 'visita' | 'mes'; horas_mes: string }
+  type EditLinkState = { linkId: string; serviceType: string; clientId: string; monthly_amount: string; cost_assistance: string; ajuda_periodo: 'mes' | 'semana'; parcelas: Parcela[] | null; contract_end_date: string; weekly_hours: string; visit_frequency: string; visits_per_week: string; units: EditLinkUnit[]; work_schedule_type: string; daily_hours: string; days_off: number[]; schedule_anchor_date: string; horas_semana: string; start_date: string; payDays: string[]; pay_full_salary: boolean; expected_days_month: string; work_start: string; work_end: string; break_minutes: string; horas_modo: 'visita' | 'mes'; horas_mes: string }
   const [editLinkValues, setEditLinkValues] = useState<EditLinkState | null>(null)
   // Intervalo do contrato do cliente (o portal não pede intervalo; a conta das
   // horas desconta o do vínculo — mesma regra do portal e do aviso de jornada)
@@ -533,8 +535,10 @@ export default function EmployeeDetail() {
           ? { break_minutes: Number(coverageForm.break_minutes) } : {}),
         ...(isFixo ? {
           work_schedule_type: coverageForm.work_schedule_type || null,
-          daily_hours: coverageForm.daily_hours ? Number(coverageForm.daily_hours) : null,
-          days_off: coverageForm.work_schedule_type !== '12x36' ? coverageForm.days_off : [],
+          daily_hours: coverageForm.work_schedule_type !== 'horas' && coverageForm.daily_hours ? Number(coverageForm.daily_hours) : null,
+          days_off: !['12x36', 'horas'].includes(coverageForm.work_schedule_type) ? coverageForm.days_off : [],
+          // Só vai quando usa: antes da migração 091 a coluna não existe
+          ...(coverageForm.work_schedule_type === 'horas' ? { horas_semana: Number(coverageForm.horas_semana) || null } : {}),
           schedule_anchor_date: coverageForm.work_schedule_type === '12x36' ? (coverageForm.schedule_anchor_date || null) : null,
         } : {
           visit_frequency: coverageForm.visit_frequency,
@@ -562,6 +566,7 @@ export default function EmployeeDetail() {
       }
       let { data: newLink, error } = await supabase.from('employee_client_links').insert(registroVinculo).select('id').single()
       if (error && /parcelas/.test(error.message)) throw new Error('Rode a migração 089 no Supabase para usar datas de pagamento combinadas.')
+      if (error && /horas_semana/.test(error.message)) throw new Error('Rode a migração 091 no Supabase para usar horas por semana.')
       if (error && coverageForm.consult_salario && /pay_mode|check/i.test(error.message)) throw new Error('Falta rodar a migração 060 no Supabase para usar consultoria com salário fixo.')
       // Migração 058 ainda não rodada: grava no formato antigo (Volante)
       if (error && /pay_mode|is_temporary/i.test(error.message)) {
@@ -988,6 +993,7 @@ export default function EmployeeDetail() {
         daily_hours: String((l as { daily_hours?: number }).daily_hours || ''),
         days_off: ((l as { days_off?: number[] }).days_off) || [],
         schedule_anchor_date: (l as { schedule_anchor_date?: string }).schedule_anchor_date || '',
+        horas_semana: String((l as { horas_semana?: number }).horas_semana || ''),
         start_date: (l as { start_date?: string }).start_date || '',
         payDays: l.service_type === 'Consultoria' && (l as { pay_mode?: string }).pay_mode !== 'salario_fixo' ? ['8', '20'] : (l.payment_dates || []).map(d => String(d.day_of_month)).filter(d => ['8', '15', '20'].includes(d)).sort((a, b) => Number(a) - Number(b)),
         pay_full_salary: (l as { pay_full_salary?: boolean }).pay_full_salary ?? false,
@@ -1281,8 +1287,8 @@ export default function EmployeeDetail() {
         visits_per_week: isConsult ? (vals.visits_per_week ? Number(vals.visits_per_week) : null) : undefined,
         // Escala (Fixo) — portal usa para cobrar dias e calcular hora extra
         work_schedule_type: !isConsult ? (vals.work_schedule_type || null) : undefined,
-        daily_hours: !isConsult ? (vals.daily_hours ? Number(vals.daily_hours) : null) : undefined,
-        days_off: !isConsult ? (vals.days_off.length ? vals.days_off : null) : undefined,
+        daily_hours: !isConsult ? (vals.work_schedule_type !== 'horas' && vals.daily_hours ? Number(vals.daily_hours) : null) : undefined,
+        days_off: !isConsult ? (vals.work_schedule_type !== 'horas' && vals.days_off.length ? vals.days_off : null) : undefined,
         schedule_anchor_date: !isConsult ? (vals.work_schedule_type === '12x36' && vals.schedule_anchor_date ? vals.schedule_anchor_date : null) : undefined,
         // Vazio não apaga: o vínculo sempre tem início (o vincular grava hoje se ninguém escolher)
         start_date: vals.start_date || undefined,
@@ -1299,6 +1305,12 @@ export default function EmployeeDetail() {
         if (vals.ajuda_periodo === 'mes' && Number(vals.cost_assistance) > 0) throw new Error('Com datas combinadas a ajuda de custo é semanal. A mensal some no valor das datas.')
       }
       if (datasAgora || tinhaDatas) atualizacao.parcelas = datasAgora
+      // Horas por semana (091): só mexe na coluna se usa agora ou usava antes
+      const usavaHoras = Number((linkAntes as { horas_semana?: number } | undefined)?.horas_semana) > 0
+      if (!isConsult && vals.work_schedule_type === 'horas') {
+        if (!(Number(vals.horas_semana) > 0)) throw new Error('Informe quantas horas por semana.')
+        atualizacao.horas_semana = Number(vals.horas_semana)
+      } else if (usavaHoras) atualizacao.horas_semana = null
       // A caixinha antiga (088) vira a lista: desliga para não valer duas regras
       if (linkAntes?.paga_ao_concluir) atualizacao.paga_ao_concluir = false
       // Horário definido (Fixo / consultoria com salário). Só vai no update quando
@@ -1316,6 +1328,7 @@ export default function EmployeeDetail() {
       if (error && /work_start|work_end|break_minutes/.test(error.message)) throw new Error('Falta rodar a migração 067 no Supabase para gravar o horário.')
       if (error && /cost_assistance_periodo/.test(error.message)) throw new Error('Rode a migração 085 para usar ajuda de custo semanal.')
       if (error && /parcelas/.test(error.message)) throw new Error('Rode a migração 089 no Supabase para usar datas de pagamento combinadas.')
+      if (error && /horas_semana/.test(error.message)) throw new Error('Rode a migração 091 no Supabase para usar horas por semana.')
       // Migração 058 ainda não rodada: diária volta a ser gravada como Volante
       if (error && consultSalario && /pay_mode|check/i.test(error.message)) throw new Error('Falta rodar a migração 060 no Supabase para usar consultoria com salário fixo.')
       if (error && /pay_mode/i.test(error.message)) {
@@ -2017,14 +2030,24 @@ export default function EmployeeDetail() {
                       <option value="5x2">5×2 (5 dias / 2 folgas)</option>
                       <option value="6x1">6×1 (6 dias / 1 folga)</option>
                       <option value="12x36">12×36 (12h trabalho / 36h folga)</option>
+                      <option value="horas">Horas por semana (ela escolhe os dias)</option>
                     </select>
                   </div>
-                  <div>
-                    <label className="label">Horas por dia *</label>
-                    <input className="input" type="number" step="0.5" min="1" max="24" placeholder="Ex: 8"
-                      value={coverageForm.daily_hours} onChange={e => setCoverageForm(p => ({ ...p, daily_hours: e.target.value }))} />
-                  </div>
-                  {coverageForm.work_schedule_type && coverageForm.work_schedule_type !== '12x36' && (
+                  {coverageForm.work_schedule_type === 'horas' ? (
+                    <div>
+                      <label className="label">Horas por semana *</label>
+                      <input className="input" type="number" step="0.5" min="1" max="168" placeholder="Ex: 30"
+                        value={coverageForm.horas_semana} onChange={e => setCoverageForm(p => ({ ...p, horas_semana: e.target.value }))} />
+                      <p className="text-[11px] text-ink-500 mt-1">Ela bate o ponto nos dias que quiser (10h seg, 10h qua, 10h sex, ou picado). A Jornada soma de segunda a domingo e avisa a semana que não fechou.</p>
+                    </div>
+                  ) : (
+                    <div>
+                      <label className="label">Horas por dia *</label>
+                      <input className="input" type="number" step="0.5" min="1" max="24" placeholder="Ex: 8"
+                        value={coverageForm.daily_hours} onChange={e => setCoverageForm(p => ({ ...p, daily_hours: e.target.value }))} />
+                    </div>
+                  )}
+                  {coverageForm.work_schedule_type && !['12x36', 'horas'].includes(coverageForm.work_schedule_type) && (
                     <div>
                       <label className="label">Dias de folga</label>
                       <div className="flex gap-1.5 flex-wrap">
@@ -2242,6 +2265,8 @@ export default function EmployeeDetail() {
                 const faltaFolgas = isFixoEscala
                   && ['5x2', '6x1'].includes(coverageForm.work_schedule_type)
                   && coverageForm.days_off.length === 0
+                const faltaHorasSemana = coverageForm.coverage_type === 'Fixo'
+                  && coverageForm.work_schedule_type === 'horas' && !(Number(coverageForm.horas_semana) > 0)
                 const faltaAncora = isFixoEscala
                   && coverageForm.work_schedule_type === '12x36'
                   && !coverageForm.schedule_anchor_date
@@ -2250,7 +2275,7 @@ export default function EmployeeDetail() {
                 const datasComProblema = !!coverageForm.parcelas && (!coverageForm.parcelas.length || problemasDasParcelas(coverageForm.parcelas, coverageForm.end_date).length > 0)
                 const bloqueado = !coverageForm.vinculo_tipo || !coverageForm.agenda_mode
                   || !coverageForm.client_id || faltaValor || faltaUnidade || faltaPag || (!coverageForm.contrato && !entraNoFixo)
-                  || faltaRegraHoras || faltaHoras || faltaEscala || faltaFolgas || faltaAncora || fimAntesDoInicio || datasComProblema || ajudaMensalComDatas
+                  || faltaRegraHoras || faltaHoras || faltaEscala || faltaFolgas || faltaHorasSemana || faltaAncora || fimAntesDoInicio || datasComProblema || ajudaMensalComDatas
                 const pendencias = [
                   fimAntesDoInicio && 'a data fim (está antes do início)',
                   datasComProblema && 'acertar as datas de pagamento combinadas',
@@ -2266,6 +2291,7 @@ export default function EmployeeDetail() {
                   faltaHoras && (coverageForm.horas_obrigatorias === 'mes' ? 'quantas horas no mês' : 'quantas horas tem a visita'),
                   faltaEscala && 'a escala de trabalho',
                   faltaFolgas && 'quais dias da semana são folga (sem isso ela não vê os dias no portal)',
+                  faltaHorasSemana && 'quantas horas por semana',
                   faltaAncora && 'a data do primeiro plantão (é dela que sai o dia sim, dia não)',
                   faltaPag && 'pelo menos um dia de pagamento',
                   !coverageForm.contrato && 'se exige contrato assinado',
@@ -2465,7 +2491,9 @@ export default function EmployeeDetail() {
                         const horario = x.work_start && x.work_end ? `${x.work_start.slice(0, 5)}–${x.work_end.slice(0, 5)}` : ''
                         const rotina = ehConsult
                           ? [x.visit_frequency === 'Avulso' ? 'Em aberto' : x.visit_frequency, x.visits_per_week ? `${x.visits_per_week}x/sem` : '', l.weekly_hours_quota ? `${l.weekly_hours_quota}h/visita` : Number(x.monthly_hours_quota) > 0 ? `${x.monthly_hours_quota}h/mês` : '', horario].filter(Boolean).join(' · ')
-                          : [x.work_schedule_type, horario].filter(Boolean).join(' · ')
+                          : x.work_schedule_type === 'horas'
+                            ? [`${String((l as { horas_semana?: number }).horas_semana || '?').replace('.', ',')}h por semana · dias livres`, horario].filter(Boolean).join(' · ')
+                            : [x.work_schedule_type, horario].filter(Boolean).join(' · ')
                         const statusContrato = encerrado ? { t: `Encerrado em ${formatDate(contractEnd!)}`, c: 'bg-ink-200 text-ink-700' }
                           : daysLeft !== null ? { t: expired ? `Vencido há ${Math.abs(daysLeft)}d` : `Vence em ${daysLeft}d`, c: expired ? 'bg-red-100 text-red-700' : expiringSoon ? 'bg-amber-100 text-amber-700' : 'bg-green-50 text-green-700' }
                           : !noFixo && (l.service_type === 'Fixo' || l.service_type === 'Consultoria') ? { t: 'Sem data de fim', c: 'bg-ink-100 text-ink-500' } : null
@@ -2827,13 +2855,25 @@ export default function EmployeeDetail() {
                                     <option value="6x1">6x1</option>
                                     <option value="12x36">12x36</option>
                                     <option value="Plantão">Plantão</option>
+                                    <option value="horas">Horas por semana</option>
                                   </select>
                                 </div>
-                                <div>
-                                  <label className="label text-xs">Horas por dia</label>
-                                  <input className="input text-sm" type="number" min={1} max={24} placeholder="Ex: 8" value={editLinkValues.daily_hours}
-                                    onChange={e => setEditLinkValues(p => p ? { ...p, daily_hours: e.target.value } : p)} />
-                                </div>
+                                {editLinkValues.work_schedule_type === 'horas' ? (
+                                  <div>
+                                    <label className="label text-xs">Horas por semana</label>
+                                    <input className="input text-sm" type="number" step="0.5" min={1} max={168} placeholder="Ex: 30" value={editLinkValues.horas_semana}
+                                      onChange={e => setEditLinkValues(p => p ? { ...p, horas_semana: e.target.value } : p)} />
+                                  </div>
+                                ) : (
+                                  <div>
+                                    <label className="label text-xs">Horas por dia</label>
+                                    <input className="input text-sm" type="number" min={1} max={24} placeholder="Ex: 8" value={editLinkValues.daily_hours}
+                                      onChange={e => setEditLinkValues(p => p ? { ...p, daily_hours: e.target.value } : p)} />
+                                  </div>
+                                )}
+                                {editLinkValues.work_schedule_type === 'horas' && (
+                                  <p className="col-span-2 text-[11px] text-ink-500 -mt-1">Ela escolhe os dias. A Jornada soma de segunda a domingo e avisa a semana que não fechou.</p>
+                                )}
                                 <HorarioVinculo compacto inicio={editLinkValues.work_start} fim={editLinkValues.work_end}
                                   onChange={(i, f) => setEditLinkValues(p => p ? { ...p, work_start: i, work_end: f } : p)}
                                     intervalo={editLinkValues.break_minutes} onIntervalo={v => setEditLinkValues(p => p ? { ...p, break_minutes: v } : p)} />

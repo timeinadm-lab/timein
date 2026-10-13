@@ -7,7 +7,7 @@ import { supabase, fetchAll } from '../../lib/supabase'
 import { formatDate, formatCurrency, corDoAvatar, hojeISO, semAcento, rotuloDoVinculo, tipoDoVinculo, pagaPorDiaria } from '../../lib/utils'
 import { buscarForaDaJornada, textoDoDesvio, TOLERANCIA_MIN } from '../../lib/jornada'
 import type { DiaForaDaJornada } from '../../lib/jornada'
-import { resumoDoVinculo, textoDoResumo, vinculoNoMes } from '../../lib/jornadaPessoa'
+import { resumoDoVinculo, textoDoResumo, vinculoNoMes, segundaDa, horasNaSemana } from '../../lib/jornadaPessoa'
 import type { ResumoVinculo, StatusDia, VinculoPerfil, RegistroPerfil, AgendaPerfil, AvisoPerfil, DiaPerfil } from '../../lib/jornadaPessoa'
 import { limitesDoMes } from '../../lib/pagamentosPorDia'
 import { gerarPdfJornada } from '../../lib/jornadaPdf'
@@ -156,6 +156,10 @@ const diaCurto = (ds: string) => `${ds.slice(8, 10)}/${ds.slice(5, 7)}`
 /** Vínculos, registros, agenda e avisos do mês — de todos ou de uma pessoa */
 async function carregarMes(mes: string, pessoa?: string): Promise<DadosMes> {
   const { inicio, fim } = limitesDoMes(mes)
+  // Registros de seg→dom das semanas que tocam o mês: quem cumpre horas por semana
+  // tem a semana de 28/09 a 04/10 contada inteira (o resto da tela filtra o mês)
+  const regIni = segundaDa(inicio)
+  const regFim = (() => { const d = new Date(segundaDa(fim) + 'T12:00:00'); d.setDate(d.getDate() + 6); return d.toISOString().slice(0, 10) })()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const porPessoa = (q: any) => (pessoa ? q.eq('employee_id', pessoa) : q)
   const [links, regs, agenda, avisosR] = await Promise.all([
@@ -163,7 +167,7 @@ async function carregarMes(mes: string, pessoa?: string): Promise<DadosMes> {
     fetchAll<DadosMes['links'][number]>(() => porPessoa(supabase.from('employee_client_links').select('*, client:clients(name), employee:employees(id, full_name, status, cpf)')).order('id')),
     fetchAll<DadosMes['regs'][number]>(() => porPessoa(supabase.from('nutritionist_visits')
       .select('id, employee_id, client_id, visit_date, check_in, check_out, break_start, break_end, is_extra, is_unavailable, is_holiday, is_swap, swapped_from, visit_rate, extra_approval, unit_name, observations, report_url, atestado_url, unavailability_reason, jornada_seen_at'))
-      .gte('visit_date', inicio).lte('visit_date', fim).order('id')),
+      .gte('visit_date', regIni).lte('visit_date', regFim).order('id')),
     fetchAll<DadosMes['agenda'][number]>(() => porPessoa(supabase.from('nutritionist_agenda').select('*'))
       .gte('planned_date', inicio).lte('planned_date', fim).order('id')),
     porPessoa(supabase.from('schedule_notices').select('*'))
@@ -203,7 +207,7 @@ function resumosDaPessoa(d: DadosMes, pessoa: string, mes: string, hoje: string,
 /** Consultor em muitos clientes: cartão só para quem tem agenda ou registro no mês */
 const temMovimento = (r: ResumoVinculo) => r.modo !== 'agenda' || (r.previstos ?? 0) > 0 || r.feitos > 0 || r.extras > 0 || r.dias.length > 0
 
-const temAtencao = (r: ResumoVinculo) => r.faltas.length > 0 || r.trocasNaoVistas > 0 || r.abaixoJornada > 0 || r.semValor > 0
+const temAtencao = (r: ResumoVinculo) => r.faltas.length > 0 || r.semanas.some(x => x.status === 'faltou') || r.trocasNaoVistas > 0 || r.abaixoJornada > 0 || r.semValor > 0
 
 function rotuloVinculo(r: ResumoVinculo): string {
   const l = r.link
@@ -212,6 +216,7 @@ function rotuloVinculo(r: ResumoVinculo): string {
     const folgas = (l.days_off || []).slice().sort().map(d => DIAS_SEMANA[d]).join(' e ')
     partes.push(l.work_schedule_type === '12x36' ? '12x36' : `${l.work_schedule_type || 'escala'}${folgas ? ` · folga ${folgas}` : ''}`)
   }
+  if (r.modo === 'horas') partes.push(`${String(horasNaSemana(l)).replace('.', ',')}h por semana · dias livres`)
   if (r.modo === 'agenda') partes.push(l.agenda_mode === 'gestor' ? 'agenda montada pelo RH' : 'agenda dela')
   if (r.jornada) {
     partes.push(`jornada ${horasTxt(r.jornada.minutos)}${r.jornada.entrada && r.jornada.saida ? ` (${r.jornada.entrada}–${r.jornada.saida})` : ''}${r.jornada.intervaloMin ? ` + ${horasTxt(r.jornada.intervaloMin)} intervalo` : ''}`)
@@ -244,7 +249,7 @@ function ListaPessoas({ mes, abrir, filtroInicial }: { mes: string; abrir: (id: 
   const pessoas = useMemo(() => {
     if (!data) return []
     const ids = new Set(data.links.filter(l => l.employee?.status === 'Ativo').map(l => l.employee_id))
-    for (const r of data.regs) ids.add(r.employee_id)
+    for (const r of data.regs) if (r.visit_date.startsWith(mes)) ids.add(r.employee_id)
     return [...ids].map(id => {
       const emp = data.links.find(l => l.employee_id === id)?.employee
       const resumos = resumosDaPessoa(data, id, mes, hoje, nomeCliente)
@@ -516,7 +521,10 @@ function PerfilJornada({ pessoa, mes, voltar }: { pessoa: string; mes: string; v
           {/* Um cartão por vínculo: previsto × feito */}
           <div className={`grid gap-3 ${varios ? 'md:grid-cols-2' : ''}`}>
             {resumos.map(r => {
-              const pct = r.previstos ? Math.min(100, Math.round((r.feitos / r.previstos) * 100)) : null
+              const fechadas = r.semanas.filter(x => x.status === 'cumpriu' || x.status === 'faltou')
+              const cumpridas = fechadas.filter(x => x.status === 'cumpriu').length
+              const pct = r.modo === 'horas' ? (fechadas.length ? Math.round((cumpridas / fechadas.length) * 100) : null)
+                : r.previstos ? Math.min(100, Math.round((r.feitos / r.previstos) * 100)) : null
               const l = r.link
               const salario = Number(l.monthly_amount) || 0
               const ajuda = Number(l.cost_assistance) || 0
@@ -527,16 +535,39 @@ function PerfilJornada({ pessoa, mes, voltar }: { pessoa: string; mes: string; v
                       <p className="font-semibold text-ink-900 truncate">{nomeCliente(l.client_id) || 'Cliente'}</p>
                       <p className="text-[11px] text-ink-500 mt-0.5">{rotuloVinculo(r)}</p>
                     </div>
-                    <div className="text-right shrink-0">
+                    {r.modo === 'horas' ? (
+                      <div className="text-right shrink-0">
+                        <p className="text-2xl font-semibold text-ink-900 tnum leading-none">
+                          {cumpridas}<span className="text-base text-ink-400 font-normal"> de {fechadas.length}</span>
+                        </p>
+                        <p className="text-[11px] text-ink-500 mt-1">semanas fechadas</p>
+                      </div>
+                    ) : <div className="text-right shrink-0">
                       <p className="text-2xl font-semibold text-ink-900 tnum leading-none">
                         {r.feitos}{r.previstos != null && <span className="text-base text-ink-400 font-normal"> de {r.previstos}</span>}
                       </p>
                       <p className="text-[11px] text-ink-500 mt-1">{r.unidade}{r.extras > 0 && <span className="text-violet-700 font-medium"> + {r.extras} {r.modo === 'agenda' ? 'fora da agenda' : 'extra'}</span>}</p>
-                    </div>
+                    </div>}
                   </div>
                   {pct != null && (
                     <div className="h-2 bg-ink-100 rounded-full overflow-hidden">
-                      <div className={`h-2 rounded-full ${r.faltas.length ? 'bg-amber-500' : 'bg-primary-600'}`} style={{ width: `${pct}%` }} />
+                      <div className={`h-2 rounded-full ${r.faltas.length || cumpridas < fechadas.length ? 'bg-amber-500' : 'bg-primary-600'}`} style={{ width: `${pct}%` }} />
+                    </div>
+                  )}
+                  {r.modo === 'horas' && r.semanas.some(x => x.status !== 'futura') && (
+                    // Semana a semana (seg→dom): fechou, faltou quanto, ou quanto falta na de agora
+                    <div className="rounded-lg border border-ink-100 divide-y divide-ink-100 text-xs">
+                      {r.semanas.filter(x => x.status !== 'futura').map(x => (
+                        <div key={x.ini} className="flex items-center justify-between gap-2 px-2.5 py-1.5">
+                          <span className="text-ink-600 tnum">{diaCurto(x.ini)} a {diaCurto(x.fim)}</span>
+                          <span className={`tnum font-medium ${x.status === 'cumpriu' ? 'text-emerald-700' : x.status === 'faltou' ? 'text-red-700' : 'text-ink-700'}`}>
+                            {horasTxt(x.feitoMin)} de {horasTxt(x.metaMin)}
+                            {x.status === 'cumpriu' && ' · fechou'}
+                            {x.status === 'faltou' && ` · faltaram ${horasTxt(x.faltaMin)}`}
+                            {x.status === 'andamento' && ` · faltam ${horasTxt(x.faltaMin)} até ${diaCurto(x.fim)}`}
+                          </span>
+                        </div>
+                      ))}
                     </div>
                   )}
                   <div className="flex flex-wrap gap-1.5 text-[11px]">

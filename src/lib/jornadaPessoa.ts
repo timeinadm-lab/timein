@@ -8,6 +8,8 @@
 //     visitas". Visita marcada que passou sem registro = falta; visita feita
 //     fora da agenda conta à parte; troca (de dia ou de cliente) fica marcada.
 //   · Horas de cada dia × jornada do vínculo (quando houver).
+//   · Fixo por HORAS NA SEMANA (13/10, migração 091): "30h por semana", ela
+//     escolhe os dias (10h seg, 10h qua, 10h sex ou picado). Conta seg→dom.
 // Sem React e sem banco: testado em jornadaPessoa.test.ts.
 // ============================================================
 import { tipoDoVinculo, salarioConsultoria } from './utils'
@@ -40,6 +42,7 @@ export type VinculoPerfil = {
   break_minutes?: number | null
   expected_days_month?: number | null
   agenda_mode?: string | null
+  horas_semana?: number | null
 }
 
 export type RegistroPerfil = {
@@ -114,10 +117,20 @@ export type DiaPerfil = {
   trocaNaoVista?: boolean
 }
 
+/** Uma semana (seg→dom) de quem cumpre horas na semana */
+export type SemanaHoras = {
+  ini: string; fim: string
+  metaMin: number               // proporcional se o vínculo começa/termina no meio da semana
+  feitoMin: number
+  faltaMin: number              // quanto falta (0 = cumpriu)
+  status: 'cumpriu' | 'faltou' | 'andamento' | 'futura'
+}
+
 export type ResumoVinculo = {
   link: VinculoPerfil
-  modo: 'escala' | 'agenda' | 'livre'
-  unidade: 'dias' | 'visitas'
+  modo: 'escala' | 'agenda' | 'livre' | 'horas'
+  unidade: 'dias' | 'visitas' | 'semanas'
+  semanas: SemanaHoras[]
   previstos: number | null
   feitos: number
   extras: number
@@ -202,6 +215,45 @@ export function folgaPelaEscala(link: VinculoPerfil, ds: string): boolean {
 
 const trabalhou = (r: RegistroPerfil) => !!r.check_in && !!r.check_out && !r.is_unavailable
 
+// ── Horas na semana ──────────────────────────────────────────────────────
+/** Vínculo Fixo que cumpre X horas por semana, nos dias que ela quiser */
+export function horasNaSemana(link: VinculoPerfil): number {
+  return tipoDoVinculo(link) === 'Fixo' && link.work_schedule_type === 'horas' ? Number(link.horas_semana) || 0 : 0
+}
+const somaDias = (ds: string, n: number) => {
+  const d = new Date(ds + 'T12:00:00'); d.setDate(d.getDate() + n)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+/** Segunda-feira da semana do dia */
+export const segundaDa = (ds: string) => somaDias(ds, -((new Date(ds + 'T12:00:00').getDay() + 6) % 7))
+
+/**
+ * Semanas (seg→dom) que tocam o mês, com a meta e o que ela fez em cada uma.
+ * A semana conta inteira, mesmo a que vira o mês (29/09 a 05/10): por isso os
+ * registros precisam vir de até 6 dias antes e depois do mês.
+ * Começou na quarta? A meta da 1ª semana é 5/7 das horas (o mesmo no fim).
+ */
+export function semanasDeHoras(link: VinculoPerfil, mes: string, hoje: string, registros: RegistroPerfil[]): SemanaHoras[] {
+  const horas = horasNaSemana(link)
+  if (!horas) return []
+  const dias = diasDoMes(mes)
+  const dentro = (ds: string) => (!link.start_date || ds >= link.start_date) && (!link.contract_end_date || ds <= link.contract_end_date)
+  const regs = registros.filter(r => r.client_id === link.client_id && trabalhou(r) && dentro(r.visit_date))
+  const out: SemanaHoras[] = []
+  for (let ini = segundaDa(dias[0]); ini <= dias[dias.length - 1]; ini = somaDias(ini, 7)) {
+    const fim = somaDias(ini, 6)
+    const valendo = Array.from({ length: 7 }, (_, i) => somaDias(ini, i)).filter(dentro).length
+    if (!valendo) continue
+    const metaMin = Math.round(horas * 60 * valendo / 7)
+    const feitoMin = regs.filter(r => r.visit_date >= ini && r.visit_date <= fim)
+      .reduce((s, r) => s + minutosLiquidos(r, link.break_minutes), 0)
+    const faltaMin = feitoMin >= metaMin - TOLERANCIA_MIN ? 0 : metaMin - feitoMin
+    const status: SemanaHoras['status'] = fim < hoje ? (faltaMin ? 'faltou' : 'cumpriu') : ini > hoje ? 'futura' : faltaMin ? 'andamento' : 'cumpriu'
+    out.push({ ini, fim, metaMin, feitoMin, faltaMin, status })
+  }
+  return out
+}
+
 // ── Resumo de um vínculo no mês ──────────────────────────────────────────
 export function resumoDoVinculo(
   link: VinculoPerfil,
@@ -216,7 +268,8 @@ export function resumoDoVinculo(
   const regs = registros.filter(r => r.client_id === link.client_id && periodo.has(r.visit_date))
   const jornada = jornadaDoVinculo(link)
   const porVisita = tipoDoVinculo(link) === 'Consultoria' && !salarioConsultoria(link)
-  const modo: ResumoVinculo['modo'] = tipoDoVinculo(link) === 'Consultoria' ? 'agenda' : temEscala(link) ? 'escala' : 'livre'
+  const modo: ResumoVinculo['modo'] = tipoDoVinculo(link) === 'Consultoria' ? 'agenda' : horasNaSemana(link) ? 'horas' : temEscala(link) ? 'escala' : 'livre'
+  const semanas = modo === 'horas' ? semanasDeHoras(link, mes, hoje, registros) : []
 
   const dias: DiaPerfil[] = []
   let minutos = 0, abaixoJornada = 0, acimaJornada = 0, valorVisitas = 0, semValor = 0
@@ -357,8 +410,9 @@ export function resumoDoVinculo(
       dias.push(diaDeRegistro(r, 'fora', 'Visita fora da agenda'))
     }
   } else {
-    // Fixo sem escala definida: conta o que foi registrado; previsto = dias esperados do vínculo, se houver
-    previstos = Number(link.expected_days_month) > 0 ? Number(link.expected_days_month) : null
+    // Fixo sem escala definida: conta o que foi registrado; previsto = dias esperados do vínculo, se houver.
+    // Horas na semana: os dias são livres (o que conta é a semana, em `semanas`)
+    previstos = modo === 'horas' ? null : Number(link.expected_days_month) > 0 ? Number(link.expected_days_month) : null
     faltas.push(...faltasRegistradas.map(f => f.visit_date))
     for (const fg of folgasReg.values()) dias.push({ data: fg.visit_date, linkId: link.id, clientId: link.client_id || '', status: 'folga', titulo: 'Folga dispensada', detalhe: fg.unavailability_reason || undefined, registro: fg })
     for (const r of trabalhados) {
@@ -369,7 +423,7 @@ export function resumoDoVinculo(
 
   dias.sort((a, b) => a.data.localeCompare(b.data))
   return {
-    link, modo, unidade: modo === 'agenda' ? 'visitas' : 'dias',
+    link, modo, unidade: modo === 'agenda' ? 'visitas' : 'dias', semanas,
     previstos, feitos, extras, faltas: faltas.sort(), restantes, trocas, trocasNaoVistas,
     minutos, jornada, abaixoJornada, acimaJornada,
     valorVisitas: Math.round(valorVisitas * 100) / 100, semValor, dias,
@@ -378,6 +432,13 @@ export function resumoDoVinculo(
 
 /** "23 de 23 dias + 1 extra" / "8 de 10 visitas" / "12 dias trabalhados" */
 export function textoDoResumo(r: ResumoVinculo): string {
+  if (r.modo === 'horas') {
+    // "3 de 4 semanas com 30h · 1 abaixo" — a semana em curso não conta como falta
+    const fechadas = r.semanas.filter(s => s.status === 'cumpriu' || s.status === 'faltou')
+    const abaixo = r.semanas.filter(s => s.status === 'faltou').length
+    const h = String(horasNaSemana(r.link)).replace('.', ',')
+    return `${fechadas.length - abaixo} de ${fechadas.length} ${fechadas.length === 1 ? 'semana' : 'semanas'} com ${h}h${abaixo ? ` · ${abaixo} abaixo` : ''}`
+  }
   const u = r.unidade
   const base = r.previstos != null
     ? `${r.feitos} de ${r.previstos} ${u === 'dias' ? (r.previstos === 1 ? 'dia' : 'dias') : (r.previstos === 1 ? 'visita' : 'visitas')}`

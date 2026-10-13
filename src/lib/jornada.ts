@@ -17,7 +17,7 @@ export const TOLERANCIA_MIN = 10
 export type VinculoJornada = {
   id?: string; employee_id?: string; client_id?: string | null
   service_type?: string | null; coverage_type?: string | null; pay_mode?: string | null; is_temporary?: boolean | null
-  daily_hours?: number | null; weekly_hours_quota?: number | null
+  daily_hours?: number | null; weekly_hours_quota?: number | null; work_schedule_type?: string | null
   work_start?: string | null; work_end?: string | null; break_minutes?: number | null
   start_date?: string | null; contract_end_date?: string | null
 }
@@ -59,6 +59,8 @@ export function jornadaDoVinculo(l?: VinculoJornada | null): Jornada | null {
   if (!l) return null
   const cobra = tipoDoVinculo(l) === 'Fixo' || salarioConsultoria(l)
   if (!cobra) return null
+  // Horas na semana: ela escolhe quanto faz em cada dia — conta a semana, não o dia
+  if (tipoDoVinculo(l) === 'Fixo' && l.work_schedule_type === 'horas') return null
   const entrada = l.work_start ? l.work_start.slice(0, 5) : null
   const saida = l.work_end ? l.work_end.slice(0, 5) : null
   const horas = tipoDoVinculo(l) === 'Fixo' ? Number(l.daily_hours) : Number(l.weekly_hours_quota) || Number(l.daily_hours)

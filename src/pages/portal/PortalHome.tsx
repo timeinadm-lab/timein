@@ -17,6 +17,8 @@ import { CampoHora, horaAgora, temRelogioNativo } from './CampoHora'
 import PortalQualidade from './PortalQualidade'
 import { jornadaDoVinculo, desvioDoDia, textoDoDesvio, TOLERANCIA_MIN, minutosLiquidos } from '../../lib/jornada'
 import type { VinculoJornada } from '../../lib/jornada'
+import { semanasDeHoras, horasNaSemana } from '../../lib/jornadaPessoa'
+import type { VinculoPerfil, RegistroPerfil } from '../../lib/jornadaPessoa'
 
 // Ela desistiu num diálogo de confirmação: não é erro, não mostra aviso
 const CANCELADO = '__cancelado__'
@@ -216,6 +218,18 @@ export default function PortalHome() {
     enabled: !!token && tab === 'agenda',
   })
   const agendaVisits = monthAgenda?.visits as any[] | undefined
+  // Horas por semana (091): a semana que vira o mês (29/09 a 05/10) conta inteira,
+  // então busca também os registros do mês anterior e do seguinte — só para quem usa
+  const temHorasSemana = ((links || []) as { work_schedule_type?: string }[]).some(l => l.work_schedule_type === 'horas')
+  const { data: visitasVizinhas } = useQuery({
+    queryKey: ['portal-month-vizinhos', employeeId, folhaMonth],
+    queryFn: async () => {
+      const mesDe = (n: number) => { const [a, m] = folhaMonth.split('-').map(Number); const d = new Date(a, m - 1 + n, 15); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` }
+      const meses = await Promise.all([-1, 1].map(n => rpc<PortalMonth>('portal_month', { p_token: token, p_month: mesDe(n) })))
+      return meses.flatMap(x => x?.visits || [])
+    },
+    enabled: !!token && temHorasSemana,
+  })
 
   // Valor da visita (Consultoria) = valor da vistoria da unidade × (horas da visita ÷ horas da semana), limitado ao valor cheio.
   // Semana cheia em uma unidade só = valor inteiro daquela unidade; dividiu entre unidades = proporcional em cada.
@@ -1152,7 +1166,8 @@ export default function PortalHome() {
                     <div className="min-w-0">
                       <p className="font-semibold text-ink-900 leading-snug">{client?.name}</p>
                       <p className="text-xs text-ink-500 mt-0.5">
-                        {[salario ? 'Consultoria · salário mensal' : effectiveType(link), pagaPorDiaria(link) ? 'por diária' : null, !isConsultoria ? escala : null].filter(Boolean).join(' · ')}
+                        {[salario ? 'Consultoria · salário mensal' : effectiveType(link), pagaPorDiaria(link) ? 'por diária' : null,
+                          !isConsultoria ? (escala === 'horas' ? `${String(horasNaSemana(link as unknown as VinculoPerfil)).replace('.', ',')}h por semana` : escala) : null].filter(Boolean).join(' · ')}
                       </p>
                     </div>
                     <div className="text-right shrink-0">
@@ -1245,6 +1260,30 @@ export default function PortalHome() {
                           <span className="text-ink-500">Horas no mês</span>
                           <span className="font-semibold text-ink-900 tnum">{fmtHoras(totalMins)}</span>
                         </div>
+                        {escala === 'horas' && (() => {
+                          // Ela escolhe os dias: o que conta é fechar as horas de seg a dom
+                          const hojeStr = format(new Date(), 'yyyy-MM-dd')
+                          const regs = [...(folhaVisits || []), ...(visitasVizinhas || [])] as RegistroPerfil[]
+                          const semanas = semanasDeHoras({ ...(link as unknown as VinculoPerfil), client_id: client?.id || null }, folhaMonth, hojeStr, regs)
+                            .filter(x => x.status !== 'futura')
+                          if (!semanas.length) return null
+                          return (
+                            <div className="py-2">
+                              <p className="text-ink-500 mb-1.5">Horas da semana</p>
+                              <div className="space-y-1">
+                                {semanas.map(x => (
+                                  <div key={x.ini} className="flex justify-between text-xs">
+                                    <span className="text-ink-500 tnum">{x.ini.slice(8, 10)}/{x.ini.slice(5, 7)} a {x.fim.slice(8, 10)}/{x.fim.slice(5, 7)}</span>
+                                    <span className={`tnum font-medium ${x.status === 'cumpriu' ? 'text-emerald-700' : x.status === 'faltou' ? 'text-red-600' : 'text-ink-900'}`}>
+                                      {fmtHoras(x.feitoMin)} de {fmtHoras(x.metaMin)}
+                                      {x.status === 'cumpriu' ? ' · fechou' : x.status === 'faltou' ? ` · faltaram ${fmtHoras(x.faltaMin)}` : ` · faltam ${fmtHoras(x.faltaMin)}`}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )
+                        })()}
                         {extraDays.length > 0 && (
                           <div className="flex justify-between py-2">
                             <span className="text-ink-500">Dias extras</span>

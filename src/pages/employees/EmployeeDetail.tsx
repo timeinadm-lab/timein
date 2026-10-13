@@ -1441,6 +1441,8 @@ export default function EmployeeDetail() {
   }
 
   const saveContractEndDate = async (linkId: string, date: string) => {
+    const inicio = ((links || []).find(l => l.id === linkId) as { start_date?: string } | undefined)?.start_date
+    if (date && inicio && date < inicio) { toast.error('O vencimento não pode ser antes do início (' + formatDate(inicio) + ').'); return }
     const { error } = await supabase.from('employee_client_links').update({ contract_end_date: date || null }).eq('id', linkId)
     if (error) { toast.error(error.message); return }
     try { await limparSemanasForaDoContrato(linkId, null, date || null) } catch (e) { toast.error('Data salva, mas a ajuda semanal depois dela não saiu: ' + (e as Error).message) }
@@ -2043,7 +2045,7 @@ export default function EmployeeDetail() {
                   <label className="label">
                     Data fim <span className="text-gray-400 font-normal">(vazio = por tempo indeterminado)</span>
                   </label>
-                  <input className="input" type="date" value={coverageForm.end_date} onChange={e => setCoverageForm(p => ({ ...p, end_date: e.target.value }))} />
+                  <input className="input" type="date" min={coverageForm.start_date || undefined} value={coverageForm.end_date} onChange={e => setCoverageForm(p => ({ ...p, end_date: e.target.value }))} />
                   {coverageForm.coverage_type === 'Fixo' && coverageForm.vinculo_tipo === 'permanente' && coverageForm.end_date && (
                     <CampoPagaAoConcluir marcado={coverageForm.paga_ao_concluir} fim={coverageForm.end_date}
                       onChange={v => setCoverageForm(p => ({ ...p, paga_ao_concluir: v }))} />
@@ -2204,10 +2206,13 @@ export default function EmployeeDetail() {
                 const faltaAncora = isFixoEscala
                   && coverageForm.work_schedule_type === '12x36'
                   && !coverageForm.schedule_anchor_date
+                // Fim antes do início passava calado (13/11 a 12/11) e a folha nunca pagava
+                const fimAntesDoInicio = !!coverageForm.end_date && coverageForm.end_date < (coverageForm.start_date || hojeISO())
                 const bloqueado = !coverageForm.vinculo_tipo || !coverageForm.agenda_mode
                   || !coverageForm.client_id || faltaValor || faltaUnidade || faltaPag || (!coverageForm.contrato && !entraNoFixo)
-                  || faltaRegraHoras || faltaHoras || faltaEscala || faltaFolgas || faltaAncora
+                  || faltaRegraHoras || faltaHoras || faltaEscala || faltaFolgas || faltaAncora || fimAntesDoInicio
                 const pendencias = [
+                  fimAntesDoInicio && 'a data fim (está antes do início)',
                   !coverageForm.vinculo_tipo && 'o tipo do vínculo',
                   !coverageForm.client_id && 'o cliente',
                   !coverageForm.agenda_mode && 'quem monta os dias',

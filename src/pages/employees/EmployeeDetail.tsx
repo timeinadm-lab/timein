@@ -122,6 +122,8 @@ const EMPTY_COVERAGE = {
   start_date: '', end_date: '', monthly_amount: '',
   // Ajuda de custo já no vínculo (pedido de 12/10/2026): vazio = sem ajuda
   ajuda_valor: '', ajuda_periodo: 'mes' as 'mes' | 'semana',
+  // Contrato de X dias que só paga quando termina (088)
+  paga_ao_concluir: false,
   pay_days: ['20'] as string[],
   agenda_mode: '' as '' | 'colaborador' | 'gestor',
   // Marcar já o 1º dia na agenda? Antes era automático: vincular depois de uma
@@ -167,7 +169,7 @@ export default function EmployeeDetail() {
   // Data de hoje em ISO — usada para saber se um vínculo já foi encerrado
   const hojeStr = hojeISO()
   type EditLinkUnit = { unit_id: string; unit_name: string; visit_rate: string }
-  type EditLinkState = { linkId: string; serviceType: string; clientId: string; monthly_amount: string; cost_assistance: string; ajuda_periodo: 'mes' | 'semana'; weekly_hours: string; visit_frequency: string; visits_per_week: string; units: EditLinkUnit[]; work_schedule_type: string; daily_hours: string; days_off: number[]; schedule_anchor_date: string; start_date: string; payDays: string[]; pay_full_salary: boolean; expected_days_month: string; work_start: string; work_end: string; break_minutes: string; horas_modo: 'visita' | 'mes'; horas_mes: string }
+  type EditLinkState = { linkId: string; serviceType: string; clientId: string; monthly_amount: string; cost_assistance: string; ajuda_periodo: 'mes' | 'semana'; paga_ao_concluir: boolean; contract_end_date: string; weekly_hours: string; visit_frequency: string; visits_per_week: string; units: EditLinkUnit[]; work_schedule_type: string; daily_hours: string; days_off: number[]; schedule_anchor_date: string; start_date: string; payDays: string[]; pay_full_salary: boolean; expected_days_month: string; work_start: string; work_end: string; break_minutes: string; horas_modo: 'visita' | 'mes'; horas_mes: string }
   const [editLinkValues, setEditLinkValues] = useState<EditLinkState | null>(null)
   // Intervalo do contrato do cliente (o portal não pede intervalo; a conta das
   // horas desconta o do vínculo — mesma regra do portal e do aviso de jornada)
@@ -519,6 +521,7 @@ export default function EmployeeDetail() {
         // Ajuda de custo: mensal vai junto com o salário; semanal sai toda segunda na aba Ajuda de custo
         ...(Number(coverageForm.ajuda_valor) > 0
           ? { cost_assistance: Number(coverageForm.ajuda_valor), cost_assistance_periodo: coverageForm.ajuda_periodo } : {}),
+        ...(isFixo && !isTemporario && coverageForm.end_date && coverageForm.paga_ao_concluir ? { paga_ao_concluir: true } : {}),
         // Horário definido só entra se preenchido (antes da migração 067 a coluna não existe)
         ...((isFixo || coverageForm.consult_salario) && coverageForm.work_start && coverageForm.work_end
           ? { work_start: coverageForm.work_start, work_end: coverageForm.work_end } : {}),
@@ -554,6 +557,7 @@ export default function EmployeeDetail() {
         }
       }
       let { data: newLink, error } = await supabase.from('employee_client_links').insert(registroVinculo).select('id').single()
+      if (error && /paga_ao_concluir/.test(error.message)) throw new Error('Rode a migração 088 no Supabase para usar "paga ao concluir".')
       if (error && coverageForm.consult_salario && /pay_mode|check/i.test(error.message)) throw new Error('Falta rodar a migração 060 no Supabase para usar consultoria com salário fixo.')
       // Migração 058 ainda não rodada: grava no formato antigo (Volante)
       if (error && /pay_mode|is_temporary/i.test(error.message)) {
@@ -980,6 +984,8 @@ export default function EmployeeDetail() {
         start_date: (l as { start_date?: string }).start_date || '',
         payDays: l.service_type === 'Consultoria' && (l as { pay_mode?: string }).pay_mode !== 'salario_fixo' ? ['8', '20'] : (l.payment_dates || []).map(d => String(d.day_of_month)).filter(d => ['8', '15', '20'].includes(d)).sort((a, b) => Number(a) - Number(b)),
         pay_full_salary: (l as { pay_full_salary?: boolean }).pay_full_salary ?? false,
+        paga_ao_concluir: !!(l as { paga_ao_concluir?: boolean }).paga_ao_concluir,
+        contract_end_date: (l as { contract_end_date?: string }).contract_end_date || '',
         expected_days_month: String((l as { expected_days_month?: number }).expected_days_month || ''),
         work_start: ((l as { work_start?: string }).work_start || '').slice(0, 5),
         work_end: ((l as { work_end?: string }).work_end || '').slice(0, 5),
@@ -1270,6 +1276,9 @@ export default function EmployeeDetail() {
         pay_full_salary: !isConsult ? vals.pay_full_salary : undefined,
         expected_days_month: !isConsult ? (vals.expected_days_month ? Number(vals.expected_days_month) : null) : undefined,
       }
+      const pagaAoConcluirAntes = !!(links || []).find(l => l.id === vals.linkId && (l as { paga_ao_concluir?: boolean }).paga_ao_concluir)
+      const pagaAoConcluirAgora = !isConsult && !!vals.contract_end_date && vals.paga_ao_concluir
+      if (pagaAoConcluirAgora || pagaAoConcluirAntes) atualizacao.paga_ao_concluir = pagaAoConcluirAgora
       // Horário definido (Fixo / consultoria com salário). Só vai no update quando
       // há algo a gravar ou apagar — antes da migração 067 a coluna não existe.
       const antes = (links || []).find(l => l.id === vals.linkId) as { work_start?: string; break_minutes?: number } | undefined
@@ -1284,6 +1293,7 @@ export default function EmployeeDetail() {
       let { error } = await supabase.from('employee_client_links').update(atualizacao).eq('id', vals.linkId)
       if (error && /work_start|work_end|break_minutes/.test(error.message)) throw new Error('Falta rodar a migração 067 no Supabase para gravar o horário.')
       if (error && /cost_assistance_periodo/.test(error.message)) throw new Error('Rode a migração 085 para usar ajuda de custo semanal.')
+      if (error && /paga_ao_concluir/.test(error.message)) throw new Error('Rode a migração 088 no Supabase para usar "paga ao concluir".')
       // Migração 058 ainda não rodada: diária volta a ser gravada como Volante
       if (error && consultSalario && /pay_mode|check/i.test(error.message)) throw new Error('Falta rodar a migração 060 no Supabase para usar consultoria com salário fixo.')
       if (error && /pay_mode/i.test(error.message)) {
@@ -2034,6 +2044,10 @@ export default function EmployeeDetail() {
                     Data fim <span className="text-gray-400 font-normal">(vazio = por tempo indeterminado)</span>
                   </label>
                   <input className="input" type="date" value={coverageForm.end_date} onChange={e => setCoverageForm(p => ({ ...p, end_date: e.target.value }))} />
+                  {coverageForm.coverage_type === 'Fixo' && coverageForm.vinculo_tipo === 'permanente' && coverageForm.end_date && (
+                    <CampoPagaAoConcluir marcado={coverageForm.paga_ao_concluir} fim={coverageForm.end_date}
+                      onChange={v => setCoverageForm(p => ({ ...p, paga_ao_concluir: v }))} />
+                  )}
                 </div>
               </div>
 
@@ -2430,7 +2444,7 @@ export default function EmployeeDetail() {
                               {!noFixo && (
                                 <InfoVinculo rotulo="Pagamento"
                                   valor={porVisita ? 'Dias 8 e 20' : dias.length ? `Dia${dias.length > 1 ? 's' : ''} ${dias.join(' e ')}` : 'Sem dia'}
-                                  sub={porVisita ? '1–15 no dia 20 · 16–fim no dia 8' : undefined} alerta={!porVisita && !dias.length} />
+                                  sub={porVisita ? '1–15 no dia 20 · 16–fim no dia 8' : (l as { paga_ao_concluir?: boolean }).paga_ao_concluir && contractEnd ? `só ao concluir (${formatDate(contractEnd)})` : undefined} alerta={!porVisita && !dias.length} />
                               )}
                               <InfoVinculo rotulo={ehConsult ? 'Visitas' : 'Escala'} valor={rotina || 'Não informado'}
                                 sub={x.start_date ? `início ${formatDate(x.start_date)}` : undefined} />
@@ -2816,6 +2830,12 @@ export default function EmployeeDetail() {
                                     <span className="text-sm text-gray-700">Pagar salário inteiro</span>
                                   </label>
                                   <p className="text-xs text-gray-400 mt-0.5 ml-6">Ignora cálculo proporcional do ciclo de pagamento.</p>
+                                </div>
+                                <div className="col-span-2">
+                                  {editLinkValues.contract_end_date
+                                    ? <CampoPagaAoConcluir marcado={editLinkValues.paga_ao_concluir} fim={editLinkValues.contract_end_date}
+                                        onChange={v => setEditLinkValues(p => p ? { ...p, paga_ao_concluir: v } : p)} />
+                                    : <p className="text-xs text-gray-400">Contrato de X dias que só paga no fim? Defina o vencimento no cartão e volte aqui para marcar "Paga ao concluir".</p>}
                                 </div>
                                 <div className="col-span-2">
                                   <label className="label text-xs">Dias esperados de trabalho no mês</label>
@@ -4923,5 +4943,18 @@ function InfoVinculo({ rotulo, valor, sub, destaque, alerta, acao }: {
       <p className={`text-sm font-semibold truncate ${alerta ? 'text-amber-800' : 'text-ink-900'}`} title={valor}>{valor}</p>
       {sub && <p className="text-[11px] text-ink-500 leading-snug">{sub}</p>}
     </div>
+  )
+}
+
+/** Contrato de X dias que só recebe quando termina (088) */
+function CampoPagaAoConcluir({ marcado, fim, onChange }: { marcado: boolean; fim: string; onChange: (v: boolean) => void }) {
+  return (
+    <label className={`flex items-start gap-2 mt-2 rounded-lg border px-3 py-2 text-xs cursor-pointer select-none ${marcado ? 'border-blue-300 bg-blue-50' : 'border-ink-200'}`}>
+      <input type="checkbox" className="mt-0.5 h-4 w-4 rounded border-ink-300 text-primary-700" checked={marcado} onChange={e => onChange(e.target.checked)} />
+      <span className="text-ink-800">
+        <strong>Paga ao concluir o contrato</strong>
+        <span className="block text-ink-500">Nada nos dias de pagamento antes do fim ({formatDate(fim)}). O valor todo sai no primeiro dia de pagamento depois dele.</span>
+      </span>
+    </label>
   )
 }

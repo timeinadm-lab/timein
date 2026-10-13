@@ -17,7 +17,7 @@ import EncerrarVinculoModal, { QUEM_ENCERROU } from './EncerrarVinculoModal'
 import type { VinculoParaEncerrar } from './EncerrarVinculoModal'
 import HorarioVinculo from './HorarioVinculo'
 import { AjudaDaPessoa, LancamentosDaPessoa } from './PagamentosDaPessoa'
-import { ajustarSemanasDoContrato } from '../payments/AjudaDeCusto'
+import { ajustarSemanasDoContrato, limparSemanasForaDoContrato } from '../payments/AjudaDeCusto'
 import { format, startOfMonth, endOfMonth, getDaysInMonth, getDay, differenceInDays } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import type { EmployeeClientLink, EmployeePaymentDate } from '../../types'
@@ -491,7 +491,6 @@ export default function EmployeeDetail() {
       // sempre. Temporário entra como Volante, que o portal esconde depois da data fim.
       const isTemporario = coverageForm.vinculo_tipo === 'temporario'
       const mensal = Number(coverageForm.monthly_amount) || null
-      // No Fixo a diária vem do mensal ÷ 30; na Consultoria o valor é por unidade
       // Fixo: diária = mensal ÷ 30. Consultoria não tem diária — o valor está
       // na unidade (link_units.visit_rate), então fica nulo mesmo.
       const diaria = isFixo ? diariaFromMensal(coverageForm.monthly_amount) : null
@@ -514,7 +513,7 @@ export default function EmployeeDetail() {
           : null,
         daily_rate: diaria,
         start_date: coverageForm.start_date || hojeISO(),
-        contract_end_date: isTemporario ? (coverageForm.end_date || null) : (coverageForm.end_date || null),
+        contract_end_date: coverageForm.end_date || null,
         monthly_amount: isFixo || coverageForm.consult_salario ? mensal : null,
         link_units: linkUnits,
         // Ajuda de custo: mensal vai junto com o salário; semanal sai toda segunda na aba Ajuda de custo
@@ -616,6 +615,7 @@ export default function EmployeeDetail() {
         .update({ contract_end_date: endDate })
         .eq('id', linkId)
       if (error) throw error
+      await limparSemanasForaDoContrato(linkId, null, endDate)
     },
     onSuccess: () => {
       toast.success('Data de fim estendida!')
@@ -884,6 +884,9 @@ export default function EmployeeDetail() {
     if (e1) throw e1
     const { error: e2 } = await supabase.from('employee_client_links').update({ monthly_amount: null, cost_assistance: 0 }).eq('id', saindo.id)
     if (e2) throw e2
+    // A ajuda semanal agora sai pelo cliente que fica: as segundas a pagar do que
+    // saiu iam somar com as dele (ajuda em dobro)
+    if (ajuda > 0) await ajustarSemanasDoContrato([saindo.id], null)
   }
 
   // Ajuda de custo do consultor fixo: um valor por mês, no mesmo registro do
@@ -1114,9 +1117,7 @@ export default function EmployeeDetail() {
 
   const removeLink = useMutation({
     mutationFn: async (linkId: string) => {
-      await passarSalarioDoFixo(linkId)
       const link = (links || []).find(l => l.id === linkId) as { client_id?: string } | undefined
-      const hoje = hojeISO()
 
       // Sem client_id não dá pra saber se há histórico. Na dúvida, encerra:
       // encerrar por engano se desfaz, apagar histórico não.
@@ -1137,18 +1138,19 @@ export default function EmployeeDetail() {
       if (temVisitas > 0 || temPagamentos > 0) {
         // Tem visita ou pagamento: não apaga. Encerrar é pela janela "Encerrar
         // contrato", que registra a data real, o motivo e o distrato.
-        void hoje
         throw new Error('Este vínculo tem visitas ou pagamentos e não pode ser apagado. Use "Encerrar contrato".')
       }
 
+      // Só depois de saber que pode apagar: antes o salário do consultor fixo
+      // mudava de cliente mesmo quando o apagar era recusado logo abaixo
+      await passarSalarioDoFixo(linkId)
+      // Semanas a pagar da ajuda deste vínculo ficariam soltas, sem contrato
+      await limparSemanasForaDoContrato(linkId, null, '0000-01-01')
       const { error } = await supabase.from('employee_client_links').delete().eq('id', linkId)
       if (error) throw error
-      return 'apagado' as const
     },
-    onSuccess: (resultado) => {
-      toast.success(resultado === 'encerrado'
-        ? 'Vínculo encerrado hoje. O histórico de visitas e pagamentos foi preservado.'
-        : 'Vínculo removido — não tinha visita nem pagamento registrado.')
+    onSuccess: () => {
+      toast.success('Vínculo removido — não tinha visita nem pagamento registrado.')
       qc.invalidateQueries({ queryKey: ['employee-links', id] })
       qc.invalidateQueries({ queryKey: ['employees'] })
       setConfirmRemoveLinkId(null)
@@ -1263,7 +1265,8 @@ export default function EmployeeDetail() {
         daily_hours: !isConsult ? (vals.daily_hours ? Number(vals.daily_hours) : null) : undefined,
         days_off: !isConsult ? (vals.days_off.length ? vals.days_off : null) : undefined,
         schedule_anchor_date: !isConsult ? (vals.work_schedule_type === '12x36' && vals.schedule_anchor_date ? vals.schedule_anchor_date : null) : undefined,
-        start_date: !isConsult ? (vals.start_date || null) : undefined,
+        // Vazio não apaga: o vínculo sempre tem início (o vincular grava hoje se ninguém escolher)
+        start_date: vals.start_date || undefined,
         pay_full_salary: !isConsult ? vals.pay_full_salary : undefined,
         expected_days_month: !isConsult ? (vals.expected_days_month ? Number(vals.expected_days_month) : null) : undefined,
       }
@@ -1291,10 +1294,9 @@ export default function EmployeeDetail() {
       }
       if (error) throw error
 
-      // Consultoria sempre dia 8 e 20; Fixo só aceita 8, 15 ou 20
       // Consultoria por visita: dia 8 e 20. Salário (fixo ou consultoria): 8, 15 ou 20
       const allowedDays = isConsult && !consultSalario ? [8, 20] : vals.payDays.map(d => Number(d)).filter(d => [8, 15, 20].includes(d))
-      const cleanDays = [...new Set(isConsult ? allowedDays : allowedDays)]
+      const cleanDays = [...new Set(allowedDays)]
       const { error: eDel } = await supabase.from('employee_payment_dates').delete().eq('link_id', vals.linkId)
       if (eDel) throw new Error('Os valores foram salvos, mas os dias de pagamento não: ' + eDel.message)
       if (cleanDays.length) {
@@ -1308,6 +1310,8 @@ export default function EmployeeDetail() {
       // Ajuda semanal mudou (valor, ou virou mensal/zero): ajusta as segundas a pagar daqui pra frente
       const valorAjuda = Number(vals.cost_assistance) || 0
       await ajustarSemanasDoContrato([vals.linkId], valorAjuda > 0 && vals.ajuda_periodo === 'semana' ? valorAjuda : null)
+      // Início mudou para depois: semanas antes dele não são devidas
+      if (vals.start_date) await limparSemanasForaDoContrato(vals.linkId, vals.start_date, null)
     },
     onSuccess: () => {
       toast.success('Valores atualizados!')
@@ -1428,8 +1432,9 @@ export default function EmployeeDetail() {
 
   const saveContractEndDate = async (linkId: string, date: string) => {
     const { error } = await supabase.from('employee_client_links').update({ contract_end_date: date || null }).eq('id', linkId)
-    if (error) toast.error(error.message)
-    else { toast.success('Data salva!'); qc.invalidateQueries({ queryKey: ['employee-links', id] }); setEditContractDate(null) }
+    if (error) { toast.error(error.message); return }
+    try { await limparSemanasForaDoContrato(linkId, null, date || null) } catch (e) { toast.error('Data salva, mas a ajuda semanal depois dela não saiu: ' + (e as Error).message) }
+    toast.success('Data salva!'); qc.invalidateQueries({ queryKey: ['employee-links', id] }); setEditContractDate(null)
   }
 
   const generatePayChecks = useMutation({
@@ -1542,6 +1547,9 @@ export default function EmployeeDetail() {
           onSaved={async () => {
             // Consultor fixo: o salário passa para um cliente que continua
             try { await passarSalarioDoFixo(encerrandoLink.id) } catch (e) { toast.error('Encerrado, mas não consegui passar o salário para outro cliente: ' + (e as Error).message) }
+            // Segundas de ajuda depois do último dia saem da aba Ajuda de custo
+            const { data: fim } = await supabase.from('employee_client_links').select('contract_end_date').eq('id', encerrandoLink.id).single()
+            try { await limparSemanasForaDoContrato(encerrandoLink.id, null, fim?.contract_end_date || null) } catch (e) { toast.error('Encerrado, mas a ajuda semanal depois do último dia não saiu: ' + (e as Error).message) }
             setEncerrandoLink(null)
             qc.invalidateQueries({ queryKey: ['employee-links', id] })
             qc.invalidateQueries({ queryKey: ['employees'] })
@@ -2751,12 +2759,6 @@ export default function EmployeeDetail() {
                                   </div>
                                 )}
                                 <div className="col-span-2">
-                                  <label className="label text-xs">Data de início neste cliente</label>
-                                  <input className="input text-sm" type="date" value={editLinkValues.start_date}
-                                    onChange={e => setEditLinkValues(p => p ? { ...p, start_date: e.target.value } : p)} />
-                                  <p className="text-xs text-gray-400 mt-0.5">Usado para calcular ciclo proporcional no pagamento.</p>
-                                </div>
-                                <div className="col-span-2">
                                   <label className="flex items-center gap-2 cursor-pointer select-none">
                                     <input
                                       type="checkbox"
@@ -2787,6 +2789,14 @@ export default function EmployeeDetail() {
                             {consultSalario && (
                               <p className="text-xs text-ink-500">Ajuda de custo do consultor fixo: no cartão do consultor fixo, acima (vale para todos os clientes dele).</p>
                             )}
+
+                            {/* Início vale para todos os tipos: antes a consultoria não tinha como corrigir */}
+                            <div>
+                              <label className="label text-xs">Data de início neste cliente</label>
+                              <input className="input text-sm" type="date" value={editLinkValues.start_date}
+                                onChange={e => setEditLinkValues(p => p ? { ...p, start_date: e.target.value } : p)} />
+                              <p className="text-xs text-gray-400 mt-0.5">{isConsult ? 'Visitas e ajuda semanal contam a partir deste dia.' : 'Usado para calcular ciclo proporcional no pagamento.'}</p>
+                            </div>
 
                             {/* Datas de pagamento — dia 8, 15 e 20 */}
                             <div className="border-t pt-2 space-y-2">

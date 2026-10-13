@@ -74,6 +74,20 @@ export async function ajustarSemanasDoContrato(linkIds: string[], valorSemanal: 
   if (error && !/link_id/.test(error.message)) throw new Error(error.message)
 }
 
+/**
+ * Datas do contrato mudaram (encerrou, venceu antes, começou depois, foi apagado):
+ * tira as semanas a pagar que ficaram fora dele. Sem isso a segunda depois do
+ * encerramento continuava "Pendente" na aba e podia ser paga. Pago nunca sai.
+ */
+export async function limparSemanasForaDoContrato(linkId: string, inicio: string | null, fim: string | null) {
+  const base = () => supabase.from('ajudas_custo').delete().eq('link_id', linkId).eq('status', 'Pendente')
+  const erros = [
+    fim ? (await base().gt('inicio', fim)).error : null,          // semana começa depois do último dia
+    inicio ? (await base().lt('fim', inicio)).error : null,       // semana acabou antes do início
+  ].filter(e => e && !/link_id/.test(e.message))
+  if (erros.length) throw new Error(erros[0]!.message)
+}
+
 export default function AjudaDeCusto({ mes }: { mes: string }) {
   const qc = useQueryClient()
   const ini = `${mes}-01`, fimMes = iso(endOfMonth(parseISO(ini)))

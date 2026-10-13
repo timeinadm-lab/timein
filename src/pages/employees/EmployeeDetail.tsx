@@ -1596,7 +1596,7 @@ export default function EmployeeDetail() {
 
       {/* VISÃO GERAL */}
       {tab === 'visao' && (
-        <VisaoGeral employeeId={id!} employee={employee} links={links ?? []} docs={docs ?? []} />
+        <VisaoGeral employeeId={id!} employee={employee} links={links ?? []} carregandoVinculos={!links} docs={docs ?? []} />
       )}
 
       {/* FICHA */}
@@ -2226,11 +2226,9 @@ export default function EmployeeDetail() {
             </div>
           )}
 
-          {(links || []).filter(l => ehTemporario(l)).length === 0 && !showCoverageForm && (
+          {links && links.length === 0 && !showCoverageForm && (
             <p className="text-sm text-gray-400 text-center py-4">
-              {(links || []).length > 0
-                ? <>Nenhum vínculo temporário no momento. Os permanentes aparecem em <strong>Clientes Vinculados</strong>, abaixo.</>
-                : <>Ainda não está em nenhum cliente. Use <strong>+ Vincular</strong> — permanente ou temporário.</>}
+              Ainda não está em nenhum cliente. Use <strong>+ Vincular</strong> — permanente ou temporário.
             </p>
           )}
 
@@ -2332,11 +2330,6 @@ export default function EmployeeDetail() {
             <h3 className="font-medium">Clientes Vinculados</h3>
           </div>
 
-          <p className="text-xs text-ink-500 bg-ink-50 rounded-xl px-3.5 py-2.5 leading-relaxed">
-            Para colocar esta pessoa em <strong>mais um cliente</strong>, use <strong>+ Vincular</strong> aqui em cima — é o caminho rápido para quem já é da casa.
-            O funil de <strong>Vagas</strong> continua existindo para <strong>contratar gente nova</strong> (candidato → contrato → admissão).
-          </p>
-
           <input ref={linkFileRef} type="file" accept=".pdf,.doc,.docx" className="hidden"
             onChange={async e => {
               const file = e.target.files?.[0]
@@ -2398,40 +2391,8 @@ export default function EmployeeDetail() {
                       <p className="text-[11px] text-amber-700 mt-1">Clique em <strong>Editar</strong> aqui embaixo para completar.</p>
                     </div>
                   )}
-                  {/* Encerrar não apaga: o vínculo fica como histórico, e sem
-                      esta faixa parecia que o botão não tinha funcionado. */}
-                  {encerrado && (() => {
-                    const enc = l as VinculoParaEncerrar
-                    return (
-                      <div className="mb-3 rounded-lg bg-white border border-ink-200 px-3 py-2.5 space-y-1">
-                        <p className="text-xs text-ink-700">
-                          <strong>Contrato encerrado em {formatDate(contractEnd!)}</strong>
-                          {enc.end_initiated_by && <> · {QUEM_ENCERROU[enc.end_initiated_by] || enc.end_initiated_by}</>}
-                        </p>
-                        {enc.end_reason && <p className="text-xs text-ink-600">Motivo: {enc.end_reason}</p>}
-                        {enc.end_fine_amount ? (
-                          <p className="text-xs text-ink-600">Multa/indenização: {formatCurrency(Number(enc.end_fine_amount))}{enc.end_fine_description ? ` — ${enc.end_fine_description}` : ''}</p>
-                        ) : null}
-                        <p className="text-xs text-ink-500">
-                          Visitas, pagamentos e documentos deste cliente continuam guardados. O acerto aparece em
-                          Pagamentos no mês do encerramento; sai da folha a partir de <strong>{saiDaFolhaEm}</strong>.
-                        </p>
-                        <div className="flex items-center gap-3 flex-wrap pt-0.5">
-                          {enc.end_document_url
-                            ? <SignedLink value={enc.end_document_url} bucket="arquivos" className="text-xs text-primary-700 font-medium hover:underline">Ver distrato</SignedLink>
-                            : null}
-                          <button className="text-xs text-primary-700 font-medium hover:underline" onClick={() => setEncerrandoLink(enc)}>
-                            {enc.ended_at ? 'Editar encerramento' : 'Registrar motivo e distrato'}
-                          </button>
-                          <button className="text-xs text-ink-500 hover:underline" onClick={() => desfazerEncerramento.mutate(enc.id)}>
-                            Desfazer encerramento
-                          </button>
-                        </div>
-                      </div>
-                    )
-                  })()}
                   <div className="flex items-start justify-between">
-                    <div className={`flex-1 min-w-0 ${encerrado ? 'opacity-70' : ''}`}>
+                    <div className="flex-1 min-w-0">
                       {(() => {
                         // Cartão do vínculo em blocos (pedido de 12/10/2026: "o vínculo tem que ser
                         // melhor apresentado"). Antes era uma fileira de 10+ etiquetas soltas.
@@ -2454,7 +2415,7 @@ export default function EmployeeDetail() {
                               <span className={`badge ${ehConsult ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'}`}>{rotuloDoVinculo(l)}</span>
                               {statusContrato && <span className={`badge text-xs ${statusContrato.c}`}>{statusContrato.t}</span>}
                             </div>
-                            <div className={`mt-3 grid grid-cols-2 ${noFixo ? '' : 'lg:grid-cols-4'} gap-2`}>
+                            <div className={`mt-3 grid grid-cols-2 ${noFixo ? '' : 'lg:grid-cols-4'} gap-2 ${encerrado ? 'opacity-60' : ''}`}>
                               {!noFixo && (
                                 <InfoVinculo rotulo={porVisita ? 'Valor' : 'Salário'}
                                   valor={role !== 'chefe' ? '—' : porVisita ? 'Por visita' : l.monthly_amount ? `${formatCurrency(l.monthly_amount)}/mês` : 'Não informado'}
@@ -2474,20 +2435,106 @@ export default function EmployeeDetail() {
                               <InfoVinculo rotulo={ehConsult ? 'Visitas' : 'Escala'} valor={rotina || 'Não informado'}
                                 sub={x.start_date ? `início ${formatDate(x.start_date)}` : undefined} />
                             </div>
-                            <div className="flex gap-2 mt-2.5 flex-wrap items-center">
-                              {contractPendingHours !== null && (
-                                <span className={`badge text-xs font-semibold ${contractRed ? 'bg-red-100 text-red-700' : contractYellow ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-500'}`}>
-                                  {contractRed ? `Contrato urgente — anexar (${contractPendingHours}h)` : contractYellow ? `Contrato pendente (${contractPendingHours}h)` : `Anexar contrato (${contractPendingHours}h)`}
-                                </span>
-                              )}
-                              {contractFile && !noFixo && <span className="badge bg-green-50 text-green-700">Contrato anexado</span>}
-                              <button className="btn-secondary text-xs py-1.5 px-2.5 ml-auto" onClick={() => abrirEdicaoDoVinculo(l)}>
-                                <Edit size={13} />Editar vínculo
-                              </button>
-                            </div>
                           </>
                         )
                       })()}
+
+                      {/* Encerrado: o resumo do encerramento fica embaixo dos números, não em cima do nome */}
+                      {encerrado && (() => {
+                        const enc = l as VinculoParaEncerrar
+                        return (
+                          <div className="mt-3 rounded-lg bg-white border border-ink-200 px-3 py-2.5 space-y-1">
+                            <p className="text-xs text-ink-700">
+                              <strong>Contrato encerrado em {formatDate(contractEnd!)}</strong>
+                              {enc.end_initiated_by && <> · {QUEM_ENCERROU[enc.end_initiated_by] || enc.end_initiated_by}</>}
+                            </p>
+                            {enc.end_reason && <p className="text-xs text-ink-600">Motivo: {enc.end_reason}</p>}
+                            {enc.end_fine_amount ? (
+                              <p className="text-xs text-ink-600">Multa/indenização: {formatCurrency(Number(enc.end_fine_amount))}{enc.end_fine_description ? ` — ${enc.end_fine_description}` : ''}</p>
+                            ) : null}
+                            <p className="text-xs text-ink-500">
+                              Nada foi apagado. O acerto aparece em Pagamentos no mês do encerramento; sai da folha a partir de <strong>{saiDaFolhaEm}</strong>.
+                            </p>
+                            <div className="flex items-center gap-3 flex-wrap pt-0.5">
+                              {enc.end_document_url
+                                ? <SignedLink value={enc.end_document_url} bucket="arquivos" className="text-xs text-primary-700 font-medium hover:underline">Ver distrato</SignedLink>
+                                : null}
+                              <button className="text-xs text-primary-700 font-medium hover:underline" onClick={() => setEncerrandoLink(enc)}>
+                                {enc.ended_at ? 'Editar encerramento' : 'Registrar motivo e distrato'}
+                              </button>
+                              <button className="text-xs text-ink-500 hover:underline" onClick={() => desfazerEncerramento.mutate(enc.id)}>
+                                Desfazer encerramento
+                              </button>
+                            </div>
+                          </div>
+                        )
+                      })()}
+
+                      {/* Rodapé único: contrato, vencimento e ações. Antes o contrato aparecia
+                          duas vezes (etiqueta + quadro grande), o vencimento também, e o
+                          encerrado ainda pedia "contrato urgente". */}
+                      <div className="flex gap-x-3 gap-y-2 mt-3 pt-3 border-t border-ink-100 flex-wrap items-center text-xs">
+                        {!noFixo && !encerrado && (l.service_type === 'Fixo' || l.service_type === 'Consultoria') && (contractFile ? (
+                          <span className="inline-flex items-center gap-1.5 text-green-700 font-medium">
+                            <CheckCircle size={13} /> Contrato assinado
+                            <SignedLink value={contractFile} bucket="arquivos" className="text-primary-700 hover:underline font-normal">ver</SignedLink>
+                            <button className="text-ink-500 hover:underline font-normal" disabled={uploadingLinkId === l.id}
+                              onClick={() => { setUploadingLinkId(l.id); setTimeout(() => linkFileRef.current?.click(), 50) }}>
+                              {uploadingLinkId === l.id ? 'enviando…' : 'trocar'}
+                            </button>
+                          </span>
+                        ) : (
+                          <button className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 font-semibold text-white ${contractRed ? 'bg-red-600 hover:bg-red-700' : 'bg-amber-600 hover:bg-amber-700'}`}
+                            title="Anexe o PDF do contrato assinado. Sem ele o portal dela fica bloqueado."
+                            disabled={uploadingLinkId === l.id}
+                            onClick={() => { setUploadingLinkId(l.id); setTimeout(() => linkFileRef.current?.click(), 50) }}>
+                            <Upload size={12} />
+                            {uploadingLinkId === l.id ? 'Enviando…' : `Anexar contrato assinado${contractPendingHours ? ` · há ${contractPendingHours >= 48 ? `${Math.floor(contractPendingHours / 24)} dias` : `${contractPendingHours}h`}` : ''}`}
+                          </button>
+                        ))}
+                        {encerrado && contractFile && !noFixo && (
+                          <SignedLink value={contractFile} bucket="arquivos" className="text-primary-700 hover:underline">Ver contrato</SignedLink>
+                        )}
+                        {!noFixo && !encerrado && (editContractDate?.linkId === l.id ? (
+                          <span className="inline-flex items-center gap-1.5">
+                            <input type="date" className="input text-xs py-0.5 px-2 h-7" value={editContractDate.date}
+                              onChange={e => setEditContractDate({ linkId: l.id, date: e.target.value })} />
+                            <button className="btn-primary text-xs py-0.5 px-2 h-7" onClick={() => saveContractEndDate(l.id, editContractDate.date)}>OK</button>
+                            <button className="btn-secondary text-xs py-0.5 px-2 h-7" onClick={() => setEditContractDate(null)}>×</button>
+                          </span>
+                        ) : (
+                          <button className="text-primary-700 hover:underline" onClick={() => setEditContractDate({ linkId: l.id, date: contractEnd || '' })}>
+                            {contractEnd ? `Vencimento ${formatDate(contractEnd)} · alterar` : '+ Definir vencimento'}
+                          </button>
+                        ))}
+                        <div className="ml-auto flex items-center gap-1.5">
+                          {confirmRemoveLinkId === l.id ? (
+                            <>
+                              <span className="text-ink-600">Apagar este vínculo?</span>
+                              <button className="bg-red-600 text-white px-2 py-1 rounded font-medium hover:bg-red-700" onClick={() => removeLink.mutate(l.id)}>Apagar</button>
+                              <button className="text-ink-500 hover:underline px-1" onClick={() => setConfirmRemoveLinkId(null)}>Cancelar</button>
+                            </>
+                          ) : (
+                            <>
+                              <button className="btn-secondary text-xs py-1.5 px-2.5" onClick={() => abrirEdicaoDoVinculo(l)}>
+                                <Edit size={13} />Editar
+                              </button>
+                              {!encerrado && (
+                                <button className="font-medium text-red-600 hover:bg-red-50 px-2 py-1.5 rounded"
+                                  title="Registra o último dia, o motivo e o distrato. Nada é apagado."
+                                  onClick={() => setEncerrandoLink(l as VinculoParaEncerrar)}>
+                                  Encerrar
+                                </button>
+                              )}
+                              <button className="text-ink-300 hover:text-red-600 p-1.5"
+                                title="Apagar vínculo criado por engano (só funciona se não tiver visita nem pagamento)"
+                                onClick={() => setConfirmRemoveLinkId(l.id)}>
+                                <Trash2 size={14} />
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </div>
 
                       {/* Inline edit */}
                       {editLinkValues?.linkId === l.id && (() => {
@@ -2804,7 +2851,8 @@ export default function EmployeeDetail() {
                                 <label className="label text-xs mb-0">Dias de pagamento</label>
                                 {(() => {
                                   const n = editLinkValues.payDays.length
-                                  const total = isConsult ? consultTotal : Number(editLinkValues.monthly_amount) || 0
+                                  // Por visita não divide nada: cada quinzena paga as visitas feitas nela
+                                  const total = isConsult && !consultSalario ? 0 : Number(editLinkValues.monthly_amount) || 0
                                   return n > 0 && total > 0 ? (
                                     <span className="text-xs text-gray-500">{n === 1 ? 'valor inteiro' : `R$ ${(total / n).toFixed(2)} em cada`}</span>
                                   ) : null
@@ -2848,88 +2896,6 @@ export default function EmployeeDetail() {
                           </div>
                         )
                       })()}
-                      {!noFixo && <div className="flex items-center gap-2 mt-2 flex-wrap">
-                        {editContractDate?.linkId === l.id ? (
-                          <div className="flex items-center gap-2">
-                            <input type="date" className="input input-sm text-xs py-0.5 px-2 h-7" value={editContractDate.date}
-                              onChange={e => setEditContractDate({ linkId: l.id, date: e.target.value })} />
-                            <button className="btn-primary text-xs py-0.5 px-2 h-7" onClick={() => saveContractEndDate(l.id, editContractDate.date)}>OK</button>
-                            <button className="btn-secondary text-xs py-0.5 px-2 h-7" onClick={() => setEditContractDate(null)}>×</button>
-                          </div>
-                        ) : (
-                          <button className="text-xs text-primary-600 hover:underline"
-                            onClick={() => setEditContractDate({ linkId: l.id, date: contractEnd || '' })}>
-                            {contractEnd ? `Vence ${formatDate(contractEnd)}` : '+ Definir vencimento'}
-                          </button>
-                        )}
-                      </div>}
-
-                      {/* Check-in do contrato assinado — anexar o PDF confirma o processo e alimenta a pizza do Dashboard */}
-                      {!noFixo && (l.service_type === 'Fixo' || l.service_type === 'Consultoria') && (
-                        <div className={`mt-2 rounded-xl border px-3 py-2.5 flex items-center gap-3 ${contractFile ? 'border-green-200 bg-green-50' : 'border-amber-300 bg-amber-50'}`}>
-                          {contractFile ? (
-                            <>
-                              <CheckCircle size={18} className="text-green-600 shrink-0" />
-                              <div className="flex-1 min-w-0">
-                                <p className="text-sm font-semibold text-green-800">Contrato assinado anexado ✓</p>
-                                <SignedLink value={contractFile} bucket="arquivos" className="text-xs text-green-700 hover:underline flex items-center gap-1">
-                                  <ExternalLink size={10} /> Ver contrato
-                                </SignedLink>
-                              </div>
-                              <button onClick={() => { setUploadingLinkId(l.id); setTimeout(() => linkFileRef.current?.click(), 50) }}
-                                className="btn-secondary text-xs shrink-0" disabled={uploadingLinkId === l.id}>
-                                <Upload size={12} /> {uploadingLinkId === l.id ? 'Enviando...' : 'Trocar'}
-                              </button>
-                            </>
-                          ) : (
-                            <>
-                              <AlertTriangle size={18} className="text-amber-600 shrink-0" />
-                              <div className="flex-1 min-w-0">
-                                <p className="text-sm font-semibold text-amber-800">Contrato assinado pendente</p>
-                                <p className="text-xs text-amber-600">Anexe o PDF do contrato assinado para dar o check-in.</p>
-                              </div>
-                              <button onClick={() => { setUploadingLinkId(l.id); setTimeout(() => linkFileRef.current?.click(), 50) }}
-                                className="btn-primary text-xs shrink-0 bg-amber-600 hover:bg-amber-700" disabled={uploadingLinkId === l.id}>
-                                <Upload size={12} /> {uploadingLinkId === l.id ? 'Enviando...' : 'Anexar contrato'}
-                              </button>
-                            </>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex flex-col items-end gap-1 ml-2 shrink-0">
-                      {confirmRemoveLinkId === l.id ? (
-                        <>
-                          <button
-                            onClick={() => { removeLink.mutate(l.id); setConfirmRemoveLinkId(null) }}
-                            className="text-xs bg-red-600 text-white px-2 py-1 rounded font-medium hover:bg-red-700"
-                          >
-                            Confirmar
-                          </button>
-                          <button onClick={() => setConfirmRemoveLinkId(null)} className="text-xs text-gray-400 hover:text-gray-600">
-                            Cancelar
-                          </button>
-                        </>
-                      ) : (
-                        <>
-                          {!encerrado && (
-                            <button
-                              onClick={() => setEncerrandoLink(l as VinculoParaEncerrar)}
-                              className="text-xs font-medium text-red-600 hover:text-red-700 px-1.5 py-0.5 rounded hover:bg-red-50"
-                              title="Encerrar contrato — registra o último dia, o motivo e o distrato. Nada é apagado."
-                            >
-                              Encerrar contrato
-                            </button>
-                          )}
-                          <button
-                            onClick={() => setConfirmRemoveLinkId(l.id)}
-                            className="text-ink-300 hover:text-red-600 p-1"
-                            title="Apagar vínculo criado por engano (só funciona se não tiver visita nem pagamento)"
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </>
-                      )}
                     </div>
                   </div>
                 </div>
@@ -4032,14 +3998,18 @@ function VisaoGeral({
   employeeId,
   employee,
   links,
+  carregandoVinculos = false,
   docs,
 }: {
   employeeId: string
   employee: Record<string, unknown>
   links: (EmployeeClientLink & { payment_dates: EmployeePaymentDate[]; client?: { id: string; name: string } })[]
   docs: { id: string; name: string; status: string }[]
+  carregandoVinculos?: boolean
 }) {
   const { role } = useAuth()
+  const hojeResumo = hojeISO()
+  const ativosHoje = links.filter(l => { const fim = (l as { contract_end_date?: string | null }).contract_end_date; return !fim || fim > hojeResumo })
   const [selectedMonth, setSelectedMonth] = useState(format(new Date(), 'yyyy-MM'))
   const [dayDetail, setDayDetail] = useState<number | null>(null)
   // Intervalo do contrato do cliente (mesma regra do portal)
@@ -4162,8 +4132,9 @@ function VisaoGeral({
       {/* ── Contracts ── */}
       <div className="card p-4 space-y-3">
         <h3 className="font-semibold text-gray-900 text-sm">Contratos Ativos</h3>
-        {links.length === 0 && <p className="text-sm text-gray-400">Nenhum vínculo cadastrado</p>}
-        {links.map(l => {
+        {/* Só os que valem hoje: encerrado aparecia aqui como "ativo" */}
+        {ativosHoje.length === 0 && <p className="text-sm text-gray-400">{carregandoVinculos ? "Carregando…" : "Nenhum contrato ativo"}</p>}
+        {ativosHoje.map(l => {
           const client = l.client as { name: string } | undefined
           const isConsultoria = l.service_type === 'Consultoria'
           return (

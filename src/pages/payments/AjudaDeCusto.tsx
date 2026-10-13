@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
-import { Plus, Download, X, Paperclip, CheckCircle2, Trash2, Home, Car, Fuel, UtensilsCrossed, Receipt, Undo2 } from 'lucide-react'
+import { Plus, Download, X, Paperclip, CheckCircle2, Trash2, Home, Car, Fuel, UtensilsCrossed, Receipt, Undo2, Check, Table2, List } from 'lucide-react'
 import { format, addDays, startOfWeek, endOfMonth, parseISO } from 'date-fns'
 import { supabase } from '../../lib/supabase'
 import { formatCurrency, formatDate, hojeISO } from '../../lib/utils'
@@ -63,13 +63,20 @@ async function sincronizarSemanasDoContrato(ini: string, fimMes: string) {
   await supabase.from('ajudas_custo').upsert(novas, { onConflict: 'link_id,inicio', ignoreDuplicates: true })
 }
 
-/** Ficha do colaborador mudou a ajuda do contrato: ajusta as semanas a pagar dali pra frente */
-export async function ajustarSemanasDoContrato(linkIds: string[], valorSemanal: number | null) {
+/**
+ * Ficha do colaborador mudou a ajuda do contrato: ajusta as semanas a pagar dali pra frente.
+ * Com valorAntigo, só muda a semana que ainda está com ele: a que o RH editou na
+ * tabela (ex.: proporcional da 1ª semana) fica como está.
+ */
+export async function ajustarSemanasDoContrato(linkIds: string[], valorSemanal: number | null, valorAntigo?: number) {
   if (!linkIds.length) return
   const desde = segunda(hojeISO())
   const q = supabase.from('ajudas_custo')
+  if (valorSemanal && valorSemanal > 0 && valorSemanal === valorAntigo) return
+  let upd = q.update({ valor: valorSemanal }).in('link_id', linkIds).eq('status', 'Pendente').gte('inicio', desde)
+  if (valorAntigo != null) upd = upd.eq('valor', valorAntigo)
   const { error } = valorSemanal && valorSemanal > 0
-    ? await q.update({ valor: valorSemanal }).in('link_id', linkIds).eq('status', 'Pendente').gte('inicio', desde)
+    ? await upd
     : await q.delete().in('link_id', linkIds).eq('status', 'Pendente').gte('inicio', desde)
   if (error && !/link_id/.test(error.message)) throw new Error(error.message)
 }
@@ -113,6 +120,9 @@ export default function AjudaDeCusto({ mes }: { mes: string }) {
   })
   const [form, setForm] = useState<Partial<Ajuda> | null>(null)
   const [filtroCliente, setFiltroCliente] = useState('')
+  // Tabela (planilha editável) é o padrão; a lista continua para quem preferir
+  const [modo, setModoEstado] = useState<'tabela' | 'lista'>(() => { try { return localStorage.getItem('ajuda-modo') === 'lista' ? 'lista' : 'tabela' } catch { return 'tabela' } })
+  const setModo = (m: 'tabela' | 'lista') => { setModoEstado(m); try { localStorage.setItem('ajuda-modo', m) } catch { /* sem armazenamento */ } }
   const semMigracao = error && /ajudas_custo/.test((error as Error).message)
 
   const nomeCli = useMemo(() => new Map((data?.clientes || []).map(c => [c.id, c.nome])), [data])
@@ -203,11 +213,19 @@ export default function AjudaDeCusto({ mes }: { mes: string }) {
           <option value="">Todos os clientes</option>
           {[...new Set(data.ajudas.map(a => a.client_id).filter(Boolean))].map(id => <option key={id!} value={id!}>{nomeCli.get(id!)}</option>)}
         </select>
+        <div className="flex gap-1 p-1 rounded-xl bg-ink-100/70">
+          {([['tabela', 'Tabela', Table2], ['lista', 'Lista', List]] as const).map(([k, t, I]) => (
+            <button key={k} type="button" onClick={() => setModo(k)} className={`h-8 px-2.5 rounded-lg text-sm font-medium inline-flex items-center gap-1.5 ${modo === k ? 'bg-white shadow-sm text-ink-900' : 'text-ink-500'}`}><I size={14} />{t}</button>
+          ))}
+        </div>
         <button className="btn-secondary text-sm" disabled={!lista.length} onClick={baixarPlanilha}><Download size={15} />Planilha</button>
         <button className="btn-primary text-sm" onClick={() => setForm({ periodo: 'semana', inicio: segunda(hojeISO() < ini || hojeISO() > fimMes ? ini : hojeISO()), tipo: 'Hospedagem', status: 'Pendente' })}><Plus size={15} />Lançar</button>
       </div>
 
-      {!porCliente.length ? (
+      {modo === 'tabela' && porCliente.length > 0 ? (
+        <TabelaSemanas lista={lista} semanas={semanas} pessoas={data.todasPessoas} nomeCli={nomeCli}
+          abrir={a => setForm(a)} mudou={() => qc.invalidateQueries({ queryKey: ['ajudas-custo'] })} />
+      ) : !porCliente.length ? (
         <div className="card p-8 text-center text-sm text-ink-500">Nenhuma ajuda de custo neste mês. Toque em <b>Lançar</b>.</div>
       ) : porCliente.map(g => {
         const secoes = [
@@ -422,5 +440,175 @@ function FormAjuda({ inicial, pessoas, clientes, vinculos, fimMes, fechar, salvo
         </div>
       </div>
     </div>
+  )
+}
+
+/**
+ * Tabela da ajuda de custo (pedido de 13/10/2026: "como se fosse um Excel e eu
+ * pudesse editar"). Uma linha por pessoa e cliente, uma coluna por semana. O
+ * valor muda na própria célula — ex.: 1ª semana proporcional porque ela começou
+ * na terça. Semana editada aqui não volta ao valor do contrato sozinha.
+ */
+function TabelaSemanas({ lista, semanas, pessoas, nomeCli, abrir, mudou }: {
+  lista: Ajuda[]; semanas: { de: string; ate: string }[]; pessoas: Map<string, string>; nomeCli: Map<string, string>
+  abrir: (a: Partial<Ajuda>) => void; mudou: () => void
+}) {
+  type Linha = { chave: string; employee_id: string | null; client_id: string | null; link_id: string | null; rotulo: string; porSemana: Map<string, Ajuda> }
+  const linhas = useMemo(() => {
+    const m = new Map<string, Linha>()
+    for (const a of lista.filter(x => x.periodo === 'semana')) {
+      const extra = a.link_id ? 'contrato' : `${a.tipo}|${a.descricao || ''}`
+      const chave = `${a.client_id}|${a.employee_id}|${a.link_id || extra}`
+      if (!m.has(chave)) m.set(chave, { chave, employee_id: a.employee_id, client_id: a.client_id, link_id: a.link_id || null,
+        rotulo: a.link_id ? 'Contrato' : `${a.tipo}${a.descricao ? ' · ' + a.descricao : ''}`, porSemana: new Map() })
+      m.get(chave)!.porSemana.set(segunda(a.inicio), a)
+    }
+    const nome = (l: Linha) => `${nomeCli.get(l.client_id || '') || ''}|${pessoas.get(l.employee_id || '') || ''}`
+    return [...m.values()].sort((x, y) => nome(x).localeCompare(nome(y)))
+  }, [lista, pessoas, nomeCli])
+  const custosMes = lista.filter(a => a.periodo === 'mes')
+
+  const salvarValor = async (a: Ajuda, valor: number) => {
+    const { error } = await supabase.from('ajudas_custo').update({ valor }).eq('id', a.id)
+    if (error) { toast.error('Não salvou: ' + error.message); return }
+    mudou()
+  }
+  // Semana do contrato sem linha (ex.: antes do início): digitar cria
+  const criar = async (l: Linha, sem: { de: string; ate: string }, valor: number) => {
+    const { error } = await supabase.from('ajudas_custo').insert({ employee_id: l.employee_id, client_id: l.client_id, link_id: l.link_id, periodo: 'semana',
+      inicio: sem.de, fim: sem.ate, tipo: 'Outro', descricao: 'Ajuda de custo do contrato', valor, status: 'Pendente' })
+    if (error) { toast.error('Não salvou: ' + error.message); return }
+    mudou()
+  }
+  const pagar = async (ids: string[], total: number, quando: string) => {
+    if (!ids.length) return
+    if (ids.length > 1 && !(await confirmar({ titulo: `Marcar ${ids.length} como pagos?`, texto: `${formatCurrency(total)} da semana de ${quando}.`, confirmar: 'Marcar pago' }))) return
+    const { error } = await supabase.from('ajudas_custo').update({ status: 'Pago', pago_em: hojeISO() }).in('id', ids)
+    if (error) { toast.error(error.message); return }
+    toast.success(ids.length > 1 ? 'Semana marcada como paga' : 'Marcado como pago'); mudou()
+  }
+  const somaLinha = (l: Linha) => [...l.porSemana.values()].reduce((t, a) => t + a.valor, 0)
+
+  return (
+    <div className="space-y-3">
+      <div className="card overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm border-collapse">
+            <thead>
+              <tr className="bg-ink-50 text-[11px] text-ink-500">
+                <th className="text-left font-medium px-3 py-2 sticky left-0 bg-ink-50 min-w-[11rem]">Pessoa · cliente</th>
+                {semanas.map((sem, i) => {
+                  const pend = linhas.map(l => l.porSemana.get(sem.de)).filter((a): a is Ajuda => !!a && a.status !== 'Pago' && a.valor > 0)
+                  return (
+                    <th key={sem.de} className="font-medium px-2 py-2 text-right min-w-[8rem] align-top">
+                      <div className="text-ink-700">Semana {i + 1}</div>
+                      <div>{curto(sem.de)} a {curto(sem.ate)}</div>
+                      {pend.length > 0 && (
+                        <button className="mt-1 text-[11px] font-semibold text-primary-700 hover:underline"
+                          onClick={() => pagar(pend.map(a => a.id), pend.reduce((t, a) => t + a.valor, 0), curto(sem.de))}>Pagar semana</button>
+                      )}
+                    </th>
+                  )
+                })}
+                <th className="font-medium px-3 py-2 text-right align-top">Total</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-ink-100">
+              {linhas.map(l => (
+                <tr key={l.chave}>
+                  <td className="px-3 py-1.5 sticky left-0 bg-white">
+                    <p className="font-medium text-ink-900 truncate max-w-[14rem]">{pessoas.get(l.employee_id || '') || '—'}</p>
+                    <p className="text-[11px] text-ink-500 truncate max-w-[14rem]">{nomeCli.get(l.client_id || '') || 'Sem cliente'} · {l.rotulo}</p>
+                  </td>
+                  {semanas.map(sem => {
+                    const a = l.porSemana.get(sem.de)
+                    return (
+                      <td key={sem.de} className={`px-1.5 py-1 text-right ${a?.status === 'Pago' ? 'bg-green-50' : ''}`}>
+                        {a?.status === 'Pago' ? (
+                          <button className="w-full text-right tnum text-green-800 font-medium px-1.5 py-1 rounded hover:bg-green-100"
+                            title={`Pago${a.pago_em ? ' em ' + formatDate(a.pago_em) : ''} — toque para desfazer ou anexar comprovante`} onClick={() => abrir(a)}>
+                            <Check size={12} className="inline -mt-0.5 mr-0.5" />{formatCurrency(a.valor)}
+                          </button>
+                        ) : a ? (
+                          <div className="flex items-center gap-1 justify-end">
+                            <CelulaValor valor={a.valor} salvar={v => salvarValor(a, v)} />
+                            <button className={`p-1 rounded ${a.valor > 0 ? 'text-ink-400 hover:text-green-700 hover:bg-green-50' : 'invisible'}`}
+                              title="Marcar pago" onClick={() => pagar([a.id], a.valor, curto(sem.de))}><Check size={14} /></button>
+                          </div>
+                        ) : l.link_id ? (
+                          <div className="flex items-center gap-1 justify-end">
+                            <CelulaValor valor={null} salvar={v => criar(l, sem, v)} />
+                            <span className="p-1 invisible"><Check size={14} /></span>
+                          </div>
+                        ) : <span className="text-ink-300 px-2">—</span>}
+                      </td>
+                    )
+                  })}
+                  <td className="px-3 py-1.5 text-right font-semibold tnum text-ink-900">{formatCurrency(somaLinha(l))}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="bg-ink-50 font-semibold text-ink-800">
+                <td className="px-3 py-2 sticky left-0 bg-ink-50">Total</td>
+                {semanas.map(sem => (
+                  <td key={sem.de} className="px-3 py-2 text-right tnum">{formatCurrency(linhas.reduce((t, l) => t + (l.porSemana.get(sem.de)?.valor || 0), 0))}</td>
+                ))}
+                <td className="px-3 py-2 text-right tnum">{formatCurrency(linhas.reduce((t, l) => t + somaLinha(l), 0))}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+        <p className="px-3 py-2 text-[11px] text-ink-500 border-t border-ink-100">
+          Digite o valor e saia da célula (ou Enter) para salvar — ex.: semana proporcional. 0 = não paga essa semana. Verde = pago; toque para desfazer.
+        </p>
+      </div>
+      {custosMes.length > 0 && (
+        <div className="card overflow-hidden">
+          <p className="px-4 py-2 bg-ink-50 border-b border-ink-100 text-xs font-semibold text-ink-700">Custos do mês</p>
+          <div className="divide-y divide-ink-100">
+            {custosMes.map(a => (
+              <button key={a.id} onClick={() => abrir(a)} className="w-full px-4 py-2 flex items-center gap-3 text-left hover:bg-ink-50/60">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-ink-900 truncate">{pessoas.get(a.employee_id || '') || '—'}</p>
+                  <p className="text-xs text-ink-500 truncate">{nomeCli.get(a.client_id || '') || 'Sem cliente'} · {a.tipo}{a.descricao ? ` · ${a.descricao}` : ''}</p>
+                </div>
+                <p className="text-sm font-semibold tnum">{formatCurrency(a.valor)}</p>
+                <p className={`text-[11px] font-medium w-14 text-right ${a.status === 'Pago' ? 'text-green-700' : 'text-amber-700'}`}>{a.status === 'Pago' ? 'Pago' : 'A pagar'}</p>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Célula editável: salva ao sair (ou Enter); Esc desfaz */
+function CelulaValor({ valor, salvar }: { valor: number | null; salvar: (v: number) => void }) {
+  const fmt = (v: number | null) => v == null ? '' : v.toFixed(2).replace('.', ',')
+  const [txt, setTxt] = useState(fmt(valor))
+  const [foco, setFoco] = useState(false)
+  const cancelou = useRef(false)
+  const sair = () => {
+    setFoco(false)
+    if (cancelou.current) { cancelou.current = false; return }
+    if (txt.trim() === '') return
+    // "1.234,50" (ponto de milhar) ou "675.5" (ponto decimal)
+    const v = Number(txt.includes(',') ? txt.replace(/\./g, '').replace(',', '.') : txt)
+    if (!Number.isFinite(v) || v < 0) { toast.error('Valor inválido'); return }
+    if (valor != null && Math.abs(v - valor) < 0.005) return
+    salvar(Math.round(v * 100) / 100)
+  }
+  return (
+    <input className={`w-24 h-8 rounded-md border border-ink-200 bg-white px-2 text-right text-sm tnum focus:border-primary-500 focus:outline-none ${valor === 0 ? 'text-ink-400' : 'text-ink-900'}`}
+      inputMode="decimal" placeholder="—" value={foco ? txt : fmt(valor)}
+      onFocus={e => { setTxt(fmt(valor)); setFoco(true); const el = e.target; requestAnimationFrame(() => el.select()) }}
+      onChange={e => setTxt(e.target.value.replace(/[^\d,.]/g, ''))}
+      onBlur={sair}
+      onKeyDown={e => {
+        if (e.key === 'Enter') e.currentTarget.blur()
+        if (e.key === 'Escape') { cancelou.current = true; e.currentTarget.blur() }
+      }} />
   )
 }

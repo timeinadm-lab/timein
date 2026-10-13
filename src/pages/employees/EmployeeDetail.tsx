@@ -914,7 +914,8 @@ export default function EmployeeDetail() {
         if (e2) throw e2
       }
       // Semanas a pagar dali pra frente (Pagamentos → Ajuda de custo) seguem o novo valor; mensal tira
-      await ajustarSemanasDoContrato([principalDoFixo.id], periodo === 'semana' ? valor : null)
+      const antigoFixo = Number((principalDoFixo as { cost_assistance?: number }).cost_assistance) || 0
+      await ajustarSemanasDoContrato([principalDoFixo.id], periodo === 'semana' ? valor : null, antigoFixo > 0 ? antigoFixo : undefined)
       await ajustarSemanasDoContrato(grupoFixo.filter(l => l.id !== principalDoFixo.id).map(l => l.id), null)
     },
     onSuccess: () => {
@@ -1319,7 +1320,8 @@ export default function EmployeeDetail() {
       }
       // Ajuda semanal mudou (valor, ou virou mensal/zero): ajusta as segundas a pagar daqui pra frente
       const valorAjuda = Number(vals.cost_assistance) || 0
-      await ajustarSemanasDoContrato([vals.linkId], valorAjuda > 0 && vals.ajuda_periodo === 'semana' ? valorAjuda : null)
+      const antigoAjuda = Number(((links || []).find(l => l.id === vals.linkId) as { cost_assistance?: number } | undefined)?.cost_assistance) || 0
+      await ajustarSemanasDoContrato([vals.linkId], valorAjuda > 0 && vals.ajuda_periodo === 'semana' ? valorAjuda : null, antigoAjuda > 0 ? antigoAjuda : undefined)
       // Início mudou para depois: semanas antes dele não são devidas
       if (vals.start_date) await limparSemanasForaDoContrato(vals.linkId, vals.start_date, null)
     },

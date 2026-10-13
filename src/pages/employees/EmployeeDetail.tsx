@@ -6,6 +6,8 @@ import { supabase } from '../../lib/supabase'
 import { formatDate, formatCurrency, getInitials, serviceTypeLabel, hojeISO, corDoAvatar, pagaPorDiaria, ehTemporario, rotuloDoVinculo, pendenciasDoVinculo, salarioConsultoria } from '../../lib/utils'
 import type { VinculoCadastro } from '../../lib/utils'
 import { minutosLiquidos } from '../../lib/jornada'
+import { sugerirParcelas, problemasDasParcelas, parcelasDoVinculo, ordenarParcelas, valorDoContrato } from '../../lib/contrato'
+import type { Parcela } from '../../lib/contrato'
 import { exportEmployeeToPDF } from '../../lib/exportUtils'
 import { SignedLink, SignedImage } from '../../components/ui/SignedFile'
 import DeletePinModal from '../../components/ui/DeletePinModal'
@@ -122,8 +124,8 @@ const EMPTY_COVERAGE = {
   start_date: '', end_date: '', monthly_amount: '',
   // Ajuda de custo já no vínculo (pedido de 12/10/2026): vazio = sem ajuda
   ajuda_valor: '', ajuda_periodo: 'mes' as 'mes' | 'semana',
-  // Contrato de X dias que só paga quando termina (088)
-  paga_ao_concluir: false,
+  // Contrato com datas de pagamento combinadas (089): null = segue os dias 8/15/20 todo mês
+  parcelas: null as Parcela[] | null,
   pay_days: ['20'] as string[],
   agenda_mode: '' as '' | 'colaborador' | 'gestor',
   // Marcar já o 1º dia na agenda? Antes era automático: vincular depois de uma
@@ -169,7 +171,7 @@ export default function EmployeeDetail() {
   // Data de hoje em ISO — usada para saber se um vínculo já foi encerrado
   const hojeStr = hojeISO()
   type EditLinkUnit = { unit_id: string; unit_name: string; visit_rate: string }
-  type EditLinkState = { linkId: string; serviceType: string; clientId: string; monthly_amount: string; cost_assistance: string; ajuda_periodo: 'mes' | 'semana'; paga_ao_concluir: boolean; contract_end_date: string; weekly_hours: string; visit_frequency: string; visits_per_week: string; units: EditLinkUnit[]; work_schedule_type: string; daily_hours: string; days_off: number[]; schedule_anchor_date: string; start_date: string; payDays: string[]; pay_full_salary: boolean; expected_days_month: string; work_start: string; work_end: string; break_minutes: string; horas_modo: 'visita' | 'mes'; horas_mes: string }
+  type EditLinkState = { linkId: string; serviceType: string; clientId: string; monthly_amount: string; cost_assistance: string; ajuda_periodo: 'mes' | 'semana'; parcelas: Parcela[] | null; contract_end_date: string; weekly_hours: string; visit_frequency: string; visits_per_week: string; units: EditLinkUnit[]; work_schedule_type: string; daily_hours: string; days_off: number[]; schedule_anchor_date: string; start_date: string; payDays: string[]; pay_full_salary: boolean; expected_days_month: string; work_start: string; work_end: string; break_minutes: string; horas_modo: 'visita' | 'mes'; horas_mes: string }
   const [editLinkValues, setEditLinkValues] = useState<EditLinkState | null>(null)
   // Intervalo do contrato do cliente (o portal não pede intervalo; a conta das
   // horas desconta o do vínculo — mesma regra do portal e do aviso de jornada)
@@ -521,7 +523,7 @@ export default function EmployeeDetail() {
         // Ajuda de custo: mensal vai junto com o salário; semanal sai toda segunda na aba Ajuda de custo
         ...(Number(coverageForm.ajuda_valor) > 0
           ? { cost_assistance: Number(coverageForm.ajuda_valor), cost_assistance_periodo: coverageForm.ajuda_periodo } : {}),
-        ...(isFixo && !isTemporario && coverageForm.end_date && coverageForm.paga_ao_concluir ? { paga_ao_concluir: true } : {}),
+        ...(isFixo && !isTemporario && coverageForm.end_date && coverageForm.parcelas?.length ? { parcelas: ordenarParcelas(coverageForm.parcelas) } : {}),
         // Horário definido só entra se preenchido (antes da migração 067 a coluna não existe)
         ...((isFixo || coverageForm.consult_salario) && coverageForm.work_start && coverageForm.work_end
           ? { work_start: coverageForm.work_start, work_end: coverageForm.work_end } : {}),
@@ -557,7 +559,7 @@ export default function EmployeeDetail() {
         }
       }
       let { data: newLink, error } = await supabase.from('employee_client_links').insert(registroVinculo).select('id').single()
-      if (error && /paga_ao_concluir/.test(error.message)) throw new Error('Rode a migração 088 no Supabase para usar "paga ao concluir".')
+      if (error && /parcelas/.test(error.message)) throw new Error('Rode a migração 089 no Supabase para usar datas de pagamento combinadas.')
       if (error && coverageForm.consult_salario && /pay_mode|check/i.test(error.message)) throw new Error('Falta rodar a migração 060 no Supabase para usar consultoria com salário fixo.')
       // Migração 058 ainda não rodada: grava no formato antigo (Volante)
       if (error && /pay_mode|is_temporary/i.test(error.message)) {
@@ -985,7 +987,7 @@ export default function EmployeeDetail() {
         start_date: (l as { start_date?: string }).start_date || '',
         payDays: l.service_type === 'Consultoria' && (l as { pay_mode?: string }).pay_mode !== 'salario_fixo' ? ['8', '20'] : (l.payment_dates || []).map(d => String(d.day_of_month)).filter(d => ['8', '15', '20'].includes(d)).sort((a, b) => Number(a) - Number(b)),
         pay_full_salary: (l as { pay_full_salary?: boolean }).pay_full_salary ?? false,
-        paga_ao_concluir: !!(l as { paga_ao_concluir?: boolean }).paga_ao_concluir,
+        parcelas: (() => { const p = parcelasDoVinculo(l as Parameters<typeof parcelasDoVinculo>[0], Number(l.payment_dates?.[0]?.day_of_month) || 15); return p.length ? p : null })(),
         contract_end_date: (l as { contract_end_date?: string }).contract_end_date || '',
         expected_days_month: String((l as { expected_days_month?: number }).expected_days_month || ''),
         work_start: ((l as { work_start?: string }).work_start || '').slice(0, 5),
@@ -1277,9 +1279,17 @@ export default function EmployeeDetail() {
         pay_full_salary: !isConsult ? vals.pay_full_salary : undefined,
         expected_days_month: !isConsult ? (vals.expected_days_month ? Number(vals.expected_days_month) : null) : undefined,
       }
-      const pagaAoConcluirAntes = !!(links || []).find(l => l.id === vals.linkId && (l as { paga_ao_concluir?: boolean }).paga_ao_concluir)
-      const pagaAoConcluirAgora = !isConsult && !!vals.contract_end_date && vals.paga_ao_concluir
-      if (pagaAoConcluirAgora || pagaAoConcluirAntes) atualizacao.paga_ao_concluir = pagaAoConcluirAgora
+      // Datas combinadas (089): só mexe na coluna se tem lista agora ou tinha antes
+      const linkAntes = (links || []).find(l => l.id === vals.linkId) as { parcelas?: unknown[] | null; paga_ao_concluir?: boolean } | undefined
+      const tinhaDatas = !!linkAntes?.parcelas?.length
+      const datasAgora = !isConsult && vals.parcelas ? ordenarParcelas(vals.parcelas) : null
+      if (datasAgora) {
+        const prob = problemasDasParcelas(datasAgora, vals.contract_end_date || null)
+        if (!datasAgora.length || prob.length) throw new Error('Datas de pagamento: ' + (prob[0] || 'adicione pelo menos uma data.'))
+      }
+      if (datasAgora || tinhaDatas) atualizacao.parcelas = datasAgora
+      // A caixinha antiga (088) vira a lista: desliga para não valer duas regras
+      if (linkAntes?.paga_ao_concluir) atualizacao.paga_ao_concluir = false
       // Horário definido (Fixo / consultoria com salário). Só vai no update quando
       // há algo a gravar ou apagar — antes da migração 067 a coluna não existe.
       const antes = (links || []).find(l => l.id === vals.linkId) as { work_start?: string; break_minutes?: number } | undefined
@@ -1294,7 +1304,7 @@ export default function EmployeeDetail() {
       let { error } = await supabase.from('employee_client_links').update(atualizacao).eq('id', vals.linkId)
       if (error && /work_start|work_end|break_minutes/.test(error.message)) throw new Error('Falta rodar a migração 067 no Supabase para gravar o horário.')
       if (error && /cost_assistance_periodo/.test(error.message)) throw new Error('Rode a migração 085 para usar ajuda de custo semanal.')
-      if (error && /paga_ao_concluir/.test(error.message)) throw new Error('Rode a migração 088 no Supabase para usar "paga ao concluir".')
+      if (error && /parcelas/.test(error.message)) throw new Error('Rode a migração 089 no Supabase para usar datas de pagamento combinadas.')
       // Migração 058 ainda não rodada: diária volta a ser gravada como Volante
       if (error && consultSalario && /pay_mode|check/i.test(error.message)) throw new Error('Falta rodar a migração 060 no Supabase para usar consultoria com salário fixo.')
       if (error && /pay_mode/i.test(error.message)) {
@@ -2049,8 +2059,10 @@ export default function EmployeeDetail() {
                   </label>
                   <input className="input" type="date" min={coverageForm.start_date || undefined} value={coverageForm.end_date} onChange={e => setCoverageForm(p => ({ ...p, end_date: e.target.value }))} />
                   {coverageForm.coverage_type === 'Fixo' && coverageForm.vinculo_tipo === 'permanente' && coverageForm.end_date && (
-                    <CampoPagaAoConcluir marcado={coverageForm.paga_ao_concluir} fim={coverageForm.end_date}
-                      onChange={v => setCoverageForm(p => ({ ...p, paga_ao_concluir: v }))} />
+                    <CampoDatasCombinadas parcelas={coverageForm.parcelas} ini={coverageForm.start_date || hojeISO()} fim={coverageForm.end_date}
+                      mensal={(Number(coverageForm.monthly_amount) || 0) + (coverageForm.ajuda_periodo === 'mes' ? Number(coverageForm.ajuda_valor) || 0 : 0)}
+                      dia={Number(coverageForm.pay_days[0]) || 15}
+                      onChange={v => setCoverageForm(p => ({ ...p, parcelas: v }))} />
                   )}
                 </div>
               </div>
@@ -2210,11 +2222,13 @@ export default function EmployeeDetail() {
                   && !coverageForm.schedule_anchor_date
                 // Fim antes do início passava calado (13/11 a 12/11) e a folha nunca pagava
                 const fimAntesDoInicio = !!coverageForm.end_date && coverageForm.end_date < (coverageForm.start_date || hojeISO())
+                const datasComProblema = !!coverageForm.parcelas && (!coverageForm.parcelas.length || problemasDasParcelas(coverageForm.parcelas, coverageForm.end_date).length > 0)
                 const bloqueado = !coverageForm.vinculo_tipo || !coverageForm.agenda_mode
                   || !coverageForm.client_id || faltaValor || faltaUnidade || faltaPag || (!coverageForm.contrato && !entraNoFixo)
-                  || faltaRegraHoras || faltaHoras || faltaEscala || faltaFolgas || faltaAncora || fimAntesDoInicio
+                  || faltaRegraHoras || faltaHoras || faltaEscala || faltaFolgas || faltaAncora || fimAntesDoInicio || datasComProblema
                 const pendencias = [
                   fimAntesDoInicio && 'a data fim (está antes do início)',
+                  datasComProblema && 'acertar as datas de pagamento combinadas',
                   !coverageForm.vinculo_tipo && 'o tipo do vínculo',
                   !coverageForm.client_id && 'o cliente',
                   !coverageForm.agenda_mode && 'quem monta os dias',
@@ -2451,7 +2465,7 @@ export default function EmployeeDetail() {
                               {!noFixo && (
                                 <InfoVinculo rotulo="Pagamento"
                                   valor={porVisita ? 'Dias 8 e 20' : dias.length ? `Dia${dias.length > 1 ? 's' : ''} ${dias.join(' e ')}` : 'Sem dia'}
-                                  sub={porVisita ? '1–15 no dia 20 · 16–fim no dia 8' : (l as { paga_ao_concluir?: boolean }).paga_ao_concluir && contractEnd ? `só ao concluir (${formatDate(contractEnd)})` : undefined} alerta={!porVisita && !dias.length} />
+                                  sub={porVisita ? '1–15 no dia 20 · 16–fim no dia 8' : (() => { const p = parcelasDoVinculo(l as Parameters<typeof parcelasDoVinculo>[0], dias[0] || 15); return p.length ? `datas combinadas: ${p.map(x => formatDate(x.data).slice(0, 5)).join(', ')}` : undefined })()} alerta={!porVisita && !dias.length} />
                               )}
                               <InfoVinculo rotulo={ehConsult ? 'Visitas' : 'Escala'} valor={rotina || 'Não informado'}
                                 sub={x.start_date ? `início ${formatDate(x.start_date)}` : undefined} />
@@ -2840,9 +2854,11 @@ export default function EmployeeDetail() {
                                 </div>
                                 <div className="col-span-2">
                                   {editLinkValues.contract_end_date
-                                    ? <CampoPagaAoConcluir marcado={editLinkValues.paga_ao_concluir} fim={editLinkValues.contract_end_date}
-                                        onChange={v => setEditLinkValues(p => p ? { ...p, paga_ao_concluir: v } : p)} />
-                                    : <p className="text-xs text-gray-400">Contrato de X dias que só paga no fim? Defina o vencimento no cartão e volte aqui para marcar "Paga ao concluir".</p>}
+                                    ? <CampoDatasCombinadas parcelas={editLinkValues.parcelas} ini={editLinkValues.start_date || hojeISO()} fim={editLinkValues.contract_end_date}
+                                        mensal={(Number(editLinkValues.monthly_amount) || 0) + (editLinkValues.ajuda_periodo === 'mes' ? Number(editLinkValues.cost_assistance) || 0 : 0)}
+                                        dia={Number(editLinkValues.payDays[0]) || 15}
+                                        onChange={v => setEditLinkValues(p => p ? { ...p, parcelas: v } : p)} />
+                                    : <p className="text-xs text-gray-400">Contrato que recebe em datas combinadas (ex.: só em 15/11)? Defina o vencimento no cartão e volte aqui.</p>}
                                 </div>
                                 <div className="col-span-2">
                                   <label className="label text-xs">Dias esperados de trabalho no mês</label>
@@ -4953,15 +4969,55 @@ function InfoVinculo({ rotulo, valor, sub, destaque, alerta, acao }: {
   )
 }
 
-/** Contrato de X dias que só recebe quando termina (088) */
-function CampoPagaAoConcluir({ marcado, fim, onChange }: { marcado: boolean; fim: string; onChange: (v: boolean) => void }) {
+/**
+ * Contrato com datas de pagamento combinadas (089, pedido de 13/10/2026): "ela vai
+ * receber só nesse dia". O sistema sugere (uma data por mês de contrato, total =
+ * salário + ajuda mensal × meses) e o RH muda data e valor à vontade.
+ */
+function CampoDatasCombinadas({ parcelas, ini, fim, mensal, dia, onChange }: {
+  parcelas: Parcela[] | null; ini: string; fim: string; mensal: number; dia: number; onChange: (p: Parcela[] | null) => void
+}) {
+  const ligado = !!parcelas
+  const sugestao = () => { const p = sugerirParcelas(ini, fim, mensal, dia); return p.length ? p : [{ data: '', valor: 0 }] }
+  const lista = parcelas || []
+  const total = lista.reduce((t, p) => t + (Number(p.valor) || 0), 0)
+  const contrato = fim >= ini && mensal > 0 ? valorDoContrato(ini, fim, mensal) : 0
+  const problemas = ligado ? problemasDasParcelas(lista, fim) : []
+  const muda = (i: number, m: Partial<Parcela>) => onChange(lista.map((p, j) => j === i ? { ...p, ...m } : p))
   return (
-    <label className={`flex items-start gap-2 mt-2 rounded-lg border px-3 py-2 text-xs cursor-pointer select-none ${marcado ? 'border-blue-300 bg-blue-50' : 'border-ink-200'}`}>
-      <input type="checkbox" className="mt-0.5 h-4 w-4 rounded border-ink-300 text-primary-700" checked={marcado} onChange={e => onChange(e.target.checked)} />
-      <span className="text-ink-800">
-        <strong>Paga ao concluir o contrato</strong>
-        <span className="block text-ink-500">Nada nos dias de pagamento antes do fim ({formatDate(fim)}). O valor todo sai no primeiro dia de pagamento depois dele.</span>
-      </span>
-    </label>
+    <div className={`mt-2 rounded-lg border px-3 py-2 text-xs ${ligado ? 'border-blue-300 bg-blue-50' : 'border-ink-200'}`}>
+      <label className="flex items-start gap-2 cursor-pointer select-none">
+        <input type="checkbox" className="mt-0.5 h-4 w-4 rounded border-ink-300 text-primary-700" checked={ligado}
+          onChange={e => onChange(e.target.checked ? sugestao() : null)} />
+        <span className="text-ink-800">
+          <strong>Recebe em datas combinadas</strong>
+          <span className="block text-ink-500">Ex.: contrato de 1 mês que só paga em 15/11. Nos outros meses não sai nada.</span>
+        </span>
+      </label>
+      {ligado && (
+        <div className="mt-2 space-y-1.5">
+          {lista.map((p, i) => (
+            <div key={i} className="flex items-center gap-1.5">
+              <input type="date" className="input text-sm py-1 h-9 flex-1 min-w-0" value={p.data} onChange={e => muda(i, { data: e.target.value })} />
+              <div className="relative w-32 shrink-0">
+                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-ink-400">R$</span>
+                <input type="number" inputMode="decimal" min={0} step="0.01" className="input text-sm py-1 h-9 pl-7 text-right tnum" value={p.valor || ''}
+                  onChange={e => muda(i, { valor: Number(e.target.value) || 0 })} />
+              </div>
+              <button type="button" className="p-1.5 text-ink-400 hover:text-red-600 shrink-0" aria-label="Tirar esta data"
+                onClick={() => { const n = lista.filter((_, j) => j !== i); onChange(n.length ? n : null) }}><X size={14} /></button>
+            </div>
+          ))}
+          <div className="flex items-center gap-3 flex-wrap pt-0.5">
+            <button type="button" className="font-medium text-primary-700 hover:underline" onClick={() => onChange([...lista, { data: '', valor: 0 }])}>+ Adicionar data</button>
+            <button type="button" className="text-ink-500 hover:underline" onClick={() => onChange(sugestao())}>Refazer sugestão</button>
+            <span className="ml-auto text-ink-600">Total: <strong className="tnum">{formatCurrency(total)}</strong>
+              {contrato > 0 && Math.abs(contrato - total) >= 0.01 && <span className="text-amber-700"> · contrato inteiro daria {formatCurrency(contrato)}</span>}</span>
+          </div>
+          {problemas.length > 0 && <ul className="text-amber-800 list-disc list-inside">{problemas.map((x, i) => <li key={i}>{x}</li>)}</ul>}
+          <p className="text-ink-500">Dias 8, 15 ou 20, uma data por mês. Faltas do período de cada data descontam nela (salário ÷ 30). Ajuda mensal já entra no valor; a semanal continua toda segunda.</p>
+        </div>
+      )}
+    </div>
   )
 }

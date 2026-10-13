@@ -575,6 +575,8 @@ export default function EmployeeDetail() {
       const porVisita = coverageForm.coverage_type === 'Consultoria' && !coverageForm.consult_salario
       const dias = porVisita ? [8, 20]
         : noFixo && diaPagtoFixo ? [diaPagtoFixo]
+        // Datas combinadas: os dias de pagamento são os das próprias datas
+        : isFixo && !isTemporario && coverageForm.end_date && coverageForm.parcelas?.length ? [...new Set(coverageForm.parcelas.map(p => Number(p.data.slice(8, 10))).filter(Boolean))].sort((a, b) => a - b)
         : (coverageForm.pay_days.length ? coverageForm.pay_days : ['20']).map(Number).sort((a, b) => a - b)
       if (newLink?.id) {
         const { error: eDias } = await supabase.from('employee_payment_dates').insert(
@@ -1214,7 +1216,8 @@ export default function EmployeeDetail() {
         || (vals.serviceType === 'Volante' && vals.units.some(u => Number(u.visit_rate) > 0))
       // Salário (fixo ou consultoria) precisa de dia de pagamento. Antes, salvar sem
       // nenhum marcado apagava os dias e o pagamento caía no dia 5 ("avulsos") calado.
-      if ((!isConsult || consultSalario) && !vals.payDays.map(Number).some(d => [8, 15, 20].includes(d))) {
+      const diasDasDatas = !isConsult && vals.parcelas?.length ? [...new Set(vals.parcelas.map(p => Number(p.data.slice(8, 10))).filter(Boolean))] : null
+      if ((!isConsult || consultSalario) && !diasDasDatas && !vals.payDays.map(Number).some(d => [8, 15, 20].includes(d))) {
         throw new Error('Escolha o dia de pagamento (8, 15 ou 20) — sem ele o pagamento sai do dia certo.')
       }
       let monthly: number | null = null
@@ -1316,7 +1319,7 @@ export default function EmployeeDetail() {
       if (error) throw error
 
       // Consultoria por visita: dia 8 e 20. Salário (fixo ou consultoria): 8, 15 ou 20
-      const allowedDays = isConsult && !consultSalario ? [8, 20] : vals.payDays.map(d => Number(d)).filter(d => [8, 15, 20].includes(d))
+      const allowedDays = isConsult && !consultSalario ? [8, 20] : diasDasDatas || vals.payDays.map(d => Number(d)).filter(d => [8, 15, 20].includes(d))
       const cleanDays = [...new Set(allowedDays)]
       const { error: eDel } = await supabase.from('employee_payment_dates').delete().eq('link_id', vals.linkId)
       if (eDel) throw new Error('Os valores foram salvos, mas os dias de pagamento não: ' + eDel.message)
@@ -1784,7 +1787,7 @@ export default function EmployeeDetail() {
                     { v: 'permanente', t: 'Fica no cliente', d: 'Ela atende esse cliente daqui pra frente. Aparece sempre no portal dela.' },
                     { v: 'temporario', t: 'Temporário / cobertura', d: 'Com data para acabar. Fixo paga os dias trabalhados × diária; consultoria paga por visita.' },
                   ] as const).map(o => (
-                    <button key={o.v} type="button" onClick={() => setCoverageForm(p => ({ ...p, vinculo_tipo: o.v }))}
+                    <button key={o.v} type="button" onClick={() => setCoverageForm(p => ({ ...p, vinculo_tipo: o.v, parcelas: o.v === "permanente" ? p.parcelas : null }))}
                       className={`text-left p-2.5 rounded-lg border-2 transition-colors ${coverageForm.vinculo_tipo === o.v ? 'border-orange-500 bg-orange-50' : 'border-gray-200 hover:border-gray-300'}`}>
                       <p className="text-sm font-semibold text-gray-800">{o.t}</p>
                       <p className="text-xs text-gray-500 leading-snug mt-0.5">{o.d}</p>
@@ -1823,7 +1826,7 @@ export default function EmployeeDetail() {
                   {(['Fixo', 'Consultoria'] as const).map(t => (
                     <button key={t} type="button"
                       className={`flex-1 py-2 text-sm rounded-lg border font-medium transition-colors ${coverageForm.coverage_type === t ? 'bg-orange-500 text-white border-orange-500' : 'bg-white text-gray-600 border-gray-300 hover:border-orange-300'}`}
-                      onClick={() => setCoverageForm(p => ({ ...p, coverage_type: t, unit_id: '', unit_ids: [] }))}>
+                      onClick={() => setCoverageForm(p => ({ ...p, coverage_type: t, unit_id: '', unit_ids: [], parcelas: t === 'Fixo' ? p.parcelas : null }))}>
                       {t}
                     </button>
                   ))}
@@ -2057,13 +2060,9 @@ export default function EmployeeDetail() {
                   <label className="label">
                     Data fim <span className="text-gray-400 font-normal">(vazio = por tempo indeterminado)</span>
                   </label>
-                  <input className="input" type="date" min={coverageForm.start_date || undefined} value={coverageForm.end_date} onChange={e => setCoverageForm(p => ({ ...p, end_date: e.target.value }))} />
-                  {coverageForm.coverage_type === 'Fixo' && coverageForm.vinculo_tipo === 'permanente' && coverageForm.end_date && (
-                    <CampoDatasCombinadas parcelas={coverageForm.parcelas} ini={coverageForm.start_date || hojeISO()} fim={coverageForm.end_date}
-                      mensal={(Number(coverageForm.monthly_amount) || 0) + (coverageForm.ajuda_periodo === 'mes' ? Number(coverageForm.ajuda_valor) || 0 : 0)}
-                      dia={Number(coverageForm.pay_days[0]) || 15}
-                      onChange={v => setCoverageForm(p => ({ ...p, parcelas: v }))} />
-                  )}
+                  <input className="input" type="date" min={coverageForm.start_date || undefined} value={coverageForm.end_date}
+                    // Sem data fim não existe "datas combinadas": volta para todo mês
+                    onChange={e => setCoverageForm(p => ({ ...p, end_date: e.target.value, parcelas: e.target.value ? p.parcelas : null }))} />
                 </div>
               </div>
 
@@ -2105,7 +2104,23 @@ export default function EmployeeDetail() {
                   <p className="text-xs text-ink-600 bg-ink-50 rounded-lg px-3 py-2">
                     <strong>Pagamento:</strong> visitas de 1 a 15 no dia 20; visitas de 16 ao fim do mês no dia 8 do mês seguinte.
                   </p>
-                ) : !(coverageForm.coverage_type === 'Consultoria' && coverageForm.consult_salario && grupoFixo.length > 0) && <div>
+                ) : !(coverageForm.coverage_type === 'Consultoria' && coverageForm.consult_salario && grupoFixo.length > 0) && <div className={coverageForm.parcelas ? 'sm:col-span-2' : ''}>
+                  {/* Uma pergunta só: todo mês (8/15/20) OU datas combinadas. Antes as duas
+                      apareciam juntas e diziam coisas diferentes (pedido de 13/10/2026). */}
+                  {coverageForm.coverage_type === 'Fixo' && coverageForm.vinculo_tipo === 'permanente' && (
+                    <ComoRecebe datas={!!coverageForm.parcelas} podeDatas={!!coverageForm.end_date}
+                      onDatas={on => setCoverageForm(p => ({
+                        ...p,
+                        parcelas: on ? sugerirOuVazio(p.start_date || hojeISO(), p.end_date,
+                          (Number(p.monthly_amount) || 0) + (p.ajuda_periodo === 'mes' ? Number(p.ajuda_valor) || 0 : 0), Number(p.pay_days[0]) || 15) : null,
+                      }))} />
+                  )}
+                  {coverageForm.parcelas ? (
+                    <CampoDatasCombinadas parcelas={coverageForm.parcelas} ini={coverageForm.start_date || hojeISO()} fim={coverageForm.end_date}
+                      mensal={(Number(coverageForm.monthly_amount) || 0) + (coverageForm.ajuda_periodo === 'mes' ? Number(coverageForm.ajuda_valor) || 0 : 0)}
+                      dia={Number(coverageForm.pay_days[0]) || 15}
+                      onChange={v => setCoverageForm(p => ({ ...p, parcelas: v }))} />
+                  ) : <>
                   <label className="label">Dia(s) de pagamento * <span className="text-gray-400 font-normal">— pode marcar dois</span></label>
                   <div className="flex gap-1.5">
                     {(['8', '15', '20'] as const).map(d => {
@@ -2127,6 +2142,7 @@ export default function EmployeeDetail() {
                       Quinzenal: o que ela fizer entre os dias {[...coverageForm.pay_days].map(Number).sort((a, b) => a - b).join(' e ')} cai no pagamento seguinte.
                     </p>
                   )}
+                  </>}
                 </div>}
               </div>
 
@@ -2198,7 +2214,7 @@ export default function EmployeeDetail() {
                   : false
                 // Freela sem data fim = por tempo indeterminado. Não bloqueia.
                 const entraNoFixo = consultSalario && grupoFixo.length > 0
-                const faltaPag = coverageForm.pay_days.length === 0 && !entraNoFixo && !(coverageForm.coverage_type === 'Consultoria' && !consultSalario)
+                const faltaPag = coverageForm.pay_days.length === 0 && !coverageForm.parcelas && !entraNoFixo && !(coverageForm.coverage_type === 'Consultoria' && !consultSalario)
                 const isConsult = coverageForm.coverage_type === 'Consultoria'
                 const faltaRegraHoras = isConsult && !consultSalario && !coverageForm.horas_obrigatorias
                 // Escolheu "tem tempo certo" mas não disse quanto: o pagamento
@@ -2853,14 +2869,6 @@ export default function EmployeeDetail() {
                                   <p className="text-xs text-gray-400 mt-0.5 ml-6">Ignora cálculo proporcional do ciclo de pagamento.</p>
                                 </div>
                                 <div className="col-span-2">
-                                  {editLinkValues.contract_end_date
-                                    ? <CampoDatasCombinadas parcelas={editLinkValues.parcelas} ini={editLinkValues.start_date || hojeISO()} fim={editLinkValues.contract_end_date}
-                                        mensal={(Number(editLinkValues.monthly_amount) || 0) + (editLinkValues.ajuda_periodo === 'mes' ? Number(editLinkValues.cost_assistance) || 0 : 0)}
-                                        dia={Number(editLinkValues.payDays[0]) || 15}
-                                        onChange={v => setEditLinkValues(p => p ? { ...p, parcelas: v } : p)} />
-                                    : <p className="text-xs text-gray-400">Contrato que recebe em datas combinadas (ex.: só em 15/11)? Defina o vencimento no cartão e volte aqui.</p>}
-                                </div>
-                                <div className="col-span-2">
                                   <label className="label text-xs">Dias esperados de trabalho no mês</label>
                                   <input className="input text-sm" type="number" min={1} max={31} placeholder="Automático pela escala (ex: 22)"
                                     value={editLinkValues.expected_days_month}
@@ -2891,8 +2899,8 @@ export default function EmployeeDetail() {
                             {/* Datas de pagamento — dia 8, 15 e 20 */}
                             <div className="border-t pt-2 space-y-2">
                               <div className="flex items-center justify-between">
-                                <label className="label text-xs mb-0">Dias de pagamento</label>
-                                {(() => {
+                                <label className="label text-xs mb-0">{isConsult && !consultSalario ? 'Dias de pagamento' : 'Como recebe'}</label>
+                                {!editLinkValues.parcelas && (() => {
                                   const n = editLinkValues.payDays.length
                                   // Por visita não divide nada: cada quinzena paga as visitas feitas nela
                                   const total = isConsult && !consultSalario ? 0 : Number(editLinkValues.monthly_amount) || 0
@@ -2905,7 +2913,21 @@ export default function EmployeeDetail() {
                                 <div className="bg-orange-50 rounded-lg px-3 py-2 text-xs text-orange-700">
                                   Consultoria: pagamento quinzenal nos dias <strong>8</strong> e <strong>20</strong> (automático).
                                 </div>
+                              ) : editLinkValues.parcelas ? (
+                                <>
+                                  {!isConsult && <ComoRecebe datas podeDatas onDatas={() => setEditLinkValues(p => p ? { ...p, parcelas: null } : p)} />}
+                                  <CampoDatasCombinadas parcelas={editLinkValues.parcelas} ini={editLinkValues.start_date || hojeISO()} fim={editLinkValues.contract_end_date}
+                                    mensal={(Number(editLinkValues.monthly_amount) || 0) + (editLinkValues.ajuda_periodo === 'mes' ? Number(editLinkValues.cost_assistance) || 0 : 0)}
+                                    dia={Number(editLinkValues.payDays[0]) || 15}
+                                    onChange={v => setEditLinkValues(p => p ? { ...p, parcelas: v } : p)} />
+                                </>
                               ) : (
+                                <>
+                                {!isConsult && (
+                                  <ComoRecebe datas={false} podeDatas={!!editLinkValues.contract_end_date}
+                                    onDatas={() => setEditLinkValues(p => p ? { ...p, parcelas: sugerirOuVazio(p.start_date || hojeISO(), p.contract_end_date,
+                                      (Number(p.monthly_amount) || 0) + (p.ajuda_periodo === 'mes' ? Number(p.cost_assistance) || 0 : 0), Number(p.payDays[0]) || 15) } : p)} />
+                                )}
                                 <div className="flex gap-3">
                                   {[8, 15, 20].map(day => {
                                     const checked = editLinkValues.payDays.includes(String(day))
@@ -2924,8 +2946,9 @@ export default function EmployeeDetail() {
                                     )
                                   })}
                                 </div>
+                                </>
                               )}
-                              {!isConsult && editLinkValues.payDays.length === 0 && (
+                              {!isConsult && !editLinkValues.parcelas && editLinkValues.payDays.length === 0 && (
                                 <p className="text-xs text-amber-600">Selecione pelo menos um dia de pagamento.</p>
                               )}
                             </div>
@@ -4978,22 +5001,16 @@ function CampoDatasCombinadas({ parcelas, ini, fim, mensal, dia, onChange }: {
   parcelas: Parcela[] | null; ini: string; fim: string; mensal: number; dia: number; onChange: (p: Parcela[] | null) => void
 }) {
   const ligado = !!parcelas
-  const sugestao = () => { const p = sugerirParcelas(ini, fim, mensal, dia); return p.length ? p : [{ data: '', valor: 0 }] }
+  // Dia das datas que já estão na lista (é o que a sugestão repete)
+  const diaAtual = Number((parcelas || []).find(p => p.data)?.data.slice(8, 10)) || dia
   const lista = parcelas || []
   const total = lista.reduce((t, p) => t + (Number(p.valor) || 0), 0)
   const contrato = fim >= ini && mensal > 0 ? valorDoContrato(ini, fim, mensal) : 0
   const problemas = ligado ? problemasDasParcelas(lista, fim) : []
   const muda = (i: number, m: Partial<Parcela>) => onChange(lista.map((p, j) => j === i ? { ...p, ...m } : p))
   return (
-    <div className={`mt-2 rounded-lg border px-3 py-2 text-xs ${ligado ? 'border-blue-300 bg-blue-50' : 'border-ink-200'}`}>
-      <label className="flex items-start gap-2 cursor-pointer select-none">
-        <input type="checkbox" className="mt-0.5 h-4 w-4 rounded border-ink-300 text-primary-700" checked={ligado}
-          onChange={e => onChange(e.target.checked ? sugestao() : null)} />
-        <span className="text-ink-800">
-          <strong>Recebe em datas combinadas</strong>
-          <span className="block text-ink-500">Ex.: contrato de 1 mês que só paga em 15/11. Nos outros meses não sai nada.</span>
-        </span>
-      </label>
+    <div className="mt-2 rounded-lg border border-blue-300 bg-blue-50 px-3 py-2 text-xs">
+      <p className="text-ink-700">Só sai pagamento nestas datas. Nos outros meses não sai nada.</p>
       {ligado && (
         <div className="mt-2 space-y-1.5">
           {lista.map((p, i) => (
@@ -5005,19 +5022,50 @@ function CampoDatasCombinadas({ parcelas, ini, fim, mensal, dia, onChange }: {
                   onChange={e => muda(i, { valor: Number(e.target.value) || 0 })} />
               </div>
               <button type="button" className="p-1.5 text-ink-400 hover:text-red-600 shrink-0" aria-label="Tirar esta data"
-                onClick={() => { const n = lista.filter((_, j) => j !== i); onChange(n.length ? n : null) }}><X size={14} /></button>
+                onClick={() => { const n = lista.filter((_, j) => j !== i); onChange(n.length ? n : [{ data: '', valor: 0 }]) }}><X size={14} /></button>
             </div>
           ))}
           <div className="flex items-center gap-3 flex-wrap pt-0.5">
             <button type="button" className="font-medium text-primary-700 hover:underline" onClick={() => onChange([...lista, { data: '', valor: 0 }])}>+ Adicionar data</button>
-            <button type="button" className="text-ink-500 hover:underline" onClick={() => onChange(sugestao())}>Refazer sugestão</button>
+            <span className="inline-flex items-center gap-1 text-ink-500">Refazer sugestão no dia
+              {[8, 15, 20].map(d => (
+                <button key={d} type="button" className={`px-1.5 py-0.5 rounded border font-medium ${d === diaAtual ? 'border-primary-600 text-primary-700 bg-white' : 'border-ink-200 hover:border-primary-400'}`}
+                  onClick={() => onChange(sugerirOuVazio(ini, fim, mensal, d))}>{d}</button>
+              ))}
+            </span>
             <span className="ml-auto text-ink-600">Total: <strong className="tnum">{formatCurrency(total)}</strong>
               {contrato > 0 && Math.abs(contrato - total) >= 0.01 && <span className="text-amber-700"> · contrato inteiro daria {formatCurrency(contrato)}</span>}</span>
           </div>
           {problemas.length > 0 && <ul className="text-amber-800 list-disc list-inside">{problemas.map((x, i) => <li key={i}>{x}</li>)}</ul>}
-          <p className="text-ink-500">Dias 8, 15 ou 20, uma data por mês. Faltas do período de cada data descontam nela (salário ÷ 30). Ajuda mensal já entra no valor; a semanal continua toda segunda.</p>
+          {mensal > 0 && total === 0 && <p className="text-amber-800">Sem valor ainda: toque no dia em <strong>Refazer sugestão</strong> para preencher com o salário.</p>}
+          <p className="text-ink-500">Dias 8, 15 ou 20, uma data por mês. O salário mensal é a base: faltas do período de cada data descontam nela (salário ÷ 30). Ajuda de custo mensal já entra no valor das datas; a semanal sai toda segunda em Pagamentos → Ajuda de custo, onde dá para mudar cada semana.</p>
         </div>
       )}
+    </div>
+  )
+}
+
+/** Sugestão das datas, ou uma linha em branco para preencher */
+function sugerirOuVazio(ini: string, fim: string, mensal: number, dia: number): Parcela[] {
+  const p = fim ? sugerirParcelas(ini, fim, mensal, dia) : []
+  return p.length ? p : [{ data: '', valor: 0 }]
+}
+
+/** Uma pergunta só para o pagamento do Fixo: todo mês (8/15/20) ou em datas combinadas */
+function ComoRecebe({ datas, podeDatas, onDatas }: { datas: boolean; podeDatas: boolean; onDatas: (on: boolean) => void }) {
+  return (
+    <div className="mb-2">
+      <div className="flex gap-1 p-1 rounded-xl bg-ink-100/70">
+        {([[false, 'Todo mês', 'dia 8, 15 ou 20'], [true, 'Datas combinadas', 'só nas datas do contrato']] as const).map(([v, t, sub]) => (
+          <button key={t} type="button" disabled={v && !podeDatas}
+            onClick={() => { if (v !== datas) onDatas(v) }}
+            className={`flex-1 rounded-lg px-2 py-1.5 text-left disabled:opacity-50 ${datas === v ? 'bg-white shadow-sm' : ''}`}>
+            <span className={`block text-sm font-medium ${datas === v ? 'text-ink-900' : 'text-ink-500'}`}>{t}</span>
+            <span className="block text-[11px] text-ink-500">{sub}</span>
+          </button>
+        ))}
+      </div>
+      {!podeDatas && <p className="text-[11px] text-ink-400 mt-1">Datas combinadas precisam da data fim do contrato.</p>}
     </div>
   )
 }

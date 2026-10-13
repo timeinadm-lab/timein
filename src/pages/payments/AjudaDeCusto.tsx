@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
-import { Plus, Download, X, Paperclip, CheckCircle2, Trash2, Home, Car, Fuel, UtensilsCrossed, Receipt, Undo2, Check, Table2, List } from 'lucide-react'
+import { Plus, Download, X, Paperclip, CheckCircle2, Trash2, Home, Car, Fuel, UtensilsCrossed, Receipt, Undo2, Check, Table2, List, Wallet } from 'lucide-react'
 import { format, addDays, startOfWeek, endOfMonth, parseISO } from 'date-fns'
 import { supabase } from '../../lib/supabase'
 import { formatCurrency, formatDate, hojeISO } from '../../lib/utils'
@@ -21,6 +21,8 @@ export const TIPOS_AJUDA = [
   { nome: 'Carro', dica: 'Localiza, aluguel', Icone: Car },
   { nome: 'Combustível', dica: 'Gasolina', Icone: Fuel },
   { nome: 'Alimentação', dica: 'Refeições', Icone: UtensilsCrossed },
+  // Reembolso aprovado entra sozinho (migração 090); dá para lançar à mão também
+  { nome: 'Reembolso', dica: 'Uber, ônibus', Icone: Wallet },
   { nome: 'Outro', dica: '', Icone: Receipt },
 ] as const
 
@@ -28,6 +30,7 @@ type Ajuda = {
   id: string; employee_id: string | null; client_id: string | null; periodo: 'semana' | 'mes'
   inicio: string; fim: string; tipo: string; descricao: string | null; valor: number
   status: 'Pendente' | 'Pago'; pago_em: string | null; comprovante_url: string | null; link_id?: string | null
+  expense_id?: string | null   // reembolso aprovado (090)
 }
 type Nome = { id: string; nome: string }
 
@@ -249,7 +252,7 @@ export default function AjudaDeCusto({ mes }: { mes: string }) {
                   </div>
                   <div className="divide-y divide-ink-100">
                     {s.itens.map(a => {
-                      const T = TIPOS_AJUDA.find(t => t.nome === a.tipo) || TIPOS_AJUDA[4]
+                      const T = TIPOS_AJUDA.find(t => t.nome === a.tipo) || TIPOS_AJUDA.find(t => t.nome === 'Outro')!
                       return (
                         <button key={a.id} onClick={() => setForm(a)} className="w-full px-4 py-2.5 flex items-center gap-3 text-left hover:bg-ink-50/60">
                           <span className="w-8 h-8 rounded-lg bg-ink-100 text-ink-600 flex items-center justify-center shrink-0"><T.Icone size={15} /></span>
@@ -299,7 +302,13 @@ function FormAjuda({ inicial, pessoas, clientes, vinculos, fimMes, fechar, salvo
   const periodoDe = f.periodo === 'mes' ? `${(f.inicio || fimMes).slice(0, 7)}-01` : segunda(f.inicio || hojeISO())
   const periodoAte = f.periodo === 'mes' ? iso(endOfMonth(parseISO(periodoDe))) : iso(addDays(parseISO(periodoDe), 6))
   const doContrato = !!f.link_id   // semana criada pelo contrato semanal (085)
-  const falta = !f.employee_id ? 'Escolha o colaborador.' : !f.client_id ? 'Escolha o cliente.' : !(valor > 0 || (doContrato && valor === 0)) ? 'Informe o valor.' : ''
+  const doReembolso = !!f.expense_id   // reembolso aprovado que entrou sozinho (090)
+  const falta = !f.employee_id ? 'Escolha o colaborador.' : !f.client_id ? 'Escolha o cliente.' : !(valor > 0 || ((doContrato || doReembolso) && valor === 0)) ? 'Informe o valor.' : ''
+  const verNota = async () => {
+    const { data: e } = await supabase.from('employee_expenses').select('receipt_url').eq('id', f.expense_id!).maybeSingle()
+    if (!e?.receipt_url) { toast('Ela não anexou nota neste pedido.'); return }
+    const u = await getSignedUrl(e.receipt_url, 'arquivos'); if (u) window.open(u, '_blank')
+  }
 
   const salvar = async () => {
     if (falta) { toast.error(falta); return }
@@ -392,7 +401,13 @@ function FormAjuda({ inicial, pessoas, clientes, vinculos, fimMes, fechar, salvo
         </div>
         <div><label className="label">Descrição</label><input className="input" value={f.descricao || ''} onChange={e => muda({ descricao: e.target.value })} placeholder={TIPOS_AJUDA.find(t => t.nome === f.tipo)?.dica || 'Ex.: Airbnb Hellen'} /></div>
 
-        {doContrato ? (
+        {doReembolso ? (
+          <div className="rounded-xl bg-primary-50 border border-primary-100 px-3 py-2.5 text-sm text-primary-900">
+            <p className="font-medium">Reembolso aprovado · semana de {formatDate(f.inicio!)} a {formatDate(f.fim!)}</p>
+            <p className="text-xs mt-0.5 text-primary-800">Entrou sozinho quando o pedido foi aprovado e não soma no salário. Para não pagar, deixe o valor em 0.</p>
+            <button type="button" className="text-xs font-medium text-primary-700 underline mt-1" onClick={verNota}>Ver nota do pedido</button>
+          </div>
+        ) : doContrato ? (
           <div className="rounded-xl bg-primary-50 border border-primary-100 px-3 py-2.5 text-sm text-primary-900">
             <p className="font-medium">Ajuda de custo do contrato · semana de {formatDate(f.inicio!)} a {formatDate(f.fim!)}</p>
             <p className="text-xs mt-0.5 text-primary-800">Criada sozinha toda semana (paga na segunda). Para não pagar esta semana, deixe o valor em 0. O valor fixo muda na ficha do colaborador.</p>
@@ -434,7 +449,7 @@ function FormAjuda({ inicial, pessoas, clientes, vinculos, fimMes, fechar, salvo
         )}
 
         <div className="flex gap-2">
-          {editando && !doContrato && <button className="btn-ghost text-red-600 text-sm mr-auto" onClick={excluir}><Trash2 size={15} />Excluir</button>}
+          {editando && !doContrato && !doReembolso && <button className="btn-ghost text-red-600 text-sm mr-auto" onClick={excluir}><Trash2 size={15} />Excluir</button>}
           <button className="btn-secondary flex-1" onClick={fechar}>Cancelar</button>
           <button className="btn-primary flex-1" disabled={salvando || !!falta} onClick={salvar}>{salvando ? 'Salvando…' : editando ? 'Salvar' : 'Lançar'}</button>
         </div>
@@ -458,7 +473,9 @@ function TabelaSemanas({ lista, semanas, pessoas, nomeCli, abrir, mudou }: {
     const m = new Map<string, Linha>()
     for (const a of lista.filter(x => x.periodo === 'semana')) {
       const extra = a.link_id ? 'contrato' : `${a.tipo}|${a.descricao || ''}`
-      const chave = `${a.client_id}|${a.employee_id}|${a.link_id || extra}`
+      let chave = `${a.client_id}|${a.employee_id}|${a.link_id || extra}`
+      // Dois lançamentos iguais na mesma semana (ex.: dois "Uber") viram linhas separadas
+      for (let n = 2; m.get(chave)?.porSemana.has(segunda(a.inicio)); n++) chave = `${chave.replace(/#\d+$/, '')}#${n}`
       if (!m.has(chave)) m.set(chave, { chave, employee_id: a.employee_id, client_id: a.client_id, link_id: a.link_id || null,
         rotulo: a.link_id ? 'Contrato' : `${a.tipo}${a.descricao ? ' · ' + a.descricao : ''}`, porSemana: new Map() })
       m.get(chave)!.porSemana.set(segunda(a.inicio), a)

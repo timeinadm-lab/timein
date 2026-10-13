@@ -228,7 +228,15 @@ export default function PaymentList() {
         .eq('reference_month', filterMonth)
         .order('created_at', { ascending: false })
       if (error) throw error
-      return data || []
+      // Reembolso aprovado depois da 090 vai para a Ajuda de custo e é pago lá:
+      // marca para NÃO somar no salário (senão sairia em dobro)
+      const ids = (data || []).map(e => e.id)
+      const naAjuda = new Set<string>()
+      if (ids.length) {
+        const { data: aj, error: eAj } = await supabase.from('ajudas_custo').select('expense_id').in('expense_id', ids)
+        if (!eAj) for (const a of aj || []) if (a.expense_id) naAjuda.add(a.expense_id as string)
+      }
+      return (data || []).map(e => ({ ...e, naAjuda: naAjuda.has(e.id) }))
     },
   })
 
@@ -292,7 +300,8 @@ export default function PaymentList() {
       if (error) throw error
     },
     onSuccess: (_d, v) => {
-      toast.success(v.status === 'aprovado' ? 'Reembolso aprovado — entra no pagamento.' : 'Reembolso negado.')
+      toast.success(v.status === 'aprovado' ? 'Reembolso aprovado — vai para Ajuda de custo desta semana.' : 'Reembolso negado.')
+      qc.invalidateQueries({ queryKey: ['ajudas-custo'] })
       qc.invalidateQueries({ queryKey: ['expenses', filterMonth] })
     },
     onError: (e: Error) => toast.error(e.message),
@@ -1066,7 +1075,7 @@ export default function PaymentList() {
   }
   const gastosDaLinha = (linkId: string) => (expenses ?? []).filter(e => donoDoGasto(e) === linkId)
   const aprovadosDe = (linkId: string) => gastosDaLinha(linkId)
-    .filter(e => ((e as { status?: string }).status ?? 'aprovado') === 'aprovado')
+    .filter(e => ((e as { status?: string }).status ?? 'aprovado') === 'aprovado' && !(e as { naAjuda?: boolean }).naAjuda)
   // Líquido: gastos somam, adiantamentos subtraem
   const empExpensesTotal = (linkId: string) =>
     aprovadosDe(linkId).reduce((s, e) => s + (ehAdiantamento(e) ? -1 : 1) * (Number(e.amount) || 0), 0)
@@ -2256,7 +2265,7 @@ export default function PaymentList() {
                                   </div>
                                 )}
                                 {gastosDaLinha(row.linkId).map(e => {
-                                  const exp = e as { id: string; description: string; category?: string; amount: number; status?: string }
+                                  const exp = e as { id: string; description: string; category?: string; amount: number; status?: string; naAjuda?: boolean }
                                   const pendente = exp.status === 'pendente'
                                   const negado = exp.status === 'negado'
                                   const adiant = exp.category === 'Adiantamento'
@@ -2268,6 +2277,7 @@ export default function PaymentList() {
                                             e só o aprovado entra no pagamento. */}
                                         {pendente && <span className="ml-1 text-amber-700 font-semibold">— aguardando análise</span>}
                                         {negado && <span className="ml-1 text-ink-500">— negado</span>}
+                                        {exp.naAjuda && <span className="ml-1 text-primary-700">— pago na Ajuda de custo (não soma aqui)</span>}
                                       </span>
                                       <span className="flex items-center gap-1.5 shrink-0">
                                         <span className={`font-medium tnum ${negado ? 'text-ink-400' : adiant ? 'text-red-600' : 'text-ink-800'}`}>{adiant ? '−' : ''}{formatCurrency(Number(exp.amount))}</span>

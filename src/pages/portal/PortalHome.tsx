@@ -17,7 +17,7 @@ import { CampoHora, horaAgora, temRelogioNativo } from './CampoHora'
 import PortalQualidade from './PortalQualidade'
 import { jornadaDoVinculo, desvioDoDia, textoDoDesvio, TOLERANCIA_MIN, minutosLiquidos } from '../../lib/jornada'
 import type { VinculoJornada } from '../../lib/jornada'
-import { semanasDeHoras, horasNaSemana, feriadoNacional } from '../../lib/jornadaPessoa'
+import { semanasDeHoras, horasNaSemana } from '../../lib/jornadaPessoa'
 import type { VinculoPerfil, RegistroPerfil } from '../../lib/jornadaPessoa'
 
 // Ela desistiu num diálogo de confirmação: não é erro, não mostra aviso
@@ -610,10 +610,6 @@ export default function PortalHome() {
     return link.days_off.includes(weekday)
   }
 
-  // Feriado nacional: não é dia de trabalho na 5x2/6x1 (o plantão 12x36 trabalha). Mesma regra da Jornada do RH
-  const feriadoDaEscala = (link: FolhaLink | undefined, ds: string) =>
-    !!link && effectiveType(link) !== 'Consultoria' && link.work_schedule_type !== '12x36' ? feriadoNacional(ds) : undefined
-
   // A escala tem dias de trabalho conhecidos? (5x2/6x1 com folga fixa, ou 12x36 com âncora)
   const hasKnownSchedule = (link: FolhaLink | undefined) =>
     !!link && effectiveType(link) !== 'Consultoria' &&
@@ -639,7 +635,7 @@ export default function PortalHome() {
     const d = new Date(effectiveStart)
     while (d <= limit) {
       const ds = d.toISOString().slice(0, 10)
-      if (!isDayOff(link, ds) && !feriadoDaEscala(link, ds) && !filled.has(ds) && !swappedFrom.has(ds) && !noticed.has(ds)) pending.push(ds)
+      if (!isDayOff(link, ds) && !filled.has(ds) && !swappedFrom.has(ds) && !noticed.has(ds)) pending.push(ds)
       d.setDate(d.getDate() + 1)
     }
     return pending
@@ -882,7 +878,7 @@ export default function PortalHome() {
         ...horarioDoContrato(ag.client_id, dia), ...(ag.planned_time ? { check_in: ag.planned_time.slice(0, 5) } : {}) }
     }
     const escala = ((folhaLinks as FolhaLink[] | undefined) || []).find(l => l.client && validos.some(c => c.id === l.client!.id)
-      && effectiveType(l) === 'Fixo' && hasKnownSchedule(l) && !isDayOff(l, dia) && !feriadoDaEscala(l, dia) && !jaRegistrado(l.client.id))
+      && effectiveType(l) === 'Fixo' && hasKnownSchedule(l) && !isDayOff(l, dia) && !jaRegistrado(l.client.id))
     if (escala?.client) return { client_id: escala.client.id, ...horarioDoContrato(escala.client.id, dia) }
     if (validos.length === 1) return { client_id: validos[0].id, ...unidadeUnica(validos[0].id), ...horarioDoContrato(validos[0].id, dia) }
     return {}
@@ -2127,9 +2123,10 @@ export default function PortalHome() {
       {showPontoModal && (() => {
         const modalLink = getLinkForClient(pontoForm.client_id, pontoForm.visit_date)
         const isConsultoria = effectiveType(modalLink) === 'Consultoria'
-        // Folga e Falta saíram do portal (Gabriel, 30/09/2026): pagamos por dia
-        // trabalhado, não é CLT — então só se registra trabalho. Registro antigo
-        // de folga/falta aberto pelo lápis ainda mostra o que era.
+        // Falta saiu do portal (Gabriel, 30/09/2026): pagamos por dia trabalhado.
+        // Folga voltou (14/10/2026) para o Fixo mensal: dia em que o cliente ou o
+        // gestor dispensou. Sem a palavra "feriado": cada contrato decide se
+        // feriado é folga. Registro antigo de falta aberto pelo lápis ainda mostra o que era.
         const mensal = recebeMensal(modalLink) && pontoForm.day_type !== 'normal'
         // "Trabalho" = registro com horário. Quem não recebe mensal só registra trabalho.
         const trabalho = !mensal || pontoForm.day_type === 'normal'
@@ -2153,7 +2150,7 @@ export default function PortalHome() {
         const agora = () => { const d = new Date(); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` }
         const fechar = () => { setShowPontoModal(false); setPontoForm(EMPTY_PONTO); setAtestadoFile(null); setReportFile(null); setEditingPontoId(null); setMostrarObs(false) }
         const motivos = pontoForm.day_type === 'feriado'
-          ? ['Feriado', 'Cliente fechado', 'Liberada pelo gestor', 'Cliente pediu para não ir', 'Outro']
+          ? ['Folga dada pelo cliente', 'Cliente fechado', 'Liberada pelo gestor', 'Outro']
           : ['Atestado médico', 'Doença sem atestado', 'Emergência familiar', 'Licença maternidade/paternidade', 'Licença especial', 'Problema no transporte', 'Outro']
 
         // O que falta para salvar — aparece no rodapé, em vez de um erro depois
@@ -2251,24 +2248,18 @@ export default function PortalHome() {
                 )
               })()}
 
-              {/* Trabalhei / Folga / Faltei: só aparece ao corrigir um registro antigo de folga ou falta */}
-              {modalLink && mensal && editingPontoId && (
-                <div className="grid grid-cols-3 gap-1 p-1 rounded-xl bg-ink-100/70">
-                  {([['normal', 'Trabalhei', 'text-ink-900'], ['feriado', 'Folga', 'text-amber-700'], ['indisponivel', 'Faltei', 'text-red-700']] as const).map(([v, t, cor]) => (
+              {/* Trabalhei / Folga (Fixo mensal). Faltei só ao corrigir um registro antigo de falta */}
+              {modalLink && !isConsultoria && recebeMensal(modalLink) && (editingPontoId || !folgaDaEscala) && (
+                <div className={`grid ${editingPontoId && pontoForm.day_type === 'indisponivel' ? 'grid-cols-3' : 'grid-cols-2'} gap-1 p-1 rounded-xl bg-ink-100/70`}>
+                  {([['normal', 'Trabalhei', 'text-ink-900'], ['feriado', 'Folga', 'text-amber-700'], ['indisponivel', 'Faltei', 'text-red-700']] as const)
+                    .filter(([v]) => v !== 'indisponivel' || (!!editingPontoId && pontoForm.day_type === 'indisponivel'))
+                    .map(([v, t, cor]) => (
                     <button key={v} type="button"
                       onClick={() => setPontoForm(p => ({ ...p, day_type: v, is_extra: v === 'normal' ? p.is_extra : false, is_swap: v === 'normal' ? p.is_swap : false, unavailability_reason: v === p.day_type ? p.unavailability_reason : '' }))}
                       className={`h-10 rounded-lg text-sm font-medium transition-all ${pontoForm.day_type === v ? `bg-white shadow-sm ${cor}` : 'text-ink-500 active:bg-white/60'}`}>
                       {t}
                     </button>
                   ))}
-                </div>
-              )}
-
-              {/* Feriado nacional: não precisa registrar; se trabalhou, preenche e vira "trabalhou no feriado" */}
-              {modalLink && trabalho && !editingPontoId && !folgaDaEscala && feriadoDaEscala(modalLink, pontoForm.visit_date) && (
-                <div className="text-sm text-sky-900 bg-sky-50 rounded-xl px-4 py-3 space-y-1">
-                  <p><strong>{formatDate(pontoForm.visit_date)} é feriado</strong> ({feriadoDaEscala(modalLink, pontoForm.visit_date)}). Você não precisa registrar nada: não conta como falta.</p>
-                  <p className="text-xs text-sky-800">Só preencha os horários se você trabalhou nesse dia — aí conta como trabalho no feriado.</p>
                 </div>
               )}
 
@@ -2289,7 +2280,7 @@ export default function PortalHome() {
                     </div>
                   </div>
                   {pontoForm.day_type === 'feriado' ? (
-                    <p className="text-xs text-ink-500 leading-relaxed">Folga é quando você foi dispensada: não conta como falta nem desconta. Se foi você que não pôde ir, marque <strong>Faltei</strong>.</p>
+                    <p className="text-xs text-ink-500 leading-relaxed">Folga é quando o cliente ou o gestor te dispensou nesse dia. Se foi você que não pôde ir, fale com o RH.</p>
                   ) : (
                     <Anexo rotulo="Atestado ou comprovante" dica={existente?.atestado_url ? 'Já anexado — toque para trocar' : 'Opcional'}
                       arquivo={atestadoFile} onEscolher={() => atestadoRef.current?.click()} onRemover={() => setAtestadoFile(null)} />

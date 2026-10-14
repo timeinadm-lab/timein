@@ -921,7 +921,11 @@ export default function PaymentList() {
         // Escala "horas por semana" (091): não tem dia certo — dia sem ponto não é
         // falta. A meta é semanal e aparece na Jornada; não desconta sozinho.
         const porHoras = (l as { work_schedule_type?: string }).work_schedule_type === 'horas'
-        const faltasDaFolha = !isConsultoria && !isFreela && !payFullSalary && !salarioConsult && !porHoras
+        // Folga variável (14/10/2026): 6x1/5x2 sem dia de folga fixo — paga inteiro;
+        // abaixo dos dias do mês (~26) só avisa ("N dia(s) sem registro"), não desconta.
+        const escalaL = (l as { work_schedule_type?: string }).work_schedule_type || ''
+        const folgaVariavel = ['5x2', '6x1'].includes(escalaL) && !((l as { days_off?: number[] }).days_off || []).length
+        const faltasDaFolha = !isConsultoria && !isFreela && !payFullSalary && !salarioConsult && !porHoras && !folgaVariavel
           ? (rescisao ? rescisao.faltas : Math.max(0, diasCobraveis - diasCumpridos))
           : 0
         // Mês antes de o sistema começar (setembro/2026 para trás): salário inteiro

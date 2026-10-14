@@ -17,7 +17,7 @@ import { CampoHora, horaAgora, temRelogioNativo } from './CampoHora'
 import PortalQualidade from './PortalQualidade'
 import { jornadaDoVinculo, desvioDoDia, textoDoDesvio, TOLERANCIA_MIN, minutosLiquidos } from '../../lib/jornada'
 import type { VinculoJornada } from '../../lib/jornada'
-import { semanasDeHoras, horasNaSemana } from '../../lib/jornadaPessoa'
+import { semanasDeHoras, horasNaSemana, feriadoNacional } from '../../lib/jornadaPessoa'
 import type { VinculoPerfil, RegistroPerfil } from '../../lib/jornadaPessoa'
 
 // Ela desistiu num diálogo de confirmação: não é erro, não mostra aviso
@@ -610,6 +610,10 @@ export default function PortalHome() {
     return link.days_off.includes(weekday)
   }
 
+  // Feriado nacional: não é dia de trabalho na 5x2/6x1 (o plantão 12x36 trabalha). Mesma regra da Jornada do RH
+  const feriadoDaEscala = (link: FolhaLink | undefined, ds: string) =>
+    !!link && effectiveType(link) !== 'Consultoria' && link.work_schedule_type !== '12x36' ? feriadoNacional(ds) : undefined
+
   // A escala tem dias de trabalho conhecidos? (5x2/6x1 com folga fixa, ou 12x36 com âncora)
   const hasKnownSchedule = (link: FolhaLink | undefined) =>
     !!link && effectiveType(link) !== 'Consultoria' &&
@@ -635,7 +639,7 @@ export default function PortalHome() {
     const d = new Date(effectiveStart)
     while (d <= limit) {
       const ds = d.toISOString().slice(0, 10)
-      if (!isDayOff(link, ds) && !filled.has(ds) && !swappedFrom.has(ds) && !noticed.has(ds)) pending.push(ds)
+      if (!isDayOff(link, ds) && !feriadoDaEscala(link, ds) && !filled.has(ds) && !swappedFrom.has(ds) && !noticed.has(ds)) pending.push(ds)
       d.setDate(d.getDate() + 1)
     }
     return pending
@@ -878,7 +882,7 @@ export default function PortalHome() {
         ...horarioDoContrato(ag.client_id, dia), ...(ag.planned_time ? { check_in: ag.planned_time.slice(0, 5) } : {}) }
     }
     const escala = ((folhaLinks as FolhaLink[] | undefined) || []).find(l => l.client && validos.some(c => c.id === l.client!.id)
-      && effectiveType(l) === 'Fixo' && hasKnownSchedule(l) && !isDayOff(l, dia) && !jaRegistrado(l.client.id))
+      && effectiveType(l) === 'Fixo' && hasKnownSchedule(l) && !isDayOff(l, dia) && !feriadoDaEscala(l, dia) && !jaRegistrado(l.client.id))
     if (escala?.client) return { client_id: escala.client.id, ...horarioDoContrato(escala.client.id, dia) }
     if (validos.length === 1) return { client_id: validos[0].id, ...unidadeUnica(validos[0].id), ...horarioDoContrato(validos[0].id, dia) }
     return {}
@@ -2257,6 +2261,14 @@ export default function PortalHome() {
                       {t}
                     </button>
                   ))}
+                </div>
+              )}
+
+              {/* Feriado nacional: não precisa registrar; se trabalhou, preenche e vira "trabalhou no feriado" */}
+              {modalLink && trabalho && !editingPontoId && !folgaDaEscala && feriadoDaEscala(modalLink, pontoForm.visit_date) && (
+                <div className="text-sm text-sky-900 bg-sky-50 rounded-xl px-4 py-3 space-y-1">
+                  <p><strong>{formatDate(pontoForm.visit_date)} é feriado</strong> ({feriadoDaEscala(modalLink, pontoForm.visit_date)}). Você não precisa registrar nada: não conta como falta.</p>
+                  <p className="text-xs text-sky-800">Só preencha os horários se você trabalhou nesse dia — aí conta como trabalho no feriado.</p>
                 </div>
               )}
 

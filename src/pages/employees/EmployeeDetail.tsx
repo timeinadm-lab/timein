@@ -1614,13 +1614,15 @@ export default function EmployeeDetail() {
         onClose={() => setConfirmDelete(false)}
       />
 
-      {/* Abas principais (7). Cadastro junta Dados + Documentos; Agenda junta
-          Agenda + Visitas feitas. Quebra linha no celular em vez de esconder. */}
+      {/* Abas principais (8). Documentos virou aba própria (14/10/2026): contrato
+          anexado no vínculo cai lá. Agenda junta Agenda + Visitas feitas.
+          Quebra linha no celular em vez de esconder. */}
       <div className="flex flex-wrap gap-1.5">
         {([
           ['visao', 'Resumo', ['visao']],
-          ['ficha', 'Cadastro', ['ficha', 'arquivos']],
+          ['ficha', 'Cadastro', ['ficha']],
           ['vinculos', 'Clientes', ['vinculos']],
+          ['arquivos', 'Documentos', ['arquivos']],
           ['pagamentos', 'Pagamentos', ['pagamentos']],
           ['agenda', 'Agenda', ['agenda', 'visitas']],
           ['portal', 'Portal', ['portal']],
@@ -1634,9 +1636,9 @@ export default function EmployeeDetail() {
       </div>
 
       {/* Sub-abas dos grupos */}
-      {(tab === 'ficha' || tab === 'arquivos' || tab === 'agenda' || tab === 'visitas') && (
+      {(tab === 'agenda' || tab === 'visitas') && (
         <div className="flex gap-1 p-1 rounded-xl bg-ink-100/70 w-fit">
-          {((tab === 'ficha' || tab === 'arquivos') ? [['ficha', 'Dados'], ['arquivos', 'Documentos']] : [['agenda', 'Agenda'], ['visitas', 'Visitas feitas']]).map(([k, r]) => (
+          {[['agenda', 'Agenda'], ['visitas', 'Visitas feitas']].map(([k, r]) => (
             <button key={k} onClick={() => setTab(k as Tab)} className={`px-3 h-9 rounded-lg text-sm font-medium ${tab === k ? 'bg-white shadow-sm text-ink-900' : 'text-ink-500'}`}>{r}</button>
           ))}
         </div>

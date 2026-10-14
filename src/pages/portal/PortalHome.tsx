@@ -2133,7 +2133,6 @@ export default function PortalHome() {
         const folgaDaEscala = !!modalLink && !isConsultoria && isDayOff(modalLink, pontoForm.visit_date)
         const dayIsOff = trabalho && folgaDaEscala
         const noFixedSchedule = !isConsultoria && !!modalLink && !hasKnownSchedule(modalLink)
-        const extraDayValue = modalLink?.monthly_amount ? Math.round((Number(modalLink.monthly_amount) / 30) * 100) / 100 : null
         const unidades = pontoForm.client_id ? getLinkUnitsForClient(pontoForm.client_id) : []
         const precisaUnidade = isConsultoria && trabalho && unidades.length > 0
         const hoje = hojeISO()
@@ -2310,7 +2309,7 @@ export default function PortalHome() {
                       )
                     })}
                   </div>
-                  {pontoForm.is_extra && <p className="text-xs text-ink-500">O RH é avisado e define o valor{extraDayValue ? ` (sugestão: ${formatCurrency(extraDayValue)})` : ''}.</p>}
+                  {pontoForm.is_extra && <p className="text-xs text-ink-500">O RH é avisado e confere.</p>}
                   {pontoForm.is_swap && (
                     <div>
                       <label className="text-xs font-medium text-ink-500">Qual dia da escala você trocou?</label>
@@ -2393,7 +2392,7 @@ export default function PortalHome() {
               {/* Escala sem dias conhecidos: ela marca o dia extra */}
               {modalLink && trabalho && !dayIsOff && noFixedSchedule && (
                 <label className="flex items-center justify-between gap-3 rounded-xl bg-white border border-ink-200 px-3.5 py-3 cursor-pointer">
-                  <span className="text-sm text-ink-800">Dia extra — fora da minha escala{pontoForm.is_extra && extraDayValue ? <span className="text-ink-400"> · sugestão {formatCurrency(extraDayValue)}</span> : null}</span>
+                  <span className="text-sm text-ink-800">Dia extra — fora da minha escala</span>
                   <input type="checkbox" className="rounded" checked={pontoForm.is_extra} onChange={e => setPontoForm(p => ({ ...p, is_extra: e.target.checked }))} />
                 </label>
               )}

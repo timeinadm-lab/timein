@@ -5,7 +5,8 @@ import { Plus, Search, Download, AlertCircle, ChevronRight, Star, X, MessageCirc
 import { supabase } from '../../lib/supabase'
 import { formatDate, getInitials, hojeISO, semAcento, formatWhatsApp, corDoAvatar } from '../../lib/utils'
 import { SignedImage } from '../../components/ui/SignedFile'
-import { exportToCSV } from '../../lib/exportUtils'
+import { exportColaboradoresExcel } from '../../lib/colaboradoresExcel'
+import toast from 'react-hot-toast'
 import Pagination from '../../components/ui/Pagination'
 import { SkeletonRows, EmptyState } from '../../components/ui/Skeleton'
 
@@ -119,20 +120,15 @@ export default function EmployeeList() {
 
   const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
 
-  const handleExport = () => {
-    if (!filtered.length) return
-    exportToCSV(filtered.map(e => ({
-      Nome: e.full_name,
-      Cargo: e.role || '',
-      Status: e.status,
-      'Vínculos ativos': linkCounts.get(e.id) || 0,
-      Clientes: (vinculosAtivos?.get(e.id) || []).join(', '),
-      Cidade: e.address_city || '',
-      UF: cepToUF(e.address_zip) || '',
-      Admissão: formatDate(e.admission_date),
-      Email: e.email || '',
-      WhatsApp: e.whatsapp || '',
-    })), 'colaboradores.csv')
+  // Excel de verdade (.xlsx) de quem está na lista filtrada: vínculo, clientes,
+  // contrato, salário, dias de pagamento e dados pessoais
+  const [exportando, setExportando] = useState(false)
+  const handleExport = async () => {
+    if (!filtered.length || exportando) return
+    setExportando(true)
+    try { await exportColaboradoresExcel(filtered.map(e => e.id), cepToUF) }
+    catch (e) { toast.error('Não consegui gerar o Excel: ' + (e as Error).message) }
+    finally { setExportando(false) }
   }
 
   const statusBadge = (s: string) =>
@@ -158,7 +154,7 @@ export default function EmployeeList() {
           </h1>
         </div>
         <div className="flex gap-2">
-          <button onClick={handleExport} className="btn-secondary text-sm" title="Baixar CSV"><Download size={16} /><span className="hidden sm:inline">CSV</span></button>
+          <button onClick={handleExport} disabled={exportando} className="btn-secondary text-sm" title="Baixar Excel de quem está na lista"><Download size={16} /><span className="hidden sm:inline">{exportando ? 'Gerando…' : 'Excel'}</span></button>
           <button onClick={() => navigate('/colaboradores/novo')} className="btn-primary text-sm"><Plus size={16} />Novo</button>
         </div>
       </div>

@@ -918,7 +918,10 @@ export default function PaymentList() {
                 (l as { days_off?: number[] }).days_off || null, (l as { schedule_anchor_date?: string }).schedule_anchor_date || null)).length
           : 0
         const diasCumpridos = actualDays + diasFolga
-        const faltasDaFolha = !isConsultoria && !isFreela && !payFullSalary && !salarioConsult
+        // Escala "horas por semana" (091): não tem dia certo — dia sem ponto não é
+        // falta. A meta é semanal e aparece na Jornada; não desconta sozinho.
+        const porHoras = (l as { work_schedule_type?: string }).work_schedule_type === 'horas'
+        const faltasDaFolha = !isConsultoria && !isFreela && !payFullSalary && !salarioConsult && !porHoras
           ? (rescisao ? rescisao.faltas : Math.max(0, diasCobraveis - diasCumpridos))
           : 0
         // Mês antes de o sistema começar (setembro/2026 para trás): salário inteiro
@@ -974,6 +977,7 @@ export default function PaymentList() {
           valorDia,
           faltas,
           faltasPerdoadas,
+          porHoras,
           actualAmount,
           realAmt,
           hasRealPayment,
@@ -1905,7 +1909,7 @@ export default function PaymentList() {
                         const isFreela = !!row.isFreela
                         const isConsultoria = porTrabalho(row)
                         const diff = isConsultoria ? 0 : row.actualDays + row.diasFolga - row.expDaysToDate
-                        const isShort = !isConsultoria && !row.salarioConsult && row.actualDays + row.diasFolga < row.expDaysToDate
+                        const isShort = !isConsultoria && !row.salarioConsult && !row.porHoras && row.actualDays + row.diasFolga < row.expDaysToDate
                         const nome = row.employee?.full_name || '—'
                         const contaVisivel = contaAberta === row.linkId
 

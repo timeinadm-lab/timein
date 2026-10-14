@@ -5,7 +5,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { LogOut, KeyRound, Eye, EyeOff, Clock, Calendar, Plus, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, X, CalendarDays, Trash2, CheckCircle2, Download, MessageCircle, Send, Home, CreditCard, TrendingUp, CheckCheck, AlertTriangle, Hourglass, Pencil, Repeat, Check, FileText, Paperclip, ClipboardCheck } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { formatDate, formatCurrency, getInitials, corDoAvatar, hojeISO, tipoDoVinculo, pagaPorDiaria, ehTemporario, recebeMensal, salarioConsultoria } from '../../lib/utils'
-import { format, getDaysInMonth, startOfMonth, endOfMonth } from 'date-fns'
+import { format, getDaysInMonth, startOfMonth, endOfMonth, startOfWeek } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import toast from 'react-hot-toast'
 import { confirmar } from '../../components/ui/ConfirmDialog'
@@ -18,6 +18,8 @@ import PortalQualidade from './PortalQualidade'
 import { jornadaDoVinculo, desvioDoDia, textoDoDesvio, TOLERANCIA_MIN, minutosLiquidos } from '../../lib/jornada'
 import type { VinculoJornada } from '../../lib/jornada'
 import { semanasDeHoras, horasNaSemana } from '../../lib/jornadaPessoa'
+import { diasPorSemana, trabalhadosNaSemana, semanasCurtas } from '../../lib/folgaVariavel'
+import type { SemanaCurta } from '../../lib/folgaVariavel'
 import type { VinculoPerfil, RegistroPerfil } from '../../lib/jornadaPessoa'
 
 // Ela desistiu num diálogo de confirmação: não é erro, não mostra aviso
@@ -431,7 +433,10 @@ export default function PortalHome() {
 
       // Fixo: troca de dia (sem pagamento extra) ou dia extra (pago a salário ÷ 30) — mutuamente exclusivos
       const isSwap = !isConsultoria && isNormal && pontoForm.is_swap && !!pontoForm.swapped_from
-      const isExtra = !isConsultoria && isNormal && pontoForm.is_extra && !isSwap
+      // Folga variável: o dia além da escala na semana vai sozinho como extra
+      const nVar = folgaVariavel(link)
+      const setimoDia = !!nVar && isNormal && trabalhadosNaSemana(pontoForm.visit_date, diasTrabalhadosNo(pontoForm.client_id)) >= nVar
+      const isExtra = !isConsultoria && isNormal && (pontoForm.is_extra || setimoDia) && !isSwap
       // Fixo: valor não calculado automaticamente — admin define no painel de visitas
       const fixoProposedAmount = isExtra && link?.monthly_amount ? Math.round((Number(link.monthly_amount) / 30) * 100) / 100 : null
 
@@ -615,8 +620,33 @@ export default function PortalHome() {
     !!link && effectiveType(link) !== 'Consultoria' &&
     (!!link.days_off?.length || (link.work_schedule_type === '12x36' && !!link.schedule_anchor_date))
 
+  // Folga variável (14/10/2026): 6x1/5x2 sem dia de folga fixo — o cliente
+  // escolhe a folga de cada semana. Devolve quantos dias a semana pede.
+  const folgaVariavel = (link: FolhaLink | undefined) =>
+    link && effectiveType(link) === 'Fixo' && !hasKnownSchedule(link) ? diasPorSemana(link.work_schedule_type) : null
+  // Dias com trabalho registrado neste cliente (sem falta e sem folga)
+  const diasTrabalhadosNo = (clientId: string) => ((folhaVisits || []) as { client_id: string; visit_date: string; check_out?: string; is_unavailable?: boolean; is_holiday?: boolean }[])
+    .filter(v => v.client_id === clientId && v.check_out && !v.is_unavailable && !v.is_holiday).map(v => v.visit_date)
+  // Semanas fechadas com menos registros que a escala pede (folga variável)
+  const getSemanasCurtas = (link: FolhaLink | undefined): SemanaCurta[] => {
+    const n = folgaVariavel(link)
+    if (!link || !n) return []
+    const ini = [folhaMonth + '-01',link.start_date || '', '2026-10-01'].sort().pop()!
+    const fimMes = format(endOfMonth(new Date(folhaMonth + '-15')), 'yyyy-MM-dd')
+    const fim = link.contract_end_date && link.contract_end_date < fimMes ? link.contract_end_date : fimMes
+    const ontem = format(new Date(Date.now() - 86400000), 'yyyy-MM-dd')
+    const cid = link.client?.id
+    const registrados = [
+      ...((folhaVisits || []) as { client_id: string; visit_date: string }[]).filter(v => v.client_id === cid).map(v => v.visit_date),
+      ...((notices || []) as Notice[]).filter(x => x.client_id === cid).map(x => x.notice_date),
+    ]
+    return semanasCurtas({ de: ini, fim, ontem, porSemana: n, registrados })
+  }
+
   // Dias da escala sem preenchimento (até ontem). Dias cobertos por "troca de dia" não contam como pendentes.
+  // Folga variável: conta o que falta em cada semana (não dá para saber qual dia era a folga).
   const getPendingDays = (link: FolhaLink | undefined) => {
+    if (folgaVariavel(link)) return getSemanasCurtas(link).flatMap(w => w.semRegistro.slice(0, w.meta - w.registrados))
     if (!link || !hasKnownSchedule(link)) return []
     const monthStart = startOfMonth(new Date(folhaMonth + '-15'))
     const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1); yesterday.setHours(23, 59, 59, 0)
@@ -883,9 +913,10 @@ export default function PortalHome() {
     if (validos.length === 1) return { client_id: validos[0].id, ...unidadeUnica(validos[0].id), ...horarioDoContrato(validos[0].id, dia) }
     return {}
   }
-  const abrirRegistro = (dia: string = hojeISO()) => {
+  const abrirRegistro = (dia: string = hojeISO(), clientId?: string) => {
     setEditingPontoId(null)
-    setPontoForm({ ...EMPTY_PONTO, visit_date: dia, ...sugestaoDoDia(dia) })
+    setPontoForm({ ...EMPTY_PONTO, visit_date: dia, ...sugestaoDoDia(dia),
+      ...(clientId ? { client_id: clientId, ...unidadeUnica(clientId), ...horarioDoContrato(clientId, dia) } : {}) })
     setAtestadoFile(null); setReportFile(null)
     setShowPontoModal(true)
   }
@@ -1124,6 +1155,8 @@ export default function PortalHome() {
               const daysWorked = clientVisits.filter(v => v.check_out && !(v as { is_unavailable?: boolean }).is_unavailable).length
               const isConsultoria = effectiveType(link) === 'Consultoria'
               const pendingDays = !isConsultoria ? getPendingDays(link) : []
+              const nSemana = !isConsultoria ? folgaVariavel(link) : null
+              const semanas = nSemana ? getSemanasCurtas(link) : []
               const extraDays = !isConsultoria ? clientVisits.filter(v => (v as { is_extra?: boolean }).is_extra) : []
               const faltas = clientVisits.filter(v => (v as { is_unavailable?: boolean }).is_unavailable)
               const monthlyQuota = Number(link.monthly_hours_quota) || null
@@ -1310,14 +1343,46 @@ export default function PortalHome() {
                         )}
                       </div>
                     )}
-                    {pendingDays.length > 0 && (
+                    {nSemana && (() => {
+                      // Folga variável: a semana de agora e as que ficaram faltando dia
+                      const seg = format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd')
+                      const nesta = new Set(diasTrabalhadosNo(client?.id || '').filter(d => d >= seg)).size
+                      return (
+                        <div className="space-y-2.5">
+                          <p className="text-sm text-ink-600">Esta semana: <span className="font-semibold text-ink-900 tnum">{nesta} de {nSemana} dias</span> <span className="text-ink-400">· a folga é o dia que o cliente der</span></p>
+                          {semanas.map(w => (
+                            <div key={w.inicio} className="rounded-lg bg-amber-50 px-3 py-2.5">
+                              <p className="flex items-center gap-2 text-sm font-medium text-amber-800">
+                                <AlertTriangle size={14} className="shrink-0" /> {formatDate(w.inicio).slice(0, 5)} a {formatDate(w.fim).slice(0, 5)}: {w.registrados} de {w.meta} dias registrados
+                              </p>
+                              <p className="text-xs text-amber-700 mt-1">Toque no dia que você trabalhou:</p>
+                              <div className="flex flex-wrap gap-1.5 mt-2">
+                                {w.semRegistro.map(d => (
+                                  <button key={d} type="button" onClick={() => abrirRegistro(d, client?.id)}
+                                    className="px-2.5 h-8 rounded-full bg-white border border-amber-200 text-xs font-medium text-amber-800 active:bg-amber-100">
+                                    {new Date(d + 'T12:00:00').toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit' })}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )
+                    })()}
+                    {!nSemana && pendingDays.length > 0 && (
                       <div className="rounded-lg bg-amber-50 px-3 py-2.5">
                         <p className="flex items-center gap-2 text-sm font-medium text-amber-800">
                           <AlertTriangle size={14} className="shrink-0" /> {pendingDays.length} dia{pendingDays.length > 1 ? 's' : ''} da escala sem registro
                         </p>
-                        <p className="text-xs text-amber-700 mt-1 leading-relaxed">
-                          {pendingDays.slice(0, 6).map(d => formatDate(d)).join(', ')}{pendingDays.length > 6 ? '…' : ''}. Registre o dia ou a falta com o motivo.
-                        </p>
+                        <p className="text-xs text-amber-700 mt-1">Toque no dia para registrar o ponto ou a falta:</p>
+                        <div className="flex flex-wrap gap-1.5 mt-2">
+                          {pendingDays.map(d => (
+                            <button key={d} type="button" onClick={() => abrirRegistro(d, client?.id)}
+                                    className="px-2.5 h-8 rounded-full bg-white border border-amber-200 text-xs font-medium text-amber-800 active:bg-amber-100">
+                                    {new Date(d + 'T12:00:00').toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit' })}
+                                  </button>
+                          ))}
+                        </div>
                       </div>
                     )}
                   </div>
@@ -2132,7 +2197,10 @@ export default function PortalHome() {
         const trabalho = !mensal || pontoForm.day_type === 'normal'
         const folgaDaEscala = !!modalLink && !isConsultoria && isDayOff(modalLink, pontoForm.visit_date)
         const dayIsOff = trabalho && folgaDaEscala
-        const noFixedSchedule = !isConsultoria && !!modalLink && !hasKnownSchedule(modalLink)
+        const nVariavel = !isConsultoria ? folgaVariavel(modalLink) : null
+        const noFixedSchedule = !isConsultoria && !!modalLink && !hasKnownSchedule(modalLink) && !nVariavel
+        const setimoDia = !!nVariavel && trabalho && !!pontoForm.client_id
+          && trabalhadosNaSemana(pontoForm.visit_date, diasTrabalhadosNo(pontoForm.client_id)) >= nVariavel
         const unidades = pontoForm.client_id ? getLinkUnitsForClient(pontoForm.client_id) : []
         const precisaUnidade = isConsultoria && trabalho && unidades.length > 0
         const hoje = hojeISO()
@@ -2387,6 +2455,13 @@ export default function PortalHome() {
                     </div>
                   )}
                 </div>
+              )}
+
+              {/* Folga variável: o dia além da escala na semana vai sozinho como extra */}
+              {setimoDia && (
+                <p className="text-xs text-ink-500 bg-white border border-ink-100 rounded-xl px-3.5 py-3">
+                  Você já tem {nVariavel} dias nesta semana. Este vai como dia extra e o RH confere.
+                </p>
               )}
 
               {/* Escala sem dias conhecidos: ela marca o dia extra */}

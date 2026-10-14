@@ -290,7 +290,6 @@ export function pendenciasDoVinculo(l: VinculoCadastro, ctx: { unidadesComValor:
     return out
   }
   if (!escala) out.push('sem escala definida — a folha estima 22 dias no chute')
-  else if (['5x2', '6x1'].includes(escala) && !(l.days_off || []).length) out.push('sem dias de folga — ela não vê os dias no portal')
   else if (escala === '12x36' && !l.schedule_anchor_date) out.push('sem a data do primeiro plantão — ela não vê os dias no portal')
   if (!(Number(l.daily_hours) > 0) && !(l.work_start && l.work_end)) out.push('sem horas por dia — a jornada não é conferida')
   return out

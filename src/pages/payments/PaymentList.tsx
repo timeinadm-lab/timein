@@ -24,6 +24,12 @@ import Comprovantes from './Comprovantes'
 type Tab = 'dias' | 'folha' | 'pagos' | 'ajuda' | 'comprovantes'
 type WorkerGroup = 'consultoria' | 'fixo_plantao'
 
+// O sistema começou a ser operado em 01/10/2026 (pedido de 14/10/2026): dia
+// ANTES disso nunca é falta nem "dia sem registro" — ninguém preenchia ponto.
+// De outubro em diante desconta normalmente.
+const INICIO_FOLHA_PONTO = '2026-10-01'
+const desdeOPonto = (ds: string) => (ds < INICIO_FOLHA_PONTO ? INICIO_FOLHA_PONTO : ds)
+
 // Freela acabou (migração 058): Consultoria ou Fixo (mensal ou por diária)
 function workerGroup(l: { service_type?: string | null; coverage_type?: string | null }): WorkerGroup {
   return tipoDoVinculo(l) === 'Consultoria' ? 'consultoria' : 'fixo_plantao'
@@ -782,7 +788,7 @@ export default function PaymentList() {
             const meses: string[] = []
             for (let m = parcela.de.slice(0, 7); m <= parcela.ate.slice(0, 7); m = format(addMonths(parseISO(m + '-01'), 1), 'yyyy-MM')) meses.push(m)
             const esperados = escalaConhecida && parcela.ate >= parcela.de
-              ? meses.reduce((s, m) => s + freelaExpectedDays(m, parcela.de, parcela.ate,
+              ? meses.reduce((s, m) => s + freelaExpectedDays(m, desdeOPonto(parcela.de), parcela.ate,
                   (l as { work_schedule_type?: string }).work_schedule_type || null,
                   (l as { days_off?: number[] }).days_off || null,
                   (l as { schedule_anchor_date?: string }).schedule_anchor_date || null), 0)
@@ -837,7 +843,7 @@ export default function PaymentList() {
             const meses: string[] = []
             for (let m = ini.slice(0, 7); m <= fimVinculo.slice(0, 7); m = format(addMonths(parseISO(m + '-01'), 1), 'yyyy-MM')) meses.push(m)
             const esperados = escalaConhecida
-              ? meses.reduce((s, m) => s + freelaExpectedDays(m, ini, fimVinculo,
+              ? meses.reduce((s, m) => s + freelaExpectedDays(m, desdeOPonto(ini), fimVinculo,
                   (l as { work_schedule_type?: string }).work_schedule_type || null,
                   (l as { days_off?: number[] }).days_off || null,
                   (l as { schedule_anchor_date?: string }).schedule_anchor_date || null), 0)
@@ -912,9 +918,12 @@ export default function PaymentList() {
                 (l as { days_off?: number[] }).days_off || null, (l as { schedule_anchor_date?: string }).schedule_anchor_date || null)).length
           : 0
         const diasCumpridos = actualDays + diasFolga
-        const faltas = !isConsultoria && !isFreela && !payFullSalary && !salarioConsult
+        const faltasDaFolha = !isConsultoria && !isFreela && !payFullSalary && !salarioConsult
           ? (rescisao ? rescisao.faltas : Math.max(0, diasCobraveis - diasCumpridos))
           : 0
+        // Mês antes de o sistema começar (setembro/2026 para trás): salário inteiro
+        const faltasPerdoadas = `${filterMonth}-01` < INICIO_FOLHA_PONTO ? faltasDaFolha : 0
+        const faltas = faltasDaFolha - faltasPerdoadas
 
         // Ausências declaradas — separadas entre as que têm atestado anexado e as
         // que não têm. Estavam no banco mas nunca chegavam nesta tela: o RH não
@@ -964,6 +973,7 @@ export default function PaymentList() {
           expDays,
           valorDia,
           faltas,
+          faltasPerdoadas,
           actualAmount,
           realAmt,
           hasRealPayment,
@@ -1340,6 +1350,9 @@ export default function PaymentList() {
       })
       if (row.faltas > 0) {
         itens.push({ rotulo: `${row.faltas} falta${row.faltas > 1 ? 's' : ''} × ${formatCurrency(row.valorDia)} (salário ÷ 30)`, valor: -r2(row.faltas * row.valorDia) })
+      }
+      if (row.faltasPerdoadas > 0) {
+        itens.push({ rotulo: `${row.faltasPerdoadas} dia${row.faltasPerdoadas > 1 ? 's' : ''} sem ponto não descontado${row.faltasPerdoadas > 1 ? 's' : ''} (antes de 01/10/2026 não havia folha de ponto)`, valor: 0 })
       }
       baseFechamento = row.realAmt
     }

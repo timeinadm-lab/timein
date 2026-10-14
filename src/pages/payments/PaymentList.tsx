@@ -293,14 +293,30 @@ export default function PaymentList() {
   // Analisar reembolso pedido pelo portal. Sem isso, o que a colaboradora
   // digitava entrava sozinho no pagamento — o portal prometia uma aprovação
   // que não existia em lugar nenhum.
+  // Reembolso (093, pedido de 14/10/2026): padrão = o contrato (ajuda semanal →
+  // próxima segunda; o resto → no salário, no dia 8/15/20 da pessoa). Na
+  // aprovação o RH pode jogar para a próxima segunda.
+  const { data: comAjudaSemanal } = useQuery({
+    queryKey: ['links-ajuda-semanal'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('employee_client_links').select('employee_id, contract_end_date')
+        .eq('cost_assistance_periodo', 'semana').gt('cost_assistance', 0)
+      if (error) return new Set<string>()
+      return new Set((data || []).filter(l => !l.contract_end_date || l.contract_end_date >= hojeISO()).map(l => l.employee_id as string))
+    },
+  })
+  const proximaSegunda = (() => { const d = new Date(hojeISO() + 'T12:00:00'); d.setDate(d.getDate() + ((8 - (d.getDay() || 7)) % 7)); return format(d, 'dd/MM') })()
   const reviewExpense = useMutation({
-    mutationFn: async ({ id, status }: { id: string; status: 'aprovado' | 'negado' }) => {
-      const { error } = await supabase.from('employee_expenses')
-        .update({ status, reviewed_at: new Date().toISOString() }).eq('id', id)
+    mutationFn: async ({ id, status, naSemana }: { id: string; status: 'aprovado' | 'negado'; naSemana?: boolean }) => {
+      const registro: Record<string, unknown> = { status, reviewed_at: new Date().toISOString() }
+      if (status === 'aprovado') registro.pagar_na_semana = !!naSemana
+      const { error } = await supabase.from('employee_expenses').update(registro).eq('id', id)
+      if (error && /pagar_na_semana/.test(error.message)) throw new Error('Rode a migração 093 no Supabase para escolher onde o reembolso é pago.')
       if (error) throw error
     },
     onSuccess: (_d, v) => {
-      toast.success(v.status === 'aprovado' ? 'Reembolso aprovado — vai para Ajuda de custo desta semana.' : 'Reembolso negado.')
+      toast.success(v.status === 'negado' ? 'Reembolso negado.'
+        : v.naSemana ? `Reembolso aprovado — pago na segunda ${proximaSegunda} (Ajuda de custo).` : 'Reembolso aprovado — entra no salário.')
       qc.invalidateQueries({ queryKey: ['ajudas-custo'] })
       qc.invalidateQueries({ queryKey: ['expenses', filterMonth] })
     },
@@ -1692,7 +1708,7 @@ export default function PaymentList() {
               const exp = e as {
                 id: string; description: string; amount: number; category?: string
                 receipt_url?: string; notes?: string; created_at?: string
-                employee?: { full_name: string }
+                employee?: { full_name: string }; employee_id?: string
               }
               return (
                 <div key={exp.id} className="px-4 py-3 flex items-center gap-3 flex-wrap">
@@ -1718,10 +1734,17 @@ export default function PaymentList() {
                       Sem nota anexada
                     </span>
                   )}
-                  <div className="flex gap-1.5 w-full sm:w-auto">
-                    <button onClick={() => reviewExpense.mutate({ id: exp.id, status: 'aprovado' })}
-                      disabled={reviewExpense.isPending}
-                      className="btn-primary text-xs py-2 flex-1 sm:flex-none"><Check size={12} />Aprovar</button>
+                  <div className="flex gap-1.5 w-full sm:w-auto flex-wrap">
+                    {/* Padrão do contrato primeiro (botão cheio); a outra opção ao lado */}
+                    {([false, true] as boolean[])
+                      .sort((a, b) => Number(b === !!comAjudaSemanal?.has(exp.employee_id || '')) - Number(a === !!comAjudaSemanal?.has(exp.employee_id || '')))
+                      .map((naSemana, i) => (
+                        <button key={String(naSemana)} onClick={() => reviewExpense.mutate({ id: exp.id, status: 'aprovado', naSemana })}
+                          disabled={reviewExpense.isPending}
+                          className={`${i === 0 ? 'btn-primary' : 'btn-secondary'} text-xs py-2 flex-1 sm:flex-none`}>
+                          <Check size={12} />{naSemana ? `Aprovar · segunda ${proximaSegunda}` : 'Aprovar · no salário'}
+                        </button>
+                      ))}
                     <button onClick={() => reviewExpense.mutate({ id: exp.id, status: 'negado' })}
                       disabled={reviewExpense.isPending}
                       className="btn-secondary text-xs py-2 text-red-600 flex-1 sm:flex-none"><X size={12} />Negar</button>

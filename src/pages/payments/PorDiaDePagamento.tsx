@@ -191,7 +191,22 @@ export default function PorDiaDePagamento({ mes, nomeMes, aguardando, irParaConf
     setGerando('excel')
     try {
       const { exportRelatorioSaidas } = await import('../../lib/relatorioSaidas')
+      const { carregarAbertura } = await import('../../lib/planilhaPagamentosDados')
+      // Abre cada lançamento em salário + ajuda + reembolso; e a ajuda das segundas
+      const { abertura, ajudas } = await carregarAbertura(saidasComRH.filter(p => !p.aguardando), mes, fim)
+      // Nome e PIX de quem só aparece na Ajuda de custo
+      const faltam = [...new Set(ajudas.map(a => a.employee_id).filter(id => id && !bancos?.has(id)) as string[])]
+      const extra = new Map<string, DadosBanco>()
+      if (faltam.length) {
+        const { data } = await supabase.from('employees').select('id, full_name, cpf, pix, bank_name, bank_agency, bank_account, bank_account_type').in('id', faltam)
+        for (const e of (data || []) as DadosBanco[]) extra.set(e.id, e)
+      }
+      const dadosDe = (id: string | null) => (id ? bancos?.get(id) || extra.get(id) : undefined)
       await exportRelatorioSaidas({
+        abertura, ajudas,
+        nomePorId: id => dadosDe(id)?.full_name || '',
+        pixPorId: id => dadosDe(id)?.pix || '',
+        clientePorId: id => (id && clientes?.get(id)) || '',
         mes, nomeMes, grupos,
         nomePessoa: p => pessoa(p as Saida), nomeCliente: cliente,
         dadosBancarios: p => { const b = banco(p); return { cpf: b?.cpf || '', pix: b?.pix || '', banco: textoBanco(b) } },

@@ -2248,12 +2248,11 @@ export default function PortalHome() {
                 )
               })()}
 
-              {/* Trabalhei / Folga (Fixo mensal). Faltei só ao corrigir um registro antigo de falta */}
-              {modalLink && !isConsultoria && recebeMensal(modalLink) && (editingPontoId || !folgaDaEscala) && (
-                <div className={`grid ${editingPontoId && pontoForm.day_type === 'indisponivel' ? 'grid-cols-3' : 'grid-cols-2'} gap-1 p-1 rounded-xl bg-ink-100/70`}>
-                  {([['normal', 'Trabalhei', 'text-ink-900'], ['feriado', 'Folga', 'text-amber-700'], ['indisponivel', 'Faltei', 'text-red-700']] as const)
-                    .filter(([v]) => v !== 'indisponivel' || (!!editingPontoId && pontoForm.day_type === 'indisponivel'))
-                    .map(([v, t, cor]) => (
+              {/* Trabalhei / Folga / Faltei: só aparece ao corrigir um registro antigo de folga ou falta.
+                  Registro novo é ponto normal; folga fica num link discreto embaixo (pedido de 14/10) */}
+              {modalLink && mensal && editingPontoId && (
+                <div className="grid grid-cols-3 gap-1 p-1 rounded-xl bg-ink-100/70">
+                  {([['normal', 'Trabalhei', 'text-ink-900'], ['feriado', 'Folga', 'text-amber-700'], ['indisponivel', 'Faltei', 'text-red-700']] as const).map(([v, t, cor]) => (
                     <button key={v} type="button"
                       onClick={() => setPontoForm(p => ({ ...p, day_type: v, is_extra: v === 'normal' ? p.is_extra : false, is_swap: v === 'normal' ? p.is_swap : false, unavailability_reason: v === p.day_type ? p.unavailability_reason : '' }))}
                       className={`h-10 rounded-lg text-sm font-medium transition-all ${pontoForm.day_type === v ? `bg-white shadow-sm ${cor}` : 'text-ink-500 active:bg-white/60'}`}>
@@ -2271,6 +2270,13 @@ export default function PortalHome() {
               {/* Folga ou falta: motivo em um toque */}
               {modalLink && !trabalho && !folgaDaEscala && (
                 <div className="space-y-3">
+                  {!editingPontoId && (
+                    <div className="flex items-center justify-between gap-3 rounded-xl bg-amber-50 px-4 py-3">
+                      <p className="text-sm font-medium text-amber-800">Registrando folga</p>
+                      <button type="button" className="text-sm text-primary-700 font-medium"
+                        onClick={() => setPontoForm(p => ({ ...p, day_type: 'normal', unavailability_reason: '' }))}>Não, eu trabalhei</button>
+                    </div>
+                  )}
                   <div>
                     <p className="text-xs font-medium text-ink-500 mb-2">{pontoForm.day_type === 'feriado' ? 'Por que foi folga?' : 'Motivo da falta'}</p>
                     <div className="flex flex-wrap gap-1.5">
@@ -2411,6 +2417,14 @@ export default function PortalHome() {
               ) : (
                 <button type="button" onClick={() => setMostrarObs(true)} className="text-sm text-primary-700 font-medium">+ Adicionar observação</button>
               ))}
+
+              {/* Folga (Fixo mensal): o cliente ou o gestor dispensou. Sem falar em feriado: cada contrato decide */}
+              {modalLink && trabalho && !editingPontoId && !isConsultoria && recebeMensal(modalLink) && !folgaDaEscala && (
+                <button type="button" className="block text-sm text-ink-500 underline underline-offset-2"
+                  onClick={() => setPontoForm(p => ({ ...p, day_type: 'feriado', is_extra: false, is_swap: false, swapped_from: '', unavailability_reason: '' }))}>
+                  Não trabalhei, foi folga
+                </button>
+              )}
 
               {/* Entradas de arquivo (escondidas) */}
               <input ref={reportRef} type="file" accept="image/*,application/pdf,.pdf,.doc,.docx" className="hidden" onChange={e => setReportFile(e.target.files?.[0] || null)} />

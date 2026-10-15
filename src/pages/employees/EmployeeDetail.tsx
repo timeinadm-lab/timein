@@ -2061,9 +2061,6 @@ export default function EmployeeDetail() {
                           </button>
                         ))}
                       </div>
-                      {coverageForm.days_off.length === 0 && ['5x2', '6x1'].includes(coverageForm.work_schedule_type) && (
-                        <p className="text-xs text-gray-500 mt-1.5">Sem dia marcado = folga variável: o cliente escolhe a folga de cada semana. O portal cobra {coverageForm.work_schedule_type === '6x1' ? 6 : 5} dias por semana e o dia a mais vira extra.</p>
-                      )}
                     </div>
                   )}
                   {coverageForm.work_schedule_type === '12x36' && (
@@ -2267,6 +2264,9 @@ export default function EmployeeDetail() {
                 const isFixoEscala = coverageForm.coverage_type === 'Fixo'
                   && coverageForm.vinculo_tipo === 'permanente'
                 const faltaEscala = isFixoEscala && !coverageForm.work_schedule_type
+                const faltaFolgas = isFixoEscala
+                  && ['5x2', '6x1'].includes(coverageForm.work_schedule_type)
+                  && coverageForm.days_off.length === 0
                 const faltaHorasSemana = coverageForm.coverage_type === 'Fixo'
                   && coverageForm.work_schedule_type === 'horas' && !(Number(coverageForm.horas_semana) > 0)
                 const faltaAncora = isFixoEscala
@@ -2277,7 +2277,7 @@ export default function EmployeeDetail() {
                 const datasComProblema = !!coverageForm.parcelas && (!coverageForm.parcelas.length || problemasDasParcelas(coverageForm.parcelas, coverageForm.end_date).length > 0)
                 const bloqueado = !coverageForm.vinculo_tipo || !coverageForm.agenda_mode
                   || !coverageForm.client_id || faltaValor || faltaUnidade || faltaPag || (!coverageForm.contrato && !entraNoFixo)
-                  || faltaRegraHoras || faltaHoras || faltaEscala || faltaHorasSemana || faltaAncora || fimAntesDoInicio || datasComProblema || ajudaMensalComDatas
+                  || faltaRegraHoras || faltaHoras || faltaEscala || faltaFolgas || faltaHorasSemana || faltaAncora || fimAntesDoInicio || datasComProblema || ajudaMensalComDatas
                 const pendencias = [
                   fimAntesDoInicio && 'a data fim (está antes do início)',
                   datasComProblema && 'acertar as datas de pagamento combinadas',
@@ -2292,6 +2292,7 @@ export default function EmployeeDetail() {
                   faltaRegraHoras && 'se a visita tem tempo mínimo',
                   faltaHoras && (coverageForm.horas_obrigatorias === 'mes' ? 'quantas horas no mês' : 'quantas horas tem a visita'),
                   faltaEscala && 'a escala de trabalho',
+                  faltaFolgas && 'quais dias da semana são folga (sem isso ela não vê os dias no portal)',
                   faltaHorasSemana && 'quantas horas por semana',
                   faltaAncora && 'a data do primeiro plantão (é dela que sai o dia sim, dia não)',
                   faltaPag && 'pelo menos um dia de pagamento',
@@ -2883,7 +2884,7 @@ export default function EmployeeDetail() {
                                   const DAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
                                   return (
                                     <div className="col-span-2">
-                                      <label className="label text-xs">Dia(s) de folga — escolha {maxOff} ou deixe sem marcar se a folga muda toda semana</label>
+                                      <label className="label text-xs">Dia(s) de folga — escolha {maxOff}</label>
                                       <div className="flex gap-1.5 flex-wrap mt-1">
                                         {DAYS.map((name, idx) => {
                                           const sel = editLinkValues.days_off.includes(idx)

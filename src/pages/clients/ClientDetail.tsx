@@ -948,6 +948,7 @@ export default function ClientDetail() {
                           <span className="text-gray-500">Escala</span>
                           <span className="font-medium">{(l as { work_schedule_type?: string }).work_schedule_type === 'horas'
                             ? `${String((l as { horas_semana?: number }).horas_semana || '?').replace('.', ',')}h por semana · dias livres`
+                            : (l as { work_schedule_type?: string }).work_schedule_type === 'cliente' ? 'Escala do cliente · salário inteiro'
                             : `${(l as { work_schedule_type?: string }).work_schedule_type}${daysOff ? ` — folga: ${daysOff}` : ''}`}</span>
                         </>
                       )}

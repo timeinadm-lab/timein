@@ -1167,7 +1167,7 @@ export default function PortalHome() {
                       <p className="font-semibold text-ink-900 leading-snug">{client?.name}</p>
                       <p className="text-xs text-ink-500 mt-0.5">
                         {[salario ? 'Consultoria · salário mensal' : effectiveType(link), pagaPorDiaria(link) ? 'por diária' : null,
-                          !isConsultoria ? (escala === 'horas' ? `${String(horasNaSemana(link as unknown as VinculoPerfil)).replace('.', ',')}h por semana` : escala) : null].filter(Boolean).join(' · ')}
+                          !isConsultoria ? (escala === 'horas' ? `${String(horasNaSemana(link as unknown as VinculoPerfil)).replace('.', ',')}h por semana` : escala === 'cliente' ? 'escala do cliente' : escala) : null].filter(Boolean).join(' · ')}
                       </p>
                     </div>
                     <div className="text-right shrink-0">
@@ -2132,7 +2132,8 @@ export default function PortalHome() {
         const trabalho = !mensal || pontoForm.day_type === 'normal'
         const folgaDaEscala = !!modalLink && !isConsultoria && isDayOff(modalLink, pontoForm.visit_date)
         const dayIsOff = trabalho && folgaDaEscala
-        const noFixedSchedule = !isConsultoria && !!modalLink && !hasKnownSchedule(modalLink)
+        // Escala do cliente (15/10/2026): só preenche o ponto, não existe dia extra
+        const noFixedSchedule = !isConsultoria && !!modalLink && !hasKnownSchedule(modalLink) && modalLink.work_schedule_type !== 'cliente'
         const unidades = pontoForm.client_id ? getLinkUnitsForClient(pontoForm.client_id) : []
         const precisaUnidade = isConsultoria && trabalho && unidades.length > 0
         const hoje = hojeISO()
@@ -2236,7 +2237,7 @@ export default function PortalHome() {
                           ? (salarioConsultoria(modalLink) ? 'Consultoria · salário mensal' : 'Consultoria · por visita')
                           : [
                               pagaPorDiaria(modalLink) ? 'Fixo · por diária' : 'Fixo',
-                              modalLink.work_schedule_type ? `escala ${modalLink.work_schedule_type}` : null,
+                              modalLink.work_schedule_type === 'cliente' ? 'escala do cliente' : modalLink.work_schedule_type ? `escala ${modalLink.work_schedule_type}` : null,
                               Number(modalLink.daily_hours) > 0 ? `${modalLink.daily_hours}h por dia` : null,
                               modalLink.work_start && modalLink.work_end ? `${modalLink.work_start.slice(0, 5)}–${modalLink.work_end.slice(0, 5)}` : null,
                               intervalo > 0 ? `${fmtHoras(intervalo)} de intervalo` : null,

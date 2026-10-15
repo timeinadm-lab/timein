@@ -536,7 +536,7 @@ export default function EmployeeDetail() {
         ...(isFixo ? {
           work_schedule_type: coverageForm.work_schedule_type || null,
           daily_hours: coverageForm.work_schedule_type !== 'horas' && coverageForm.daily_hours ? Number(coverageForm.daily_hours) : null,
-          days_off: !['12x36', 'horas'].includes(coverageForm.work_schedule_type) ? coverageForm.days_off : [],
+          days_off: !['12x36', 'horas', 'cliente'].includes(coverageForm.work_schedule_type) ? coverageForm.days_off : [],
           // Só vai quando usa: antes da migração 091 a coluna não existe
           ...(coverageForm.work_schedule_type === 'horas' ? { horas_semana: Number(coverageForm.horas_semana) || null } : {}),
           schedule_anchor_date: coverageForm.work_schedule_type === '12x36' ? (coverageForm.schedule_anchor_date || null) : null,
@@ -2033,6 +2033,7 @@ export default function EmployeeDetail() {
                       <option value="6x1">6×1 (6 dias / 1 folga)</option>
                       <option value="12x36">12×36 (12h trabalho / 36h folga)</option>
                       <option value="horas">Horas por semana (ela escolhe os dias)</option>
+                      <option value="cliente">Escala do cliente (varia; só preenche o ponto)</option>
                     </select>
                   </div>
                   {coverageForm.work_schedule_type === 'horas' ? (
@@ -2049,7 +2050,7 @@ export default function EmployeeDetail() {
                         value={coverageForm.daily_hours} onChange={e => setCoverageForm(p => ({ ...p, daily_hours: e.target.value }))} />
                     </div>
                   )}
-                  {coverageForm.work_schedule_type && !['12x36', 'horas'].includes(coverageForm.work_schedule_type) && (
+                  {coverageForm.work_schedule_type && !['12x36', 'horas', 'cliente'].includes(coverageForm.work_schedule_type) && (
                     <div>
                       <label className="label">Dias de folga</label>
                       <div className="flex gap-1.5 flex-wrap">
@@ -2495,7 +2496,9 @@ export default function EmployeeDetail() {
                           ? [x.visit_frequency === 'Avulso' ? 'Em aberto' : x.visit_frequency, x.visits_per_week ? `${x.visits_per_week}x/sem` : '', l.weekly_hours_quota ? `${l.weekly_hours_quota}h/visita` : Number(x.monthly_hours_quota) > 0 ? `${x.monthly_hours_quota}h/mês` : '', horario].filter(Boolean).join(' · ')
                           : x.work_schedule_type === 'horas'
                             ? [`${String((l as { horas_semana?: number }).horas_semana || '?').replace('.', ',')}h por semana · dias livres`, horario].filter(Boolean).join(' · ')
-                            : [x.work_schedule_type, horario].filter(Boolean).join(' · ')
+                            : x.work_schedule_type === 'cliente'
+                              ? ['Escala do cliente · salário inteiro', horario].filter(Boolean).join(' · ')
+                              : [x.work_schedule_type, horario].filter(Boolean).join(' · ')
                         const statusContrato = encerrado ? { t: `Encerrado em ${formatDate(contractEnd!)}`, c: 'bg-ink-200 text-ink-700' }
                           : daysLeft !== null ? { t: expired ? `Vencido há ${Math.abs(daysLeft)}d` : `Vence em ${daysLeft}d`, c: expired ? 'bg-red-100 text-red-700' : expiringSoon ? 'bg-amber-100 text-amber-700' : 'bg-green-50 text-green-700' }
                           : !noFixo && (l.service_type === 'Fixo' || l.service_type === 'Consultoria') ? { t: 'Sem data de fim', c: 'bg-ink-100 text-ink-500' } : null
@@ -2858,6 +2861,7 @@ export default function EmployeeDetail() {
                                     <option value="12x36">12x36</option>
                                     <option value="Plantão">Plantão</option>
                                     <option value="horas">Horas por semana</option>
+                                    <option value="cliente">Escala do cliente</option>
                                   </select>
                                 </div>
                                 {editLinkValues.work_schedule_type === 'horas' ? (

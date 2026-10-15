@@ -216,6 +216,7 @@ function rotuloVinculo(r: ResumoVinculo): string {
     const folgas = (l.days_off || []).slice().sort().map(d => DIAS_SEMANA[d]).join(' e ')
     partes.push(l.work_schedule_type === '12x36' ? '12x36' : `${l.work_schedule_type || 'escala'}${folgas ? ` · folga ${folgas}` : ''}`)
   }
+  if (l.work_schedule_type === 'cliente') partes.push('escala do cliente · salário inteiro')
   if (r.modo === 'horas') partes.push(`${String(horasNaSemana(l)).replace('.', ',')}h por semana · dias livres`)
   if (r.modo === 'agenda') partes.push(l.agenda_mode === 'gestor' ? 'agenda montada pelo RH' : 'agenda dela')
   if (r.jornada) {

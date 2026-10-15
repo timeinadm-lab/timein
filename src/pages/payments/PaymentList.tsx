@@ -88,7 +88,7 @@ function expectedDays(schedule: string | null, month: string): number {
   const [yr, mo] = month.split('-').map(Number)
   const totalDays = getDaysInMonth(new Date(yr, mo - 1))
   if (!schedule) return 22
-  if (schedule.includes('6x1')) return Math.floor(totalDays * 6 / 7)
+  if (schedule.includes('6x1') || schedule === 'cliente') return Math.floor(totalDays * 6 / 7)
   if (schedule.includes('5x2')) return Math.floor(totalDays * 5 / 7)
   if (schedule.includes('12x36')) return Math.floor(totalDays * 1 / 3)
   if (schedule.toLowerCase().includes('plant')) return Math.floor(totalDays * 1 / 3)
@@ -921,11 +921,11 @@ export default function PaymentList() {
         // Escala "horas por semana" (091): não tem dia certo — dia sem ponto não é
         // falta. A meta é semanal e aparece na Jornada; não desconta sozinho.
         const porHoras = (l as { work_schedule_type?: string }).work_schedule_type === 'horas'
-        // Folga variável (14/10/2026): 6x1/5x2 sem dia de folga fixo — paga inteiro;
-        // abaixo dos dias do mês (~26) só avisa ("N dia(s) sem registro"), não desconta.
-        const escalaL = (l as { work_schedule_type?: string }).work_schedule_type || ''
-        const folgaVariavel = ['5x2', '6x1'].includes(escalaL) && !((l as { days_off?: number[] }).days_off || []).length
-        const faltasDaFolha = !isConsultoria && !isFreela && !payFullSalary && !salarioConsult && !porHoras && !folgaVariavel
+        // Escala do cliente (15/10/2026): a escala muda conforme o cliente (6x1,
+        // 5x2, 4x3…). Ela só preenche a folha de ponto e o salário sai SEMPRE
+        // inteiro; dia a menos só aparece como aviso ("N dia(s) sem registro").
+        const escalaDoCliente = (l as { work_schedule_type?: string }).work_schedule_type === 'cliente'
+        const faltasDaFolha = !isConsultoria && !isFreela && !payFullSalary && !salarioConsult && !porHoras && !escalaDoCliente
           ? (rescisao ? rescisao.faltas : Math.max(0, diasCobraveis - diasCumpridos))
           : 0
         // Mês antes de o sistema começar (setembro/2026 para trás): salário inteiro

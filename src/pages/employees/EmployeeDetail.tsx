@@ -8,7 +8,7 @@ import type { VinculoCadastro } from '../../lib/utils'
 import { minutosLiquidos } from '../../lib/jornada'
 import { sugerirParcelas, problemasDasParcelas, parcelasDoVinculo, ordenarParcelas, mensalDasParcelas } from '../../lib/contrato'
 import type { Parcela } from '../../lib/contrato'
-import { exportEmployeeToPDF } from '../../lib/exportUtils'
+import { FaixaObservacoes, AbaObservacoes, useObservacoes } from './ObservacoesColaborador'
 import { SignedLink, SignedImage } from '../../components/ui/SignedFile'
 import DeletePinModal from '../../components/ui/DeletePinModal'
 import { SkeletonDetail } from '../../components/ui/Skeleton'
@@ -24,7 +24,7 @@ import { format, startOfMonth, endOfMonth, getDaysInMonth, getDay, differenceInD
 import { ptBR } from 'date-fns/locale'
 import type { EmployeeClientLink, EmployeePaymentDate } from '../../types'
 
-type Tab = 'visao' | 'ficha' | 'vinculos' | 'pagamentos' | 'agenda' | 'visitas' | 'arquivos' | 'historico' | 'portal'
+type Tab = 'visao' | 'ficha' | 'vinculos' | 'pagamentos' | 'agenda' | 'visitas' | 'arquivos' | 'historico' | 'portal' | 'observacoes'
 
 const DOC_STATUS_OPTIONS = ['Entregue', 'Pendente', 'Não se aplica'] as const
 type DocStatus = typeof DOC_STATUS_OPTIONS[number]
@@ -143,7 +143,9 @@ export default function EmployeeDetail() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const qc = useQueryClient()
-  const { role } = useAuth()
+  const { role, profile } = useAuth()
+  const [gerandoPdf, setGerandoPdf] = useState(false)
+  const { data: observacoes } = useObservacoes(id!)
   // ?vincular=<clientId>&vaga=<vacancyId> — a contratação pela vaga termina aqui:
   // ela cria só a PESSOA e manda pra cá definir o vínculo, que é o único lugar
   // onde valores, escala e dias de pagamento são combinados.
@@ -1571,7 +1573,13 @@ export default function EmployeeDetail() {
         <div className="grid grid-cols-6 md:flex gap-2 mt-4 pt-4 border-t border-ink-100">
           {/* Jornada do mês: tudo o que ela registra no portal, pagamentos e reembolsos */}
           <button onClick={() => navigate(`/jornada?pessoa=${id}`)} className="btn-primary text-sm col-span-2 md:flex-none"><Timer size={16} /><span>Jornada</span></button>
-          <button onClick={() => exportEmployeeToPDF(employee, docs ?? [])} className="btn-secondary text-sm min-w-0 px-0 md:px-4 md:flex-none"><Download size={16} /><span className="hidden sm:inline">PDF</span></button>
+          <button disabled={gerandoPdf} onClick={async () => {
+            setGerandoPdf(true)
+            try {
+              const { baixarFichaColaborador } = await import('../../lib/fichaColaboradorPdf')
+              await baixarFichaColaborador(id!, profile?.full_name)
+            } catch (e) { toast.error('Não consegui gerar o PDF: ' + (e as Error).message) } finally { setGerandoPdf(false) }
+          }} className="btn-secondary text-sm min-w-0 px-0 md:px-4 md:flex-none"><Download size={16} /><span className="hidden sm:inline">{gerandoPdf ? 'Gerando…' : 'PDF'}</span></button>
           <button onClick={() => navigate(`/colaboradores/${id}/editar`)} className="btn-secondary text-sm min-w-0 px-0 md:px-4 md:flex-none"><Edit size={16} /><span className="hidden sm:inline">Editar</span></button>
           <button
             onClick={() => toggleFavorite.mutate(!(employee as { is_favorite?: boolean }).is_favorite)}
@@ -1614,6 +1622,9 @@ export default function EmployeeDetail() {
         onClose={() => setConfirmDelete(false)}
       />
 
+      {/* Observações em destaque (094): aparecem em qualquer aba */}
+      <FaixaObservacoes employeeId={id!} abrir={() => setTab('observacoes')} />
+
       {/* Abas principais (8). Documentos virou aba própria (14/10/2026): contrato
           anexado no vínculo cai lá. Agenda junta Agenda + Visitas feitas.
           Quebra linha no celular em vez de esconder. */}
@@ -1627,6 +1638,7 @@ export default function EmployeeDetail() {
           ['agenda', 'Agenda', ['agenda', 'visitas']],
           ['portal', 'Portal', ['portal']],
           ['historico', 'Histórico', ['historico']],
+          ['observacoes', `Observações${observacoes?.length ? ` (${observacoes.length})` : ''}`, ['observacoes']],
         ] as [Tab, string, Tab[]][]).filter(([t]) => t !== 'pagamentos' || vePagamentos).map(([t, rotulo, grupo]) => (
           <button key={t} onClick={() => setTab(t)}
             className={`px-3 md:px-3.5 py-2 text-[13px] md:text-sm font-semibold whitespace-nowrap rounded-xl transition-all active:scale-95 ${grupo.includes(tab) ? 'bg-primary-600 text-white shadow-soft' : 'bg-white border border-ink-100 text-ink-500 hover:text-ink-800 hover:border-ink-200'}`}>
@@ -1643,6 +1655,8 @@ export default function EmployeeDetail() {
           ))}
         </div>
       )}
+
+      {tab === 'observacoes' && <AbaObservacoes employeeId={id!} />}
 
       {/* VISÃO GERAL */}
       {tab === 'visao' && (

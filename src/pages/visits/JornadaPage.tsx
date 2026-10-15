@@ -246,6 +246,8 @@ function ListaPessoas({ mes, abrir, filtroInicial }: { mes: string; abrir: (id: 
     filtroInicial === 'trocas' || filtroInicial === 'faltas' || filtroInicial === 'atencao' ? filtroInicial : 'todos')
   const { data, isLoading, error } = useQuery({ queryKey: ['jornada-mes', mes], queryFn: () => carregarMes(mes) })
   const nomeCliente = (id?: string | null) => nomeDaLista(id) || (id ? data?.links.find(l => l.client_id === id)?.client?.name || '' : '')
+  const { profile } = useAuth()
+  const [gerandoPdf, setGerandoPdf] = useState(false)
 
   const pessoas = useMemo(() => {
     if (!data) return []
@@ -276,9 +278,33 @@ function ListaPessoas({ mes, abrir, filtroInicial }: { mes: string; abrir: (id: 
   if (error) return <div className="card p-4 border-red-200 bg-red-50 text-sm text-red-700">Não carregou: {(error as Error).message}</div>
   return (
     <div className="space-y-3">
-      <div className="relative">
-        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-400" />
-        <input className="input pl-9" placeholder="Buscar pessoa ou cliente…" value={busca} onChange={e => setBusca(e.target.value)} />
+      <div className="flex gap-2">
+        <div className="relative flex-1">
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-400" />
+          <input className="input pl-9" placeholder="Buscar pessoa ou cliente…" value={busca} onChange={e => setBusca(e.target.value)} />
+        </div>
+        {/* Panorama de todas as folhas de ponto do mês (15/10/2026) — respeita a busca e o filtro */}
+        <button className="btn-secondary text-sm shrink-0" disabled={gerandoPdf || isLoading || !visiveis.length} onClick={async () => {
+          setGerandoPdf(true)
+          try {
+            const { baixarPanoramaJornada } = await import('../../lib/jornadaGeralPdf')
+            const rotulos: Record<string, string> = { todos: 'Todos', atencao: 'Precisa de atenção', faltas: 'Com faltas', trocas: 'Com trocas' }
+            await baixarPanoramaJornada(nomeDoMes(mes), visiveis.map(p => ({
+              nome: p.nome,
+              clientes: p.resumos.map(r => `${nomeCliente(r.link.client_id) || 'Cliente'} (${rotuloVinculo(r).split(' · ').slice(1).join(' · ') || rotuloVinculo(r)})`).join(' · '),
+              feitos: p.previstos != null ? `${p.feitos}/${p.previstos}` : String(p.feitos),
+              extras: p.extras, faltas: p.faltas, trocas: p.trocas, horas: p.minutos ? horasTxt(p.minutos) : '',
+              atencao: p.atencao,
+              situacao: [
+                p.faltas ? `${p.faltas} falta(s)` : null,
+                p.trocasNaoVistas ? `${p.trocasNaoVistas} troca(s) nova(s)` : null,
+                p.abaixo ? `${p.abaixo} dia(s) abaixo da jornada` : null,
+                p.semValor ? `${p.semValor} visita(s) sem valor` : null,
+                p.extras ? `${p.extras} extra(s)` : null,
+              ].filter(Boolean).join(' · ') || (p.atencao ? 'Precisa de atenção' : 'OK'),
+            })), rotulos[filtro] || 'Todos', profile?.full_name)
+          } catch (e) { toast.error('Não consegui gerar o PDF: ' + (e as Error).message) } finally { setGerandoPdf(false) }
+        }}><FileDown size={15} />{gerandoPdf ? 'Gerando…' : 'PDF geral'}</button>
       </div>
       <div className="flex gap-1.5 overflow-x-auto scrollbar-none">
         {([

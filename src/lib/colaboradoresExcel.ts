@@ -32,7 +32,7 @@ const txt = (v: unknown) => (v == null ? '' : String(v).trim())
 const nomeCliente = (l: Link) => (Array.isArray(l.client) ? l.client[0]?.name : l.client?.name) || 'Cliente'
 
 /** "R$ 5.500,00 por mês", "R$ 180,00 por dia", "por visita: R$ 150,00" */
-function salarioDoLink(l: Link): { texto: string; valor: number | null } {
+export function salarioDoLink(l: Link): { texto: string; valor: number | null } {
   if (pagaPorDiaria(l)) return { texto: Number(l.daily_rate) > 0 ? `${reais(l.daily_rate)} por dia` : 'por dia (sem valor)', valor: Number(l.daily_rate) || null }
   if (tipoDoVinculo(l) === 'Consultoria' && !salarioConsultoria(l)) {
     const valores = [...new Set((l.link_units || []).map(u => Number(u.visit_rate)).filter(v => v > 0))].sort((a, b) => a - b)
@@ -47,7 +47,7 @@ function salarioDoLink(l: Link): { texto: string; valor: number | null } {
 }
 
 /** "dias 8 e 20" ou as datas combinadas do contrato */
-function diasDoLink(l: Link): string {
+export function diasDoLink(l: Link): string {
   if (l.parcelas?.length) return [...l.parcelas].sort((a, b) => txt(a.data).localeCompare(txt(b.data)))
     .map(p => `${formatDate(txt(p.data))} (${reais(p.valor)})`).join(', ')
   const dias = [...new Set((l.payment_dates || []).map(d => Number(d.day_of_month)).filter(d => d > 0))].sort((a, b) => a - b)
@@ -61,6 +61,12 @@ export async function exportColaboradoresExcel(ids: string[], ufDoCep: (cep?: st
     tudo<Link>('employee_client_links', '*, client:clients(name), payment_dates:employee_payment_dates(day_of_month)'),
     tudo<{ employee_id: string; name: string; file_url?: string | null }>('employee_documents', 'employee_id, name, file_url'),
   ])
+  // Observações (094, 15/10/2026); sem a migração a coluna sai vazia
+  const obs = await tudo<{ employee_id: string; texto: string; destaque: boolean; criado_em: string }>('employee_observacoes', 'employee_id, texto, destaque, criado_em')
+    .catch(() => [])
+  const obsDe = (empId: string) => obs.filter(o => o.employee_id === empId)
+    .sort((a, b) => Number(b.destaque) - Number(a.destaque) || b.criado_em.localeCompare(a.criado_em))
+    .map(o => (o.destaque ? '⚠ ' : '') + o.texto).join(' | ')
   const hoje = hojeISO()
   const ordem = new Map(ids.map((id, i) => [id, i]))
   const escolhidas = pessoas.filter(p => ordem.has(p.id)).sort((a, b) => ordem.get(a.id)! - ordem.get(b.id)!)
@@ -87,6 +93,7 @@ export async function exportColaboradoresExcel(ids: string[], ufDoCep: (cep?: st
         : (contratosNosDocs(p.id) ? `Sim (${contratosNosDocs(p.id)} na aba Documentos)` : 'Não'),
       'Salário': porCliente(ls, l => salarioDoLink(l).texto),
       'Dias de pagamento': porCliente(ls, diasDoLink),
+      'Observações': obsDe(p.id),
       'CPF': txt(p.cpf),
       'RG': txt(p.rg),
       'Nascimento': formatDate(txt(p.birth_date) || null),

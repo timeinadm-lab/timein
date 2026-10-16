@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { format, addMonths, subMonths } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
-import { Sheet, Sparkles, ClipboardList, Receipt, Wrench, Wallet, ChevronLeft, ChevronRight, ChevronDown, Download, Check, CheckCheck, X, Search, Undo2, AlertTriangle } from 'lucide-react'
+import { Sheet, Sparkles, ClipboardList, Receipt, Wrench, Wallet, SlidersHorizontal, ChevronLeft, ChevronRight, ChevronDown, Download, Check, CheckCheck, X, Search, Undo2, AlertTriangle } from 'lucide-react'
 import { supabase, fetchAll } from '../../lib/supabase'
 import { formatCurrency, formatDate, tipoDoVinculo, getInitials, corDoAvatar, hojeISO, pagaPorDiaria } from '../../lib/utils'
 import { resumoDoVinculo } from '../../lib/jornadaPessoa'
@@ -15,6 +15,7 @@ import type { TipoExtra, VinculoPg, RegistroPonto } from '../../lib/planilhas'
 import { baixarExcelBonito } from '../../lib/excelBonito'
 import GastosCliente from './GastosCliente'
 import { PlanilhaCorrecao, PlanilhaPagamentos } from './PlanilhasPagamento'
+import PlanilhaCompleta from './PlanilhaCompleta'
 import type { CorLinha } from '../../lib/excelBonito'
 
 /**
@@ -26,7 +27,7 @@ import type { CorLinha } from '../../lib/excelBonito'
  *    com o resumo do mês e o dia em que recebe.
  * As duas viram Excel apresentável.
  */
-type Qual = 'extras' | 'ponto' | 'gastos' | 'correcao' | 'pagamentos'
+type Qual = 'completa' | 'extras' | 'ponto' | 'gastos' | 'correcao' | 'pagamentos'
 type Vinculo = VinculoPg & VinculoPerfil & {
   id: string; employee_id: string; client_id: string; start_date?: string | null; contract_end_date?: string | null
   work_schedule_type?: string | null
@@ -70,7 +71,7 @@ const contratoTexto = (l: Vinculo | null) => {
 export default function PlanilhasPage() {
   const navigate = useNavigate()
   const qc = useQueryClient()
-  const [qual, setQual] = useState<Qual>(() => { const q = new URLSearchParams(window.location.search).get('planilha'); return q === 'ponto' || q === 'gastos' || q === 'correcao' || q === 'pagamentos' ? q : 'extras' })
+  const [qual, setQual] = useState<Qual>(() => { const q = new URLSearchParams(window.location.search).get('planilha'); return q === 'extras' || q === 'ponto' || q === 'gastos' || q === 'correcao' || q === 'pagamentos' ? q : 'completa' })
   const [cursor, setCursor] = useState(() => { const m = new URLSearchParams(window.location.search).get('mes'); return m && /^\d{4}-\d{2}$/.test(m) ? new Date(m + '-15T12:00:00') : new Date() })
   const mes = format(cursor, 'yyyy-MM')
   const ini = `${mes}-01`, fim = format(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0), 'yyyy-MM-dd')
@@ -120,6 +121,7 @@ export default function PlanilhasPage() {
       {/* Escolher a planilha */}
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
         {([
+          ['completa', SlidersHorizontal, 'Montar planilha', 'Todas as pessoas com vínculo, com filtros e colunas: formato, dia de pagamento, folha, valores.'],
           ['extras', Sparkles, 'Extras', 'Tudo que passou do combinado no mês: dia extra, dia de folga trabalhado, visita extra ou fora da agenda e horas acima. Valide aqui.'],
           ['ponto', ClipboardList, 'Folha de ponto', 'Quem preencheu a folha no mês e o resumo de cada um.'],
           ['gastos', Receipt, 'Gastos do cliente', 'Airbnb, carro, material… com comprovante. Gera PDF com as fotos.'],
@@ -137,7 +139,8 @@ export default function PlanilhasPage() {
         ))}
       </div>
 
-      {qual === 'gastos' ? <GastosCliente mes={mes} nomeMes={nomeMes} />
+      {qual === 'completa' ? <PlanilhaCompleta mes={mes} nomeMes={nomeMes} />
+        : qual === 'gastos' ? <GastosCliente mes={mes} nomeMes={nomeMes} />
         : qual === 'correcao' ? <PlanilhaCorrecao mes={mes} nomeMes={nomeMes} />
         : qual === 'pagamentos' ? <PlanilhaPagamentos mes={mes} nomeMes={nomeMes} />
         : isLoading || !data ? <p className="text-sm text-ink-500">Carregando…</p>

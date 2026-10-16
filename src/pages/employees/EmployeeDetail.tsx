@@ -1232,10 +1232,14 @@ export default function EmployeeDetail() {
       if ((!isConsult || consultSalario) && !diasDasDatas && !vals.payDays.map(Number).some(d => [8, 15, 20].includes(d))) {
         throw new Error('Escolha o dia de pagamento (8, 15 ou 20) — sem ele o pagamento sai do dia certo.')
       }
-      // Dois dias de pagamento só existem como 8 e 20 (pedido de 16/10/2026)
+      // Dias de pagamento (pedido de 16/10/2026): fixo recebe uma vez só (8, 15 ou 20);
+      // só a consultoria tem a opção de receber duas vezes, e aí é dia 8 e dia 20.
       const diasMarcados = [...new Set(vals.payDays.map(Number).filter(d => [8, 15, 20].includes(d)))].sort((a, b) => a - b)
-      if ((!isConsult || consultSalario) && !diasDasDatas && diasMarcados.length > 1 && diasMarcados.join() !== '8,20') {
-        throw new Error('Com dois dias de pagamento, só pode ser dia 8 e dia 20. Quem recebe uma vez marca só um dia (8, 15 ou 20).')
+      if (!isConsult && !diasDasDatas && diasMarcados.length > 1) {
+        throw new Error('Fixo recebe uma vez por mês: marque só um dia (8, 15 ou 20). Receber duas vezes (8 e 20) é só para consultoria.')
+      }
+      if (consultSalario && !diasDasDatas && diasMarcados.length > 1 && diasMarcados.join() !== '8,20') {
+        throw new Error('Com dois dias de pagamento, só pode ser dia 8 e dia 20.')
       }
       let monthly: number | null = null
       let linkUnits: unknown = null
@@ -3013,8 +3017,8 @@ export default function EmployeeDetail() {
                                             let days = e.target.checked
                                               ? [...p.payDays, String(day)].sort((a, b) => Number(a) - Number(b))
                                               : p.payDays.filter(d => d !== String(day))
-                                            // Só vale um dia (8, 15 ou 20) ou os dois 8 e 20: outra combinação fica só com o que acabou de marcar
-                                            if (days.length > 1 && days.join() !== '8,20') days = [String(day)]
+                                            // Fixo: um dia só. Consultoria: um dia ou os dois 8 e 20. Outra combinação fica só com o que acabou de marcar
+                                            if (days.length > 1 && (!isConsult || days.join() !== '8,20')) days = [String(day)]
                                             return { ...p, payDays: days }
                                           })} />
                                         <span className="text-sm font-medium">Dia {day}</span>
@@ -3027,7 +3031,7 @@ export default function EmployeeDetail() {
                               {!isConsult && !editLinkValues.parcelas && editLinkValues.payDays.length === 0 && (
                                 <p className="text-xs text-amber-600">Selecione pelo menos um dia de pagamento.</p>
                               )}
-                              {!isConsult && !editLinkValues.parcelas && <p className="text-[11px] text-ink-500">Um dia (8, 15 ou 20) ou dois dias: só 8 e 20.</p>}
+                              {!editLinkValues.parcelas && <p className="text-[11px] text-ink-500">{isConsult ? 'Um dia (8, 15 ou 20) ou os dois: 8 e 20.' : 'Fixo recebe uma vez por mês: um dia só (8, 15 ou 20).'}</p>}
                             </div>
 
                             <div className="flex gap-2">

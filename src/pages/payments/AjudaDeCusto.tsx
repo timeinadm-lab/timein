@@ -8,6 +8,7 @@ import { formatCurrency, formatDate, hojeISO } from '../../lib/utils'
 import { getSignedUrl } from '../../lib/storage'
 import { confirmar } from '../../components/ui/ConfirmDialog'
 import { extensaoDoArquivo, comprimirImagem } from '../../lib/imagem'
+import { baixarPlanilhaComComprovantes } from '../../lib/planilhaComComprovantes'
 
 /**
  * Ajuda de custo (migração 083) — pedido de 05/10/2026: a planilha de custos
@@ -31,6 +32,7 @@ type Ajuda = {
   inicio: string; fim: string; tipo: string; descricao: string | null; valor: number
   status: 'Pendente' | 'Pago'; pago_em: string | null; comprovante_url: string | null; link_id?: string | null
   expense_id?: string | null   // reembolso aprovado (090)
+  observacao?: string | null   // observação do RH (095)
 }
 type Nome = { id: string; nome: string }
 
@@ -214,6 +216,38 @@ export default function AjudaDeCusto({ mes }: { mes: string }) {
     XLSX.writeFile(wb, `ajuda_de_custo_${mes}.xlsx`)
   }
 
+  // Planilha + pasta com os comprovantes (pedido de 16/10/2026). Reembolso que
+  // entrou sozinho usa a nota que a colaboradora mandou no portal.
+  const [baixando, setBaixando] = useState<string | null>(null)
+  const baixarComComprovantes = async () => {
+    setBaixando('Preparando…')
+    try {
+      const idsReemb = lista.map(a => a.expense_id).filter(Boolean) as string[]
+      const notas = new Map<string, string>()
+      if (idsReemb.length) {
+        const { data: ex } = await supabase.from('employee_expenses').select('id, receipt_url').in('id', idsReemb)
+        for (const e of ex || []) if (e.receipt_url) notas.set(e.id as string, e.receipt_url as string)
+      }
+      const pessoa = (a: Ajuda) => data?.todasPessoas.get(a.employee_id || '') || ''
+      const ordenada = [...lista].sort((x, y) => (nomeCli.get(x.client_id || '') || '').localeCompare(nomeCli.get(y.client_id || '') || '') || x.inicio.localeCompare(y.inicio) || pessoa(x).localeCompare(pessoa(y)))
+      const r = await baixarPlanilhaComComprovantes(`ajuda_de_custo_${mes}`, [{
+        nome: 'Ajuda de custo',
+        cabecalho: ['Cliente', 'Período', 'Colaborador', 'Tipo', 'Descrição', 'Valor', 'Situação', 'Pago em', 'Observação'],
+        larguras: [22, 22, 26, 14, 30, 12, 10, 12, 30],
+        colunasDinheiro: [5],
+        linhas: ordenada.filter(a => a.valor > 0 || a.status === 'Pago').map(a => ({
+          valores: [nomeCli.get(a.client_id || '') || 'Sem cliente', a.periodo === 'mes' ? 'Mês inteiro' : `Semana ${curto(a.inicio)} a ${curto(a.fim)}`,
+            pessoa(a), a.link_id ? 'Contrato' : a.tipo, a.descricao || '', a.valor, a.status === 'Pago' ? 'Pago' : 'A pagar',
+            a.pago_em ? formatDate(a.pago_em) : '', a.observacao || ''],
+          comprovante: a.comprovante_url || (a.expense_id ? notas.get(a.expense_id) : null) || null,
+          nomeArquivo: `${pessoa(a) || 'sem nome'} - ${a.link_id ? 'Contrato' : a.tipo} - ${curto(a.inicio).replace('/', '-')}`,
+        })),
+      }], (f, t) => setBaixando(`Baixando comprovantes ${f} de ${t}…`))
+      toast.success(`Planilha baixada com ${r.comprovantes} comprovante(s).${r.falhas ? ` ${r.falhas} não baixou.` : ''}`)
+    } catch (e) { toast.error('Não gerou a planilha: ' + (e as Error).message) }
+    setBaixando(null)
+  }
+
   if (semMigracao) return <div className="card p-4 text-sm text-amber-800 bg-amber-50 border-amber-200">Para usar a Ajuda de custo, rode a migração 083 no Supabase.</div>
   if (isLoading || !data) return <p className="text-sm text-ink-500">Carregando…</p>
 
@@ -239,6 +273,7 @@ export default function AjudaDeCusto({ mes }: { mes: string }) {
           ))}
         </div>
         <button className="btn-secondary text-sm" disabled={!lista.length} onClick={baixarPlanilha}><Download size={15} />Planilha</button>
+        <button className="btn-secondary text-sm" disabled={!lista.length || !!baixando} onClick={baixarComComprovantes}><Paperclip size={15} />{baixando || 'Com comprovantes'}</button>
         <button className="btn-primary text-sm" onClick={() => setForm({ periodo: 'semana', inicio: segunda(hojeISO() < ini || hojeISO() > fimMes ? ini : hojeISO()), tipo: 'Hospedagem', status: 'Pendente' })}><Plus size={15} />Lançar</button>
       </div>
 
@@ -276,6 +311,7 @@ export default function AjudaDeCusto({ mes }: { mes: string }) {
                           <div className="flex-1 min-w-0">
                             <p className="text-sm font-medium text-ink-900 truncate">{data.todasPessoas.get(a.employee_id || '') || '—'}</p>
                             <p className="text-xs text-ink-500 truncate">{a.link_id ? 'Contrato · paga na segunda' : <>{a.tipo}{a.descricao ? ` · ${a.descricao}` : ''}</>}</p>
+                            {a.observacao && <p className="text-[11px] text-primary-800 truncate">Obs.: {a.observacao}</p>}
                           </div>
                           <div className="text-right shrink-0">
                             <p className="text-sm font-semibold tnum text-ink-900">{formatCurrency(a.valor)}</p>
@@ -331,7 +367,9 @@ function FormAjuda({ inicial, pessoas, clientes, vinculos, fimMes, fechar, salvo
   const salvar = async () => {
     if (falta) { toast.error(falta); return }
     setSalvando(true)
-    const base = { employee_id: f.employee_id, client_id: f.client_id, periodo: f.periodo, tipo: f.tipo || 'Outro', descricao: f.descricao?.trim() || null, valor }
+    const base: Record<string, unknown> = { employee_id: f.employee_id, client_id: f.client_id, periodo: f.periodo, tipo: f.tipo || 'Outro', descricao: f.descricao?.trim() || null, valor }
+    // Observação (095): só manda se mexeu, para não travar quem ainda não rodou a migração
+    if ((f.observacao || '') !== (inicial.observacao || '')) base.observacao = f.observacao?.trim() || null
     let error
     if (editando) {
       ({ error } = await supabase.from('ajudas_custo').update({ ...base, inicio: periodoDe, fim: periodoAte }).eq('id', f.id!))
@@ -344,6 +382,7 @@ function FormAjuda({ inicial, pessoas, clientes, vinculos, fimMes, fechar, salvo
       ({ error } = await supabase.from('ajudas_custo').insert(linhas))
     }
     setSalvando(false)
+    if (error && /observacao/.test(error.message)) { toast.error('Para salvar observação, rode a migração 095 no Supabase.'); return }
     if (error) { toast.error('Não salvou: ' + error.message); return }
     toast.success(editando ? 'Salvo' : 'Lançado')
     salvo()
@@ -454,6 +493,8 @@ function FormAjuda({ inicial, pessoas, clientes, vinculos, fimMes, fechar, salvo
           )}
         </div>
         )}
+        <div><label className="label">Observação <span className="font-normal text-ink-400">— sai na planilha</span></label>
+          <input className="input" value={f.observacao || ''} onChange={e => muda({ observacao: e.target.value })} placeholder="Ex.: pago metade porque começou na quarta" /></div>
         <div><label className="label">Valor *</label>
           <div className="relative"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-ink-400">R$</span>
             <input className="input pl-9 tnum" inputMode="decimal" value={valorTxt} onChange={e => setValorTxt(e.target.value.replace(/[^\d,.]/g, ''))} placeholder="0,00" /></div></div>
@@ -576,8 +617,8 @@ function TabelaSemanas({ lista, semanas, pessoas, nomeCli, vinculos, saidas, abr
                     const fora = fim.dia !== null && sem.de > fim.dia
                     const pagoFora = fora && a?.status === 'Pago'
                     return (
-                      <td key={sem.de} className={`px-1.5 py-1 text-right ${pagoFora ? 'bg-red-50' : a?.status === 'Pago' ? 'bg-green-50' : ''}`}
-                        title={pagoFora ? `Pago por semana depois do fim (${fim.motivo}) — confira` : undefined}>
+                      <td key={sem.de} className={`px-1.5 py-1 text-right ${pagoFora ? 'bg-red-50' : a?.status === 'Pago' ? 'bg-green-50' : ''} ${a?.observacao ? 'border-r-2 border-r-primary-300' : ''}`}
+                        title={pagoFora ? `Pago por semana depois do fim (${fim.motivo}) — confira` : a?.observacao ? `Obs.: ${a.observacao}` : undefined}>
                         {a?.status === 'Pago' ? (
                           <button className="w-full text-right tnum text-green-800 font-medium px-1.5 py-1 rounded hover:bg-green-100"
                             title={`Pago${a.pago_em ? ' em ' + formatDate(a.pago_em) : ''} — toque para desfazer ou anexar comprovante`} onClick={() => abrir(a)}>
@@ -614,7 +655,7 @@ function TabelaSemanas({ lista, semanas, pessoas, nomeCli, vinculos, saidas, abr
           </table>
         </div>
         <p className="px-3 py-2 text-[11px] text-ink-500 border-t border-ink-100">
-          Digite o valor e saia da célula (ou Enter) para salvar — ex.: semana proporcional. 0 = não paga essa semana. Verde = pago; toque para desfazer. Cinza = vínculo encerrado (fica só o histórico; o que estava a pagar depois do último dia sai sozinho).
+          Digite o valor e saia da célula (ou Enter) para salvar — ex.: semana proporcional. 0 = não paga essa semana. Verde = pago; toque para desfazer ou pôr observação. Traço verde à direita = tem observação (passe o mouse para ler). Cinza = vínculo encerrado (fica só o histórico; o que estava a pagar depois do último dia sai sozinho).
         </p>
       </div>
       {custosMes.length > 0 && (

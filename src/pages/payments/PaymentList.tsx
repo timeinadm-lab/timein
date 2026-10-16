@@ -19,9 +19,10 @@ import { planoDaPrevisao, valorDoFechamento, correcoesDoVinculo } from '../../li
 import type { BasePlano, Correcao, LancamentoExistente } from '../../lib/planoLancamentos'
 import type { FolhaRel } from '../../lib/relatorioSaidas'
 import AjudaDeCusto from './AjudaDeCusto'
+import Reembolsos from './Reembolsos'
 import Comprovantes from './Comprovantes'
 
-type Tab = 'dias' | 'folha' | 'pagos' | 'ajuda' | 'comprovantes'
+type Tab = 'dias' | 'folha' | 'pagos' | 'ajuda' | 'comprovantes' | 'reembolsos'
 type WorkerGroup = 'consultoria' | 'fixo_plantao'
 
 // O sistema começou a ser operado em 01/10/2026 (pedido de 14/10/2026): dia
@@ -183,7 +184,7 @@ export default function PaymentList() {
   // ?aba=ajuda / ?aba=comprovantes abre direto na aba (link da ficha do colaborador)
   const [tab, setTab] = useState<Tab>(() => {
     const aba = new URLSearchParams(window.location.search).get('aba')
-    return aba === 'ajuda' || aba === 'comprovantes' || aba === 'folha' || aba === 'pagos' ? aba : 'dias'
+    return aba === 'ajuda' || aba === 'comprovantes' || aba === 'folha' || aba === 'pagos' || aba === 'reembolsos' ? aba : 'dias'
   })
   // Mês pode vir no link (?mes=aaaa-mm) — a Jornada abre Pagamentos no mês dela
   const [paramsUrl] = useSearchParams()
@@ -325,6 +326,7 @@ export default function PaymentList() {
         : v.naSemana ? `Reembolso aprovado — pago na segunda ${proximaSegunda} (Ajuda de custo).` : 'Reembolso aprovado — entra no salário.')
       qc.invalidateQueries({ queryKey: ['ajudas-custo'] })
       qc.invalidateQueries({ queryKey: ['expenses', filterMonth] })
+      qc.invalidateQueries({ queryKey: ['reembolsos-mes', filterMonth] })
     },
     onError: (e: Error) => toast.error(e.message),
   })
@@ -1715,14 +1717,15 @@ export default function PaymentList() {
       {/* Reembolsos pedidos pelo portal, esperando decisão. O portal promete à
           colaboradora que o gestor vai aprovar — este é o lugar onde isso
           acontece. Sem aprovar, não entra no pagamento. */}
-      {expensesPendentes.length > 0 && (
+      {expensesPendentes.length > 0 && tab !== 'reembolsos' && (
         <div className="card p-0 overflow-hidden border-l-4 border-l-amber-400">
-          <div className="px-4 py-3 bg-amber-50 border-b border-amber-200 flex items-center gap-2">
+          <div className="px-4 py-3 bg-amber-50 border-b border-amber-200 flex items-center gap-x-2 gap-y-1 flex-wrap">
             <AlertTriangle size={16} className="text-amber-600 flex-shrink-0" />
             <p className="text-sm font-semibold text-amber-900">
               {expensesPendentes.length} reembolso{expensesPendentes.length > 1 ? 's' : ''} para analisar
             </p>
-            <span className="text-xs text-amber-700">— só entra no pagamento depois que você aprovar</span>
+            <span className="text-xs text-amber-700 hidden sm:inline">— só entra no pagamento depois que você aprovar</span>
+            <button className="sm:ml-auto text-xs font-semibold text-amber-800 underline whitespace-nowrap" onClick={() => setTab('reembolsos')}>Ver todos os reembolsos</button>
           </div>
           <div className="divide-y divide-ink-100">
             {expensesPendentes.map(e => {
@@ -1803,10 +1806,11 @@ export default function PaymentList() {
               "Pagos" e "Comprovantes" viraram parte da aba Pagar (?aba= antigo ainda abre). */}
           {([
             ['dias', 'Pagar'],
+            ['reembolsos', expensesPendentes.length ? `Reembolsos (${expensesPendentes.length})` : 'Reembolsos'],
             ['ajuda', 'Ajuda de custo'],
             ['folha', 'Conferência (RH)'],
           ] as const).map(([k, label]) => (
-            <button key={k} onClick={() => setTab(k)}
+            <button key={k} onClick={() => setTab(k as Tab)}
               className={`px-3 md:px-3.5 py-2 text-[13px] md:text-sm font-semibold whitespace-nowrap rounded-xl transition-all active:scale-95 ${tab === k ? 'bg-primary-600 text-white shadow-soft' : 'bg-white border border-ink-100 text-ink-500 hover:text-ink-800 hover:border-ink-200'}`}>
               {label}
             </button>
@@ -2440,6 +2444,7 @@ export default function PaymentList() {
 
       {/* ── PAGOS TAB ── */}
       {/* ── AJUDA DE CUSTO (semanal/mensal, controle próprio) e COMPROVANTES ── */}
+      {tab === 'reembolsos' && <Reembolsos mes={filterMonth} />}
       {tab === 'ajuda' && <AjudaDeCusto mes={filterMonth} />}
       {tab === 'comprovantes' && <Comprovantes mes={filterMonth} />}
 

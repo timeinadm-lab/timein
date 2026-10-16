@@ -6,7 +6,9 @@ import { format, addMonths, subMonths } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import { Sheet, Sparkles, ClipboardList, ChevronLeft, ChevronRight, Download, Check, X, Search, Undo2, AlertTriangle } from 'lucide-react'
 import { supabase, fetchAll } from '../../lib/supabase'
-import { formatCurrency, formatDate, tipoDoVinculo, getInitials, corDoAvatar } from '../../lib/utils'
+import { formatCurrency, formatDate, tipoDoVinculo, getInitials, corDoAvatar, hojeISO, pagaPorDiaria } from '../../lib/utils'
+import { resumoDoVinculo } from '../../lib/jornadaPessoa'
+import type { VinculoPerfil, RegistroPerfil, AgendaPerfil, AvisoPerfil } from '../../lib/jornadaPessoa'
 import { confirmar } from '../../components/ui/ConfirmDialog'
 import { pagamentoDoExtra, pagamentoDoMes, textoPagamento, textoDia, resumoDoPonto, horasTexto, porVisita } from '../../lib/planilhas'
 import type { TipoExtra, VinculoPg, RegistroPonto } from '../../lib/planilhas'
@@ -23,7 +25,7 @@ import type { CorLinha } from '../../lib/excelBonito'
  * As duas viram Excel apresentável.
  */
 type Qual = 'extras' | 'ponto'
-type Vinculo = VinculoPg & {
+type Vinculo = VinculoPg & VinculoPerfil & {
   id: string; employee_id: string; client_id: string; start_date?: string | null; contract_end_date?: string | null
   work_schedule_type?: string | null
   employee?: { full_name: string; status?: string | null; dismissal_date?: string | null } | null
@@ -33,14 +35,20 @@ type Visita = RegistroPonto & {
   id: string; employee_id: string; client_id: string | null; unit_name?: string | null
   extra_approval?: string | null; extra_amount?: number | null; proposed_amount?: number | null; visit_rate?: number | null
   excesso_min?: number | null; excesso_sugerido?: number | null; excesso_status?: string | null; excesso_valor?: number | null
+  is_swap?: boolean | null; swapped_from?: string | null
 }
 type Situacao = 'pendente' | 'aprovado' | 'negado'
 type Extra = {
   chave: string; visita: Visita; vinculo: Vinculo | null; tipo: TipoExtra; pessoa: string; cliente: string
   detalhe: string; valor: number | null; sugerido: number | null; situacao: Situacao; datasPgto: string[]
+  // Achado pela conta da Jornada (dia fora da escala / visita fora da agenda), sem marcação de extra
+  daJornada?: boolean
+  // Já entra no pagamento sozinho (visita por valor, diária): só para conferência
+  jaNoPagamento?: boolean
+  rotulo?: string
 }
 
-const COLS_VISITA = 'id, employee_id, client_id, visit_date, check_in, check_out, break_start, break_end, is_unavailable, is_holiday, is_extra, extra_approval, extra_amount, proposed_amount, visit_rate, report_url, unit_name'
+const COLS_VISITA = 'id, employee_id, client_id, visit_date, check_in, check_out, break_start, break_end, is_unavailable, is_holiday, is_extra, extra_approval, extra_amount, proposed_amount, visit_rate, report_url, unit_name, is_swap, swapped_from'
 const ROTULO_TIPO: Record<TipoExtra, string> = { dia: 'Dia extra', visita: 'Visita extra', horas: 'Horas acima' }
 const hm = (t?: string | null) => (t || '').slice(0, 5)
 
@@ -72,14 +80,19 @@ export default function PlanilhasPage() {
       let regs: Visita[]
       try { regs = await visitas(COLS_VISITA + ', excesso_min, excesso_sugerido, excesso_status, excesso_valor') }
       catch (e) { if (/excesso/.test((e as Error).message)) regs = await visitas(COLS_VISITA); else throw e }
-      const { data: links, error: eL } = await supabase.from('employee_client_links')
-        .select('id, employee_id, client_id, service_type, coverage_type, pay_mode, work_schedule_type, break_minutes, start_date, contract_end_date, payment_dates:employee_payment_dates(day_of_month), employee:employees(full_name, status, dismissal_date), client:clients(name)')
-      if (eL) throw new Error(eL.message)
+      // Paginado (vínculos passam de 1000) e completo: a conta da Jornada precisa da escala inteira
+      const [links, agenda, avisosR] = await Promise.all([
+        fetchAll<Vinculo>(() => supabase.from('employee_client_links')
+          .select('*, payment_dates:employee_payment_dates(day_of_month), employee:employees(full_name, status, dismissal_date), client:clients(name)').order('id') as never),
+        fetchAll<AgendaPerfil & { employee_id: string }>(() => supabase.from('nutritionist_agenda').select('*').gte('planned_date', ini).lte('planned_date', fim).order('id') as never),
+        supabase.from('schedule_notices').select('*').or(`and(notice_date.gte.${ini},notice_date.lte.${fim}),and(swap_work_date.gte.${ini},swap_work_date.lte.${fim})`),
+      ])
+      const avisos = (avisosR.error ? [] : avisosR.data || []) as (AvisoPerfil & { employee_id: string })[]
       const pessoas = [...new Set(regs.map(r => r.employee_id))]
       const { data: pagos } = pessoas.length
         ? await supabase.from('payments').select('employee_id').eq('reference_month', mes).eq('status', 'Pago').in('employee_id', pessoas)
         : { data: [] as { employee_id: string }[] }
-      return { regs, vinculos: (links || []) as unknown as Vinculo[], comPago: new Set((pagos || []).map(p => p.employee_id as string)) }
+      return { regs, vinculos: links, agenda, avisos, comPago: new Set((pagos || []).map(p => p.employee_id as string)) }
     },
   })
 
@@ -103,7 +116,7 @@ export default function PlanilhasPage() {
       {/* Escolher a planilha */}
       <div className="grid sm:grid-cols-2 gap-3">
         {([
-          ['extras', Sparkles, 'Extras', 'Dia extra, visita extra e horas acima do combinado. Valide aqui.'],
+          ['extras', Sparkles, 'Extras', 'Tudo que passou do combinado no mês: dia extra, dia fora da escala, feriado, visita extra ou fora da agenda e horas acima. Valide aqui.'],
           ['ponto', ClipboardList, 'Folha de ponto', 'Quem preencheu a folha no mês e o resumo de cada um.'],
         ] as const).map(([k, Icone, titulo, desc]) => (
           <button key={k} onClick={() => setQual(k)}
@@ -119,15 +132,16 @@ export default function PlanilhasPage() {
 
       {isLoading || !data ? <p className="text-sm text-ink-500">Carregando…</p>
         : qual === 'extras'
-          ? <PlanilhaExtras mes={mes} nomeMes={nomeMes} regs={data.regs} vinculos={data.vinculos} comPago={data.comPago} recarregar={() => qc.invalidateQueries({ queryKey: ['planilhas', mes] })} abrir={id => navigate(`/colaboradores/${id}`)} />
+          ? <PlanilhaExtras mes={mes} nomeMes={nomeMes} regs={data.regs} vinculos={data.vinculos} agenda={data.agenda} avisos={data.avisos} comPago={data.comPago} recarregar={() => qc.invalidateQueries({ queryKey: ['planilhas', mes] })} abrir={id => navigate(`/colaboradores/${id}`)} />
           : <PlanilhaPonto mes={mes} nomeMes={nomeMes} ini={ini} fim={fim} regs={data.regs} vinculos={data.vinculos} abrir={(emp) => navigate(`/jornada?pessoa=${emp}&mes=${mes}`)} />}
     </div>
   )
 }
 
 // ── Extras ─────────────────────────────────────────────────────────────────
-function PlanilhaExtras({ mes, nomeMes, regs, vinculos, comPago, recarregar, abrir }: {
-  mes: string; nomeMes: string; regs: Visita[]; vinculos: Vinculo[]; comPago: Set<string>; recarregar: () => void; abrir: (empId: string) => void
+function PlanilhaExtras({ mes, nomeMes, regs, vinculos, agenda, avisos, comPago, recarregar, abrir }: {
+  mes: string; nomeMes: string; regs: Visita[]; vinculos: Vinculo[]
+  agenda: (AgendaPerfil & { employee_id: string })[]; avisos: (AvisoPerfil & { employee_id: string })[]; comPago: Set<string>; recarregar: () => void; abrir: (empId: string) => void
 }) {
   const [filtro, setFiltro] = useState<'todos' | Situacao>('todos')
   const [busca, setBusca] = useState('')
@@ -159,8 +173,45 @@ function PlanilhaExtras({ mes, nomeMes, regs, vinculos, comPago, recarregar, abr
           situacao: sit, datasPgto: pagamentoDoExtra(l, mes, 'horas', v.visit_date) })
       }
     }
+    // Extras pela conta da Jornada (pedido de 16/10/2026: "tem que levar tudo desse mês,
+    // não pode faltar"): dia trabalhado fora da escala (inclusive feriado) e visita fora
+    // da agenda — mesmo sem a pessoa ter marcado como extra.
+    const jaListado = new Set(out.filter(e => e.tipo !== 'horas').map(e => e.visita.id))
+    const hoje = hojeISO()
+    const porId = new Map(regs.map(r => [r.id, r]))
+    for (const l of vinculos) {
+      const dela = regs.filter(r => r.employee_id === l.employee_id && r.client_id === l.client_id)
+      if (!dela.length) continue
+      const res = resumoDoVinculo(l, mes, hoje, dela as unknown as RegistroPerfil[],
+        agenda.filter(a => a.employee_id === l.employee_id), avisos.filter(a => a.employee_id === l.employee_id))
+      for (const d of res.dias) {
+        if ((d.status !== 'extra' && d.status !== 'fora') || !d.registro || jaListado.has(d.registro.id)) continue
+        const v = porId.get(d.registro.id)
+        if (!v) continue
+        jaListado.add(v.id)
+        const pessoa = l.employee?.full_name || '—', cliente = l.client?.name || '—'
+        const horario = v.check_in ? `${hm(v.check_in)}–${hm(v.check_out) || '?'}${v.unit_name ? ' · ' + v.unit_name : ''}` : ''
+        if (d.status === 'fora' || pagaPorDiaria(l)) {
+          // Visita por valor / diária: já é paga pelo registro. Aparece para conferência.
+          const pv = porVisita(l) || pagaPorDiaria(l)
+          out.push({ chave: v.id + '|j', visita: v, vinculo: l, tipo: porVisita(l) ? 'visita' : 'dia', pessoa, cliente,
+            detalhe: [d.status === 'fora' ? 'Fora da agenda' : 'Fora da escala', horario].filter(Boolean).join(' · '),
+            valor: pv ? Number(v.visit_rate) || 0 : null, sugerido: null, situacao: 'aprovado', jaNoPagamento: true, daJornada: true,
+            rotulo: d.status === 'fora' ? 'Fora da agenda' : 'Dia a mais',
+            datasPgto: pagamentoDoExtra(l, mes, porVisita(l) ? 'visita' : 'dia', v.visit_date) })
+        } else {
+          // Fixo/salário: dia fora da escala sem marcação — precisa validar
+          const sug = Number(l.monthly_amount) > 0 ? Math.round((Number(l.monthly_amount) / 30) * 100) / 100 : null
+          const feriado = d.titulo === 'Trabalhou no feriado'
+          out.push({ chave: v.id + '|j', visita: v, vinculo: l, tipo: 'dia', pessoa, cliente,
+            detalhe: [feriado ? 'Trabalhou no feriado' : 'Fora da escala', horario].filter(Boolean).join(' · '),
+            valor: null, sugerido: sug, situacao: 'pendente', daJornada: true, rotulo: feriado ? 'Feriado' : undefined,
+            datasPgto: pagamentoDoExtra(l, mes, 'dia', v.visit_date) })
+        }
+      }
+    }
     return out.sort((a, b) => a.pessoa.localeCompare(b.pessoa) || a.visita.visit_date.localeCompare(b.visita.visit_date))
-  }, [regs, vinculos, mes])
+  }, [regs, vinculos, agenda, avisos, mes])
 
   const termo = busca.trim().toLowerCase()
   const visiveis = extras.filter(e => (filtro === 'todos' || e.situacao === filtro) && (!termo || e.pessoa.toLowerCase().includes(termo) || e.cliente.toLowerCase().includes(termo)))
@@ -186,7 +237,7 @@ function PlanilhaExtras({ mes, nomeMes, regs, vinculos, comPago, recarregar, abr
       const { data: { user } } = await supabase.auth.getUser()
       upd = { excesso_status: aprovar ? 'pago' : 'nao_pago', excesso_valor: aprovar ? Math.round(valor * 100) / 100 : null, excesso_decidido_em: new Date().toISOString(), excesso_decidido_por: user?.id ?? null }
     } else if (e.tipo === 'dia') {
-      upd = { extra_approval: aprovar ? 'aprovada' : 'negada', extra_amount: aprovar ? Math.round(valor * 100) / 100 : null }
+      upd = { extra_approval: aprovar ? 'aprovada' : 'negada', extra_amount: aprovar ? Math.round(valor * 100) / 100 : null, ...(e.daJornada ? { is_extra: true } : {}) }
     } else {
       upd = { extra_approval: aprovar ? 'aprovada' : 'negada', visit_rate: aprovar ? Math.round(valor * 100) / 100 : null }
     }
@@ -207,9 +258,9 @@ function PlanilhaExtras({ mes, nomeMes, regs, vinculos, comPago, recarregar, abr
   }
 
   const baixar = async () => {
-    const linhas = visiveis.map(e => [e.pessoa, e.cliente, formatDate(e.visita.visit_date), ROTULO_TIPO[e.tipo], e.detalhe,
+    const linhas = visiveis.map(e => [e.pessoa, e.cliente, formatDate(e.visita.visit_date), e.rotulo || ROTULO_TIPO[e.tipo], e.detalhe,
       e.situacao === 'pendente' ? (e.sugerido ?? null) : e.valor ?? 0,
-      e.situacao === 'pendente' ? 'Para validar (valor sugerido)' : e.situacao === 'aprovado' ? 'Aprovado' : 'Não pago',
+      e.situacao === 'pendente' ? 'Para validar (valor sugerido)' : e.jaNoPagamento ? 'Já no pagamento' : e.situacao === 'aprovado' ? 'Aprovado' : 'Não pago',
       e.situacao === 'negado' ? '—' : textoDia(e.datasPgto), e.situacao === 'negado' ? '—' : textoPagamento(e.datasPgto)])
     const cores: CorLinha[] = visiveis.map(e => e.situacao === 'pendente' ? 'amarelo' : e.situacao === 'negado' ? 'cinza' : null)
     const totalAprov = visiveis.filter(e => e.situacao === 'aprovado').reduce((t, e) => t + (e.valor || 0), 0)
@@ -276,7 +327,7 @@ function PlanilhaExtras({ mes, nomeMes, regs, vinculos, comPago, recarregar, abr
                     <p className="text-[11px] text-ink-500">{e.datasPgto.length ? textoPagamento(e.datasPgto) : 'sem dia'}</p></>}
                 </div>
               </div>
-              <p className="text-sm text-ink-800">{formatDate(e.visita.visit_date)} · <span className={`text-xs font-semibold px-1.5 py-0.5 rounded ${e.tipo === 'horas' ? 'bg-blue-50 text-blue-700' : e.tipo === 'visita' ? 'bg-purple-50 text-purple-700' : 'bg-primary-50 text-primary-800'}`}>{ROTULO_TIPO[e.tipo]}</span> <span className="text-[11px] text-ink-500">{e.detalhe}</span></p>
+              <p className="text-sm text-ink-800">{formatDate(e.visita.visit_date)} · <span className={`text-xs font-semibold px-1.5 py-0.5 rounded ${e.tipo === 'horas' ? 'bg-blue-50 text-blue-700' : e.tipo === 'visita' ? 'bg-purple-50 text-purple-700' : 'bg-primary-50 text-primary-800'}`}>{e.rotulo || ROTULO_TIPO[e.tipo]}</span> <span className="text-[11px] text-ink-500">{e.detalhe}</span></p>
               {e.situacao === 'pendente' ? (
                 <div className="flex items-center gap-2 flex-wrap">
                   <div className="inline-flex items-center gap-1">
@@ -289,8 +340,8 @@ function PlanilhaExtras({ mes, nomeMes, regs, vinculos, comPago, recarregar, abr
                 </div>
               ) : (
                 <div className="flex items-center gap-2">
-                  <span className={`text-xs font-semibold px-2 py-1 rounded-lg ${e.situacao === 'aprovado' ? 'bg-green-50 text-green-700' : 'bg-ink-100 text-ink-500'}`}>{e.situacao === 'aprovado' ? `Aprovado · ${formatCurrency(e.valor || 0)}` : 'Não pago'}</span>
-                  <button className="text-xs text-ink-500 inline-flex items-center gap-1 ml-auto" onClick={() => desfazer(e)}><Undo2 size={13} />Voltar para validar</button>
+                  <span className={`text-xs font-semibold px-2 py-1 rounded-lg ${e.situacao === 'aprovado' ? 'bg-green-50 text-green-700' : 'bg-ink-100 text-ink-500'}`}>{e.jaNoPagamento ? 'Já no pagamento' : e.situacao === 'aprovado' ? `Aprovado · ${formatCurrency(e.valor || 0)}` : 'Não pago'}</span>
+                  {!e.jaNoPagamento && <button className="text-xs text-ink-500 inline-flex items-center gap-1 ml-auto" onClick={() => desfazer(e)}><Undo2 size={13} />Voltar para validar</button>}
                 </div>
               )}
             </div>
@@ -318,7 +369,7 @@ function PlanilhaExtras({ mes, nomeMes, regs, vinculos, comPago, recarregar, abr
                       </button>
                     </td>
                     <td className="px-3 py-2.5">
-                      <p className="text-ink-800">{formatDate(e.visita.visit_date)} · <span className={`text-xs font-semibold px-1.5 py-0.5 rounded ${e.tipo === 'horas' ? 'bg-blue-50 text-blue-700' : e.tipo === 'visita' ? 'bg-purple-50 text-purple-700' : 'bg-primary-50 text-primary-800'}`}>{ROTULO_TIPO[e.tipo]}</span></p>
+                      <p className="text-ink-800">{formatDate(e.visita.visit_date)} · <span className={`text-xs font-semibold px-1.5 py-0.5 rounded ${e.tipo === 'horas' ? 'bg-blue-50 text-blue-700' : e.tipo === 'visita' ? 'bg-purple-50 text-purple-700' : 'bg-primary-50 text-primary-800'}`}>{e.rotulo || ROTULO_TIPO[e.tipo]}</span></p>
                       <p className="text-[11px] text-ink-500">{e.detalhe}</p>
                     </td>
                     <td className="px-3 py-2.5 text-right">
@@ -347,8 +398,8 @@ function PlanilhaExtras({ mes, nomeMes, regs, vinculos, comPago, recarregar, abr
                         </div>
                       ) : (
                         <div className="inline-flex items-center gap-2">
-                          <span className={`text-xs font-semibold px-2 py-1 rounded-lg ${e.situacao === 'aprovado' ? 'bg-green-50 text-green-700' : 'bg-ink-100 text-ink-500'}`}>{e.situacao === 'aprovado' ? 'Aprovado' : 'Não pago'}</span>
-                          <button className="p-1.5 rounded text-ink-400 hover:text-ink-700 hover:bg-ink-100" title="Voltar para validar" onClick={() => desfazer(e)}><Undo2 size={14} /></button>
+                          <span className={`text-xs font-semibold px-2 py-1 rounded-lg ${e.situacao === 'aprovado' ? 'bg-green-50 text-green-700' : 'bg-ink-100 text-ink-500'}`}>{e.jaNoPagamento ? 'Já no pagamento' : e.situacao === 'aprovado' ? 'Aprovado' : 'Não pago'}</span>
+                          {!e.jaNoPagamento && <button className="p-1.5 rounded text-ink-400 hover:text-ink-700 hover:bg-ink-100" title="Voltar para validar" onClick={() => desfazer(e)}><Undo2 size={14} /></button>}
                         </div>
                       )}
                     </td>
@@ -360,7 +411,7 @@ function PlanilhaExtras({ mes, nomeMes, regs, vinculos, comPago, recarregar, abr
         </div>
         </>
       )}
-      <p className="text-[11px] text-ink-500">Aprovado entra sozinho no pagamento da pessoa. Consultoria: visita até o dia 15 recebe no dia 20; depois do dia 15, no dia 8 do mês seguinte; horas acima, no dia 8 do mês seguinte. Fixo: no dia do contrato.</p>
+      <p className="text-[11px] text-ink-500">Entra aqui todo extra do mês, mesmo o que a pessoa não marcou como extra: dia trabalhado fora da escala, feriado e visita fora da agenda (mesma conta da Jornada). "Já no pagamento" = visita por valor ou diária, que já é paga pelo registro. Aprovado entra sozinho no pagamento da pessoa. Consultoria: visita até o dia 15 recebe no dia 20; depois do dia 15, no dia 8 do mês seguinte; horas acima, no dia 8 do mês seguinte. Fixo: no dia do contrato.</p>
     </div>
   )
 }

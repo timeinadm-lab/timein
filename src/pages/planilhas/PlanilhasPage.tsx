@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { format, addMonths, subMonths } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
-import { Sheet, Sparkles, ClipboardList, ChevronLeft, ChevronRight, Download, Check, X, Search, Undo2, AlertTriangle } from 'lucide-react'
+import { Sheet, Sparkles, ClipboardList, ChevronLeft, ChevronRight, ChevronDown, Download, Check, CheckCheck, X, Search, Undo2, AlertTriangle } from 'lucide-react'
 import { supabase, fetchAll } from '../../lib/supabase'
 import { formatCurrency, formatDate, tipoDoVinculo, getInitials, corDoAvatar, hojeISO, pagaPorDiaria } from '../../lib/utils'
 import { resumoDoVinculo } from '../../lib/jornadaPessoa'
@@ -51,6 +51,7 @@ type Extra = {
 const COLS_VISITA = 'id, employee_id, client_id, visit_date, check_in, check_out, break_start, break_end, is_unavailable, is_holiday, is_extra, extra_approval, extra_amount, proposed_amount, visit_rate, report_url, unit_name, is_swap, swapped_from'
 const ROTULO_TIPO: Record<TipoExtra, string> = { dia: 'Dia extra', visita: 'Visita extra', horas: 'Horas acima' }
 const hm = (t?: string | null) => (t || '').slice(0, 5)
+const diaDaSemana = (ds: string) => ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'][new Date(ds + 'T12:00:00').getDay()]
 
 function vinculoNoDia(vinculos: Vinculo[], emp: string, cli: string | null, dia: string): Vinculo | null {
   const doPar = vinculos.filter(l => l.employee_id === emp && (!cli || l.client_id === cli))
@@ -228,9 +229,26 @@ function PlanilhaExtras({ mes, nomeMes, regs, vinculos, agenda, avisos, comPago,
   }, [extras])
 
   const valorDe = (e: Extra) => valores[e.chave] ?? (e.sugerido != null ? String(e.sugerido).replace('.', ',') : '')
-  const decidir = async (e: Extra, aprovar: boolean) => {
+
+  // Uma pessoa (no cliente) = um cartão. Quem tem algo para validar vem primeiro.
+  const grupos = useMemo(() => {
+    const m = new Map<string, Extra[]>()
+    for (const e of visiveis) { const k = `${e.visita.employee_id}|${e.vinculo?.client_id || e.cliente}`; m.set(k, [...(m.get(k) || []), e]) }
+    return [...m.entries()].map(([chave, itens]) => {
+      const pendentes = itens.filter(e => e.situacao === 'pendente')
+      const dias = [...new Set(itens.filter(e => e.situacao !== 'negado').flatMap(e => e.datasPgto))].sort()
+      return { chave, itens, pendentes, dias, pessoa: itens[0].pessoa, cliente: itens[0].cliente, vinculo: itens[0].vinculo, empId: itens[0].visita.employee_id,
+        aprovado: itens.filter(e => e.situacao === 'aprovado').reduce((t, e) => t + (e.valor || 0), 0) }
+    }).sort((a, b) => Number(b.pendentes.length > 0) - Number(a.pendentes.length > 0) || a.pessoa.localeCompare(b.pessoa))
+  }, [visiveis])
+  // Começa aberto quem tem algo para validar
+  const [abertos, setAbertos] = useState<Set<string> | null>(null)
+  const abertosAtuais = abertos ?? new Set(grupos.filter(g => g.pendentes.length).map(g => g.chave))
+  const alternar = (k: string) => setAbertos(() => { const n = new Set(abertosAtuais); if (n.has(k)) n.delete(k); else n.add(k); return n })
+  const numero = (txt: string) => Number(txt.replace(/\./g, '').replace(',', '.'))
+  const decidir = async (e: Extra, aprovar: boolean, emLote = false): Promise<boolean> => {
     const valor = Number(valorDe(e).replace(/\./g, '').replace(',', '.'))
-    if (aprovar && !(valor > 0)) { toast.error('Informe o valor do extra.'); return }
+    if (aprovar && !(valor > 0)) { toast.error(`Informe o valor do extra de ${formatDate(e.visita.visit_date)}.`); return false }
     setMexendo(e.chave)
     let upd: Record<string, unknown>
     if (e.tipo === 'horas') {
@@ -243,9 +261,16 @@ function PlanilhaExtras({ mes, nomeMes, regs, vinculos, agenda, avisos, comPago,
     }
     const { error } = await supabase.from('nutritionist_visits').update(upd).eq('id', e.visita.id)
     setMexendo(null)
-    if (error) { toast.error(error.message); return }
-    toast.success(aprovar ? `Extra aprovado — recebe ${textoPagamento(e.datasPgto)}.` : 'Extra marcado como não pago.')
-    recarregar()
+    if (error) { toast.error(error.message); return false }
+    if (!emLote) { toast.success(aprovar ? `Extra aprovado — recebe ${textoPagamento(e.datasPgto)}.` : 'Extra marcado como não pago.'); recarregar() }
+    return true
+  }
+  const aprovarTodos = async (itens: Extra[]) => {
+    const total = itens.reduce((t, e) => t + (numero(valorDe(e)) || 0), 0)
+    if (!(await confirmar({ titulo: `Aprovar ${itens.length} extras?`, texto: `${itens[0].pessoa} · ${formatCurrency(total)} pelos valores que estão na tela.`, confirmar: 'Aprovar todos' }))) return
+    let ok = 0
+    for (const e of itens) if (await decidir(e, true, true)) ok++
+    toast.success(`${ok} extra(s) aprovado(s).`); recarregar()
   }
   const desfazer = async (e: Extra) => {
     if (comPago.has(e.visita.employee_id)) { toast.error('Já tem pagamento deste mês marcado como pago para esta pessoa. Ajuste em Pagamentos.'); return }
@@ -258,20 +283,28 @@ function PlanilhaExtras({ mes, nomeMes, regs, vinculos, agenda, avisos, comPago,
   }
 
   const baixar = async () => {
-    const linhas = visiveis.map(e => [e.pessoa, e.cliente, formatDate(e.visita.visit_date), e.rotulo || ROTULO_TIPO[e.tipo], e.detalhe,
-      e.situacao === 'pendente' ? (e.sugerido ?? null) : e.valor ?? 0,
-      e.situacao === 'pendente' ? 'Para validar (valor sugerido)' : e.jaNoPagamento ? 'Já no pagamento' : e.situacao === 'aprovado' ? 'Aprovado' : 'Não pago',
-      e.situacao === 'negado' ? '—' : textoDia(e.datasPgto), e.situacao === 'negado' ? '—' : textoPagamento(e.datasPgto)])
-    const cores: CorLinha[] = visiveis.map(e => e.situacao === 'pendente' ? 'amarelo' : e.situacao === 'negado' ? 'cinza' : null)
-    const totalAprov = visiveis.filter(e => e.situacao === 'aprovado').reduce((t, e) => t + (e.valor || 0), 0)
+    const linhas: (string | number | null)[][] = []
+    const cores: CorLinha[] = []
+    for (const g of grupos) {
+      g.itens.forEach((e, i) => {
+        linhas.push([i === 0 ? g.pessoa : '', i === 0 ? g.cliente : '', formatDate(e.visita.visit_date), e.rotulo || ROTULO_TIPO[e.tipo], e.detalhe,
+          e.situacao === 'pendente' ? (e.sugerido ?? null) : e.valor ?? 0,
+          e.situacao === 'pendente' ? 'Para validar (valor sugerido)' : e.jaNoPagamento ? 'Já no pagamento' : e.situacao === 'aprovado' ? 'Aprovado' : 'Não pago',
+          e.situacao === 'negado' ? '—' : textoDia(e.datasPgto), e.situacao === 'negado' ? '—' : textoPagamento(e.datasPgto)])
+        cores.push(e.situacao === 'pendente' ? 'amarelo' : e.situacao === 'negado' ? 'cinza' : null)
+      })
+      linhas.push(['', '', '', '', `Total aprovado de ${g.pessoa.split(' ')[0]}`, g.aprovado, g.pendentes.length ? `${g.pendentes.length} para validar` : '', textoDia(g.dias), ''])
+      cores.push('verde')
+    }
+    const totalAprov = grupos.reduce((t, g) => t + g.aprovado, 0)
     await baixarExcelBonito(`extras_${mes}`, [{
       nome: 'Extras', titulo: `Extras · ${nomeMes}`,
-      subtitulo: `${visiveis.length} extra(s) · aprovados: ${formatCurrency(totalAprov)}${porDia.length ? ' · ' + porDia.map(([d, v]) => `${d}: ${formatCurrency(v)}`).join(' · ') : ''}`,
-      colunas: [{ titulo: 'Colaborador', largura: 28 }, { titulo: 'Cliente', largura: 24 }, { titulo: 'Data', largura: 12, tipo: 'data' }, { titulo: 'Tipo', largura: 14 },
-        { titulo: 'Detalhe', largura: 30, tipo: 'texto' }, { titulo: 'Valor', largura: 14, tipo: 'dinheiro' }, { titulo: 'Situação', largura: 24 },
+      subtitulo: `${grupos.length} pessoa(s) · ${visiveis.length} extra(s) · aprovados: ${formatCurrency(totalAprov)}${porDia.length ? ' · ' + porDia.map(([d, v]) => `${d}: ${formatCurrency(v)}`).join(' · ') : ''}`,
+      colunas: [{ titulo: 'Colaborador', largura: 28 }, { titulo: 'Cliente', largura: 24 }, { titulo: 'Data', largura: 12, tipo: 'data' }, { titulo: 'Tipo', largura: 15 },
+        { titulo: 'Detalhe', largura: 32, tipo: 'texto' }, { titulo: 'Valor', largura: 14, tipo: 'dinheiro' }, { titulo: 'Situação', largura: 24 },
         { titulo: 'Recebe', largura: 12, tipo: 'centro' }, { titulo: 'Data do pagamento', largura: 18, tipo: 'centro' }],
-      linhas, cores, total: ['Total aprovado', '', '', '', '', totalAprov, '', '', ''],
-      rodape: 'Amarelo = para validar (o valor é o sugerido). Cinza = não pago. Consultoria: visita até o dia 15 recebe no dia 20; depois do dia 15, no dia 8 do mês seguinte; horas acima, no dia 8 do mês seguinte. Fixo: no dia do contrato.',
+      linhas, cores, total: ['Total aprovado no mês', '', '', '', '', totalAprov, '', '', ''],
+      rodape: 'Uma pessoa por bloco; a linha verde é o total dela. Amarelo = para validar (o valor é o sugerido). Cinza = não pago. Consultoria: visita até o dia 15 recebe no dia 20; depois do dia 15, no dia 8 do mês seguinte; horas acima, no dia 8 do mês seguinte. Fixo: no dia do contrato.',
     }])
   }
 
@@ -308,108 +341,91 @@ function PlanilhaExtras({ mes, nomeMes, regs, vinculos, agenda, avisos, comPago,
         <button className="btn-primary text-sm" disabled={!visiveis.length} onClick={() => baixar().catch(e => toast.error('Não gerou: ' + e.message))}><Download size={15} />Baixar Excel</button>
       </div>
 
-      {visiveis.length === 0 ? (
+      {grupos.length === 0 ? (
         <div className="card p-8 text-center text-sm text-ink-500">{extras.length ? 'Nada neste filtro.' : 'Nenhum extra neste mês.'}</div>
       ) : (
-        <>
-        {/* Celular: um cartão por extra (a tabela escondia o valor e os botões) */}
-        <div className="md:hidden card overflow-hidden divide-y divide-ink-100">
-          {visiveis.map(e => (
-            <div key={e.chave} className={`px-4 py-3 space-y-2 ${e.situacao === 'pendente' ? 'bg-amber-50/50' : e.situacao === 'negado' ? 'bg-ink-50/60' : ''}`}>
-              <div className="flex items-start justify-between gap-2">
-                <button className="text-left min-w-0" onClick={() => abrir(e.visita.employee_id)}>
-                  <p className="font-medium text-ink-900">{e.pessoa}</p>
-                  <p className="text-[11px] text-ink-500">{e.cliente}</p>
-                </button>
-                <div className="text-right shrink-0">
-                  {e.situacao === 'negado' ? <p className="text-xs text-ink-400">—</p> : <>
-                    <p className={`text-sm font-semibold ${e.datasPgto.length ? 'text-ink-900' : 'text-amber-700'}`}>{textoDia(e.datasPgto)}</p>
-                    <p className="text-[11px] text-ink-500">{e.datasPgto.length ? textoPagamento(e.datasPgto) : 'sem dia'}</p></>}
-                </div>
-              </div>
-              <p className="text-sm text-ink-800">{formatDate(e.visita.visit_date)} · <span className={`text-xs font-semibold px-1.5 py-0.5 rounded ${e.tipo === 'horas' ? 'bg-blue-50 text-blue-700' : e.tipo === 'visita' ? 'bg-purple-50 text-purple-700' : 'bg-primary-50 text-primary-800'}`}>{e.rotulo || ROTULO_TIPO[e.tipo]}</span> <span className="text-[11px] text-ink-500">{e.detalhe}</span></p>
-              {e.situacao === 'pendente' ? (
-                <div className="flex items-center gap-2 flex-wrap">
-                  <div className="inline-flex items-center gap-1">
-                    <span className="text-xs text-ink-400">R$</span>
-                    <input className="w-24 h-9 rounded-md border border-ink-200 px-2 text-right tnum text-sm" inputMode="decimal"
-                      value={valorDe(e)} onChange={ev => setValores(p => ({ ...p, [e.chave]: ev.target.value.replace(/[^d,.]/g, '') }))} placeholder="0,00" />
-                  </div>
-                  <button className="btn-primary text-xs py-2 flex-1" disabled={mexendo === e.chave} onClick={() => decidir(e, true)}><Check size={12} />Aprovar</button>
-                  <button className="btn-secondary text-xs py-2 text-red-600 flex-1" disabled={mexendo === e.chave} onClick={() => decidir(e, false)}><X size={12} />Não pagar</button>
-                </div>
-              ) : (
-                <div className="flex items-center gap-2">
-                  <span className={`text-xs font-semibold px-2 py-1 rounded-lg ${e.situacao === 'aprovado' ? 'bg-green-50 text-green-700' : 'bg-ink-100 text-ink-500'}`}>{e.jaNoPagamento ? 'Já no pagamento' : e.situacao === 'aprovado' ? `Aprovado · ${formatCurrency(e.valor || 0)}` : 'Não pago'}</span>
-                  {!e.jaNoPagamento && <button className="text-xs text-ink-500 inline-flex items-center gap-1 ml-auto" onClick={() => desfazer(e)}><Undo2 size={13} />Voltar para validar</button>}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-        <div className="hidden md:block card overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-primary-900 text-white text-xs">
-                  <th className="text-left font-semibold px-4 py-2.5">Colaborador</th>
-                  <th className="text-left font-semibold px-3 py-2.5">Data · tipo</th>
-                  <th className="text-right font-semibold px-3 py-2.5">Valor</th>
-                  <th className="text-center font-semibold px-3 py-2.5">Recebe</th>
-                  <th className="text-right font-semibold px-4 py-2.5">Validação</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-ink-100">
-                {visiveis.map(e => (
-                  <tr key={e.chave} className={e.situacao === 'pendente' ? 'bg-amber-50/50' : e.situacao === 'negado' ? 'bg-ink-50/60' : ''}>
-                    <td className="px-4 py-2.5">
-                      <button className="text-left" onClick={() => abrir(e.visita.employee_id)}>
-                        <p className="font-medium text-ink-900 hover:underline">{e.pessoa}</p>
-                        <p className="text-[11px] text-ink-500">{e.cliente}</p>
-                      </button>
-                    </td>
-                    <td className="px-3 py-2.5">
-                      <p className="text-ink-800">{formatDate(e.visita.visit_date)} · <span className={`text-xs font-semibold px-1.5 py-0.5 rounded ${e.tipo === 'horas' ? 'bg-blue-50 text-blue-700' : e.tipo === 'visita' ? 'bg-purple-50 text-purple-700' : 'bg-primary-50 text-primary-800'}`}>{e.rotulo || ROTULO_TIPO[e.tipo]}</span></p>
-                      <p className="text-[11px] text-ink-500">{e.detalhe}</p>
-                    </td>
-                    <td className="px-3 py-2.5 text-right">
-                      {e.situacao === 'pendente' ? (
-                        <div className="inline-flex items-center gap-1">
-                          <span className="text-xs text-ink-400">R$</span>
-                          <input className="w-24 h-8 rounded-md border border-ink-200 px-2 text-right tnum text-sm focus:border-primary-500 focus:outline-none" inputMode="decimal"
-                            value={valorDe(e)} onChange={ev => setValores(p => ({ ...p, [e.chave]: ev.target.value.replace(/[^\d,.]/g, '') }))} placeholder="0,00" />
-                        </div>
-                      ) : <span className={`font-semibold tnum ${e.situacao === 'negado' ? 'text-ink-400' : 'text-ink-900'}`}>{e.situacao === 'negado' ? 'Não pago' : formatCurrency(e.valor || 0)}</span>}
-                      {e.situacao === 'pendente' && e.sugerido != null && <p className="text-[10px] text-ink-400 mt-0.5">sugerido {formatCurrency(e.sugerido)}</p>}
-                    </td>
-                    <td className="px-3 py-2.5 text-center">
-                      {e.situacao === 'negado' ? <span className="text-ink-300">—</span> : (
-                        <>
-                          <p className={`font-semibold ${e.datasPgto.length ? 'text-ink-900' : 'text-amber-700'}`}>{textoDia(e.datasPgto)}</p>
-                          <p className="text-[11px] text-ink-500">{e.datasPgto.length ? textoPagamento(e.datasPgto) : 'sem dia no vínculo'}</p>
-                        </>
-                      )}
-                    </td>
-                    <td className="px-4 py-2.5 text-right">
-                      {e.situacao === 'pendente' ? (
-                        <div className="inline-flex gap-1.5">
-                          <button className="btn-primary text-xs py-1.5" disabled={mexendo === e.chave} onClick={() => decidir(e, true)}><Check size={12} />Aprovar</button>
-                          <button className="btn-secondary text-xs py-1.5 text-red-600" disabled={mexendo === e.chave} onClick={() => decidir(e, false)}><X size={12} />Não pagar</button>
-                        </div>
-                      ) : (
-                        <div className="inline-flex items-center gap-2">
-                          <span className={`text-xs font-semibold px-2 py-1 rounded-lg ${e.situacao === 'aprovado' ? 'bg-green-50 text-green-700' : 'bg-ink-100 text-ink-500'}`}>{e.jaNoPagamento ? 'Já no pagamento' : e.situacao === 'aprovado' ? 'Aprovado' : 'Não pago'}</span>
-                          {!e.jaNoPagamento && <button className="p-1.5 rounded text-ink-400 hover:text-ink-700 hover:bg-ink-100" title="Voltar para validar" onClick={() => desfazer(e)}><Undo2 size={14} /></button>}
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        <div className="space-y-2.5">
+          <div className="flex justify-end gap-3 text-xs">
+            <button className="text-primary-700 hover:underline" onClick={() => setAbertos(new Set(grupos.map(g => g.chave)))}>Abrir todos</button>
+            <button className="text-primary-700 hover:underline" onClick={() => setAbertos(new Set())}>Fechar todos</button>
           </div>
+          {grupos.map(g => {
+            const aberto = abertosAtuais.has(g.chave)
+            return (
+              <div key={g.chave} className={`card overflow-hidden ${g.pendentes.length ? 'border-amber-200' : ''}`}>
+                {/* Cabeçalho da pessoa: nome uma vez só + resumo */}
+                <div className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-ink-50/60" onClick={() => alternar(g.chave)}>
+                  <span className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-semibold shrink-0 ${corDoAvatar(g.pessoa)}`}>{getInitials(g.pessoa)}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-ink-900 truncate">{g.pessoa}</p>
+                    <p className="text-[11px] text-ink-500 truncate">{g.cliente} · {contratoTexto(g.vinculo)} · {g.itens.length} extra{g.itens.length > 1 ? 's' : ''}</p>
+                  </div>
+                  <div className="hidden sm:flex items-center gap-2 shrink-0">
+                    {g.pendentes.length > 0 && <span className="text-[11px] font-semibold px-2 py-1 rounded-lg bg-amber-100 text-amber-800">{g.pendentes.length} para validar</span>}
+                    {g.aprovado > 0 && <span className="text-[11px] font-semibold px-2 py-1 rounded-lg bg-green-50 text-green-700 tnum">{formatCurrency(g.aprovado)}</span>}
+                  </div>
+                  <div className="text-right shrink-0 w-20">
+                    <p className={`text-sm font-semibold ${g.dias.length ? 'text-ink-900' : g.itens.every(e => e.situacao === 'negado') ? 'text-ink-300' : 'text-amber-700'}`}>{g.dias.length ? textoDia(g.dias) : g.itens.every(e => e.situacao === 'negado') ? '—' : 'Sem dia'}</p>
+                    <p className="text-[10px] text-ink-500">recebe</p>
+                  </div>
+                  <ChevronDown size={16} className={`text-ink-400 shrink-0 transition-transform ${aberto ? 'rotate-180' : ''}`} />
+                </div>
+                {/* Resumo no celular */}
+                {(g.pendentes.length > 0 || g.aprovado > 0) && (
+                  <div className="sm:hidden flex gap-2 px-4 -mt-1 pb-2.5">
+                    {g.pendentes.length > 0 && <span className="text-[11px] font-semibold px-2 py-0.5 rounded-lg bg-amber-100 text-amber-800">{g.pendentes.length} para validar</span>}
+                    {g.aprovado > 0 && <span className="text-[11px] font-semibold px-2 py-0.5 rounded-lg bg-green-50 text-green-700 tnum">aprovado {formatCurrency(g.aprovado)}</span>}
+                  </div>
+                )}
+                {aberto && (
+                  <div className="border-t border-ink-100">
+                    {g.pendentes.length > 1 && (
+                      <div className="px-4 py-2 bg-amber-50/60 flex items-center justify-between gap-2 flex-wrap">
+                        <p className="text-xs text-amber-900">{g.pendentes.length} para validar · {formatCurrency(g.pendentes.reduce((t, e) => t + (numero(valorDe(e)) || 0), 0))} pelos valores da tela</p>
+                        <button className="btn-primary text-xs py-1.5" disabled={!!mexendo} onClick={() => aprovarTodos(g.pendentes)}><CheckCheck size={13} />Aprovar todos</button>
+                      </div>
+                    )}
+                    <div className="divide-y divide-ink-100">
+                      {g.itens.map(e => (
+                        <div key={e.chave} className={`px-4 py-2.5 flex items-center gap-x-3 gap-y-2 flex-wrap ${e.situacao === 'pendente' ? 'bg-amber-50/40' : e.situacao === 'negado' ? 'bg-ink-50/50' : ''}`}>
+                          <div className="w-14 shrink-0">
+                            <p className="text-sm font-semibold text-ink-900 tnum">{formatDate(e.visita.visit_date).slice(0, 5)}</p>
+                            <p className="text-[10px] text-ink-400 uppercase">{diaDaSemana(e.visita.visit_date)}</p>
+                          </div>
+                          <div className="flex-1 min-w-[10rem]">
+                            <span className={`text-[11px] font-semibold px-1.5 py-0.5 rounded ${e.tipo === 'horas' ? 'bg-blue-50 text-blue-700' : e.tipo === 'visita' ? 'bg-purple-50 text-purple-700' : 'bg-primary-50 text-primary-800'}`}>{e.rotulo || ROTULO_TIPO[e.tipo]}</span>
+                            <p className="text-[11px] text-ink-500 mt-0.5">{e.detalhe}{g.dias.join() !== e.datasPgto.join() && e.situacao !== 'negado' ? ` · recebe ${textoPagamento(e.datasPgto)}` : ''}</p>
+                          </div>
+                          {e.situacao === 'pendente' ? (
+                            <div className="flex items-center gap-1.5 ml-auto">
+                              <span className="text-xs text-ink-400">R$</span>
+                              <input className="w-24 h-8 rounded-md border border-ink-200 px-2 text-right tnum text-sm focus:border-primary-500 focus:outline-none" inputMode="decimal"
+                                value={valorDe(e)} onChange={ev => setValores(v => ({ ...v, [e.chave]: ev.target.value.replace(/[^\d,.]/g, '') }))} placeholder="0,00" title={e.sugerido != null ? `Sugerido ${formatCurrency(e.sugerido)}` : undefined} />
+                              <button className="btn-primary text-xs py-1.5 px-2.5" disabled={mexendo === e.chave} onClick={() => decidir(e, true)} title="Aprovar"><Check size={13} /><span className="hidden sm:inline">Aprovar</span></button>
+                              <button className="btn-secondary text-xs py-1.5 px-2.5 text-red-600" disabled={mexendo === e.chave} onClick={() => decidir(e, false)} title="Não pagar"><X size={13} /><span className="hidden sm:inline">Não pagar</span></button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-2 ml-auto">
+                              <span className={`text-sm font-semibold tnum ${e.situacao === 'negado' ? 'text-ink-400' : 'text-ink-900'}`}>{e.situacao === 'negado' ? '—' : e.valor != null ? formatCurrency(e.valor) : 'no salário'}</span>
+                              <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-lg ${e.jaNoPagamento ? 'bg-ink-100 text-ink-600' : e.situacao === 'aprovado' ? 'bg-green-50 text-green-700' : 'bg-ink-100 text-ink-500'}`}>{e.jaNoPagamento ? 'Já no pagamento' : e.situacao === 'aprovado' ? 'Aprovado' : 'Não pago'}</span>
+                              {!e.jaNoPagamento
+                                ? <button className="p-1.5 rounded text-ink-400 hover:text-ink-700 hover:bg-ink-100" title="Voltar para validar" onClick={() => desfazer(e)}><Undo2 size={14} /></button>
+                                : <span className="w-[26px]" />}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                    <div className="px-4 py-2 border-t border-ink-100 flex items-center justify-between">
+                      <button className="text-xs text-primary-700 hover:underline" onClick={() => abrir(g.empId)}>Abrir colaborador</button>
+                      <p className="text-xs text-ink-600">Total aprovado: <b className="tnum text-ink-900">{formatCurrency(g.aprovado)}</b></p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )
+          })}
         </div>
-        </>
       )}
       <p className="text-[11px] text-ink-500">Entra aqui todo extra do mês, mesmo o que a pessoa não marcou como extra: dia trabalhado fora da escala, feriado e visita fora da agenda (mesma conta da Jornada). "Já no pagamento" = visita por valor ou diária, que já é paga pelo registro. Aprovado entra sozinho no pagamento da pessoa. Consultoria: visita até o dia 15 recebe no dia 20; depois do dia 15, no dia 8 do mês seguinte; horas acima, no dia 8 do mês seguinte. Fixo: no dia do contrato.</p>
     </div>

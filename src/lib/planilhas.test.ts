@@ -1,5 +1,5 @@
 // Testes da aba Planilhas (dia de pagamento dos extras e resumo da folha de ponto). Rodar todos: npm run testes
-import { pagamentoDoExtra, pagamentoDoMes, textoPagamento, textoDia, resumoDoPonto, diasDoVinculo } from './planilhas'
+import { pagamentoDoExtra, pagamentoDoMes, textoPagamento, textoDia, resumoDoPonto, diasDoVinculo, correcoesDoMes, pagamentosPorDiaPessoa } from './planilhas'
 
 let falhas = 0
 const ok = (cond: boolean, nome: string, info?: unknown) => {
@@ -45,6 +45,22 @@ ok(r.diasTrabalhados === 2 && r.faltas === 1 && r.folgas === 1 && r.extras === 1
 ok(r.minutos === 8 * 60 + 3 * 60, 'horas descontam o intervalo do vínculo (sem saída = 0)', r.minutos)
 ok(r.semSaida === 1 && r.semRelatorio === 2, 'sem saída e sem relatório', r)
 ok(r.primeiro === '2026-10-01' && r.ultimo === '2026-10-07', 'primeiro e último registro', r)
+
+console.log('Correção e pagamentos por dia')
+{
+  const pessoas = [{ id: 'a', nome: 'Ana', vinculos: 1, registros: 5 }, { id: 'b', nome: 'Bia', vinculos: 1, registros: 0 }, { id: 'c', nome: 'Caio', vinculos: 1, registros: 2 }, { id: 'd', nome: 'Duda', vinculos: 1, registros: 3 }]
+  const lanc = [
+    { id: '1', employee_id: 'a', amount: 3000, due_date: '2026-10-20', status: 'Pendente' },
+    { id: '2', employee_id: 'c', amount: 60, due_date: '2026-10-08', status: 'Pago' },
+    { id: '3', employee_id: 'd', amount: 500, due_date: '2026-10-15', status: 'Cancelado' },
+    { id: '4', employee_id: 'a', amount: 200, due_date: '2026-10-08', status: 'Pago' },
+  ]
+  const c = correcoesDoMes(pessoas, lanc)
+  ok(c.map(x => x.pessoa.nome + ':' + x.motivo).join() === 'Bia:sem_pagamento,Duda:sem_pagamento,Caio:menos_100', 'sem pagamento (cancelado não conta) e menos de 100', c.map(x => x.pessoa.nome + ':' + x.motivo))
+  const d = pagamentosPorDiaPessoa(lanc)
+  ok(d.map(g => g.dia + '=' + g.total).join() === 'Dia 8=260,Dia 20=3000', 'agrupa por dia, sem cancelado', d.map(g => g.dia + '=' + g.total))
+  ok(d[0].pago === 260 && d[0].linhas.length === 2, 'pago e uma linha por pessoa')
+}
 
 console.log(falhas ? `\n${falhas} FALHA(S)` : '\nTodos os testes passaram')
 if (falhas) throw new Error(`${falhas} teste(s) falharam`)

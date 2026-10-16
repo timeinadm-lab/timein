@@ -94,3 +94,42 @@ export function resumoDoPonto(registros: RegistroPonto[], intervaloVinculoMin?: 
 }
 
 export const horasTexto = (min: number) => `${Math.floor(min / 60)}h${min % 60 ? String(min % 60).padStart(2, '0') : ''}`
+
+// ── Correção e Pagamentos por dia (pedido de 16/10/2026) ───────────────────
+export type LancPg = { id: string; employee_id?: string | null; amount: number | string | null; due_date: string; status: string; description?: string | null; paid_at?: string | null }
+export type PessoaPg = { id: string; nome: string; vinculos: number; registros: number }
+export type Correcao = { pessoa: PessoaPg; motivo: 'sem_pagamento' | 'menos_100'; total: number; lancamentos: LancPg[] }
+
+/** Quem tem vínculo no mês e não recebe nada (vencimento no mês) ou recebe menos de R$ 100 */
+export function correcoesDoMes(pessoas: PessoaPg[], lancamentos: LancPg[], limite = 100): Correcao[] {
+  const out: Correcao[] = []
+  for (const p of pessoas) {
+    const dela = lancamentos.filter(l => l.employee_id === p.id && l.status !== 'Cancelado')
+    const total = Math.round(dela.reduce((t, l) => t + (Number(l.amount) || 0), 0) * 100) / 100
+    if (total <= 0) out.push({ pessoa: p, motivo: 'sem_pagamento', total, lancamentos: dela })
+    else if (total < limite) out.push({ pessoa: p, motivo: 'menos_100', total, lancamentos: dela })
+  }
+  return out.sort((a, b) => (a.motivo === b.motivo ? 0 : a.motivo === 'sem_pagamento' ? -1 : 1) || a.pessoa.nome.localeCompare(b.pessoa.nome))
+}
+
+export type LinhaDia = { empId: string; total: number; pago: number; lancamentos: LancPg[] }
+/** Pagamentos do mês por dia (8, 15, 20 e outros), uma linha por pessoa */
+export function pagamentosPorDiaPessoa(lancamentos: LancPg[]): { dia: string; linhas: LinhaDia[]; total: number; pago: number }[] {
+  const grupos = new Map<string, Map<string, LinhaDia>>()
+  for (const l of lancamentos) {
+    if (l.status === 'Cancelado' || !l.employee_id) continue
+    const d = Number(l.due_date.slice(8, 10))
+    const dia = [8, 15, 20].includes(d) ? `Dia ${d}` : 'Outros dias'
+    const g = grupos.get(dia) || new Map<string, LinhaDia>()
+    const linha = g.get(l.employee_id) || { empId: l.employee_id, total: 0, pago: 0, lancamentos: [] }
+    const v = Number(l.amount) || 0
+    linha.total = Math.round((linha.total + v) * 100) / 100
+    if (l.status === 'Pago') linha.pago = Math.round((linha.pago + v) * 100) / 100
+    linha.lancamentos.push(l)
+    g.set(l.employee_id, linha); grupos.set(dia, g)
+  }
+  return ['Dia 8', 'Dia 15', 'Dia 20', 'Outros dias'].filter(d => grupos.has(d)).map(dia => {
+    const linhas = [...grupos.get(dia)!.values()]
+    return { dia, linhas, total: Math.round(linhas.reduce((t, x) => t + x.total, 0) * 100) / 100, pago: Math.round(linhas.reduce((t, x) => t + x.pago, 0) * 100) / 100 }
+  })
+}

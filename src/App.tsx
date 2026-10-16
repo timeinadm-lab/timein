@@ -51,6 +51,7 @@ const Chat = lazy(() => import('./pages/chat/Chat'))
 const ActivitiesPage = lazy(() => import('./pages/activities/ActivitiesPage'))
 const FinanceiroPage = lazy(() => import('./pages/financeiro/FinanceiroPage'))
 const CalendarPage = lazy(() => import('./pages/calendar/CalendarPage'))
+const AniversariantesPage = lazy(() => import('./pages/calendar/AniversariantesPage'))
 const UserManagement = lazy(() => import('./pages/admin/UserManagement'))
 const ProfilePage = lazy(() => import('./pages/admin/ProfilePage'))
 const InspectionPublic = lazy(() => import('./pages/inspections/InspectionPublic'))
@@ -152,6 +153,7 @@ export default function App() {
 
               {/* Calendário vivo da empresa */}
               <Route path="calendario" element={<CalendarPage />} />
+              <Route path="aniversariantes" element={<AniversariantesPage />} />
 
               {/* Atividades do administrativo */}
               <Route path="atividades" element={<ActivitiesPage />} />

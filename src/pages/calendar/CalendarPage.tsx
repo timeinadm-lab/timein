@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { CalendarDays, ChevronLeft, ChevronRight, X, FileText, Clock, Plus } from 'lucide-react'
+import { CalendarDays, ChevronLeft, ChevronRight, X, FileText, Clock, Plus, Cake } from 'lucide-react'
 import { supabase, fetchAll } from '../../lib/supabase'
 import { formatDate, formatLocalTime, hojeISO } from '../../lib/utils'
 import toast from 'react-hot-toast'
@@ -9,8 +9,9 @@ import toast from 'react-hot-toast'
 import { format, startOfMonth, endOfMonth, getDaysInMonth, getDay, addMonths, subMonths } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import { SignedLink } from '../../components/ui/SignedFile'
+import { aniversariantesDoMes } from '../../lib/aniversario'
 
-type EventKind = 'realizada' | 'planejada' | 'alterada' | 'ausencia' | 'troca' | 'supervisao' | 'reuniao' | 'compromisso'
+type EventKind = 'realizada' | 'planejada' | 'alterada' | 'ausencia' | 'troca' | 'supervisao' | 'reuniao' | 'compromisso' | 'aniversario'
 type Ev = {
   kind: EventKind
   date: string
@@ -35,7 +36,8 @@ const KIND_META: Record<EventKind, { label: string; dot: string; chip: string }>
   realizada:    { label: 'Visita realizada', dot: 'bg-primary-600',  chip: 'bg-primary-50 text-primary-700 border-primary-200' },
   planejada:    { label: 'Visita planejada', dot: 'bg-amber-400',    chip: 'bg-amber-50 text-amber-800 border-amber-200' },
   // Cor que nenhum outro tipo usa: chama atenção para a visita que foi trocada
-  alterada:     { label: 'Visita trocada',   dot: 'bg-pink-500',     chip: 'bg-pink-50 text-pink-800 border-pink-200' },
+  // (era rosa; rosa passou a ser dos aniversários, pedido de 16/10/2026)
+  alterada:     { label: 'Visita trocada',   dot: 'bg-cyan-500',     chip: 'bg-cyan-50 text-cyan-800 border-cyan-200' },
   ausencia:     { label: 'Ausência',         dot: 'bg-red-400',      chip: 'bg-red-50 text-red-700 border-red-200' },
   // Troca de dia NÃO é falta: a pessoa folga num dia e trabalha em outro
   troca:        { label: 'Troca / feriado',     dot: 'bg-orange-400',   chip: 'bg-orange-50 text-orange-800 border-orange-200' },
@@ -45,6 +47,8 @@ const KIND_META: Record<EventKind, { label: string; dot: string; chip: string }>
   // vai acontecer (viagem, consulta medica, visita a um cliente sem ser vistoria).
   // Nao exige cliente. Cor propria pra nao confundir com reuniao.
   compromisso:  { label: 'Compromisso',      dot: 'bg-purple-400',   chip: 'bg-purple-50 text-purple-700 border-purple-200' },
+  // Aniversário de colaborador ativo: rosa, e o dia inteiro fica rosado na grade
+  aniversario:  { label: 'Aniversário',      dot: 'bg-pink-500',     chip: 'bg-pink-50 text-pink-800 border-pink-200' },
 }
 
 const EMPTY_ADD = {
@@ -236,6 +240,17 @@ export default function CalendarPage() {
       return data || []
     },
     enabled: addOpen,
+  })
+
+  // Aniversariantes: colaboradores ativos com data de nascimento
+  const { data: comNascimento } = useQuery({
+    queryKey: ['cal-aniversarios'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('employees').select('id, full_name, birth_date').neq('status', 'Inativo').not('birth_date', 'is', null)
+      if (error) throw error
+      return (data || []) as { id: string; full_name: string; birth_date: string | null }[]
+    },
+    staleTime: 10 * 60_000,
   })
 
   // Equipe do RH (usuários do sistema) — pra atribuir compromisso a alguém do RH
@@ -476,7 +491,7 @@ export default function CalendarPage() {
         || faltaAvisada.has(`${a.employee_id}|${a.planned_date}`)
       const ag = a as { id: string; original_client_id?: string | null; original_date?: string | null; change_reason?: string | null; changed_by_portal?: boolean; change_seen_at?: string | null }
       const trocada = !!ag.original_client_id || (!!ag.original_date && ag.original_date !== a.planned_date)
-      // Visita trocada aparece sempre (mesmo já feita), em rosa, com o que mudou
+      // Visita trocada aparece sempre (mesmo já feita), em ciano, com o que mudou
       if (trocada) {
         const antes = [
           ag.original_client_id ? `antes: ${(allClients || []).find(c => c.id === ag.original_client_id)?.name || 'outro cliente'}` : null,
@@ -575,8 +590,12 @@ export default function CalendarPage() {
       })
       }
     }
+    // Aniversários do mês (aparecem também no "Só do RH": é coisa da empresa toda)
+    for (const a of aniversariantesDoMes(comNascimento || [], monthKey)) {
+      out.push({ kind: 'aniversario', date: a.data, employee: a.full_name, note: a.idade ? `Faz ${a.idade} anos` : 'Aniversário', employeeId: a.id, isRh: true })
+    }
     return out
-  }, [visits, agenda, notices, appointments, supervisoes, rhUsers, allClients, allEmployees, mStart, mEnd, periodosVinculo])
+  }, [visits, agenda, notices, appointments, supervisoes, rhUsers, allClients, allEmployees, mStart, mEnd, periodosVinculo, comNascimento, monthKey])
 
   const filtered = events.filter(e =>
     !ocultos.has(e.kind) &&
@@ -697,19 +716,27 @@ export default function CalendarPage() {
             const dateStr = `${monthKey}-${String(day).padStart(2, '0')}`
             const evs = byDay[dateStr] || []
             const isToday = dateStr === todayStr
-            const kinds = [...new Set(evs.map(e => e.kind))]
+            const anivs = evs.filter(e => e.kind === 'aniversario')
+            const outros = evs.filter(e => e.kind !== 'aniversario')
+            const kinds = [...new Set(outros.map(e => e.kind))]
             return (
               <button key={day} onClick={() => { setDayOpen(dateStr); setAddOpen(false); setAddForm(EMPTY_ADD) }}
                 className={`min-h-[62px] md:min-h-[76px] rounded-xl border p-1.5 flex flex-col items-start gap-1 transition-colors text-left cursor-pointer
-                  ${evs.length ? 'border-ink-200 hover:border-primary-300 hover:bg-primary-50/40' : 'border-ink-100 hover:border-primary-200 hover:bg-ink-50/60'}
+                  ${anivs.length ? 'border-pink-300 bg-pink-50 hover:bg-pink-100/70' : evs.length ? 'border-ink-200 hover:border-primary-300 hover:bg-primary-50/40' : 'border-ink-100 hover:border-primary-200 hover:bg-ink-50/60'}
                   ${isToday ? 'ring-2 ring-primary-400' : ''}`}>
-                <span className={`text-xs font-bold ${isToday ? 'text-primary-700' : 'text-ink-600'}`}>{day}</span>
-                {evs.length > 0 && (
+                <span className={`text-xs font-bold ${isToday ? 'text-primary-700' : anivs.length ? 'text-pink-700' : 'text-ink-600'}`}>{day}</span>
+                {anivs.length > 0 && (
+                  <span className="flex items-start gap-1 text-[10px] font-semibold text-pink-700 leading-tight w-full" title={anivs.map(a => a.employee).join(', ')}>
+                    <Cake size={11} className="shrink-0 mt-px" />
+                    <span className="truncate hidden sm:inline">{anivs.length === 1 ? anivs[0].employee.split(' ')[0] : `${anivs.length} aniversários`}</span>{anivs.length > 1 && <span className="sm:hidden">{anivs.length}</span>}
+                  </span>
+                )}
+                {outros.length > 0 && (
                   <>
                     <div className="flex gap-0.5 flex-wrap">
                       {kinds.map(k => <span key={k} className={`w-1.5 h-1.5 rounded-full ${KIND_META[k].dot}`} />)}
                     </div>
-                    <span className="text-[10px] text-ink-500 leading-tight">{evs.length} {evs.length === 1 ? 'item' : 'itens'}</span>
+                    <span className="text-[10px] text-ink-500 leading-tight">{outros.length} {outros.length === 1 ? 'item' : 'itens'}</span>
                   </>
                 )}
               </button>

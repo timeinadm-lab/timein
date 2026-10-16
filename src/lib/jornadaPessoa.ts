@@ -327,10 +327,12 @@ export function resumoDoVinculo(
     ])
     trocas = chavesTroca.size
 
-    // Feriado nacional não é dia previsto na 5x2/6x1 (o plantão 12x36 trabalha em feriado)
+    // Feriado nacional não é dia previsto na 5x2/6x1 (o plantão 12x36 trabalha em feriado).
+    // Mas se ela TRABALHOU no feriado num dia de trabalho da escala, é um dia normal — não é
+    // extra (pedido de 16/10/2026: contrato PJ, feriado não paga nada a mais).
     const feriado = (ds: string) => link.work_schedule_type === '12x36' ? undefined : feriadoNacional(ds)
     const previstosDias = [...periodo].sort().filter(ds =>
-      (!folgaPelaEscala(link, ds) && !folgaPorTroca.has(ds) && !feriado(ds)) || trabalhoPorTroca.has(ds))
+      (!folgaPelaEscala(link, ds) && !folgaPorTroca.has(ds) && (!feriado(ds) || porData.has(ds))) || trabalhoPorTroca.has(ds))
     for (const ds of [...periodo].sort()) {
       if (feriado(ds) && !folgaPelaEscala(link, ds) && !trabalhoPorTroca.has(ds) && !porData.has(ds)) {
         dias.push({ data: ds, linkId: link.id, clientId: link.client_id || '', status: 'feriado', titulo: 'Feriado', detalhe: feriado(ds) })
@@ -368,9 +370,9 @@ export function resumoDoVinculo(
       if (r.is_swap && r.swapped_from && cobertoPor.get(r.swapped_from)?.id === r.id) {
         dias.push(diaDeRegistro(r, 'feito', 'Trabalhou (troca)', { troca: true, detalhe: `${infoDoRegistro(r).texto} · no lugar de ${ddmm(r.swapped_from)}` }))
       } else {
+        // Dia de folga da escala trabalhado (feriado num dia útil já virou dia normal acima)
         extras++
-        const fer = link.work_schedule_type === '12x36' ? undefined : feriadoNacional(r.visit_date)
-        dias.push(diaDeRegistro(r, 'extra', fer ? 'Trabalhou no feriado' : 'Dia extra', fer ? { detalhe: `${infoDoRegistro(r).texto} · ${fer}` } : undefined))
+        dias.push(diaDeRegistro(r, 'extra', 'Dia extra'))
       }
     }
   } else if (modo === 'agenda') {

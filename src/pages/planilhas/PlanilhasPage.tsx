@@ -119,7 +119,7 @@ export default function PlanilhasPage() {
       {/* Escolher a planilha */}
       <div className="grid sm:grid-cols-3 gap-3">
         {([
-          ['extras', Sparkles, 'Extras', 'Tudo que passou do combinado no mês: dia extra, dia fora da escala, feriado, visita extra ou fora da agenda e horas acima. Valide aqui.'],
+          ['extras', Sparkles, 'Extras', 'Tudo que passou do combinado no mês: dia extra, dia de folga trabalhado, visita extra ou fora da agenda e horas acima. Valide aqui.'],
           ['ponto', ClipboardList, 'Folha de ponto', 'Quem preencheu a folha no mês e o resumo de cada um.'],
           ['gastos', Receipt, 'Gastos do cliente', 'Airbnb, carro, material… com comprovante. Gera PDF com as fotos.'],
         ] as const).map(([k, Icone, titulo, desc]) => (
@@ -207,10 +207,9 @@ function PlanilhaExtras({ mes, nomeMes, regs, vinculos, agenda, avisos, comPago,
         } else {
           // Fixo/salário: dia fora da escala sem marcação — precisa validar
           const sug = Number(l.monthly_amount) > 0 ? Math.round((Number(l.monthly_amount) / 30) * 100) / 100 : null
-          const feriado = d.titulo === 'Trabalhou no feriado'
           out.push({ chave: v.id + '|j', visita: v, vinculo: l, tipo: 'dia', pessoa, cliente,
-            detalhe: [feriado ? 'Trabalhou no feriado' : 'Fora da escala', horario].filter(Boolean).join(' · '),
-            valor: null, sugerido: sug, situacao: 'pendente', daJornada: true, rotulo: feriado ? 'Feriado' : undefined,
+            detalhe: ['Dia de folga da escala', horario].filter(Boolean).join(' · '),
+            valor: null, sugerido: sug, situacao: 'pendente', daJornada: true,
             datasPgto: pagamentoDoExtra(l, mes, 'dia', v.visit_date) })
         }
       }
@@ -431,7 +430,7 @@ function PlanilhaExtras({ mes, nomeMes, regs, vinculos, agenda, avisos, comPago,
           })}
         </div>
       )}
-      <p className="text-[11px] text-ink-500">Entra aqui todo extra do mês, mesmo o que a pessoa não marcou como extra: dia trabalhado fora da escala, feriado e visita fora da agenda (mesma conta da Jornada). "Já no pagamento" = visita por valor ou diária, que já é paga pelo registro. Aprovado entra sozinho no pagamento da pessoa. Consultoria: visita até o dia 15 recebe no dia 20; depois do dia 15, no dia 8 do mês seguinte; horas acima, no dia 8 do mês seguinte. Fixo: no dia do contrato.</p>
+      <p className="text-[11px] text-ink-500">Entra aqui todo extra do mês, mesmo o que a pessoa não marcou como extra: dia de folga da escala trabalhado e visita fora da agenda (mesma conta da Jornada). Feriado trabalhado num dia de trabalho da escala é dia normal, não extra (contrato PJ). "Já no pagamento" = visita por valor ou diária, que já é paga pelo registro. Aprovado entra sozinho no pagamento da pessoa. Consultoria: visita até o dia 15 recebe no dia 20; depois do dia 15, no dia 8 do mês seguinte; horas acima, no dia 8 do mês seguinte. Fixo: no dia do contrato.</p>
     </div>
   )
 }

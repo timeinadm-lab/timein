@@ -83,10 +83,12 @@ ok(folgaPelaEscala(fixo, '2026-10-03') && !folgaPelaEscala(fixo, '2026-10-05'), 
 // ── 6x1 e 12x36 ──
 ok(resumoDoVinculo({ ...fixo, work_schedule_type: '6x1', days_off: [0] }, MES, '2026-10-01', [], [], []).previstos === 26, '6x1 folga domingo: 27 dias menos o feriado = 26')
 {
-  // Trabalhou no feriado: conta como extra
+  // Trabalhou no feriado num dia útil da escala: dia normal, NÃO é extra (PJ: feriado não paga a mais)
   const r = resumoDoVinculo(fixo, MES, '2026-10-20', [reg('h12', '12')], [], [])
   const d = r.dias.find(x => x.data === '2026-10-12')
-  ok(r.extras === 1 && d?.status === 'extra' && d?.titulo === 'Trabalhou no feriado', 'trabalhou em 12/10: "Trabalhou no feriado" (extra)')
+  ok(r.extras === 0 && d?.status === 'feito' && r.feitos === 1, 'trabalhou em 12/10 (feriado): dia normal, não extra', { extras: r.extras, d })
+  const sem = resumoDoVinculo(fixo, MES, '2026-10-20', [], [], [])
+  ok(!sem.faltas.includes('2026-10-12'), 'feriado sem registro não é falta')
 }
 ok(resumoDoVinculo(fixo, '2026-09', '2026-09-01', [], [], []).previstos === 21, 'setembro/2026: 22 dias úteis menos 07/09 = 21')
 ok(resumoDoVinculo({ ...fixo, work_schedule_type: '12x36', days_off: null, schedule_anchor_date: '2026-10-02' }, MES, '2026-10-01', [], [], []).previstos === 15, '12x36 a partir de 02/10: 15 plantões (plantão trabalha no feriado)')

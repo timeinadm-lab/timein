@@ -52,6 +52,7 @@ const ActivitiesPage = lazy(() => import('./pages/activities/ActivitiesPage'))
 const FinanceiroPage = lazy(() => import('./pages/financeiro/FinanceiroPage'))
 const CalendarPage = lazy(() => import('./pages/calendar/CalendarPage'))
 const AniversariantesPage = lazy(() => import('./pages/calendar/AniversariantesPage'))
+const PlanilhasPage = lazy(() => import('./pages/planilhas/PlanilhasPage'))
 const UserManagement = lazy(() => import('./pages/admin/UserManagement'))
 const ProfilePage = lazy(() => import('./pages/admin/ProfilePage'))
 const InspectionPublic = lazy(() => import('./pages/inspections/InspectionPublic'))
@@ -128,6 +129,7 @@ export default function App() {
 
               {/* Payments (chefe only) */}
               <Route path="pagamentos" element={<RequireChefe><PaymentList /></RequireChefe>} />
+              <Route path="planilhas" element={<RequireChefe><PlanilhasPage /></RequireChefe>} />
               <Route path="pagamentos/novo" element={<RequireChefe><PaymentForm /></RequireChefe>} />
               <Route path="pagamentos/:id/editar" element={<RequireChefe><PaymentForm /></RequireChefe>} />
 

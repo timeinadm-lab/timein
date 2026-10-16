@@ -335,7 +335,9 @@ export function resumoDoVinculo(
       (!folgaPelaEscala(link, ds) && !folgaPorTroca.has(ds) && (!feriado(ds) || porData.has(ds))) || trabalhoPorTroca.has(ds))
     for (const ds of [...periodo].sort()) {
       if (feriado(ds) && !folgaPelaEscala(link, ds) && !trabalhoPorTroca.has(ds) && !porData.has(ds)) {
-        dias.push({ data: ds, linkId: link.id, clientId: link.client_id || '', status: 'feriado', titulo: 'Feriado', detalhe: feriado(ds) })
+        // Só para o RH saber (16/10/2026): não é falta e não aparece no portal
+        dias.push({ data: ds, linkId: link.id, clientId: link.client_id || '', status: 'feriado',
+          titulo: ds < hoje ? 'Não trabalhou no feriado' : 'Feriado', detalhe: `${feriado(ds)}${ds < hoje ? ' · só informação, não é falta' : ''}` })
       }
     }
     previstos = previstosDias.length

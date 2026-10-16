@@ -138,7 +138,7 @@ export default function PlanilhasPage() {
         : isLoading || !data ? <p className="text-sm text-ink-500">Carregando…</p>
         : qual === 'extras'
           ? <PlanilhaExtras mes={mes} nomeMes={nomeMes} regs={data.regs} vinculos={data.vinculos} agenda={data.agenda} avisos={data.avisos} comPago={data.comPago} recarregar={() => qc.invalidateQueries({ queryKey: ['planilhas', mes] })} abrir={id => navigate(`/colaboradores/${id}`)} />
-          : <PlanilhaPonto mes={mes} nomeMes={nomeMes} ini={ini} fim={fim} regs={data.regs} vinculos={data.vinculos} abrir={(emp) => navigate(`/jornada?pessoa=${emp}&mes=${mes}`)} />}
+          : <PlanilhaPonto mes={mes} nomeMes={nomeMes} ini={ini} fim={fim} regs={data.regs} vinculos={data.vinculos} agenda={data.agenda} avisos={data.avisos} abrir={(emp) => navigate(`/jornada?pessoa=${emp}&mes=${mes}`)} />}
     </div>
   )
 }
@@ -436,7 +436,8 @@ function PlanilhaExtras({ mes, nomeMes, regs, vinculos, agenda, avisos, comPago,
 }
 
 // ── Folha de ponto ─────────────────────────────────────────────────────────
-function PlanilhaPonto({ mes, nomeMes, ini, fim, regs, vinculos, abrir }: {
+function PlanilhaPonto({ mes, nomeMes, ini, fim, regs, vinculos, agenda, avisos, abrir }: {
+  agenda: (AgendaPerfil & { employee_id: string })[]; avisos: (AvisoPerfil & { employee_id: string })[]
   mes: string; nomeMes: string; ini: string; fim: string; regs: Visita[]; vinculos: Vinculo[]; abrir: (empId: string) => void
 }) {
   const [verSemRegistro, setVerSemRegistro] = useState(false)
@@ -461,7 +462,12 @@ function PlanilhaPonto({ mes, nomeMes, ini, fim, regs, vinculos, abrir }: {
       const exige = tipoDoVinculo(l) === 'Consultoria' || l.service_type === 'Volante' || l.pay_mode === 'diaria'
       const resumo = resumoDoPonto(rs, l.break_minutes, exige)
       const datas = pagamentoDoMes(l, mes, rs)
-      return { l, rs, resumo, datas, pessoa: l.employee?.full_name || '—', cliente: l.client?.name || '—', preencheu: rs.length > 0 }
+      // Feriado num dia de trabalho da escala sem registro: só informação para o RH (não é falta)
+      const feriadosSemRegistro = tipoDoVinculo(l) === 'Fixo'
+        ? resumoDoVinculo(l, mes, hojeISO(), rs as unknown as RegistroPerfil[], agenda.filter(a => a.employee_id === l.employee_id), avisos.filter(a => a.employee_id === l.employee_id))
+            .dias.filter(d => d.status === 'feriado' && d.titulo === 'Não trabalhou no feriado').map(d => d.data)
+        : []
+      return { l, rs, resumo, datas, feriadosSemRegistro, pessoa: l.employee?.full_name || '—', cliente: l.client?.name || '—', preencheu: rs.length > 0 }
     }).sort((a, b) => Number(b.preencheu) - Number(a.preencheu) || a.pessoa.localeCompare(b.pessoa))
   }, [regs, vinculos, ini, fim, mes])
 
@@ -475,7 +481,8 @@ function PlanilhaPonto({ mes, nomeMes, ini, fim, regs, vinculos, abrir }: {
   const baixar = async () => {
     const linhasX = visiveis.map(x => [x.pessoa, x.cliente, contratoTexto(x.l), x.preencheu ? 'Preencheu' : 'Não preencheu',
       x.resumo.diasTrabalhados, x.resumo.faltas, x.resumo.folgas, x.resumo.extras, x.resumo.minutos ? horasTexto(x.resumo.minutos) : '—',
-      x.resumo.semRelatorio || '', x.resumo.ultimo ? formatDate(x.resumo.ultimo) : '—', textoDia(x.datas), textoPagamento(x.datas)])
+      x.resumo.semRelatorio || '', x.resumo.ultimo ? formatDate(x.resumo.ultimo) : '—', textoDia(x.datas), textoPagamento(x.datas),
+      x.feriadosSemRegistro.length ? `Não trabalhou no feriado ${x.feriadosSemRegistro.map(d => formatDate(d).slice(0, 5)).join(', ')} (só informação)` : ''])
     const cores: CorLinha[] = visiveis.map(x => !x.preencheu ? 'vermelho' : x.resumo.semRelatorio || x.resumo.semSaida ? 'amarelo' : null)
     const soma = (k: 'diasTrabalhados' | 'faltas' | 'folgas' | 'extras') => visiveis.reduce((t, x) => t + x.resumo[k], 0)
     await baixarExcelBonito(`folha_de_ponto_${mes}`, [{
@@ -484,9 +491,9 @@ function PlanilhaPonto({ mes, nomeMes, ini, fim, regs, vinculos, abrir }: {
       colunas: [{ titulo: 'Colaborador', largura: 28 }, { titulo: 'Cliente', largura: 24 }, { titulo: 'Contrato', largura: 22 }, { titulo: 'Situação', largura: 14 },
         { titulo: 'Dias trabalhados', largura: 11, tipo: 'numero' }, { titulo: 'Faltas', largura: 8, tipo: 'numero' }, { titulo: 'Folgas', largura: 8, tipo: 'numero' },
         { titulo: 'Extras', largura: 8, tipo: 'numero' }, { titulo: 'Horas', largura: 10, tipo: 'centro' }, { titulo: 'Sem relatório', largura: 10, tipo: 'numero' },
-        { titulo: 'Último registro', largura: 14, tipo: 'data' }, { titulo: 'Recebe', largura: 12, tipo: 'centro' }, { titulo: 'Data do pagamento', largura: 18, tipo: 'centro' }],
+        { titulo: 'Último registro', largura: 14, tipo: 'data' }, { titulo: 'Recebe', largura: 12, tipo: 'centro' }, { titulo: 'Data do pagamento', largura: 18, tipo: 'centro' }, { titulo: 'Observação', largura: 34, tipo: 'texto' }],
       linhas: linhasX, cores,
-      total: ['Total', '', '', '', soma('diasTrabalhados'), soma('faltas'), soma('folgas'), soma('extras'), '', '', '', '', ''],
+      total: ['Total', '', '', '', soma('diasTrabalhados'), soma('faltas'), soma('folgas'), soma('extras'), '', '', '', '', '', ''],
       rodape: 'Vermelho = não preencheu a folha no mês. Amarelo = dia sem saída ou sem relatório. Consultoria por visita: dias 1 a 15 recebem no dia 20; dias 16 em diante, no dia 8 do mês seguinte. Fixo: no dia do contrato.',
     }])
   }
@@ -549,6 +556,7 @@ function PlanilhaPonto({ mes, nomeMes, ini, fim, regs, vinculos, abrir }: {
                           <p className="font-medium text-ink-900 truncate">{x.pessoa}</p>
                           <p className="text-[11px] text-ink-500 truncate">{x.cliente} · {contratoTexto(x.l)}</p>
                           {!x.preencheu && <p className="text-[11px] font-semibold text-red-600">Não preencheu a folha no mês</p>}
+                          {x.feriadosSemRegistro.length > 0 && <p className="text-[11px] text-sky-700">Não trabalhou no feriado {x.feriadosSemRegistro.map(d => formatDate(d).slice(0, 5)).join(', ')} · só informação</p>}
                           {(x.resumo.semRelatorio > 0 || x.resumo.semSaida > 0) && (
                             <p className="text-[11px] text-amber-700 flex items-center gap-1"><AlertTriangle size={11} />
                               {[x.resumo.semSaida ? `${x.resumo.semSaida} sem saída` : '', x.resumo.semRelatorio ? `${x.resumo.semRelatorio} sem relatório` : ''].filter(Boolean).join(' · ')}</p>

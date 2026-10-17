@@ -504,6 +504,11 @@ export default function PaymentList() {
         agrupados.push({
           ...principal,
           monthly_amount: grupo.reduce((s, g) => s + (Number(g.monthly_amount) || 0), 0),
+          // Dia de pagamento marcado em outro cliente do grupo vale para a linha
+          // (antes, sem dia no principal, a folha caía no dia 5 — auditoria 17/10/2026)
+          payment_dates: ((principal as { payment_dates?: unknown[] }).payment_dates || []).length
+            ? (principal as { payment_dates?: unknown[] }).payment_dates
+            : grupo.map(g => (g as { payment_dates?: unknown[] }).payment_dates || []).find(d => d.length) || [],
           start_date: inicios.some(d => !d) ? null : inicios.sort()[0],
           contract_end_date: fins.some(d => !d) ? null : fins.sort().pop(),
           client: cli ? { ...cli, name: `${cli.name} e mais ${grupo.length - 1} cliente${grupo.length > 2 ? 's' : ''}` } : cli,

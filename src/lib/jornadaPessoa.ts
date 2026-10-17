@@ -199,6 +199,8 @@ export const feriadoNacional = (ds: string) => feriadosNacionais(Number(ds.slice
 /** A escala tem os dias de trabalho conhecidos? (5x2/6x1 com folgas marcadas, ou 12x36 com o 1º plantão) */
 export function temEscala(link: VinculoPerfil): boolean {
   if (tipoDoVinculo(link) !== 'Fixo') return false
+  // Escala do cliente: só preenche o ponto, sem dia previsto nem falta (15/10/2026)
+  if (link.work_schedule_type === 'cliente') return false
   if (link.work_schedule_type === '12x36') return !!link.schedule_anchor_date
   return !!link.days_off?.length
 }

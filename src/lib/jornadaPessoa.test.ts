@@ -160,6 +160,17 @@ console.log('Fixo 30h por semana (dias livres)')
   ok(r.minutos === 600 * 5 + 480 * 3 && r.faltas.length === 0, 'horas do mês só contam outubro e nenhum dia vira falta', r.minutos)
   ok(semanasDeHoras({ ...h30, service_type: 'Consultoria' }, MES, '2026-10-20', regs).length === 0, 'consultoria não usa')
 }
+{
+  // Escala do cliente: mesmo com folgas marcadas, não tem dia previsto nem falta (15/10/2026)
+  const cli: VinculoPerfil = { ...fixo, work_schedule_type: 'cliente' }
+  const r = resumoDoVinculo(cli, MES, '2026-10-20', [reg('c1', '01')], [], [])
+  ok(!temEscala(cli) && r.modo === 'livre' && r.faltas.length === 0 && r.previstos === null, 'escala do cliente: sem previstos e sem falta', { modo: r.modo, faltas: r.faltas.length })
+}
+{
+  // Vínculo encerrado no meio do mês: depois do fim não é falta
+  const r = resumoDoVinculo({ ...fixo, contract_end_date: '2026-10-09' }, MES, '2026-10-20', [], [], [])
+  ok(r.faltas.every(d => d <= '2026-10-09') && r.faltas.length === 7, 'encerrado em 09/10: só cobra até o fim (7 dias úteis de 01 a 09)', r.faltas)
+}
 
 console.log(falhas ? `\n${falhas} FALHA(S)` : '\nTodos os testes passaram')
 if (falhas) throw new Error(`${falhas} teste(s) falharam`)

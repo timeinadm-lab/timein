@@ -601,6 +601,8 @@ export default function PortalHome() {
   const isDayOff = (link: FolhaLink | undefined, dateStr: string) => {
     if (!link || !dateStr) return false
     if (effectiveType(link) === 'Consultoria') return false
+    // Escala do cliente e horas na semana não têm folga fixa (folga antiga gravada não vale)
+    if (link.work_schedule_type === 'cliente' || link.work_schedule_type === 'horas') return false
     if (link.work_schedule_type === '12x36' && link.schedule_anchor_date) {
       const diff = Math.round((new Date(dateStr + 'T12:00:00').getTime() - new Date(link.schedule_anchor_date + 'T12:00:00').getTime()) / 86400000)
       return ((diff % 2) + 2) % 2 === 1 // âncora é dia de trabalho; o seguinte é folga
@@ -612,7 +614,7 @@ export default function PortalHome() {
 
   // A escala tem dias de trabalho conhecidos? (5x2/6x1 com folga fixa, ou 12x36 com âncora)
   const hasKnownSchedule = (link: FolhaLink | undefined) =>
-    !!link && effectiveType(link) !== 'Consultoria' &&
+    !!link && effectiveType(link) !== 'Consultoria' && link.work_schedule_type !== 'cliente' && link.work_schedule_type !== 'horas' &&
     (!!link.days_off?.length || (link.work_schedule_type === '12x36' && !!link.schedule_anchor_date))
 
   // Dias da escala sem preenchimento (até ontem). Dias cobertos por "troca de dia" não contam como pendentes.
@@ -621,7 +623,9 @@ export default function PortalHome() {
     const monthStart = startOfMonth(new Date(folhaMonth + '-15'))
     const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1); yesterday.setHours(23, 59, 59, 0)
     const monthEnd = endOfMonth(new Date(folhaMonth + '-15'))
-    const limit = monthEnd < yesterday ? monthEnd : yesterday
+    // Vínculo encerrado: não cobra dias depois do último dia (auditoria de 17/10/2026)
+    const linkEnd = link.contract_end_date ? new Date(link.contract_end_date + 'T12:00:00') : null
+    const limit = [monthEnd, yesterday, ...(linkEnd ? [linkEnd] : [])].reduce((a, b) => (b < a ? b : a))
     // Só conta a partir da data de início do vínculo (não cobra dias antes de ser contratado)
     const linkStart = link.start_date ? new Date(link.start_date + 'T12:00:00') : monthStart
     const effectiveStart = linkStart > monthStart ? linkStart : monthStart

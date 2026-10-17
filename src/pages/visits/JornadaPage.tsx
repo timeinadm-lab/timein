@@ -4,7 +4,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { ChevronLeft, ChevronRight, Search, FileDown, Save, FileText, Paperclip } from 'lucide-react'
 import { supabase, fetchAll } from '../../lib/supabase'
-import { formatDate, formatCurrency, corDoAvatar, hojeISO, semAcento, rotuloDoVinculo, tipoDoVinculo, pagaPorDiaria } from '../../lib/utils'
+import { formatDate, formatCurrency, corDoAvatar, hojeISO, semAcento, rotuloDoVinculo, tipoDoVinculo, pagaPorDiaria, salarioConsultoria } from '../../lib/utils'
+import { semanasDoContrato, totalDoContrato } from '../../lib/horasContrato'
 import { buscarForaDaJornada, textoDoDesvio, TOLERANCIA_MIN } from '../../lib/jornada'
 import type { DiaForaDaJornada } from '../../lib/jornada'
 import { resumoDoVinculo, textoDoResumo, vinculoNoMes, segundaDa, horasNaSemana } from '../../lib/jornadaPessoa'
@@ -541,6 +542,46 @@ function PerfilJornada({ pessoa, mes, voltar }: { pessoa: string; mes: string; v
                 </div>
                 {cota > 0 && <p className="text-sm text-ink-600">Combinado nos clientes com total no mês: <strong className="tnum">{String(cota).replace('.', ',')}h</strong></p>}
                 {resumos.length > 1 && <p className="text-xs text-ink-500">{resumos.filter(r => r.minutos > 0).map(r => `${nomeCliente(r.link.client_id) || 'Cliente'} ${horasTxt(r.minutos)}`).join(' · ')}</p>}
+              </div>
+            )
+          })()}
+
+          {/* Consultor fixo: horas por semana do CONTRATO, somando todos os clientes (097) */}
+          {(() => {
+            const grupo = todosResumos.map(r => r.link).filter(l => salarioConsultoria(l))
+            const total = totalDoContrato(grupo as never)
+            if (!total || !data) return null
+            const semanas = semanasDoContrato(grupo as never, data.regs.filter(r => r.employee_id === pessoa) as never, mes, hoje).filter(x => x.status !== 'futura')
+            if (!semanas.length) return null
+            const divididas = grupo.reduce((t2, l) => t2 + (Number((l as { horas_semana?: number }).horas_semana) || 0), 0)
+            return (
+              <div className="card p-4 space-y-3">
+                <div className="flex items-start justify-between gap-3 flex-wrap">
+                  <div>
+                    <p className="text-[11px] uppercase tracking-wide text-ink-500">Contrato de consultor fixo</p>
+                    <p className="text-lg font-semibold text-ink-900">{String(total).replace('.', ',')}h por semana <span className="text-sm font-normal text-ink-500">· {grupo.length} cliente{grupo.length > 1 ? 's' : ''}</span></p>
+                    <p className="text-xs text-ink-500">{divididas > 0 ? `Divididas ${String(divididas).replace('.', ',')}h · em aberto ${String(Math.max(0, total - divididas)).replace('.', ',')}h` : 'Todas em aberto: ela escolhe o cliente'}</p>
+                  </div>
+                  <p className="text-sm text-ink-600">Semanas fechadas: <b className="tnum">{semanas.filter(x => x.status === 'cumpriu').length} de {semanas.filter(x => x.status === 'cumpriu' || x.status === 'faltou').length}</b></p>
+                </div>
+                <div className="rounded-lg border border-ink-100 divide-y divide-ink-100 text-xs">
+                  {semanas.map(x => (
+                    <div key={x.ini} className="px-2.5 py-2 space-y-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-ink-600 tnum">{diaCurto(x.ini)} a {diaCurto(x.fim)}</span>
+                        <span className={`tnum font-medium ${x.status === 'cumpriu' ? 'text-emerald-700' : x.status === 'faltou' ? 'text-red-700' : 'text-ink-700'}`}>
+                          {horasTxt(x.feitoMin)} de {horasTxt(x.metaMin)}
+                          {x.status === 'cumpriu' && ' · fechou'}
+                          {x.status === 'faltou' && ` · faltaram ${horasTxt(x.metaMin - x.feitoMin)}`}
+                          {x.status === 'andamento' && x.feitoMin < x.metaMin && ` · faltam ${horasTxt(x.metaMin - x.feitoMin)} até ${diaCurto(x.fim)}`}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-ink-500">
+                        {x.porCliente.map(c => `${nomeCliente(c.client_id) || 'Cliente'} ${horasTxt(c.feitoMin)}${c.metaMin ? ` de ${horasTxt(c.metaMin)}` : ''}`).join(' · ')}
+                      </p>
+                    </div>
+                  ))}
+                </div>
               </div>
             )
           })()}

@@ -5,7 +5,12 @@
 -- pagamento. Resultado vazio = tudo redondo.
 --   gravidade: 1 = afeta pagamento · 2 = afeta portal/Jornada · 3 = conferir
 -- ============================================================
-WITH l AS (
+WITH
+-- Pessoas que o Gabriel pediu para não conferir (17/10/2026):
+--   Diego: cadastro antigo errado (era fixo 5x2, ficou consultoria) — não mexer
+--   Giovana: é do RH, não recebe por visita
+fora AS (SELECT unnest(ARRAY['Diego Nunes Backaus', 'Giovana de Jesus Oliveira']) AS nome),
+l AS (
   SELECT l.*, e.full_name AS pessoa, c.name AS cliente,
          CASE WHEN l.service_type = 'Volante' THEN CASE WHEN l.coverage_type = 'Consultoria' THEN 'Consultoria' ELSE 'Fixo' END
               WHEN l.service_type = 'Consultoria' THEN 'Consultoria' ELSE 'Fixo' END AS tipo,
@@ -129,6 +134,7 @@ problemas AS (
 )
 SELECT g AS gravidade, pessoa, cliente, formato, problema
   FROM problemas
+ WHERE pessoa NOT IN (SELECT nome FROM fora)
  ORDER BY g, pessoa, cliente;
 
 -- Resumo: quantos vínculos ativos de cada formato (para conferir se bate com o que você espera)

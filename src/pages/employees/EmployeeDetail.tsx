@@ -18,6 +18,7 @@ import { confirmar } from '../../components/ui/ConfirmDialog'
 import EncerrarVinculoModal, { QUEM_ENCERROU } from './EncerrarVinculoModal'
 import type { VinculoParaEncerrar } from './EncerrarVinculoModal'
 import HorarioVinculo from './HorarioVinculo'
+import HorasDoContrato from './HorasDoContrato'
 import { AjudaDaPessoa, LancamentosDaPessoa } from './PagamentosDaPessoa'
 import { ajustarSemanasDoContrato, limparSemanasForaDoContrato } from '../payments/AjudaDeCusto'
 import { format, startOfMonth, endOfMonth, getDaysInMonth, getDay, differenceInDays } from 'date-fns'
@@ -3195,6 +3196,17 @@ export default function EmployeeDetail() {
                           )}
                         </div>
                       </div>
+
+                      {principalDoFixo && (
+                        <HorasDoContrato employeeId={id!} principalId={principalDoFixo.id}
+                          clientes={lista.filter(l => idsFixo.has(l.id)).map(l => ({
+                            id: l.id, client_id: (l as { client_id?: string | null }).client_id ?? (l as { client?: { id?: string } }).client?.id ?? null,
+                            nome: (l as { client?: { name?: string } }).client?.name || '—',
+                            horas_semana: (l as { horas_semana?: number | null }).horas_semana,
+                            contrato_horas_semana: (l as { contrato_horas_semana?: number | null }).contrato_horas_semana,
+                            break_minutes: (l as { break_minutes?: number | null }).break_minutes,
+                          }))} />
+                      )}
 
                       <div>
                         <p className="text-xs font-medium text-ink-500 mb-1.5">Clientes</p>

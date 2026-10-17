@@ -199,6 +199,8 @@ export const feriadoNacional = (ds: string) => feriadosNacionais(Number(ds.slice
 /** A escala tem os dias de trabalho conhecidos? (5x2/6x1 com folgas marcadas, ou 12x36 com o 1º plantão) */
 export function temEscala(link: VinculoPerfil): boolean {
   if (tipoDoVinculo(link) !== 'Fixo') return false
+  // Só acesso (098): sem obrigação, então sem dia previsto nem falta
+  if ((link as { so_acesso?: boolean | null }).so_acesso) return false
   // Escala do cliente: só preenche o ponto, sem dia previsto nem falta (15/10/2026)
   if (link.work_schedule_type === 'cliente') return false
   if (link.work_schedule_type === '12x36') return !!link.schedule_anchor_date
@@ -220,6 +222,7 @@ const trabalhou = (r: RegistroPerfil) => !!r.check_in && !!r.check_out && !r.is_
 // ── Horas na semana ──────────────────────────────────────────────────────
 /** Vínculo Fixo que cumpre X horas por semana, nos dias que ela quiser */
 export function horasNaSemana(link: VinculoPerfil): number {
+  if ((link as { so_acesso?: boolean | null }).so_acesso) return 0
   return tipoDoVinculo(link) === 'Fixo' && link.work_schedule_type === 'horas' ? Number(link.horas_semana) || 0 : 0
 }
 const somaDias = (ds: string, n: number) => {
@@ -418,7 +421,7 @@ export function resumoDoVinculo(
   } else {
     // Fixo sem escala definida: conta o que foi registrado; previsto = dias esperados do vínculo, se houver.
     // Horas na semana: os dias são livres (o que conta é a semana, em `semanas`)
-    previstos = modo === 'horas' ? null : Number(link.expected_days_month) > 0 ? Number(link.expected_days_month) : null
+    previstos = modo === 'horas' || (link as { so_acesso?: boolean | null }).so_acesso ? null : Number(link.expected_days_month) > 0 ? Number(link.expected_days_month) : null
     faltas.push(...faltasRegistradas.map(f => f.visit_date))
     for (const fg of folgasReg.values()) dias.push({ data: fg.visit_date, linkId: link.id, clientId: link.client_id || '', status: 'folga', titulo: 'Folga dispensada', detalhe: fg.unavailability_reason || undefined, registro: fg })
     for (const r of trabalhados) {

@@ -118,6 +118,8 @@ export default function PlanilhaCompleta({ mes, nomeMes }: { mes: string; nomeMe
       const p = l.employee
       if (!p || (p.status === 'Inativo' && (p.dismissal_date || '0000') < ini)) continue
       const rs = data.regs.filter(r => r.employee_id === l.employee_id && r.client_id === l.client_id)
+      // Só acesso (098) sem registro no mês: não é "não preencheu", ela não tinha obrigação
+      if ((l as { so_acesso?: boolean | null }).so_acesso && !rs.length) continue
       const tipo = tipoDoVinculo(l)
       const formato: Formato = tipo === 'Consultoria' ? (salarioConsultoria(l) ? 'Consultoria com salário' : 'Consultoria por visita') : pagaPorDiaria(l) ? 'Fixo por diária' : 'Fixo'
       const exige = tipo === 'Consultoria' || pagaPorDiaria(l)

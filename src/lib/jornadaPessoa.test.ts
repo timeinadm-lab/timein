@@ -172,5 +172,11 @@ console.log('Fixo 30h por semana (dias livres)')
   ok(r.faltas.every(d => d <= '2026-10-09') && r.faltas.length === 7, 'encerrado em 09/10: só cobra até o fim (7 dias úteis de 01 a 09)', r.faltas)
 }
 
+{
+  // Só acesso (098): Fixo 5x2 sem nenhum registro não tem previstos nem falta
+  const r = resumoDoVinculo({ ...fixo, so_acesso: true } as VinculoPerfil, MES, '2026-10-20', [], [], [])
+  ok(r.modo === 'livre' && r.previstos === null && r.faltas.length === 0, 'só acesso: sem obrigação, sem falta', { modo: r.modo, faltas: r.faltas.length })
+}
+
 console.log(falhas ? `\n${falhas} FALHA(S)` : '\nTodos os testes passaram')
 if (falhas) throw new Error(`${falhas} teste(s) falharam`)

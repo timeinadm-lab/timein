@@ -223,7 +223,15 @@ export function serviceTypeLabel(serviceType?: string | null): string {
 // ser temporário (nasceu para acabar: cobertura, auditoria avulsa).
 // Estas funções aceitam também o formato antigo ('Volante' + coverage_type),
 // então funcionam antes e depois da migração 058.
-type VinculoTipo = { service_type?: string | null; coverage_type?: string | null; pay_mode?: string | null; is_temporary?: boolean | null }
+type VinculoTipo = { service_type?: string | null; coverage_type?: string | null; pay_mode?: string | null; is_temporary?: boolean | null; so_acesso?: boolean | null }
+
+/**
+ * Vínculo "só acesso" (migração 098, 17/10/2026): a pessoa fica ligada ao
+ * cliente só para poder registrar quando for cobrir — sem obrigação, sem dia
+ * previsto, sem falta, sem pendência e sem linha vazia na folha. O pagamento
+ * do que ela registrar segue o tipo do vínculo, igual a qualquer outro.
+ */
+export const soAcesso = (l?: { so_acesso?: boolean | null } | null) => !!l?.so_acesso
 
 /** 'Consultoria' ou 'Fixo' — o tipo que vale para pagamento e portal */
 export function tipoDoVinculo(l?: VinculoTipo | null): 'Consultoria' | 'Fixo' {
@@ -270,6 +278,7 @@ export type VinculoCadastro = VinculoTipo & {
 }
 export function pendenciasDoVinculo(l: VinculoCadastro, ctx: { unidadesComValor: boolean; salarioNoGrupo?: boolean }): string[] {
   const out: string[] = []
+  if (soAcesso(l)) return out
   if (tipoDoVinculo(l) === 'Consultoria') {
     if (salarioConsultoria(l)) {
       if (!ctx.salarioNoGrupo && !(Number(l.monthly_amount) > 0)) out.push('sem salário (fixo de consultoria: o salário vai em um dos vínculos dela e vale para todos os clientes)')

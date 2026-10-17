@@ -1,6 +1,6 @@
 -- ============================================================
 -- AUDITORIA DOS VÍNCULOS (17/10/2026) — SÓ LEITURA, não muda nada.
--- Rode no projeto RH COMPLETO. Cada linha é um vínculo ATIVO (ou registro
+-- Rode no projeto RH COMPLETO, DEPOIS da migração 098. Cada linha é um vínculo ATIVO (ou registro
 -- recente) com algo que pode dar problema no portal, na Jornada ou no
 -- pagamento. Resultado vazio = tudo redondo.
 --   gravidade: 1 = afeta pagamento · 2 = afeta portal/Jornada · 3 = conferir
@@ -15,6 +15,7 @@ WITH l AS (
     LEFT JOIN clients c ON c.id = l.client_id
    WHERE e.status = 'Ativo'
      AND (l.contract_end_date IS NULL OR l.contract_end_date >= current_date)
+     AND NOT l.so_acesso   -- só acesso (098): sem obrigação, fora da conferência de cadastro
 ),
 -- formato de cada vínculo
 f AS (

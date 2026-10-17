@@ -463,7 +463,8 @@ function PlanilhaPonto({ mes, nomeMes, ini, fim, regs, vinculos, agenda, avisos,
       if (!l) continue
       porVinculo.set(l.id, [...(porVinculo.get(l.id) || []), r])
     }
-    const ids = new Set([...valendo.map(l => l.id), ...porVinculo.keys()])
+    // Só acesso (098) entra só se registrou algo: sem obrigação, não é "não preencheu"
+    const ids = new Set([...valendo.filter(l => !(l as { so_acesso?: boolean | null }).so_acesso).map(l => l.id), ...porVinculo.keys()])
     return [...ids].map(id => {
       const l = vinculos.find(x => x.id === id)!
       const rs = porVinculo.get(id) || []

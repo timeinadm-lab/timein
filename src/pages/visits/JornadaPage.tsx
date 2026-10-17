@@ -202,11 +202,13 @@ function resumosDaPessoa(d: DadosMes, pessoa: string, mes: string, hoje: string,
   return d.links
     .filter(l => l.employee_id === pessoa && vinculoNoMes(l, mes, regs))
     .map(l => resumoDoVinculo(l, mes, hoje, regs, agenda, avisos, nomeCliente))
+    // Só acesso (098) sem nada no mês: não aparece (ela não tinha obrigação)
+    .filter(r => !(r.link as { so_acesso?: boolean | null }).so_acesso || temMovimento(r))
     .sort((a, b) => nomeCliente(a.link.client_id).localeCompare(nomeCliente(b.link.client_id)))
 }
 
 /** Consultor em muitos clientes: cartão só para quem tem agenda ou registro no mês */
-const temMovimento = (r: ResumoVinculo) => r.modo !== 'agenda' || (r.previstos ?? 0) > 0 || r.feitos > 0 || r.extras > 0 || r.dias.length > 0
+const temMovimento = (r: ResumoVinculo) => ((r.modo !== 'agenda' && !(r.link as { so_acesso?: boolean | null }).so_acesso) || (r.previstos ?? 0) > 0 || r.feitos > 0 || r.extras > 0 || r.dias.length > 0)
 
 const temAtencao = (r: ResumoVinculo) => r.faltas.length > 0 || r.semanas.some(x => x.status === 'faltou') || r.trocasNaoVistas > 0 || r.abaixoJornada > 0 || r.semValor > 0
 

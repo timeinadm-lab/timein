@@ -615,6 +615,7 @@ export default function PortalHome() {
   // A escala tem dias de trabalho conhecidos? (5x2/6x1 com folga fixa, ou 12x36 com âncora)
   const hasKnownSchedule = (link: FolhaLink | undefined) =>
     !!link && effectiveType(link) !== 'Consultoria' && link.work_schedule_type !== 'cliente' && link.work_schedule_type !== 'horas' &&
+    !(link as { so_acesso?: boolean | null }).so_acesso &&
     (!!link.days_off?.length || (link.work_schedule_type === '12x36' && !!link.schedule_anchor_date))
 
   // Dias da escala sem preenchimento (até ontem). Dias cobertos por "troca de dia" não contam como pendentes.

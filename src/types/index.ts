@@ -79,6 +79,8 @@ export interface EmployeeDocument {
 
 export interface EmployeeClientLink {
   id: string
+  /** Só acesso (098): registra quando for ao cliente, sem obrigação */
+  so_acesso?: boolean | null
   employee_id: string
   client_id: string
   service_type: 'Fixo' | 'Consultoria' | 'PJ'

@@ -418,6 +418,14 @@ export default function PaymentList() {
           .gte('planned_date', monthStart)
           .lte('planned_date', monthEnd))
 
+      // Só acesso (098): o vínculo entra na folha só se ela registrou algo no mês
+      // neste cliente — sem registro não tem o que pagar (e não vira linha R$ 0)
+      const comRegistro = new Set((monthVisits || []).map(v => `${v.employee_id}|${v.client_id}`))
+      for (let i = activeLinks.length - 1; i >= 0; i--) {
+        const l = activeLinks[i] as { so_acesso?: boolean | null; employee?: { id: string }; client?: { id: string } }
+        if (l.so_acesso && !comRegistro.has(`${l.employee?.id}|${l.client?.id}`)) activeLinks.splice(i, 1)
+      }
+
       // Desligados com visitas neste mês que ainda não foram pagos
       const dismissedVisits = (monthVisits || []).filter(v => !activeEmpIds.has(v.employee_id))
       const dismissedEmpIds = [...new Set(dismissedVisits.map(v => v.employee_id))]

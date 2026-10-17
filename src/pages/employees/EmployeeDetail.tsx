@@ -2532,6 +2532,19 @@ export default function EmployeeDetail() {
                               <p className="font-semibold text-ink-900">{(l as { client?: { name: string } }).client?.name}</p>
                               <span className={`badge ${ehConsult ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'}`}>{rotuloDoVinculo(l)}</span>
                               {statusContrato && <span className={`badge text-xs ${statusContrato.c}`}>{statusContrato.t}</span>}
+                              {!encerrado && (
+                                <button type="button"
+                                  title={l.so_acesso ? 'Só acesso: registra quando for, sem obrigação. Clique para voltar a vínculo normal.' : 'Marcar como só acesso: ela registra quando for cobrir, sem obrigação, sem falta e sem pendência'}
+                                  onClick={async () => {
+                                    const { error } = await supabase.from('employee_client_links').update({ so_acesso: !l.so_acesso }).eq('id', l.id)
+                                    if (error) { toast.error(/so_acesso/.test(error.message) ? 'Rode a migração 098 no Supabase.' : error.message); return }
+                                    toast.success(l.so_acesso ? 'Voltou a vínculo normal' : 'Marcado como só acesso')
+                                    qc.invalidateQueries({ queryKey: ['employee-links', id] })
+                                  }}
+                                  className={`badge text-xs ${l.so_acesso ? 'bg-violet-100 text-violet-700' : 'bg-white border border-dashed border-ink-300 text-ink-500 hover:text-ink-800'}`}>
+                                  {l.so_acesso ? 'Só acesso' : '+ só acesso'}
+                                </button>
+                              )}
                             </div>
                             <div className={`mt-3 grid grid-cols-2 ${noFixo ? '' : 'lg:grid-cols-4'} gap-2 ${encerrado ? 'opacity-60' : ''}`}>
                               {!noFixo && (

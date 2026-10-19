@@ -1564,8 +1564,14 @@ export default function PaymentList() {
       : l.conta.total
     const dia = ehConsultoria ? 20 : (r.payDay || 5)
     if (valor <= 0) return []
+    // Abertura para a planilha de pagamento (pedido de 19/10/2026). Consultoria:
+    // os extras vão na 2ª quinzena (dia 8), então a 1ª é só visita.
+    const ajuda = ehConsultoria ? 0 : r2(r.cost_assistance || 0)
+    const reembolso = ehConsultoria ? 0 : r2(empGastos(r.linkId))
+    const adiantamento = ehConsultoria ? 0 : r2(empAdiantamento(r.linkId))
     return [{ linkId: r.linkId, employee_id: r.employee.id, nome: r.employee.full_name || '', client_id: r.client?.id || null,
-      due_date: `${filterMonth}-${String(dia).padStart(2, '0')}`, valor, motivo: ehConsultoria ? 'Visitas de 1 a 15 · falta lançar' : 'Falta conferir o mês' }]
+      due_date: `${filterMonth}-${String(dia).padStart(2, '0')}`, valor, motivo: ehConsultoria ? 'Visitas de 1 a 15 · falta lançar' : 'Falta conferir o mês',
+      partes: { salario: Math.max(0, r2(valor - ajuda - reembolso + adiantamento)), ajuda, reembolso, adiantamento } }]
   })
 
   // Unlinked payment records (manual, no vínculo)

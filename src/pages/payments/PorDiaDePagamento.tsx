@@ -13,10 +13,12 @@ import type { Lancamento, GrupoDia, ChaveDia } from '../../lib/pagamentosPorDia'
 import type { FolhaRel, ReembolsoRel } from '../../lib/relatorioSaidas'
 
 // aguardando: ainda não pode pagar — o RH precisa lançar/conferir na Conferência
-type Saida = Lancamento & { employee?: { full_name?: string } | null; comprovante_url?: string | null; aguardando?: { motivo: string; irPara: () => void } }
+type Saida = Lancamento & { employee?: { full_name?: string } | null; comprovante_url?: string | null; aguardando?: { motivo: string; irPara: () => void }; partes?: AguardandoRH['partes'] }
 
 /** Quem recebe no mês mas ainda depende do RH (montado na PaymentList pela folha) */
-export type AguardandoRH = { linkId: string; employee_id: string; nome: string; client_id: string | null; due_date: string; valor: number; motivo: string; paymentId?: string }
+export type AguardandoRH = { linkId: string; employee_id: string; nome: string; client_id: string | null; due_date: string; valor: number; motivo: string; paymentId?: string
+  partes?: { salario: number; ajuda: number; reembolso: number; adiantamento: number }   // ainda não lançado: a conta aberta, para a planilha
+}
 type DadosBanco = { id: string; full_name?: string; cpf?: string | null; pix?: string | null; bank_name?: string | null; bank_agency?: string | null; bank_account?: string | null; bank_account_type?: string | null }
 
 const DIA_SEMANA = ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado']
@@ -114,12 +116,13 @@ export default function PorDiaDePagamento({ mes, nomeMes, aguardando, irParaConf
     }),
     ...aguardando.filter(a => !a.paymentId && a.due_date.slice(0, 7) === mes).map(a => ({
       id: `rh-${a.linkId}`, description: a.motivo, amount: a.valor, due_date: a.due_date, status: 'Pendente', type: 'Aguardando',
-      employee_id: a.employee_id, client_id: a.client_id, employee: { full_name: a.nome },
+      employee_id: a.employee_id, client_id: a.client_id, employee: { full_name: a.nome }, partes: a.partes,
       aguardando: { motivo: a.motivo, irPara: () => irParaConferir(a.nome) },
     })),
     ...semLancarDia8.map(x => ({
       id: `d8-${x.id}`, description: `Visitas de 16 a ${fimAnterior} · falta lançar`, amount: x.valor, due_date: `${mes}-08`, status: 'Pendente', type: 'Aguardando',
       employee_id: x.id, client_id: null, reference_month: mesAnterior, employee: { full_name: x.nome },
+      partes: { salario: x.valor, ajuda: 0, reembolso: 0, adiantamento: 0 },
       aguardando: { motivo: `Visitas de 16 a ${fimAnterior} · falta lançar`, irPara: () => irParaFolhaDe(mesAnterior) },
     })),
   ]
@@ -217,6 +220,107 @@ export default function PorDiaDePagamento({ mes, nomeMes, aguardando, irParaConf
       toast.error('Não foi possível gerar o relatório: ' + (e as Error).message)
     } finally { setGerando('') }
   }
+  // Planilha para pagar (19/10/2026): uma aba por dia, uma linha por pessoa
+  // (salário, reembolso, ajuda, total em fórmula, observação) + aba e pasta de
+  // comprovantes. Entra quem ainda está "Aguardando RH" — não precisa lançar.
+  const [progresso, setProgresso] = useState('')
+  const baixarPlanilhaPagar = async () => {
+    setGerando('excel')
+    try {
+      const { carregarAbertura } = await import('../../lib/planilhaPagamentosDados')
+      const { juntarPorPessoa, abasDaPlanilha, nomeDeArquivo, DIAS_PLANILHA } = await import('../../lib/planilhaParaPagar')
+      const { montarExcelBonito } = await import('../../lib/excelBonito')
+      const { parseStorage } = await import('../../lib/storage')
+      type Item = import('../../lib/planilhaParaPagar').ItemPagar
+      type Comp = import('../../lib/planilhaParaPagar').ComprovanteReembolso
+
+      const lancados = grupos.flatMap(g => g.itens).filter(p => !p.id.startsWith('rh-') && !p.id.startsWith('d8-'))
+      const { abertura } = await carregarAbertura(lancados, mes, fim)
+      const itens: Item[] = grupos.flatMap(g => g.itens.map((p): Item => {
+        const a = p.partes ?? abertura.get(p.id) ?? { salario: Number(p.amount) || 0, ajuda: 0, reembolso: 0, adiantamento: 0 }
+        const pago = p.status === 'Pago'
+        return {
+          dia: g.chave, employee_id: p.employee_id || null, nome: pessoa(p) || p.description || 'Sem colaborador',
+          salario: a.salario, ajuda: a.ajuda, reembolso: a.reembolso, adiantamento: a.adiantamento,
+          mesTrabalhado: p.reference_month || (p.aguardando ? mes : null), pago,
+          obs: [cliente(p),
+            g.chave === 'avulso' ? `vence ${formatDate(p.due_date)}` : '',
+            p.reference_month && p.reference_month !== mes ? `trabalho de ${mesCurto(p.reference_month)}` : '',
+            pago ? `já pago${p.paid_at ? ` em ${formatDate(String(p.paid_at).slice(0, 10))}` : ''}` : p.aguardando ? `não lançado: ${p.aguardando.motivo}` : (p.description || ''),
+            ...(((a as { reembolsos?: string[] }).reembolsos) || []).map(r => `reembolso: ${r}`),
+          ].filter(Boolean),
+        }
+      }))
+      const porDia = juntarPorPessoa(itens)
+
+      // Comprovantes: os reembolsos aprovados de quem tem reembolso na planilha,
+      // dos meses trabalhados daquele pagamento (menos os pagos na segunda)
+      const pares: { emp: string; mes: string; dia: string; nome: string }[] = []
+      for (const { chave, titulo } of DIAS_PLANILHA) for (const l of porDia.get(chave) || []) {
+        if (l.reembolso > 0 && l.employee_id) for (const m of (l.meses.length ? l.meses : [mes])) pares.push({ emp: l.employee_id, mes: m, dia: titulo, nome: l.nome })
+      }
+      const comprovantes: Comp[] = []
+      if (pares.length) {
+        const { data: gastos, error: eG } = await supabase.from('employee_expenses')
+          .select('id, employee_id, reference_month, category, amount, description, status, receipt_url, created_at')
+          .in('employee_id', [...new Set(pares.map(p => p.emp))]).in('reference_month', [...new Set(pares.map(p => p.mes))])
+        if (eG) throw eG
+        const validos = (gastos || []).filter(x => (x.status ?? 'aprovado') === 'aprovado' && !['Adiantamento', 'Ajuda de Custo'].includes(x.category as string))
+        const naSegunda = new Set<string>()
+        if (validos.length) {
+          const { data: aj } = await supabase.from('ajudas_custo').select('expense_id').in('expense_id', validos.map(x => x.id))
+          for (const x of aj || []) if (x.expense_id) naSegunda.add(x.expense_id as string)
+        }
+        for (const x of validos) {
+          if (naSegunda.has(x.id)) continue
+          const par = pares.find(p => p.emp === x.employee_id && p.mes === x.reference_month)
+          if (!par) continue
+          comprovantes.push({ employee_id: x.employee_id, nome: par.nome, dia: par.dia, descricao: x.description || x.category || 'Reembolso',
+            data: String(x.created_at || '').slice(0, 10), valor: Number(x.amount) || 0, caminho: (x.receipt_url as string | null) || null })
+        }
+      }
+
+      // Baixa os arquivos para o zip, com o nome da pessoa no começo
+      const { default: JSZip } = await import('jszip')
+      const zip = new JSZip()
+      const pasta = zip.folder('comprovantes')!
+      const arquivo = new Map<Comp, string>()
+      const usados = new Set<string>()
+      let feitos = 0
+      for (const c of comprovantes) {
+        feitos++
+        setProgresso(`comprovante ${feitos} de ${comprovantes.length}`)
+        const onde = c.caminho ? parseStorage(c.caminho, 'arquivos') : null
+        if (!onde) continue
+        const { data: blob, error: eD } = await supabase.storage.from(onde.bucket).download(onde.path)
+        if (eD || !blob) continue
+        const ext = (onde.path.split('.').pop() || 'jpg').toLowerCase().slice(0, 5)
+        const base = nomeDeArquivo(`${c.nome} - ${c.descricao} - ${c.data.slice(8, 10)}-${c.data.slice(5, 7)}`)
+        let nome = `${base}.${ext}`
+        for (let n = 2; usados.has(nome); n++) nome = `${base}_${n}.${ext}`
+        usados.add(nome)
+        pasta.file(nome, blob)
+        arquivo.set(c, nome)
+      }
+
+      const pixDe = (id: string | null) => {
+        const b = id ? bancos?.get(id) : undefined
+        return b?.pix ? b.pix : textoBanco(b) ? `SEM PIX · ${textoBanco(b)}` : 'SEM PIX NO CADASTRO'
+      }
+      const buf = await montarExcelBonito(abasDaPlanilha(nomeMes, porDia, pixDe, comprovantes, c => arquivo.get(c) || null))
+      zip.file(`pagamentos_${mes}.xlsx`, buf)
+      zip.file('LEIA-ME.txt', 'Descompacte esta pasta antes de abrir a planilha.\r\nUma aba por dia de pagamento. O Total recalcula quando voce edita Salario, Reembolso ou Ajuda.\r\nNa aba "Comprovantes", clique em "Abrir comprovante" para ver cada arquivo (ficam na pasta "comprovantes", em ordem de nome).\r\n')
+      const blob = await zip.generateAsync({ type: 'blob' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a'); a.href = url; a.download = `pagamentos_${mes}.zip`; a.click()
+      setTimeout(() => URL.revokeObjectURL(url), 5000)
+      const semArquivo = comprovantes.filter(c => !arquivo.has(c)).length
+      toast.success(`Planilha baixada${comprovantes.length ? ` com ${arquivo.size} comprovante(s)` : ''}${semArquivo ? ` · ${semArquivo} sem arquivo` : ''}`)
+    } catch (e) {
+      toast.error('Não foi possível gerar a planilha: ' + (e as Error).message)
+    } finally { setGerando(''); setProgresso('') }
+  }
+
   const baixarLista = async (g: GrupoDia<Saida> | null) => {
     setGerando('pdf')
     try {
@@ -255,6 +359,10 @@ export default function PorDiaDePagamento({ mes, nomeMes, aguardando, irParaConf
             <p className="text-xs text-ink-400 mt-0.5">{t.qtd} pagamento{t.qtd !== 1 ? 's' : ''} · {pctMes}% já pago</p>
           </div>
           <div className="flex gap-2 flex-wrap">
+            <button onClick={baixarPlanilhaPagar} disabled={!!gerando || !t.qtd} className="btn-primary text-sm"
+              title="Uma aba por dia: nome, PIX, salário, reembolso, ajuda de custo, total e observação — mais os comprovantes dos reembolsos. Entra também quem ainda não foi lançado.">
+              <FileSpreadsheet size={16} />{progresso ? `Baixando ${progresso}…` : gerando === 'excel' ? 'Gerando…' : 'Planilha para pagar'}
+            </button>
             <button onClick={() => baixarLista(null)} disabled={!!gerando || !t.qtd} className="btn-secondary text-sm">
               <FileDown size={16} />{gerando === 'pdf' ? 'Gerando…' : 'Lista do contador'}
             </button>

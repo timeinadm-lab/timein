@@ -79,7 +79,7 @@ export function abasAjudaCusto(opts: {
   abas.push({
     nome: 'Para pagar',
     titulo: `Ajuda de custo · ${tituloPeriodo}`,
-    subtitulo: `${pessoas.length} pessoa(s) · total ${pessoas.reduce((s, p) => s + p.total, 0).toFixed(2).replace('.', ',')} · edite os valores: o Total recalcula`,
+    subtitulo: `${pessoas.length} pessoa(s) · total ${pessoas.reduce((s, p) => s + p.total, 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} · edite os valores: o Total recalcula`,
     colunas: [
       { titulo: 'Nome completo', largura: 32 }, { titulo: 'PIX', largura: 28, tipo: 'texto' }, { titulo: 'Cliente(s)', largura: 28, tipo: 'texto' },
       { titulo: 'Ajuda do contrato', largura: 15, tipo: 'dinheiro' }, { titulo: 'Reembolsos', largura: 14, tipo: 'dinheiro' },

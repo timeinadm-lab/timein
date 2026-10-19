@@ -10,8 +10,9 @@ import { format, startOfMonth, endOfMonth, getDaysInMonth, getDay, addMonths, su
 import { ptBR } from 'date-fns/locale'
 import { SignedLink } from '../../components/ui/SignedFile'
 import { aniversariantesDoMes } from '../../lib/aniversario'
+import { ROTULO_TIPO_VISITA, tipoDaVisita, ehPaga, minutosDaVisita } from '../../lib/equipe'
 
-type EventKind = 'realizada' | 'planejada' | 'alterada' | 'ausencia' | 'troca' | 'supervisao' | 'reuniao' | 'compromisso' | 'aniversario'
+type EventKind = 'realizada' | 'planejada' | 'alterada' | 'ausencia' | 'troca' | 'supervisao' | 'equipe' | 'reuniao' | 'compromisso' | 'aniversario'
 type Ev = {
   kind: EventKind
   date: string
@@ -42,6 +43,9 @@ const KIND_META: Record<EventKind, { label: string; dot: string; chip: string }>
   // Troca de dia NÃO é falta: a pessoa folga num dia e trabalha em outro
   troca:        { label: 'Troca / feriado',     dot: 'bg-orange-400',   chip: 'bg-orange-50 text-orange-800 border-orange-200' },
   supervisao:   { label: 'Supervisão',       dot: 'bg-teal-500',     chip: 'bg-teal-50 text-teal-800 border-teal-200' },
+  // Visita, supervisão ou vistoria que alguém do administrativo registrou em
+  // "Meu trabalho" (migração 076/099). Cada um vê as suas; a contabilidade, todas.
+  equipe:       { label: 'Visita da equipe', dot: 'bg-indigo-500',   chip: 'bg-indigo-50 text-indigo-800 border-indigo-200' },
   reuniao:      { label: 'Reunião',          dot: 'bg-blue-400',     chip: 'bg-blue-50 text-blue-700 border-blue-200' },
   // Compromisso NAO e reuniao: e qualquer coisa que a equipe precisa saber que
   // vai acontecer (viagem, consulta medica, visita a um cliente sem ser vistoria).
@@ -126,6 +130,17 @@ export default function CalendarPage() {
       const { data, error } = await supabase.from('supervision_visits')
         .select('*').gte('visit_date', mStart).lte('visit_date', mEnd)
       if (error) { console.warn('supervision_visits:', error.message); return [] }
+      return data || []
+    },
+  })
+
+  // Visitas, supervisões e vistorias registradas em "Meu trabalho" (equipe_visitas)
+  const { data: visitasEquipe } = useQuery({
+    queryKey: ['cal-equipe-visitas', monthKey],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('equipe_visitas')
+        .select('*').gte('data', mStart).lte('data', mEnd)
+      if (error) { console.warn('equipe_visitas:', error.message); return [] }
       return data || []
     },
   })
@@ -561,6 +576,22 @@ export default function CalendarPage() {
         isRh: true,
       })
     }
+    for (const ve of (visitasEquipe || []) as { user_id: string; client_id: string | null; unidade?: string | null; data: string; entrada?: string | null; saida?: string | null; tipo?: string | null; paga?: boolean | null; status: string; observacoes?: string | null }[]) {
+      if (ve.status === 'recusada') continue
+      const tipoV = tipoDaVisita(ve)
+      const min = minutosDaVisita(ve.entrada, ve.saida)
+      out.push({
+        kind: 'equipe',
+        date: ve.data,
+        employee: (rhUsers || []).find(u => u.id === ve.user_id)?.full_name || 'Equipe',
+        client: (allClients || []).find(c => c.id === ve.client_id)?.name,
+        unit: ve.unidade || undefined,
+        time: ve.entrada ? ve.entrada.slice(0, 5) : null,
+        hours: min != null ? Math.round(min / 6) / 10 : null,
+        note: [ROTULO_TIPO_VISITA[tipoV], ehPaga(ve) ? 'paga' : null, ve.observacoes].filter(Boolean).join(' · '),
+        isRh: true,
+      })
+    }
     for (const ap of appointments || []) {
       const ini = (ap.scheduled_at || '').slice(0, 10)
       const fim = ap.end_date && ap.end_date.slice(0, 10) > ini ? ap.end_date.slice(0, 10) : ini
@@ -595,7 +626,7 @@ export default function CalendarPage() {
       out.push({ kind: 'aniversario', date: a.data, employee: a.full_name, note: a.idade ? `Faz ${a.idade} anos` : 'Aniversário', employeeId: a.id, isRh: true })
     }
     return out
-  }, [visits, agenda, notices, appointments, supervisoes, rhUsers, allClients, allEmployees, mStart, mEnd, periodosVinculo, comNascimento, monthKey])
+  }, [visits, agenda, notices, appointments, supervisoes, visitasEquipe, rhUsers, allClients, allEmployees, mStart, mEnd, periodosVinculo, comNascimento, monthKey])
 
   const filtered = events.filter(e =>
     !ocultos.has(e.kind) &&

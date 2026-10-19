@@ -6,6 +6,7 @@
 // seções por dia, caixa com saldo e anexo com as fotos dos comprovantes.
 // ============================================================
 import type { Periodo, SaldoCaixa } from './equipe'
+import { horasTexto } from './equipe'
 import { formatLocalTime } from './utils'
 
 export type DadosRelatorioEquipe = {
@@ -15,7 +16,8 @@ export type DadosRelatorioEquipe = {
   atividades: { data: string; nome: string; notas?: string | null; feito: boolean | null }[]
   compromissos: { inicio: string; categoria: string; titulo: string; cliente?: string | null; situacao: string; notas?: string | null }[]
   supervisoes: { data: string; cliente: string; unidade?: string | null; situacao: string; detalhe?: string | null }[]
-  visitas: { data: string; cliente: string; unidade?: string | null; horario?: string | null; valor: number; situacao: string; temRelatorio: boolean; obs?: string | null }[]
+  // Visitas, supervisões e vistorias registradas: não pagas (só horário, 099) e pagas (valor + aprovação, 076)
+  visitas: { data: string; tipo: string; cliente: string; unidade?: string | null; horario?: string | null; minutos?: number | null; paga: boolean; valor: number; situacao: string; temRelatorio: boolean; obs?: string | null }[]
   caixa: { data: string; tipo: 'recebido' | 'compra' | 'devolvido'; descricao: string; cliente?: string | null; valor: number; temComprovante: boolean }[]
   saldoPeriodo: SaldoCaixa
   saldoFinal: SaldoCaixa
@@ -86,12 +88,14 @@ export async function gerarRelatorioEquipe(d: DadosRelatorioEquipe): Promise<Blo
 
   // ── Resumo em quadros ──
   const feitas = d.atividades.filter(a => a.feito === true).length
+  const minutosVisitas = d.visitas.filter(v => v.situacao !== 'Recusada' && v.situacao !== 'Programada').reduce((s, v) => s + (v.minutos || 0), 0)
+  const valorPagas = d.visitas.filter(v => v.paga && v.situacao !== 'Recusada').reduce((s, v) => s + v.valor, 0)
   const supReal = d.supervisoes.filter(s => /realizada/i.test(s.situacao) && !/não/i.test(s.situacao)).length
   const quadros: [string, string, string][] = [
     ['Atividades', `${feitas} de ${d.atividades.length}`, 'feitas'],
     ['Reuniões e compromissos', String(d.compromissos.length), d.compromissos.length === 1 ? 'no período' : 'no período'],
     ['Supervisões', String(supReal), `realizada${supReal === 1 ? '' : 's'} de ${d.supervisoes.length}`],
-    ['Visitas pagas', String(d.visitas.length), brl(d.visitas.filter(v => v.situacao !== 'Recusada').reduce((s, v) => s + v.valor, 0))],
+    ['Visitas e vistorias', String(d.visitas.length), minutosVisitas ? `${horasTexto(minutosVisitas)} registradas` : 'registradas'],
     ['Compras', brl(d.saldoPeriodo.gasto), `${d.caixa.filter(c => c.tipo === 'compra').length} comprovante(s)`],
   ]
   const qw = (W - 4 * 3) / 5
@@ -161,19 +165,21 @@ export async function gerarRelatorioEquipe(d: DadosRelatorioEquipe): Promise<Blo
     y += 2
   }
 
-  // ── Visitas pagas ──
-  secao('Visitas pagas', `${d.visitas.length} visita(s)`)
-  if (!d.visitas.length) vazio('Nenhuma visita paga no período.')
-  for (const v of [...d.visitas].sort((a, b) => a.data.localeCompare(b.data))) {
-    const det = [v.horario, v.temRelatorio ? 'relatório anexado' : 'sem relatório', v.obs].filter(Boolean).join(' · ')
+  // ── Visitas, supervisões e vistorias ──
+  secao('Visitas, supervisões e vistorias', `${d.visitas.length} registro(s)${minutosVisitas ? ` · ${horasTexto(minutosVisitas)}` : ''}${valorPagas > 0 ? ` · pagas ${brl(valorPagas)}` : ''}`)
+  if (!d.visitas.length) vazio('Nenhuma visita, supervisão ou vistoria registrada no período.')
+  for (const v of [...d.visitas].sort((a, b) => a.data.localeCompare(b.data) || (a.horario || '').localeCompare(b.horario || ''))) {
+    const det = [v.horario, v.paga ? 'paga' : 'não paga', v.temRelatorio ? 'relatório anexado' : 'sem relatório', v.obs].filter(Boolean).join(' · ')
     const linhas = quebra(det, W - 50, 8)
-    garantir(9 + linhas.length * 3.8)
-    marca(L + 3, y - 1.2, v.situacao === 'Aprovada' ? true : v.situacao === 'Recusada' ? false : null)
-    t(`${nomeDia(v.data)} · ${v.cliente}${v.unidade ? ` · ${v.unidade}` : ''}`, L + 8, y, { tam: 9.5, negrito: true })
-    t(brl(v.valor), R, y, { tam: 9.5, negrito: true, direita: true })
-    y += 4.6
-    // Situação na linha de baixo, à direita (embaixo do valor)
-    t(v.situacao, R, y, { tam: 7.5, cor: v.situacao === 'Aprovada' ? [22, 128, 61] : v.situacao === 'Recusada' ? [200, 38, 38] : [150, 110, 20], direita: true })
+    const titulo = quebra(`${nomeDia(v.data)} · ${v.tipo} · ${v.cliente}${v.unidade ? ` · ${v.unidade}` : ''}`, W - 50, 9.5)
+    garantir(5 + titulo.length * 4.6 + linhas.length * 3.8)
+    const ok = /realizada|aprovada/i.test(v.situacao), ruim = /recusada|falta/i.test(v.situacao)
+    marca(L + 3, y - 1.2, ok ? true : ruim ? false : null)
+    titulo.forEach((ln, k) => t(ln, L + 8, y + k * 4.6, { tam: 9.5, negrito: k === 0 }))
+    // À direita: o valor (paga) ou as horas (não paga); embaixo, a situação
+    t(v.paga ? brl(v.valor) : v.minutos ? horasTexto(v.minutos) : '-', R, y, { tam: 9.5, negrito: true, direita: true })
+    y += titulo.length * 4.6
+    t(v.situacao, R, y, { tam: 7.5, cor: ok ? [22, 128, 61] : ruim ? [200, 38, 38] : [150, 110, 20], direita: true })
     linhas.forEach(ln => { t(ln, L + 8, y, { tam: 8, cor: [110, 110, 110] }); y += 3.8 })
     y += 2
   }

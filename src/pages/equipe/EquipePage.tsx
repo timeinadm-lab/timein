@@ -1,8 +1,8 @@
-import { useMemo, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useEffect, useMemo, useState } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
-import { ChevronLeft, ChevronRight, FileDown, Plus, Trash2, FileText, Check, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, FileDown, Plus, Trash2, FileText, Check, X, Pencil, Repeat } from 'lucide-react'
 import { supabase, fetchAll } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { formatCurrency, formatDate, corDoAvatar, hojeISO, formatLocalTime } from '../../lib/utils'
@@ -10,15 +10,24 @@ import { getSignedUrl } from '../../lib/storage'
 import { SignedLink } from '../../components/ui/SignedFile'
 import { confirmar } from '../../components/ui/ConfirmDialog'
 import { comprimirImagem, miniaturaJpeg } from '../../lib/imagem'
-import { periodoDe, andarPeriodo, saldoDoCaixa, textoDoSaldo, ROTULO_PAPEL, ROTULO_TIPO_CAIXA } from '../../lib/equipe'
-import type { Periodo, TipoPeriodo, LancamentoCaixa } from '../../lib/equipe'
+import {
+  periodoDe, andarPeriodo, saldoDoCaixa, textoDoSaldo, ROTULO_PAPEL, ROTULO_TIPO_CAIXA,
+  ROTULO_TIPO_VISITA, ROTULO_SITUACAO_VISITA, situacaoDaVisitaEquipe, minutosDaVisita, horasTexto, tipoDaVisita, ehPaga,
+  gradeDoMes, mesDoPeriodo,
+} from '../../lib/equipe'
+import type { Periodo, TipoPeriodo, LancamentoCaixa, TipoVisitaEquipe, SituacaoVisitaEquipe } from '../../lib/equipe'
 
 /**
- * Equipe — relatório de trabalho de quem tem login no sistema (pedido do
- * Gabriel, 01/10/2026). Junta sozinho o que a pessoa já registra
+ * Meu trabalho (antes "Equipe") — o trabalho de quem tem login no sistema
+ * (pedido do Gabriel, 01/10/2026). Junta sozinho o que a pessoa já registra
  * (atividades, reuniões/compromissos, supervisões) e o caixa de compras
  * (migração 075). Cada um vê o seu; só a contabilidade vê todos (migração 078).
  * A própria pessoa baixa o relatório (semana ou mês) e entrega para a chefe.
+ *
+ * 19/10/2026: calendário grande do mês com tudo da pessoa, e o registro de
+ * visita, supervisão ou vistoria como no portal (cliente, entrada e saída) —
+ * sem pagamento: só entra no relatório e no calendário (migração 099). A visita
+ * paga (valor + aprovação da contabilidade) continua como opção.
  */
 
 type Perfil = { id: string; full_name: string; role: string; photo_url?: string | null; employee_id?: string | null }
@@ -27,25 +36,34 @@ type Compromisso = { id: string; title: string; category?: string | null; schedu
 type Supervisao = { id: string; supervisor_id: string | null; visit_date: string; status?: string | null; unit_name?: string | null; observations?: string | null; motivo_nao_realizada?: string | null; checked_in_at?: string | null; client?: { name?: string } | null }
 type VisitaEquipe = {
   id: string; user_id: string; client_id: string | null; unidade?: string | null; data: string
-  entrada?: string | null; saida?: string | null; valor: number | string; relatorio?: string | null; observacoes?: string | null
-  status: 'pendente' | 'aprovada' | 'recusada'; motivo_recusa?: string | null; client?: { name?: string } | null
+  entrada?: string | null; saida?: string | null; valor?: number | string | null; relatorio?: string | null; observacoes?: string | null
+  status: 'pendente' | 'aprovada' | 'recusada' | 'registrada'; motivo_recusa?: string | null; client?: { name?: string } | null
+  paga?: boolean | null; tipo?: string | null
 }
-type ModeloVisita = { id: string; client_id: string | null; unidade?: string | null; valor: number | string; entrada?: string | null; saida?: string | null; observacoes?: string | null }
-type InicialVisita = { cliente?: string; unidade?: string; data?: string; entrada?: string; saida?: string; valor?: string; obs?: string }
+type ModeloVisita = { id: string; client_id: string | null; unidade?: string | null; valor?: number | string | null; entrada?: string | null; saida?: string | null; observacoes?: string | null; paga?: boolean | null; tipo?: string | null }
+type InicialVisita = {
+  id?: string; tipo?: TipoVisitaEquipe; paga?: boolean; cliente?: string; unidade?: string; data?: string
+  entrada?: string; saida?: string; valor?: string; obs?: string
+}
 type Dados = { perfis: Perfil[]; atividades: Atividade[]; compromissos: Compromisso[]; supervisoes: Supervisao[]; caixa: LancamentoCaixa[]; caixaErro: boolean; visitas: VisitaEquipe[]; visitasErro: boolean }
-const SITUACAO_VISITA: Record<VisitaEquipe['status'], { rotulo: string; cor: string }> = {
-  pendente: { rotulo: 'Aguardando aprovação', cor: 'bg-amber-50 text-amber-700' },
-  aprovada: { rotulo: 'Aprovada', cor: 'bg-green-50 text-green-700' },
-  recusada: { rotulo: 'Recusada', cor: 'bg-red-50 text-red-700' },
+
+const COR_SITUACAO: Record<SituacaoVisitaEquipe, string> = {
+  programada: 'bg-sky-50 text-sky-700', sem_horario: 'bg-amber-50 text-amber-700', realizada: 'bg-green-50 text-green-700',
+  pendente: 'bg-amber-50 text-amber-700', aprovada: 'bg-green-50 text-green-700', recusada: 'bg-red-50 text-red-700',
 }
-const programada = (v: VisitaEquipe) => v.status === 'pendente' && v.data > hojeISO()
-const situacaoVisita = (v: VisitaEquipe) => programada(v) ? { rotulo: 'Programada', cor: 'bg-sky-50 text-sky-700' } : SITUACAO_VISITA[v.status]
-const horasDaVisita = (v: VisitaEquipe) => {
-  if (!v.entrada || !v.saida) return null
-  const [h1, m1] = v.entrada.slice(0, 5).split(':').map(Number), [h2, m2] = v.saida.slice(0, 5).split(':').map(Number)
-  let min = (h2 * 60 + m2) - (h1 * 60 + m1); if (min < 0) min += 1440
-  return `${v.entrada.slice(0, 5)}–${v.saida.slice(0, 5)} · ${Math.floor(min / 60)}h${min % 60 ? String(min % 60).padStart(2, '0') : ''}`
+const COR_TIPO: Record<TipoVisitaEquipe, string> = { visita: 'bg-emerald-50 text-emerald-800', supervisao: 'bg-teal-50 text-teal-800', vistoria: 'bg-orange-50 text-orange-800' }
+const situacao = (v: VisitaEquipe) => situacaoDaVisitaEquipe(v, hojeISO())
+// A própria pessoa corrige e apaga enquanto não foi decidida (paga) — a não paga, sempre
+const editavel = (v: VisitaEquipe) => v.status === 'pendente' || v.status === 'registrada'
+const horarioDaVisita = (v: VisitaEquipe) => {
+  const min = minutosDaVisita(v.entrada, v.saida)
+  return min == null ? null : `${v.entrada!.slice(0, 5)}–${v.saida!.slice(0, 5)} · ${horasTexto(min)}`
 }
+const paraEditar = (v: VisitaEquipe): InicialVisita => ({
+  id: v.id, tipo: tipoDaVisita(v), paga: ehPaga(v), cliente: v.client_id || '', unidade: v.unidade || '', data: v.data,
+  entrada: (v.entrada || '').slice(0, 5), saida: (v.saida || '').slice(0, 5), valor: v.valor != null ? String(v.valor).replace('.', ',') : '', obs: v.observacoes || '',
+})
+const paraRepetir = (v: VisitaEquipe): InicialVisita => ({ ...paraEditar(v), id: undefined, data: undefined })
 
 const iniciais = (nome: string) => nome.split(' ').filter(Boolean).slice(0, 2).map(s => s[0]).join('').toUpperCase()
 const DIAS = ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado']
@@ -57,7 +75,7 @@ const situacaoSup = (s: Supervisao) => s.status === 'nao_realizada' ? 'Não real
 const doUsuario = (c: Compromisso, uid: string) => c.recruiter_id === uid || (c.participant_ids || []).includes(uid)
 
 /** Tudo do período — de todo mundo (lista da chefia) ou de uma pessoa */
-async function carregar(p: Periodo, uid?: string): Promise<Dados> {
+async function carregar(p: { ini: string; fim: string }, uid?: string): Promise<Dados> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const dele = (q: any, col: string) => (uid ? q.eq(col, uid) : q)
   // Com a migração 076 o login tem o cadastro de colaborador ligado; sem ela, só o básico
@@ -77,7 +95,7 @@ async function carregar(p: Periodo, uid?: string): Promise<Dados> {
       .gte('visit_date', p.ini).lte('visit_date', p.fim).order('id')),
     // Caixa: tudo (o saldo vem de antes do período também)
     dele(supabase.from('equipe_caixa').select('*'), 'user_id').order('data'),
-    // Visitas pagas do período (migração 076)
+    // Visitas, supervisões e vistorias registradas (pagas 076 e não pagas 099)
     dele(supabase.from('equipe_visitas').select('*, client:clients(name)'), 'user_id').gte('data', p.ini).lte('data', p.fim).order('data'),
   ])
   return {
@@ -96,10 +114,13 @@ function resumoDe(d: Dados, uid: string, p: Periodo) {
   const supervisoes = d.supervisoes.filter(s => s.supervisor_id === uid)
   const caixaDele = d.caixa.filter(c => c.user_id === uid)
   const visitas = d.visitas.filter(v => v.user_id === uid)
+  const pagas = visitas.filter(v => ehPaga(v))
   return {
     atividades, compromissos, supervisoes, caixaDele, visitas,
-    visitasPendentes: visitas.filter(v => v.status === 'pendente').length,
-    valorVisitas: visitas.filter(v => v.status !== 'recusada').reduce((t, v) => t + (Number(v.valor) || 0), 0),
+    visitasPendentes: pagas.filter(v => v.status === 'pendente').length,
+    valorVisitas: pagas.filter(v => v.status !== 'recusada').reduce((t, v) => t + (Number(v.valor) || 0), 0),
+    // Horas feitas: só o que já aconteceu e tem entrada e saída (recusada não conta)
+    minutosVisitas: visitas.filter(v => v.status !== 'recusada' && v.data <= hojeISO()).reduce((t, v) => t + (minutosDaVisita(v.entrada, v.saida) || 0), 0),
     caixaPeriodo: caixaDele.filter(c => c.data >= p.ini && c.data <= p.fim),
     feitas: atividades.filter(a => a.done === true).length,
     supReal: supervisoes.filter(s => (s.status || 'realizada') === 'realizada').length,
@@ -128,12 +149,12 @@ export default function EquipePage() {
     <div className="space-y-5">
       <div className="flex items-end justify-between gap-3 flex-wrap">
         <div>
-          <p className="eyebrow mb-1">Operação</p>
-          <h1 className="page-title">{chefia ? 'Equipe' : 'Meu trabalho'}</h1>
-          <p className="text-sm text-ink-500 mt-1">Seu calendário, visitas, supervisões e compras — com relatório para entregar à chefe.</p>
+          <p className="eyebrow mb-1">{chefia ? 'Operação' : 'Pessoal'}</p>
+          <h1 className="page-title">{chefia && !pessoa ? 'Equipe' : 'Meu trabalho'}</h1>
+          <p className="text-sm text-ink-500 mt-1">Seu calendário com atividades, reuniões, visitas, supervisões e vistorias — e o relatório para entregar à chefe.</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <div className="flex rounded-xl border border-ink-200 bg-white p-0.5">
+          <div className="flex rounded-xl border border-ink-200 bg-white p-0.5" title="Período do relatório e das listas">
             {(['semana', 'mes'] as const).map(k => (
               <button key={k} onClick={() => ir({ periodo: k === 'mes' ? 'mes' : null, ref: periodo.ini })}
                 className={`px-3 py-1.5 text-sm rounded-lg ${tipo === k ? 'bg-ink-900 text-white' : 'text-ink-600'}`}>{k === 'semana' ? 'Semana' : 'Mês'}</button>
@@ -249,9 +270,13 @@ function PerfilEquipe({ uid, periodo, proprio, voltar, chefia }: { uid: string; 
       const { error } = await supabase.from('equipe_visitas').delete().eq('id', id)
       if (error) throw error
     },
-    onSuccess: () => { toast.success('Visita apagada'); qc.invalidateQueries({ queryKey: ['equipe'] }) },
+    onSuccess: () => { toast.success('Apagado'); qc.invalidateQueries({ queryKey: ['equipe'] }) },
     onError: (e: Error) => toast.error(e.message),
   })
+  const pedirApagar = async (v: VisitaEquipe) => {
+    if (await confirmar({ titulo: `Apagar esta ${ROTULO_TIPO_VISITA[tipoDaVisita(v)].toLowerCase()}?`, texto: `${formatDate(v.data)} · ${v.client?.name || nomeCliente(v.client_id) || 'Cliente'}`, confirmar: 'Apagar', perigo: true }))
+      apagarVisita.mutate(v.id)
+  }
 
   const apagar = useMutation({
     mutationFn: async (id: string) => {
@@ -271,6 +296,7 @@ function PerfilEquipe({ uid, periodo, proprio, voltar, chefia }: { uid: string; 
   const r = resumoDe(data, uid, periodo)
   const atividadesPorDia = new Map<string, Atividade[]>()
   for (const a of [...r.atividades].sort((x, z) => x.activity_date.localeCompare(z.activity_date))) atividadesPorDia.set(a.activity_date, [...(atividadesPorDia.get(a.activity_date) || []), a])
+  const podeRegistrar = proprio && !data.visitasErro
 
   const baixar = async () => {
     setGerando(true)
@@ -296,8 +322,9 @@ function PerfilEquipe({ uid, periodo, proprio, voltar, chefia }: { uid: string; 
           detalhe: [s.checked_in_at ? `check-in às ${hora(s.checked_in_at)}` : null, s.motivo_nao_realizada ? `motivo: ${s.motivo_nao_realizada}` : null, s.observations].filter(Boolean).join(' · ') || null,
         })),
         visitas: r.visitas.map(v => ({
-          data: v.data, cliente: v.client?.name || nomeCliente(v.client_id) || 'Cliente', unidade: v.unidade, horario: horasDaVisita(v),
-          valor: Number(v.valor) || 0, situacao: SITUACAO_VISITA[v.status].rotulo === 'Aguardando aprovação' ? 'Aguardando' : SITUACAO_VISITA[v.status].rotulo,
+          data: v.data, tipo: ROTULO_TIPO_VISITA[tipoDaVisita(v)], cliente: v.client?.name || nomeCliente(v.client_id) || 'Cliente', unidade: v.unidade,
+          horario: v.entrada && v.saida ? `${v.entrada.slice(0, 5)}–${v.saida.slice(0, 5)}` : null, minutos: minutosDaVisita(v.entrada, v.saida),
+          paga: ehPaga(v), valor: Number(v.valor) || 0, situacao: ROTULO_SITUACAO_VISITA[situacao(v)],
           temRelatorio: !!v.relatorio, obs: [v.observacoes, v.motivo_recusa ? `recusada: ${v.motivo_recusa}` : null].filter(Boolean).join(' · ') || null,
         })),
         caixa: r.caixaPeriodo.map(c => ({ data: c.data, tipo: c.tipo, descricao: c.descricao, cliente: nomeCliente(c.client_id), valor: Number(c.valor) || 0, temComprovante: !!c.comprovante })),
@@ -324,22 +351,25 @@ function PerfilEquipe({ uid, periodo, proprio, voltar, chefia }: { uid: string; 
           <p className="text-lg font-semibold text-ink-900 leading-tight">{nome}</p>
           <p className="text-xs text-ink-500">{papel}</p>
         </div>
+        {podeRegistrar && <button className="btn-secondary text-sm" onClick={() => setRegistrandoVisita({})}><Plus size={15} />Registrar visita</button>}
         <label className="flex items-center gap-1.5 text-xs text-ink-600">
           <input type="checkbox" checked={comFotos} onChange={e => setComFotos(e.target.checked)} /> fotos dos comprovantes
         </label>
         <button className="btn-primary text-sm" disabled={gerando} onClick={baixar}><FileDown size={15} />{gerando ? 'Gerando…' : 'Baixar relatório'}</button>
       </div>
 
-      {/* Calendário da pessoa: supervisões, visitas e compromissos */}
-      <CalendarioEquipe periodo={periodo} supervisoes={r.supervisoes} visitas={r.visitas} compromissos={r.compromissos}
-        nomeCliente={nomeCliente} aoTocarDia={proprio && !data.visitasErro ? dia => setRegistrandoVisita({ data: dia }) : undefined} />
+      {/* Calendário grande do mês: tudo da pessoa */}
+      <MeuCalendario uid={uid} periodo={periodo} nomeCliente={nomeCliente}
+        registrar={podeRegistrar ? ini => setRegistrandoVisita(ini) : undefined}
+        apagar={proprio ? pedirApagar : undefined} />
 
-      {/* Resumo */}
-      <div className="card grid grid-cols-2 md:grid-cols-4 divide-x divide-ink-100 overflow-hidden">
+      {/* Resumo do período */}
+      <div className="card grid grid-cols-2 md:grid-cols-5 divide-x divide-ink-100 overflow-hidden">
         {([
           ['Atividades', `${r.feitas} de ${r.atividades.length}`, 'feitas'],
           ['Reuniões e compromissos', String(r.compromissos.length), 'no período'],
-          ['Supervisões', String(r.supReal), `realizada${r.supReal === 1 ? '' : 's'} de ${r.supervisoes.length}`],
+          ['Visitas e vistorias', String(r.visitas.length), r.minutosVisitas ? `${horasTexto(r.minutosVisitas)} registradas` : 'registradas'],
+          ['Supervisões (agenda)', String(r.supReal), `realizada${r.supReal === 1 ? '' : 's'} de ${r.supervisoes.length}`],
           ['Compras', formatCurrency(r.movPeriodo.gasto), textoDoSaldo(r.saldoAgora.saldo, formatCurrency)],
         ] as const).map(([t, v, s]) => (
           <div key={t} className="px-4 py-3">
@@ -350,23 +380,76 @@ function PerfilEquipe({ uid, periodo, proprio, voltar, chefia }: { uid: string; 
         ))}
       </div>
 
+      {/* Visitas, supervisões e vistorias registradas — não pagas (099) e pagas (076) */}
+      <div className="card overflow-hidden">
+        <div className="px-4 py-3 border-b border-ink-100 flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <p className="text-sm font-semibold text-ink-900">Visitas, supervisões e vistorias</p>
+            <p className="text-xs text-ink-500">
+              {r.visitas.length} no período{r.minutosVisitas ? ` · ${horasTexto(r.minutosVisitas)}` : ''}
+              {r.valorVisitas > 0 ? ` · pagas ${formatCurrency(r.valorVisitas)}` : ''}{r.visitasPendentes ? ` · ${r.visitasPendentes} aguardando aprovação` : ''}
+            </p>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            {chefia && !data.visitasErro && (
+              <select className="input w-auto text-xs py-1.5" title="Cadastro de colaborador para o pagamento das visitas pagas (nome, PIX e banco)"
+                value={perfil?.employee_id || ''} onChange={e => ligarCadastro.mutate(e.target.value)} disabled={ligarCadastro.isPending}>
+                <option value="">Recebe como: (sem cadastro ligado)</option>
+                {colaboradores.filter(c => c.status === 'Ativo' || c.id === perfil?.employee_id).map(c => <option key={c.id} value={c.id}>Recebe como: {c.full_name}</option>)}
+              </select>
+            )}
+            {podeRegistrar && <button className="btn-primary text-sm" onClick={() => setRegistrandoVisita({})}><Plus size={15} />Registrar</button>}
+          </div>
+        </div>
+        {data.visitasErro ? <p className="px-4 py-4 text-sm text-amber-700">Para registrar visita, rode a migração 076 no Supabase.</p>
+          : r.visitas.length === 0 ? <Vazio texto={proprio ? 'Nada registrado neste período. Toque em Registrar ou num dia do calendário.' : 'Nada registrado neste período.'} />
+          : (
+            <div className="divide-y divide-ink-100">
+              {r.visitas.map(v => {
+                const sit = situacao(v), tp = tipoDaVisita(v), paga = ehPaga(v)
+                return (
+                  <div key={v.id} className="px-4 py-2.5 flex items-start gap-3">
+                    <p className="w-14 shrink-0 text-xs font-semibold text-ink-700 pt-0.5">{formatDate(v.data).slice(0, 5)}</p>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-ink-900">
+                        <span className={`mr-1.5 text-[10px] font-semibold px-1.5 py-0.5 rounded ${COR_TIPO[tp]}`}>{ROTULO_TIPO_VISITA[tp]}</span>
+                        {v.client?.name || nomeCliente(v.client_id) || 'Cliente'}{v.unidade ? ` · ${v.unidade}` : ''}
+                      </p>
+                      <p className="text-xs text-ink-500">{[horarioDaVisita(v), v.observacoes].filter(Boolean).join(' · ')}</p>
+                      {v.motivo_recusa && <p className="text-xs text-red-600">Recusada: {v.motivo_recusa}</p>}
+                      <div className="flex items-center gap-2 mt-1 flex-wrap">
+                        <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${COR_SITUACAO[sit]}`}>{ROTULO_SITUACAO_VISITA[sit]}</span>
+                        {proprio && editavel(v) && <button className="text-[11px] underline text-ink-500 inline-flex items-center gap-0.5" onClick={() => setRegistrandoVisita(paraEditar(v))}><Pencil size={10} />editar</button>}
+                        {proprio && <button className="text-[11px] underline text-ink-500 inline-flex items-center gap-0.5" title="Registrar de novo em outro dia com os mesmos dados" onClick={() => setRegistrandoVisita(paraRepetir(v))}><Repeat size={10} />repetir</button>}
+                        {v.relatorio && <SignedLink value={v.relatorio} bucket="arquivos" className="text-[11px] underline text-ink-500 inline-flex items-center gap-1"><FileText size={11} />relatório</SignedLink>}
+                      </div>
+                    </div>
+                    <div className="flex flex-col items-end gap-1 shrink-0">
+                      {paga ? <p className="text-sm font-semibold tnum text-ink-900">{formatCurrency(Number(v.valor) || 0)}</p> : <p className="text-[11px] text-ink-400">não paga</p>}
+                      {chefia && paga && v.status === 'pendente' && sit !== 'programada' && (
+                        <div className="flex gap-1">
+                          <button className="btn-primary text-[11px] py-1 px-2" disabled={decidirVisita.isPending}
+                            onClick={async () => { if (await confirmar({ titulo: `Aprovar a visita de ${formatCurrency(Number(v.valor) || 0)}?`, texto: 'Ela vira um lançamento em Pagamentos (dia 20 para visita até o dia 15; dia 8 do mês seguinte depois disso).', confirmar: 'Aprovar' })) decidirVisita.mutate({ id: v.id, aprovar: true }) }}>Aprovar</button>
+                          <button className="btn-secondary text-[11px] py-1 px-2" disabled={decidirVisita.isPending} onClick={() => setRecusando({ id: v.id, motivo: '' })}>Recusar</button>
+                        </div>
+                      )}
+                      {proprio && editavel(v) && (
+                        <button className="p-1 text-ink-400 hover:text-red-600" aria-label="Apagar" disabled={apagarVisita.isPending} onClick={() => pedirApagar(v)}><Trash2 size={14} /></button>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+      </div>
+
       {/* Atividades por dia */}
       <Secao titulo="Atividades" info={`${r.feitas} feita(s) · ${r.atividades.filter(a => a.done === false).length} não feita(s)`}>
         {r.atividades.length === 0 ? <Vazio texto="Nenhuma atividade no período." /> : [...atividadesPorDia].map(([dia, lista]) => (
           <div key={dia} className="px-4 py-2.5">
             <p className="text-xs font-semibold text-ink-500 first-letter:uppercase mb-1">{diaLongo(dia)}</p>
-            {lista.map(a => (
-              <div key={a.id} className="flex items-start gap-2 py-1">
-                <span className={`mt-0.5 w-4 h-4 rounded-full flex items-center justify-center shrink-0 ${a.done === true ? 'bg-green-600' : a.done === false ? 'bg-red-500' : 'border border-ink-300'}`}>
-                  {a.done === true && <Check size={10} className="text-white" strokeWidth={3} />}
-                  {a.done === false && <X size={10} className="text-white" strokeWidth={3} />}
-                </span>
-                <div className="min-w-0">
-                  <p className={`text-sm ${a.done === false ? 'text-ink-500' : 'text-ink-800'}`}>{a.activity_name}</p>
-                  {a.notes && <p className="text-xs text-ink-400">{a.notes}</p>}
-                </div>
-              </div>
-            ))}
+            {lista.map(a => <LinhaAtividade key={a.id} a={a} />)}
           </div>
         ))}
       </Secao>
@@ -389,9 +472,9 @@ function PerfilEquipe({ uid, periodo, proprio, voltar, chefia }: { uid: string; 
           ))}
       </Secao>
 
-      {/* Supervisões */}
-      <Secao titulo="Supervisões" info={`${r.supReal} realizada(s) de ${r.supervisoes.length}`}>
-        {r.supervisoes.length === 0 ? <Vazio texto="Nenhuma supervisão no período." /> :
+      {/* Supervisões da agenda da Supervisão */}
+      <Secao titulo="Supervisões da agenda" info={`${r.supReal} realizada(s) de ${r.supervisoes.length}`}>
+        {r.supervisoes.length === 0 ? <Vazio texto="Nenhuma supervisão da agenda no período." /> :
           [...r.supervisoes].sort((a, b) => a.visit_date.localeCompare(b.visit_date)).map(s => (
             <div key={s.id} className="px-4 py-2.5 flex items-start gap-3">
               <p className="w-20 shrink-0 text-xs font-semibold text-ink-700">{formatDate(s.visit_date)}</p>
@@ -403,64 +486,6 @@ function PerfilEquipe({ uid, periodo, proprio, voltar, chefia }: { uid: string; 
             </div>
           ))}
       </Secao>
-
-      {/* Visitas pagas: ela registra, a chefia aprova e vira pagamento (migração 076) */}
-      <div className="card overflow-hidden">
-        <div className="px-4 py-3 border-b border-ink-100 flex items-center justify-between gap-3 flex-wrap">
-          <div>
-            <p className="text-sm font-semibold text-ink-900">Visitas pagas</p>
-            <p className="text-xs text-ink-500">{r.visitas.length} no período · {formatCurrency(r.valorVisitas)}{r.visitasPendentes ? ` · ${r.visitasPendentes} aguardando aprovação` : ''}</p>
-          </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            {chefia && !data.visitasErro && (
-              <select className="input w-auto text-xs py-1.5" title="Cadastro de colaborador para o pagamento (nome, PIX e banco)"
-                value={perfil?.employee_id || ''} onChange={e => ligarCadastro.mutate(e.target.value)} disabled={ligarCadastro.isPending}>
-                <option value="">Recebe como: (sem cadastro ligado)</option>
-                {colaboradores.filter(c => c.status === 'Ativo' || c.id === perfil?.employee_id).map(c => <option key={c.id} value={c.id}>Recebe como: {c.full_name}</option>)}
-              </select>
-            )}
-            {proprio && !data.visitasErro && <button className="btn-primary text-sm" onClick={() => setRegistrandoVisita({})}><Plus size={15} />Nova visita</button>}
-          </div>
-        </div>
-        {data.visitasErro ? <p className="px-4 py-4 text-sm text-amber-700">Para registrar visita paga, rode a migração 076 no Supabase.</p>
-          : r.visitas.length === 0 ? <Vazio texto={proprio ? 'Nenhuma visita neste período. Toque em Nova visita ou num dia do calendário.' : 'Nenhuma visita paga neste período.'} />
-          : (
-            <div className="divide-y divide-ink-100">
-              {r.visitas.map(v => (
-                <div key={v.id} className="px-4 py-2.5 flex items-start gap-3">
-                  <p className="w-14 shrink-0 text-xs font-semibold text-ink-700 pt-0.5">{formatDate(v.data).slice(0, 5)}</p>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm text-ink-900">{v.client?.name || nomeCliente(v.client_id) || 'Cliente'}{v.unidade ? ` · ${v.unidade}` : ''}</p>
-                    <p className="text-xs text-ink-500">{[horasDaVisita(v), v.observacoes].filter(Boolean).join(' · ')}</p>
-                    {v.motivo_recusa && <p className="text-xs text-red-600">Recusada: {v.motivo_recusa}</p>}
-                    <div className="flex items-center gap-2 mt-1 flex-wrap">
-                      <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${situacaoVisita(v).cor}`}>{situacaoVisita(v).rotulo}</span>
-                      {proprio && (
-                        <button className="text-[11px] underline text-ink-500" title="Programar de novo em outro dia com os mesmos dados"
-                          onClick={() => setRegistrandoVisita({ cliente: v.client_id || '', unidade: v.unidade || '', entrada: (v.entrada || '').slice(0, 5), saida: (v.saida || '').slice(0, 5), valor: String(v.valor).replace('.', ','), obs: v.observacoes || '' })}>repetir</button>
-                      )}
-                      {v.relatorio && <SignedLink value={v.relatorio} bucket="arquivos" className="text-[11px] underline text-ink-500 inline-flex items-center gap-1"><FileText size={11} />relatório</SignedLink>}
-                    </div>
-                  </div>
-                  <div className="flex flex-col items-end gap-1 shrink-0">
-                    <p className="text-sm font-semibold tnum text-ink-900">{formatCurrency(Number(v.valor) || 0)}</p>
-                    {chefia && v.status === 'pendente' && !programada(v) && (
-                      <div className="flex gap-1">
-                        <button className="btn-primary text-[11px] py-1 px-2" disabled={decidirVisita.isPending}
-                          onClick={async () => { if (await confirmar({ titulo: `Aprovar a visita de ${formatCurrency(Number(v.valor) || 0)}?`, texto: 'Ela vira um lançamento em Pagamentos (dia 20 para visita até o dia 15; dia 8 do mês seguinte depois disso).', confirmar: 'Aprovar' })) decidirVisita.mutate({ id: v.id, aprovar: true }) }}>Aprovar</button>
-                        <button className="btn-secondary text-[11px] py-1 px-2" disabled={decidirVisita.isPending} onClick={() => setRecusando({ id: v.id, motivo: '' })}>Recusar</button>
-                      </div>
-                    )}
-                    {proprio && v.status === 'pendente' && (
-                      <button className="p-1 text-ink-400 hover:text-red-600" aria-label="Apagar visita" disabled={apagarVisita.isPending}
-                        onClick={async () => { if (await confirmar({ titulo: 'Apagar esta visita?', confirmar: 'Apagar', perigo: true })) apagarVisita.mutate(v.id) }}><Trash2 size={14} /></button>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-      </div>
 
       {/* Caixa de compras */}
       <div className="card overflow-hidden">
@@ -516,6 +541,21 @@ function PerfilEquipe({ uid, periodo, proprio, voltar, chefia }: { uid: string; 
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+function LinhaAtividade({ a }: { a: Atividade }) {
+  return (
+    <div className="flex items-start gap-2 py-1">
+      <span className={`mt-0.5 w-4 h-4 rounded-full flex items-center justify-center shrink-0 ${a.done === true ? 'bg-green-600' : a.done === false ? 'bg-red-500' : 'border border-ink-300'}`}>
+        {a.done === true && <Check size={10} className="text-white" strokeWidth={3} />}
+        {a.done === false && <X size={10} className="text-white" strokeWidth={3} />}
+      </span>
+      <div className="min-w-0">
+        <p className={`text-sm ${a.done === false ? 'text-ink-500' : 'text-ink-800'}`}>{a.activity_name}</p>
+        {a.notes && <p className="text-xs text-ink-400">{a.notes}</p>}
+      </div>
     </div>
   )
 }
@@ -617,9 +657,14 @@ function LancarCaixa({ uid, clientes, fechar }: { uid: string; clientes: { id: s
   )
 }
 
-// ── Registrar visita paga (a própria pessoa) ──────────────────────────────
+// ── Registrar visita, supervisão ou vistoria (a própria pessoa) ───────────
+// Como no portal: cliente, unidade, dia, entrada e saída, relatório. Não paga
+// por padrão (099): não calcula nada, entra no relatório e no calendário.
 function RegistrarVisita({ uid, clientes, inicial, fechar }: { uid: string; clientes: { id: string; name: string }[]; inicial: InicialVisita; fechar: () => void }) {
   const qc = useQueryClient()
+  const editando = !!inicial.id
+  const [tipo, setTipo] = useState<TipoVisitaEquipe>(inicial.tipo || 'visita')
+  const [paga, setPaga] = useState(inicial.paga ?? false)
   const [cliente, setCliente] = useState(inicial.cliente || '')
   const [unidade, setUnidade] = useState(inicial.unidade || '')
   const [data, setData] = useState(inicial.data || hojeISO())
@@ -628,9 +673,19 @@ function RegistrarVisita({ uid, clientes, inicial, fechar }: { uid: string; clie
   const [valor, setValor] = useState(inicial.valor || '')
   const [obs, setObs] = useState(inicial.obs || '')
   const [arquivo, setArquivo] = useState<File | null>(null)
-  const [guardarModelo, setGuardarModelo] = useState(!inicial.cliente)
+  const [guardarModelo, setGuardarModelo] = useState(false)
 
-  // Modelos de visita (migração 078): cliente, unidade, valor e horário prontos para repetir
+  // Unidades do cliente (como no portal); cliente sem unidade: escreve à mão
+  const { data: unidades = [] } = useQuery({
+    queryKey: ['unidades-do-cliente', cliente],
+    enabled: !!cliente,
+    queryFn: async () => {
+      const { data, error } = await supabase.from('client_units').select('id, name').eq('client_id', cliente).order('name')
+      if (error) throw error
+      return (data || []) as { id: string; name: string }[]
+    },
+  })
+  // Modelos (078): cliente, unidade, tipo e horário prontos para repetir
   const { data: modelos = [], error: modelosErro } = useQuery({
     queryKey: ['equipe-modelos', uid],
     queryFn: async () => {
@@ -642,7 +697,8 @@ function RegistrarVisita({ uid, clientes, inicial, fechar }: { uid: string; clie
   })
   const nomeCli = (id?: string | null) => clientes.find(c => c.id === id)?.name || 'Cliente'
   const usarModelo = (m: ModeloVisita) => {
-    setCliente(m.client_id || ''); setUnidade(m.unidade || ''); setValor(String(m.valor).replace('.', ','))
+    setCliente(m.client_id || ''); setUnidade(m.unidade || ''); setTipo(tipoDaVisita(m)); setPaga(ehPaga(m))
+    setValor(m.valor != null ? String(m.valor).replace('.', ',') : '')
     setEntrada((m.entrada || '').slice(0, 5)); setSaida((m.saida || '').slice(0, 5)); setObs(m.observacoes || '')
     setGuardarModelo(false)
   }
@@ -655,14 +711,21 @@ function RegistrarVisita({ uid, clientes, inicial, fechar }: { uid: string; clie
     onError: (e: Error) => toast.error(e.message),
   })
   const futura = data > hojeISO()
+  const minutos = minutosDaVisita(entrada, saida)
+  const nomeTipo = ROTULO_TIPO_VISITA[tipo]
 
   const salvar = useMutation({
     mutationFn: async () => {
       if (!cliente) throw new Error('Escolha o cliente')
-      // Horário é opcional; se colocar, vai entrada e saída
       if (!!entrada !== !!saida) throw new Error('Informe a entrada e a saída, ou deixe as duas em branco')
-      const v = Number(valor.replace(/\./g, '').replace(',', '.'))
-      if (!(v > 0)) throw new Error('Informe o valor da visita')
+      // Já aconteceu e não é paga: o registro é das horas, como no portal
+      if (!paga && !futura && !entrada) throw new Error('Coloque o horário em que você entrou e saiu')
+      let v: number | null = null
+      if (paga) {
+        v = Number(valor.replace(/\./g, '').replace(',', '.'))
+        if (!(v > 0)) throw new Error('Informe o valor da visita paga')
+        v = Math.round(v * 100) / 100
+      }
       let relatorio: string | null = null
       if (arquivo) {
         // Foto diminuída antes de subir (continua legível). PDF vai igual.
@@ -673,41 +736,62 @@ function RegistrarVisita({ uid, clientes, inicial, fechar }: { uid: string; clie
         if (upErr) throw new Error('O relatório não subiu: ' + upErr.message)
         relatorio = caminho
       }
-      const { error } = await supabase.from('equipe_visitas').insert({
-        user_id: uid, client_id: cliente, unidade: unidade.trim() || null, data, entrada: entrada || null, saida: saida || null,
-        valor: Math.round(v * 100) / 100, relatorio, observacoes: obs.trim() || null,
-      })
-      if (error) throw new Error(/equipe_visitas/.test(error.message) ? 'Falta rodar a migração 076 no Supabase.' : error.message)
+      // Sem a migração 099 só existe a visita paga: os campos novos vão só quando precisam
+      const novos = { ...(!paga || inicial.paga === false ? { paga } : {}), ...(tipo !== 'visita' || (inicial.tipo && inicial.tipo !== 'visita') ? { tipo } : {}) }
+      const registro = {
+        client_id: cliente, unidade: unidade.trim() || null, data, entrada: entrada || null, saida: saida || null,
+        valor: v, observacoes: obs.trim() || null, status: paga ? 'pendente' : 'registrada', ...novos,
+        ...(relatorio ? { relatorio } : {}),
+      }
+      const { error } = editando
+        ? await supabase.from('equipe_visitas').update(registro).eq('id', inicial.id!)
+        : await supabase.from('equipe_visitas').insert({ user_id: uid, ...registro })
+      if (error) {
+        if (/paga|tipo|registrada|status_ok|valor_ok|tipo_ok|null value in column "valor"/i.test(error.message))
+          throw new Error('Falta rodar a migração 099 no Supabase (visita sem pagamento).')
+        throw new Error(/equipe_visitas/.test(error.message) ? 'Falta rodar a migração 076 no Supabase.' : error.message)
+      }
       if (guardarModelo && !modelosErro) {
-        await supabase.from('equipe_modelos_visita').insert({
-          user_id: uid, client_id: cliente, unidade: unidade.trim() || null, valor: Math.round(v * 100) / 100,
-          entrada: entrada || null, saida: saida || null, observacoes: obs.trim() || null,
+        const { error: eM } = await supabase.from('equipe_modelos_visita').insert({
+          user_id: uid, client_id: cliente, unidade: unidade.trim() || null, valor: v,
+          entrada: entrada || null, saida: saida || null, observacoes: obs.trim() || null, ...novos,
         })
+        if (eM) toast.error('O modelo não foi guardado: ' + eM.message)
         qc.invalidateQueries({ queryKey: ['equipe-modelos', uid] })
       }
     },
-    onSuccess: () => { toast.success(futura ? 'Visita programada' : 'Visita registrada — aguardando aprovação da contabilidade'); qc.invalidateQueries({ queryKey: ['equipe'] }); qc.invalidateQueries({ queryKey: ['avisos-sino'] }); fechar() },
+    onSuccess: () => {
+      toast.success(editando ? 'Alterado' : futura ? `${nomeTipo} programada` : paga ? 'Visita registrada — aguardando aprovação da contabilidade' : `${nomeTipo} registrada — já está no relatório e no calendário`)
+      qc.invalidateQueries({ queryKey: ['equipe'] }); qc.invalidateQueries({ queryKey: ['avisos-sino'] }); qc.invalidateQueries({ queryKey: ['cal-equipe-visitas'] })
+      fechar()
+    },
     onError: (e: Error) => toast.error(e.message),
   })
 
   return (
     <div className="modal-overlay" onClick={fechar}>
-      <div className="modal-box max-w-md space-y-4" onClick={e => e.stopPropagation()}>
+      <div className="modal-box max-w-md space-y-4 max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div>
-          <h3 className="text-lg font-semibold text-ink-900">{futura ? 'Programar visita' : 'Visita'}</h3>
-          <p className="text-xs text-ink-500">Depois do dia, a contabilidade aprova e ela entra em Pagamentos.</p>
+          <h3 className="text-lg font-semibold text-ink-900">{editando ? `Editar ${nomeTipo.toLowerCase()}` : futura ? `Programar ${nomeTipo.toLowerCase()}` : `Registrar ${nomeTipo.toLowerCase()}`}</h3>
+          <p className="text-xs text-ink-500">{paga ? 'Paga: depois do dia, a contabilidade aprova e ela entra em Pagamentos.' : 'Não paga: não calcula nada — entra no seu relatório e no calendário.'}</p>
         </div>
-        {modelos.length > 0 && (
+        <div className="grid grid-cols-3 gap-1 p-1 rounded-xl bg-ink-100/70">
+          {(['visita', 'supervisao', 'vistoria'] as const).map(k => (
+            <button key={k} type="button" onClick={() => setTipo(k)}
+              className={`h-9 rounded-lg text-sm font-medium ${tipo === k ? 'bg-white shadow-sm text-ink-900' : 'text-ink-500'}`}>{ROTULO_TIPO_VISITA[k]}</button>
+          ))}
+        </div>
+        {modelos.length > 0 && !editando && (
           <div>
             <label className="label">Usar um modelo</label>
             <div className="flex flex-wrap gap-1.5">
               {modelos.map(m => (
                 <span key={m.id} className="inline-flex items-center rounded-full border border-ink-200 bg-white text-xs">
                   <button type="button" className="pl-3 pr-1.5 py-1.5 text-ink-800" onClick={() => usarModelo(m)}>
-                    {nomeCli(m.client_id)}{m.unidade ? ` · ${m.unidade}` : ''} · {formatCurrency(Number(m.valor) || 0)}{m.entrada && m.saida ? ` · ${m.entrada.slice(0, 5)}–${m.saida.slice(0, 5)}` : ''}
+                    {ROTULO_TIPO_VISITA[tipoDaVisita(m)]} · {nomeCli(m.client_id)}{m.unidade ? ` · ${m.unidade}` : ''}{ehPaga(m) && m.valor ? ` · ${formatCurrency(Number(m.valor) || 0)}` : ''}{m.entrada && m.saida ? ` · ${m.entrada.slice(0, 5)}–${m.saida.slice(0, 5)}` : ''}
                   </button>
                   <button type="button" className="pr-2 pl-1 py-1.5 text-ink-400 hover:text-red-600" aria-label="Apagar modelo"
-                    onClick={async () => { if (await confirmar({ titulo: 'Apagar este modelo?', texto: 'As visitas já feitas continuam.', confirmar: 'Apagar' })) apagarModelo.mutate(m.id) }}>
+                    onClick={async () => { if (await confirmar({ titulo: 'Apagar este modelo?', texto: 'O que já foi registrado continua.', confirmar: 'Apagar' })) apagarModelo.mutate(m.id) }}>
                     <X size={12} />
                   </button>
                 </span>
@@ -717,97 +801,274 @@ function RegistrarVisita({ uid, clientes, inicial, fechar }: { uid: string; clie
         )}
         <div>
           <label className="label">Cliente *</label>
-          <select className="input" value={cliente} onChange={e => setCliente(e.target.value)}>
+          <select className="input" value={cliente} onChange={e => { setCliente(e.target.value); setUnidade('') }}>
             <option value="">Escolha…</option>
             {clientes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
         </div>
         <div>
           <label className="label">Unidade <span className="text-ink-400 font-normal">— opcional</span></label>
-          <input className="input" value={unidade} onChange={e => setUnidade(e.target.value)} placeholder="Ex.: Unidade Centro" />
+          {unidades.length > 0 ? (
+            <select className="input" value={unidade} onChange={e => setUnidade(e.target.value)}>
+              <option value="">Nenhuma / todas</option>
+              {unidades.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
+              {unidade && !unidades.some(u => u.name === unidade) && <option value={unidade}>{unidade}</option>}
+            </select>
+          ) : <input className="input" value={unidade} onChange={e => setUnidade(e.target.value)} placeholder="Ex.: Unidade Centro" />}
         </div>
         <div className="grid grid-cols-3 gap-2">
           <div><label className="label">Dia *</label><input className="input" type="date" value={data} onChange={e => setData(e.target.value)} /></div>
-          <div><label className="label">Entrada <span className="text-ink-400 font-normal">opc.</span></label><input className="input" type="time" value={entrada} onChange={e => setEntrada(e.target.value)} /></div>
-          <div><label className="label">Saída <span className="text-ink-400 font-normal">opc.</span></label><input className="input" type="time" value={saida} onChange={e => setSaida(e.target.value)} /></div>
+          <div><label className="label">Entrada {!paga && !futura ? '*' : <span className="text-ink-400 font-normal">opc.</span>}</label><input className="input" type="time" value={entrada} onChange={e => setEntrada(e.target.value)} /></div>
+          <div><label className="label">Saída {!paga && !futura ? '*' : <span className="text-ink-400 font-normal">opc.</span>}</label><input className="input" type="time" value={saida} onChange={e => setSaida(e.target.value)} /></div>
         </div>
+        {minutos != null && <p className="text-xs text-ink-500 -mt-2">{horasTexto(minutos)} no cliente</p>}
         <div>
-          <label className="label">Valor da visita *</label>
-          <input className="input tnum" inputMode="decimal" placeholder="0,00" value={valor} onChange={e => setValor(e.target.value)} />
-        </div>
-        <div>
-          <label className="label">Relatório <span className="text-ink-400 font-normal">— foto ou PDF</span></label>
+          <label className="label">Relatório <span className="text-ink-400 font-normal">— foto ou PDF{editando ? ' (só se for trocar)' : ''}</span></label>
           <input type="file" accept="image/*,application/pdf" className="input" onChange={e => setArquivo(e.target.files?.[0] || null)} />
         </div>
         <div>
           <label className="label">Observações <span className="text-ink-400 font-normal">— opcional</span></label>
-          <textarea className="input" rows={2} value={obs} onChange={e => setObs(e.target.value)} />
+          <textarea className="input" rows={2} value={obs} onChange={e => setObs(e.target.value)} placeholder="O que foi feito, pendências do cliente…" />
         </div>
-        {!modelosErro && (
+        <div className="rounded-xl border border-ink-200 p-3 space-y-2">
+          <label className="flex items-center gap-2 text-sm text-ink-800">
+            <input type="checkbox" checked={paga} onChange={e => setPaga(e.target.checked)} disabled={editando && inicial.paga === true} />
+            Esta visita é paga
+            <span className="text-xs text-ink-400">— vai para aprovação da contabilidade</span>
+          </label>
+          {paga && (
+            <div>
+              <label className="label">Valor da visita *</label>
+              <input className="input tnum" inputMode="decimal" placeholder="0,00" value={valor} onChange={e => setValor(e.target.value)} />
+            </div>
+          )}
+        </div>
+        {!modelosErro && !editando && (
           <label className="flex items-center gap-2 text-sm text-ink-700">
             <input type="checkbox" checked={guardarModelo} onChange={e => setGuardarModelo(e.target.checked)} />
-            Guardar como modelo para programar de novo
+            Guardar como modelo para registrar de novo
           </label>
         )}
         <div className="flex flex-col-reverse sm:flex-row gap-2">
           <button className="btn-secondary flex-1" onClick={fechar}>Cancelar</button>
-          <button className="btn-primary flex-1" disabled={salvar.isPending} onClick={() => salvar.mutate()}>{salvar.isPending ? 'Salvando…' : futura ? 'Programar' : 'Salvar'}</button>
+          <button className="btn-primary flex-1" disabled={salvar.isPending} onClick={() => salvar.mutate()}>{salvar.isPending ? 'Salvando…' : editando ? 'Salvar' : futura ? 'Programar' : 'Registrar'}</button>
         </div>
       </div>
     </div>
   )
 }
 
-// ── Calendário da pessoa (semana ou mês) ─────────────────────────────────
-function CalendarioEquipe({ periodo, supervisoes, visitas, compromissos, nomeCliente, aoTocarDia }: {
-  periodo: Periodo; supervisoes: Supervisao[]; visitas: VisitaEquipe[]; compromissos: Compromisso[]
-  nomeCliente: (id?: string | null) => string; aoTocarDia?: (dia: string) => void
+// ── Calendário grande do mês (pedido de 19/10/2026) ───────────────────────
+// Tudo da pessoa: visitas/supervisões/vistorias registradas, supervisões da
+// agenda da Supervisão, reuniões e compromissos, e as atividades do dia.
+type ItemDia = { chave: string; ordem: string; cor: string; ponto: string; texto: string }
+const COR_CAL = {
+  visita: { cor: 'bg-emerald-100 text-emerald-900', ponto: 'bg-emerald-500' },
+  supervisao: { cor: 'bg-teal-100 text-teal-900', ponto: 'bg-teal-500' },
+  vistoria: { cor: 'bg-orange-100 text-orange-900', ponto: 'bg-orange-500' },
+  programada: { cor: 'bg-sky-100 text-sky-900', ponto: 'bg-sky-500' },
+  sem_horario: { cor: 'bg-amber-100 text-amber-900', ponto: 'bg-amber-500' },
+  recusada: { cor: 'bg-red-50 text-red-700 line-through', ponto: 'bg-red-500' },
+  agenda: { cor: 'bg-violet-100 text-violet-900', ponto: 'bg-violet-500' },
+  reuniao: { cor: 'bg-blue-100 text-blue-900', ponto: 'bg-blue-500' },
+  atividades: { cor: 'bg-ink-100 text-ink-700', ponto: 'bg-ink-400' },
+  atividadesOk: { cor: 'bg-green-100 text-green-800', ponto: 'bg-green-600' },
+} as const
+
+function MeuCalendario({ uid, periodo, nomeCliente, registrar, apagar }: {
+  uid: string; periodo: Periodo; nomeCliente: (id?: string | null) => string
+  registrar?: (inicial: InicialVisita) => void; apagar?: (v: VisitaEquipe) => void
 }) {
-  const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-  // Grade começa na segunda: no mês, completa as semanas das pontas
-  const ini = new Date(periodo.ini + 'T12:00:00'); ini.setDate(ini.getDate() - ((ini.getDay() + 6) % 7))
-  const fim = new Date(periodo.fim + 'T12:00:00'); fim.setDate(fim.getDate() + (6 - ((fim.getDay() + 6) % 7)))
-  const dias: string[] = []
-  for (const d = new Date(ini); d <= fim; d.setDate(d.getDate() + 1)) dias.push(iso(d))
+  const navigate = useNavigate()
+  const [mes, setMes] = useState(() => mesDoPeriodo(periodo))
+  // Andou o período lá em cima: o calendário acompanha
+  useEffect(() => { setMes(mesDoPeriodo(periodo)) }, [periodo.ini, periodo.tipo]) // eslint-disable-line react-hooks/exhaustive-deps
+  const grade = useMemo(() => gradeDoMes(mes), [mes])
+  const { data, isLoading } = useQuery({ queryKey: ['equipe', grade.ini, grade.fim, uid], queryFn: () => carregar(grade, uid) })
+  const [aberto, setAberto] = useState<string | null>(null)
   const hoje = hojeISO()
-  type Item = { cor: string; texto: string }
-  const porDia = new Map<string, Item[]>()
-  const por = (dia: string, it: Item) => porDia.set(dia, [...(porDia.get(dia) || []), it])
-  supervisoes.forEach(s => por(s.visit_date, { cor: 'bg-violet-100 text-violet-800', texto: `Supervisão · ${s.client?.name || 'Cliente'}` }))
-  visitas.forEach(v => por(v.data, { cor: v.status === 'recusada' ? 'bg-red-100 text-red-700 line-through' : v.data > hoje ? 'bg-sky-100 text-sky-800' : 'bg-emerald-100 text-emerald-800', texto: `Visita · ${v.client?.name || nomeCliente(v.client_id) || 'Cliente'}${v.entrada ? ' ' + v.entrada.slice(0, 5) : ''}` }))
-  compromissos.forEach(c => por(c.scheduled_at.slice(0, 10), { cor: 'bg-amber-100 text-amber-800', texto: `${hora(c.scheduled_at)} ${c.title}` }))
+  const [a, m] = mes.split('-').map(Number)
+  const nomeMes = new Date(a, m - 1, 15).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
+  const andar = (n: number) => { const d = new Date(a, m - 1 + n, 15); setMes(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`) }
+
+  const doDia = useMemo(() => {
+    const out = new Map<string, { itens: ItemDia[]; visitas: VisitaEquipe[]; supervisoes: Supervisao[]; compromissos: Compromisso[]; atividades: Atividade[] }>()
+    const de = (d: string) => {
+      if (!out.has(d)) out.set(d, { itens: [], visitas: [], supervisoes: [], compromissos: [], atividades: [] })
+      return out.get(d)!
+    }
+    if (!data) return out
+    for (const v of data.visitas.filter(x => x.user_id === uid)) {
+      const sit = situacao(v), tp = tipoDaVisita(v)
+      const c = sit === 'recusada' ? COR_CAL.recusada : sit === 'programada' ? COR_CAL.programada : sit === 'sem_horario' ? COR_CAL.sem_horario : COR_CAL[tp]
+      const d = de(v.data)
+      d.visitas.push(v)
+      d.itens.push({ chave: 'v' + v.id, ordem: (v.entrada || '99').slice(0, 5), ...c, texto: `${v.entrada ? v.entrada.slice(0, 5) + ' ' : ''}${ROTULO_TIPO_VISITA[tp]} · ${v.client?.name || nomeCliente(v.client_id) || 'Cliente'}` })
+    }
+    for (const s of data.supervisoes.filter(x => x.supervisor_id === uid)) {
+      const d = de(s.visit_date)
+      d.supervisoes.push(s)
+      d.itens.push({ chave: 's' + s.id, ordem: '98', ...(s.status === 'nao_realizada' ? COR_CAL.recusada : COR_CAL.agenda), texto: `Supervisão · ${s.client?.name || 'Cliente'}` })
+    }
+    for (const c of data.compromissos.filter(x => doUsuario(x, uid))) {
+      const d = de(c.scheduled_at.slice(0, 10))
+      d.compromissos.push(c)
+      d.itens.push({ chave: 'c' + c.id, ordem: hora(c.scheduled_at), ...COR_CAL.reuniao, texto: `${hora(c.scheduled_at)} ${c.title}` })
+    }
+    for (const at of data.atividades.filter(x => x.user_id === uid)) de(at.activity_date).atividades.push(at)
+    for (const [, d] of out) {
+      d.itens.sort((x, y) => x.ordem.localeCompare(y.ordem))
+      if (d.atividades.length) {
+        const feitas = d.atividades.filter(x => x.done === true).length
+        d.itens.push({ chave: 'atv', ordem: '99', ...(feitas === d.atividades.length ? COR_CAL.atividadesOk : COR_CAL.atividades), texto: `Atividades ${feitas}/${d.atividades.length}` })
+      }
+    }
+    return out
+  }, [data, uid, nomeCliente])
+
+  const dia = aberto ? doDia.get(aberto) : undefined
   return (
     <div className="card overflow-hidden">
       <div className="px-4 py-3 border-b border-ink-100 flex items-center justify-between gap-3 flex-wrap">
-        <p className="text-sm font-semibold text-ink-900">Meu calendário</p>
-        <div className="flex flex-wrap gap-2 text-[11px] text-ink-500">
-          <span className="inline-flex items-center gap-1"><i className="w-2 h-2 rounded-full bg-violet-400" />supervisão</span>
-          <span className="inline-flex items-center gap-1"><i className="w-2 h-2 rounded-full bg-emerald-400" />visita</span>
-          <span className="inline-flex items-center gap-1"><i className="w-2 h-2 rounded-full bg-sky-400" />programada</span>
-          <span className="inline-flex items-center gap-1"><i className="w-2 h-2 rounded-full bg-amber-400" />compromisso</span>
+        <div className="flex items-center gap-1">
+          <button className="p-1.5 rounded-lg hover:bg-ink-100" aria-label="Mês anterior" onClick={() => andar(-1)}><ChevronLeft size={16} /></button>
+          <p className="text-sm font-semibold text-ink-900 min-w-[9rem] text-center first-letter:uppercase">{nomeMes}</p>
+          <button className="p-1.5 rounded-lg hover:bg-ink-100" aria-label="Próximo mês" onClick={() => andar(1)}><ChevronRight size={16} /></button>
+          {isLoading && <span className="text-[11px] text-ink-400 ml-1">carregando…</span>}
+        </div>
+        <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-ink-500">
+          {([['visita', 'Visita'], ['supervisao', 'Supervisão'], ['vistoria', 'Vistoria'], ['programada', 'Programada'], ['sem_horario', 'Falta o horário'], ['agenda', 'Supervisão (agenda)'], ['reuniao', 'Reunião'], ['atividades', 'Atividades']] as const).map(([k, t]) => (
+            <span key={k} className="inline-flex items-center gap-1"><i className={`w-2 h-2 rounded-full ${COR_CAL[k].ponto}`} />{t}</span>
+          ))}
         </div>
       </div>
       <div className="grid grid-cols-7 text-center text-[10px] uppercase tracking-wide text-ink-400 border-b border-ink-100">
         {['seg', 'ter', 'qua', 'qui', 'sex', 'sáb', 'dom'].map(d => <div key={d} className="py-1.5">{d}</div>)}
       </div>
       <div className="grid grid-cols-7">
-        {dias.map(d => {
-          const fora = d < periodo.ini || d > periodo.fim
-          const itens = porDia.get(d) || []
+        {grade.dias.map(d => {
+          const fora = d.slice(0, 7) !== mes
+          const noPeriodo = periodo.tipo === 'semana' && d >= periodo.ini && d <= periodo.fim
+          const itens = doDia.get(d)?.itens || []
           return (
-            <button key={d} type="button" disabled={!aoTocarDia || fora} onClick={() => aoTocarDia?.(d)}
-              title={aoTocarDia && !fora ? 'Nova visita neste dia' : undefined}
-              className={`min-h-[4.5rem] sm:min-h-[5.5rem] border-b border-r border-ink-100 p-1 text-left align-top ${fora ? 'bg-ink-50/60 text-ink-300' : 'hover:bg-primary-50/40'}`}>
+            <button key={d} type="button" onClick={() => setAberto(d)}
+              title={itens.length ? itens.map(i => i.texto).join('\n') : registrar ? 'Registrar ou programar neste dia' : undefined}
+              className={`min-h-[4.25rem] sm:min-h-[7.5rem] border-b border-r border-ink-100 p-1 sm:p-1.5 text-left align-top transition-colors hover:bg-primary-50/50
+                ${fora ? 'bg-ink-50/60 text-ink-300' : noPeriodo ? 'bg-primary-50/30' : ''}`}>
               <span className={`text-[11px] font-semibold ${d === hoje ? 'inline-flex w-5 h-5 items-center justify-center rounded-full bg-primary-600 text-white' : ''}`}>{Number(d.slice(8))}</span>
-              <div className="mt-0.5 space-y-0.5">
-                {itens.slice(0, 3).map((it, i) => <p key={i} className={`truncate rounded px-1 text-[10px] leading-4 ${it.cor}`}>{it.texto}</p>)}
-                {itens.length > 3 && <p className="text-[10px] text-ink-500 px-1">+{itens.length - 3}</p>}
+              {/* Celular: só as bolinhas; tocando no dia abre tudo */}
+              <div className="sm:hidden mt-1 flex flex-wrap gap-0.5">
+                {itens.slice(0, 6).map(i => <i key={i.chave} className={`w-1.5 h-1.5 rounded-full ${i.ponto}`} />)}
+              </div>
+              <div className="hidden sm:block mt-1 space-y-0.5">
+                {itens.slice(0, 5).map(i => <p key={i.chave} className={`truncate rounded px-1 text-[10.5px] leading-4 ${i.cor} ${fora ? 'opacity-60' : ''}`}>{i.texto}</p>)}
+                {itens.length > 5 && <p className="text-[10px] text-ink-500 px-1">+{itens.length - 5}</p>}
               </div>
             </button>
           )
         })}
       </div>
-      {aoTocarDia && <p className="px-4 py-2 text-[11px] text-ink-400">Toque num dia para colocar ou programar uma visita.</p>}
+      <p className="px-4 py-2 text-[11px] text-ink-400">Toque num dia para ver tudo{registrar ? ' e registrar uma visita, supervisão ou vistoria' : ''}.{periodo.tipo === 'semana' ? ' A semana do relatório fica destacada.' : ''}</p>
+
+      {aberto && (
+        <div className="modal-overlay" onClick={() => setAberto(null)}>
+          <div className="modal-box max-w-lg space-y-4 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs text-ink-500">Meu dia</p>
+                <h3 className="text-lg font-semibold text-ink-900 first-letter:uppercase">{diaLongo(aberto)}</h3>
+              </div>
+              <button className="p-1 text-ink-400 hover:text-ink-700" onClick={() => setAberto(null)} aria-label="Fechar"><X size={18} /></button>
+            </div>
+            {registrar && (
+              <div className="grid grid-cols-3 gap-2">
+                {(['visita', 'supervisao', 'vistoria'] as const).map(k => (
+                  <button key={k} className="btn-secondary text-sm justify-center" onClick={() => { setAberto(null); registrar({ data: aberto, tipo: k }) }}>
+                    <Plus size={14} />{ROTULO_TIPO_VISITA[k]}
+                  </button>
+                ))}
+              </div>
+            )}
+            {!dia || (!dia.visitas.length && !dia.supervisoes.length && !dia.compromissos.length && !dia.atividades.length)
+              ? <p className="text-sm text-ink-500">Nada neste dia.</p>
+              : (
+                <div className="space-y-4">
+                  {dia.visitas.length > 0 && (
+                    <BlocoDia titulo="Visitas, supervisões e vistorias">
+                      {dia.visitas.map(v => {
+                        const sit = situacao(v), tp = tipoDaVisita(v)
+                        return (
+                          <div key={v.id} className="py-2 flex items-start gap-2">
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm text-ink-900">
+                                <span className={`mr-1.5 text-[10px] font-semibold px-1.5 py-0.5 rounded ${COR_TIPO[tp]}`}>{ROTULO_TIPO_VISITA[tp]}</span>
+                                {v.client?.name || nomeCliente(v.client_id) || 'Cliente'}{v.unidade ? ` · ${v.unidade}` : ''}
+                              </p>
+                              <p className="text-xs text-ink-500">{[horarioDaVisita(v), ehPaga(v) ? `paga · ${formatCurrency(Number(v.valor) || 0)}` : 'não paga', v.observacoes].filter(Boolean).join(' · ')}</p>
+                              <div className="flex items-center gap-2 mt-1 flex-wrap">
+                                <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${COR_SITUACAO[sit]}`}>{ROTULO_SITUACAO_VISITA[sit]}</span>
+                                {v.relatorio && <SignedLink value={v.relatorio} bucket="arquivos" className="text-[11px] underline text-ink-500 inline-flex items-center gap-1"><FileText size={11} />relatório</SignedLink>}
+                              </div>
+                            </div>
+                            {registrar && editavel(v) && (
+                              <div className="flex items-center gap-1 shrink-0">
+                                <button className="btn-ghost text-xs py-1 px-2" onClick={() => { setAberto(null); registrar(paraEditar(v)) }}><Pencil size={12} />{sit === 'sem_horario' || sit === 'programada' ? 'Pôr horário' : 'Editar'}</button>
+                                {apagar && <button className="p-1 text-ink-400 hover:text-red-600" aria-label="Apagar" onClick={() => apagar(v)}><Trash2 size={14} /></button>}
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </BlocoDia>
+                  )}
+                  {dia.supervisoes.length > 0 && (
+                    <BlocoDia titulo="Supervisões da agenda" acao={{ rotulo: 'Abrir Supervisão', ir: () => navigate('/supervisao') }}>
+                      {dia.supervisoes.map(s => (
+                        <div key={s.id} className="py-2 flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="text-sm text-ink-900">{s.client?.name || 'Cliente'}{s.unit_name ? ` · ${s.unit_name}` : ''}</p>
+                            {(s.checked_in_at || s.observations) && <p className="text-xs text-ink-500">{[s.checked_in_at ? `check-in às ${hora(s.checked_in_at)}` : null, s.observations].filter(Boolean).join(' · ')}</p>}
+                          </div>
+                          <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full shrink-0 ${situacaoSup(s) === 'Realizada' ? 'bg-green-50 text-green-700' : situacaoSup(s) === 'Não realizada' ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-700'}`}>{situacaoSup(s)}</span>
+                        </div>
+                      ))}
+                    </BlocoDia>
+                  )}
+                  {dia.compromissos.length > 0 && (
+                    <BlocoDia titulo="Reuniões e compromissos" acao={{ rotulo: 'Abrir Reuniões', ir: () => navigate('/agenda') }}>
+                      {[...dia.compromissos].sort((x, y) => x.scheduled_at.localeCompare(y.scheduled_at)).map(c => (
+                        <div key={c.id} className="py-2 flex items-start gap-3">
+                          <p className="w-12 shrink-0 text-xs font-semibold text-ink-700 pt-0.5">{hora(c.scheduled_at)}</p>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm text-ink-900"><span className="text-ink-500">{c.category || 'Compromisso'} · </span>{c.title}</p>
+                            {c.client?.name && <p className="text-xs text-ink-500">{c.client.name}</p>}
+                          </div>
+                        </div>
+                      ))}
+                    </BlocoDia>
+                  )}
+                  {dia.atividades.length > 0 && (
+                    <BlocoDia titulo={`Atividades · ${dia.atividades.filter(x => x.done === true).length} de ${dia.atividades.length} feitas`} acao={{ rotulo: 'Abrir Atividades', ir: () => navigate('/atividades') }}>
+                      <div className="py-1">{dia.atividades.map(x => <LinhaAtividade key={x.id} a={x} />)}</div>
+                    </BlocoDia>
+                  )}
+                </div>
+              )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function BlocoDia({ titulo, acao, children }: { titulo: string; acao?: { rotulo: string; ir: () => void }; children: React.ReactNode }) {
+  return (
+    <div>
+      <div className="flex items-baseline justify-between gap-2 border-b border-ink-100 pb-1">
+        <p className="text-xs font-semibold text-ink-500 uppercase tracking-wide">{titulo}</p>
+        {acao && <button className="text-[11px] text-primary-700 hover:underline" onClick={acao.ir}>{acao.rotulo}</button>}
+      </div>
+      <div className="divide-y divide-ink-100">{children}</div>
     </div>
   )
 }

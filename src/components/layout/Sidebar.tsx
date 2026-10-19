@@ -2,19 +2,27 @@ import { NavLink, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Building2, FileText, ShieldCheck, UserCheck,
   Wallet, Calendar, MessageSquare, Settings, LogOut,
-  ChevronLeft, ChevronRight, Briefcase, UserPlus, X, ClipboardCheck, ListChecks, CalendarDays, Landmark, Timer, Users, FileCheck2, Cake, Sheet,
+  ChevronLeft, ChevronRight, Briefcase, UserPlus, X, ClipboardCheck, ListChecks, CalendarDays, Landmark, Timer, Users, FileCheck2, Cake, Sheet, CircleUser,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import { getInitials, corDoAvatar } from '../../lib/utils'
 import { SignedImage } from '../ui/SignedFile'
 
-type Item = { icon: LucideIcon; label: string; path: string; so?: 'chefe' | 'contabilidade' }
+type Item = { icon: LucideIcon; label: string; path: string; so?: 'chefe' | 'contabilidade'
+  // Quem é da contabilidade vê o trabalho de todos: para ela o item tem outro nome e ícone
+  contabilidade?: { label: string; icon: LucideIcon } }
 type Grupo = { titulo?: string; itens: Item[] }
 
 // Menu em blocos. Antes eram 14 itens soltos, na ordem em que foram criados.
 const MENU: Grupo[] = [
-  { itens: [{ icon: LayoutDashboard, label: 'Início', path: '/' }] },
+  {
+    itens: [
+      { icon: LayoutDashboard, label: 'Início', path: '/' },
+      // Pessoal: calendário, atividades, reuniões, visitas e relatório de quem tem login (19/10/2026: antes "Equipe")
+      { icon: CircleUser, label: 'Meu trabalho', path: '/equipe', contabilidade: { label: 'Equipe', icon: Users } },
+    ],
+  },
   {
     titulo: 'Operação',
     itens: [
@@ -24,7 +32,6 @@ const MENU: Grupo[] = [
       { icon: Timer, label: 'Jornada', path: '/jornada' },
       { icon: ShieldCheck, label: 'Supervisão', path: '/supervisao' },
       { icon: FileCheck2, label: 'Auditorias', path: '/auditorias' },
-      { icon: Users, label: 'Equipe', path: '/equipe' },
     ],
   },
   {
@@ -75,7 +82,7 @@ export default function Sidebar({ collapsed, onCollapse, mobileOpen, onMobileClo
   const podeVer = (i: Item) =>
     !i.so || (i.so === 'chefe' ? role === 'chefe' : isContabilidade)
   const grupos = MENU
-    .map(g => ({ ...g, itens: g.itens.filter(podeVer) }))
+    .map(g => ({ ...g, itens: g.itens.filter(podeVer).map(i => (isContabilidade && i.contabilidade ? { ...i, ...i.contabilidade } : i)) }))
     .filter(g => g.itens.length > 0)
 
   const inner = (

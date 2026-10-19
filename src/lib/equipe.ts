@@ -78,3 +78,61 @@ export function textoDoSaldo(saldo: number, brl: (v: number) => string): string 
 
 export const ROTULO_PAPEL: Record<string, string> = { chefe: 'Chefe', recrutador: 'RH', contabilidade: 'Contabilidade' }
 export const ROTULO_TIPO_CAIXA: Record<LancamentoCaixa['tipo'], string> = { recebido: 'Recebi', compra: 'Compra', devolvido: 'Devolvi' }
+
+// ── Visitas da equipe (paga 076/078; não paga 099) ─────────────────────────
+// Pedido de 19/10/2026: o administrativo também faz visita, supervisão e
+// vistoria. Registra como no portal (entrada e saída), sem ganhar: só entra no
+// relatório e no calendário. A paga continua com valor e aprovação.
+export type TipoVisitaEquipe = 'visita' | 'supervisao' | 'vistoria'
+export const ROTULO_TIPO_VISITA: Record<TipoVisitaEquipe, string> = { visita: 'Visita', supervisao: 'Supervisão', vistoria: 'Vistoria' }
+export type VisitaEquipeBase = {
+  data: string; entrada?: string | null; saida?: string | null
+  paga?: boolean | null; status: string; tipo?: string | null
+}
+export const tipoDaVisita = (v: { tipo?: string | null }): TipoVisitaEquipe =>
+  v.tipo === 'supervisao' || v.tipo === 'vistoria' ? v.tipo : 'visita'
+/** Sem a migração 099 toda visita é paga */
+export const ehPaga = (v: { paga?: boolean | null }) => v.paga !== false
+
+/** Minutos entre a entrada e a saída (passou da meia-noite: soma 24h); sem horário, null */
+export function minutosDaVisita(entrada?: string | null, saida?: string | null): number | null {
+  if (!entrada || !saida) return null
+  const [h1, m1] = entrada.slice(0, 5).split(':').map(Number), [h2, m2] = saida.slice(0, 5).split(':').map(Number)
+  if ([h1, m1, h2, m2].some(n => Number.isNaN(n))) return null
+  let min = (h2 * 60 + m2) - (h1 * 60 + m1)
+  if (min < 0) min += 1440
+  return min
+}
+/** 150 → "2h30"; 120 → "2h" */
+export const horasTexto = (min: number) => `${Math.floor(min / 60)}h${min % 60 ? String(min % 60).padStart(2, '0') : ''}`
+
+export type SituacaoVisitaEquipe = 'programada' | 'sem_horario' | 'realizada' | 'pendente' | 'aprovada' | 'recusada'
+export const ROTULO_SITUACAO_VISITA: Record<SituacaoVisitaEquipe, string> = {
+  programada: 'Programada', sem_horario: 'Falta o horário', realizada: 'Realizada',
+  pendente: 'Aguardando aprovação', aprovada: 'Aprovada', recusada: 'Recusada',
+}
+/** Paga: segue a aprovação. Não paga: programada (dia futuro), falta o horário ou realizada. */
+export function situacaoDaVisitaEquipe(v: VisitaEquipeBase, hoje: string): SituacaoVisitaEquipe {
+  if (ehPaga(v)) {
+    if (v.status === 'aprovada' || v.status === 'recusada') return v.status
+    return v.data > hoje ? 'programada' : 'pendente'
+  }
+  if (v.data > hoje) return 'programada'
+  return minutosDaVisita(v.entrada, v.saida) == null ? 'sem_horario' : 'realizada'
+}
+
+/** Grade do calendário do mês: de segunda antes do dia 1 até domingo depois do último dia */
+export function gradeDoMes(mes: string): { ini: string; fim: string; dias: string[] } {
+  const [a, m] = mes.split('-').map(Number)
+  const ini = new Date(a, m - 1, 1, 12); ini.setDate(ini.getDate() - ((ini.getDay() + 6) % 7))
+  const fim = new Date(a, m, 0, 12); fim.setDate(fim.getDate() + (6 - ((fim.getDay() + 6) % 7)))
+  const dias: string[] = []
+  for (const d = new Date(ini); d <= fim; d.setDate(d.getDate() + 1)) dias.push(iso(d))
+  return { ini: dias[0], fim: dias[dias.length - 1], dias }
+}
+/** Mês que o calendário mostra para o período: o do mês, ou o da quinta-feira da semana */
+export function mesDoPeriodo(p: Periodo): string {
+  if (p.tipo === 'mes') return p.ini.slice(0, 7)
+  const d = dia(p.ini); d.setDate(d.getDate() + 3)
+  return iso(d).slice(0, 7)
+}

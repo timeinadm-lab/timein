@@ -16,7 +16,7 @@ export type DadosRelatorioEquipe = {
   atividades: { data: string; nome: string; notas?: string | null; feito: boolean | null }[]
   compromissos: { inicio: string; categoria: string; titulo: string; cliente?: string | null; situacao: string; notas?: string | null }[]
   supervisoes: { data: string; cliente: string; unidade?: string | null; situacao: string; detalhe?: string | null }[]
-  // Visitas, supervisões e vistorias registradas: não pagas (só horário, 099) e pagas (valor + aprovação, 076)
+  // Visitas (= vistorias) e supervisões registradas: não pagas (só horário, 099) e pagas (valor + aprovação, 076)
   visitas: { data: string; tipo: string; cliente: string; unidade?: string | null; horario?: string | null; minutos?: number | null; paga: boolean; valor: number; situacao: string; temRelatorio: boolean; obs?: string | null }[]
   caixa: { data: string; tipo: 'recebido' | 'compra' | 'devolvido'; descricao: string; cliente?: string | null; valor: number; temComprovante: boolean }[]
   saldoPeriodo: SaldoCaixa
@@ -95,7 +95,7 @@ export async function gerarRelatorioEquipe(d: DadosRelatorioEquipe): Promise<Blo
     ['Atividades', `${feitas} de ${d.atividades.length}`, 'feitas'],
     ['Reuniões e compromissos', String(d.compromissos.length), d.compromissos.length === 1 ? 'no período' : 'no período'],
     ['Supervisões', String(supReal), `realizada${supReal === 1 ? '' : 's'} de ${d.supervisoes.length}`],
-    ['Visitas e vistorias', String(d.visitas.length), minutosVisitas ? `${horasTexto(minutosVisitas)} registradas` : 'registradas'],
+    ['Visitas registradas', String(d.visitas.length), minutosVisitas ? `${horasTexto(minutosVisitas)} registradas` : 'registradas'],
     ['Compras', brl(d.saldoPeriodo.gasto), `${d.caixa.filter(c => c.tipo === 'compra').length} comprovante(s)`],
   ]
   const qw = (W - 4 * 3) / 5
@@ -165,11 +165,11 @@ export async function gerarRelatorioEquipe(d: DadosRelatorioEquipe): Promise<Blo
     y += 2
   }
 
-  // ── Visitas, supervisões e vistorias ──
-  secao('Visitas, supervisões e vistorias', `${d.visitas.length} registro(s)${minutosVisitas ? ` · ${horasTexto(minutosVisitas)}` : ''}${valorPagas > 0 ? ` · pagas ${brl(valorPagas)}` : ''}`)
-  if (!d.visitas.length) vazio('Nenhuma visita, supervisão ou vistoria registrada no período.')
+  // ── Visitas e supervisões registradas ──
+  secao('Visitas e supervisões', `${d.visitas.length} registro(s)${minutosVisitas ? ` · ${horasTexto(minutosVisitas)}` : ''}${valorPagas > 0 ? ` · pagas ${brl(valorPagas)}` : ''}`)
+  if (!d.visitas.length) vazio('Nenhuma visita ou supervisão registrada no período.')
   for (const v of [...d.visitas].sort((a, b) => a.data.localeCompare(b.data) || (a.horario || '').localeCompare(b.horario || ''))) {
-    const det = [v.horario, v.paga ? 'paga' : 'não paga', v.temRelatorio ? 'relatório anexado' : 'sem relatório', v.obs].filter(Boolean).join(' · ')
+    const det = [v.horario, v.paga ? 'paga' : 'não paga', v.temRelatorio ? 'relatório anexado' : null, v.obs].filter(Boolean).join(' · ')
     const linhas = quebra(det, W - 50, 8)
     const titulo = quebra(`${nomeDia(v.data)} · ${v.tipo} · ${v.cliente}${v.unidade ? ` · ${v.unidade}` : ''}`, W - 50, 9.5)
     garantir(5 + titulo.length * 4.6 + linhas.length * 3.8)

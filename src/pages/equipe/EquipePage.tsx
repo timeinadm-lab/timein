@@ -25,7 +25,7 @@ import type { Periodo, TipoPeriodo, LancamentoCaixa, TipoVisitaEquipe, SituacaoV
  * A própria pessoa baixa o relatório (semana ou mês) e entrega para a chefe.
  *
  * 19/10/2026: calendário grande do mês com tudo da pessoa, e o registro de
- * visita, supervisão ou vistoria como no portal (cliente, entrada e saída) —
+ * visita (= vistoria) ou supervisão como no portal (cliente, entrada e saída) —
  * sem pagamento: só entra no relatório e no calendário (migração 099). A visita
  * paga (valor + aprovação da contabilidade) continua como opção.
  */
@@ -51,7 +51,7 @@ const COR_SITUACAO: Record<SituacaoVisitaEquipe, string> = {
   programada: 'bg-sky-50 text-sky-700', sem_horario: 'bg-amber-50 text-amber-700', realizada: 'bg-green-50 text-green-700',
   pendente: 'bg-amber-50 text-amber-700', aprovada: 'bg-green-50 text-green-700', recusada: 'bg-red-50 text-red-700',
 }
-const COR_TIPO: Record<TipoVisitaEquipe, string> = { visita: 'bg-emerald-50 text-emerald-800', supervisao: 'bg-teal-50 text-teal-800', vistoria: 'bg-orange-50 text-orange-800' }
+const COR_TIPO: Record<TipoVisitaEquipe, string> = { visita: 'bg-emerald-50 text-emerald-800', supervisao: 'bg-teal-50 text-teal-800' }
 const situacao = (v: VisitaEquipe) => situacaoDaVisitaEquipe(v, hojeISO())
 // A própria pessoa corrige e apaga enquanto não foi decidida (paga) — a não paga, sempre
 const editavel = (v: VisitaEquipe) => v.status === 'pendente' || v.status === 'registrada'
@@ -95,7 +95,7 @@ async function carregar(p: { ini: string; fim: string }, uid?: string): Promise<
       .gte('visit_date', p.ini).lte('visit_date', p.fim).order('id')),
     // Caixa: tudo (o saldo vem de antes do período também)
     dele(supabase.from('equipe_caixa').select('*'), 'user_id').order('data'),
-    // Visitas, supervisões e vistorias registradas (pagas 076 e não pagas 099)
+    // Visitas e supervisões registradas (pagas 076 e não pagas 099)
     dele(supabase.from('equipe_visitas').select('*, client:clients(name)'), 'user_id').gte('data', p.ini).lte('data', p.fim).order('data'),
   ])
   return {
@@ -151,7 +151,7 @@ export default function EquipePage() {
         <div>
           <p className="eyebrow mb-1">{chefia ? 'Operação' : 'Pessoal'}</p>
           <h1 className="page-title">{chefia && !pessoa ? 'Equipe' : 'Meu trabalho'}</h1>
-          <p className="text-sm text-ink-500 mt-1">Seu calendário com atividades, reuniões, visitas, supervisões e vistorias — e o relatório para entregar à chefe.</p>
+          <p className="text-sm text-ink-500 mt-1">Seu calendário com atividades, reuniões, visitas e supervisões — e o relatório para entregar à chefe.</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <div className="flex rounded-xl border border-ink-200 bg-white p-0.5" title="Período do relatório e das listas">
@@ -368,7 +368,7 @@ function PerfilEquipe({ uid, periodo, proprio, voltar, chefia }: { uid: string; 
         {([
           ['Atividades', `${r.feitas} de ${r.atividades.length}`, 'feitas'],
           ['Reuniões e compromissos', String(r.compromissos.length), 'no período'],
-          ['Visitas e vistorias', String(r.visitas.length), r.minutosVisitas ? `${horasTexto(r.minutosVisitas)} registradas` : 'registradas'],
+          ['Visitas e supervisões', String(r.visitas.length), r.minutosVisitas ? `${horasTexto(r.minutosVisitas)} registradas` : 'registradas'],
           ['Supervisões (agenda)', String(r.supReal), `realizada${r.supReal === 1 ? '' : 's'} de ${r.supervisoes.length}`],
           ['Compras', formatCurrency(r.movPeriodo.gasto), textoDoSaldo(r.saldoAgora.saldo, formatCurrency)],
         ] as const).map(([t, v, s]) => (
@@ -380,11 +380,11 @@ function PerfilEquipe({ uid, periodo, proprio, voltar, chefia }: { uid: string; 
         ))}
       </div>
 
-      {/* Visitas, supervisões e vistorias registradas — não pagas (099) e pagas (076) */}
+      {/* Visitas e supervisões registradas — não pagas (099) e pagas (076) */}
       <div className="card overflow-hidden">
         <div className="px-4 py-3 border-b border-ink-100 flex items-center justify-between gap-3 flex-wrap">
           <div>
-            <p className="text-sm font-semibold text-ink-900">Visitas, supervisões e vistorias</p>
+            <p className="text-sm font-semibold text-ink-900">Visitas e supervisões</p>
             <p className="text-xs text-ink-500">
               {r.visitas.length} no período{r.minutosVisitas ? ` · ${horasTexto(r.minutosVisitas)}` : ''}
               {r.valorVisitas > 0 ? ` · pagas ${formatCurrency(r.valorVisitas)}` : ''}{r.visitasPendentes ? ` · ${r.visitasPendentes} aguardando aprovação` : ''}
@@ -657,7 +657,7 @@ function LancarCaixa({ uid, clientes, fechar }: { uid: string; clientes: { id: s
   )
 }
 
-// ── Registrar visita, supervisão ou vistoria (a própria pessoa) ───────────
+// ── Registrar visita (= vistoria) ou supervisão (a própria pessoa) ────────
 // Como no portal: cliente, unidade, dia, entrada e saída, relatório. Não paga
 // por padrão (099): não calcula nada, entra no relatório e no calendário.
 function RegistrarVisita({ uid, clientes, inicial, fechar }: { uid: string; clientes: { id: string; name: string }[]; inicial: InicialVisita; fechar: () => void }) {
@@ -775,10 +775,10 @@ function RegistrarVisita({ uid, clientes, inicial, fechar }: { uid: string; clie
           <h3 className="text-lg font-semibold text-ink-900">{editando ? `Editar ${nomeTipo.toLowerCase()}` : futura ? `Programar ${nomeTipo.toLowerCase()}` : `Registrar ${nomeTipo.toLowerCase()}`}</h3>
           <p className="text-xs text-ink-500">{paga ? 'Paga: depois do dia, a contabilidade aprova e ela entra em Pagamentos.' : 'Não paga: não calcula nada — entra no seu relatório e no calendário.'}</p>
         </div>
-        <div className="grid grid-cols-3 gap-1 p-1 rounded-xl bg-ink-100/70">
-          {(['visita', 'supervisao', 'vistoria'] as const).map(k => (
+        <div className="grid grid-cols-2 gap-1 p-1 rounded-xl bg-ink-100/70">
+          {(['visita', 'supervisao'] as const).map(k => (
             <button key={k} type="button" onClick={() => setTipo(k)}
-              className={`h-9 rounded-lg text-sm font-medium ${tipo === k ? 'bg-white shadow-sm text-ink-900' : 'text-ink-500'}`}>{ROTULO_TIPO_VISITA[k]}</button>
+              className={`h-9 rounded-lg text-sm font-medium ${tipo === k ? 'bg-white shadow-sm text-ink-900' : 'text-ink-500'}`}>{k === 'visita' ? 'Visita / vistoria' : ROTULO_TIPO_VISITA[k]}</button>
           ))}
         </div>
         {modelos.length > 0 && !editando && (
@@ -823,7 +823,7 @@ function RegistrarVisita({ uid, clientes, inicial, fechar }: { uid: string; clie
         </div>
         {minutos != null && <p className="text-xs text-ink-500 -mt-2">{horasTexto(minutos)} no cliente</p>}
         <div>
-          <label className="label">Relatório <span className="text-ink-400 font-normal">— foto ou PDF{editando ? ' (só se for trocar)' : ''}</span></label>
+          <label className="label">Relatório <span className="text-ink-400 font-normal">— opcional, foto ou PDF{editando ? ' (só se for trocar)' : ''}</span></label>
           <input type="file" accept="image/*,application/pdf" className="input" onChange={e => setArquivo(e.target.files?.[0] || null)} />
         </div>
         <div>
@@ -859,13 +859,12 @@ function RegistrarVisita({ uid, clientes, inicial, fechar }: { uid: string; clie
 }
 
 // ── Calendário grande do mês (pedido de 19/10/2026) ───────────────────────
-// Tudo da pessoa: visitas/supervisões/vistorias registradas, supervisões da
+// Tudo da pessoa: visitas e supervisões registradas, supervisões da
 // agenda da Supervisão, reuniões e compromissos, e as atividades do dia.
 type ItemDia = { chave: string; ordem: string; cor: string; ponto: string; texto: string }
 const COR_CAL = {
   visita: { cor: 'bg-emerald-100 text-emerald-900', ponto: 'bg-emerald-500' },
   supervisao: { cor: 'bg-teal-100 text-teal-900', ponto: 'bg-teal-500' },
-  vistoria: { cor: 'bg-orange-100 text-orange-900', ponto: 'bg-orange-500' },
   programada: { cor: 'bg-sky-100 text-sky-900', ponto: 'bg-sky-500' },
   sem_horario: { cor: 'bg-amber-100 text-amber-900', ponto: 'bg-amber-500' },
   recusada: { cor: 'bg-red-50 text-red-700 line-through', ponto: 'bg-red-500' },
@@ -937,7 +936,7 @@ function MeuCalendario({ uid, periodo, nomeCliente, registrar, apagar }: {
           {isLoading && <span className="text-[11px] text-ink-400 ml-1">carregando…</span>}
         </div>
         <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-ink-500">
-          {([['visita', 'Visita'], ['supervisao', 'Supervisão'], ['vistoria', 'Vistoria'], ['programada', 'Programada'], ['sem_horario', 'Falta o horário'], ['agenda', 'Supervisão (agenda)'], ['reuniao', 'Reunião'], ['atividades', 'Atividades']] as const).map(([k, t]) => (
+          {([['visita', 'Visita'], ['supervisao', 'Supervisão'], ['programada', 'Programada'], ['sem_horario', 'Falta o horário'], ['agenda', 'Supervisão (agenda)'], ['reuniao', 'Reunião'], ['atividades', 'Atividades']] as const).map(([k, t]) => (
             <span key={k} className="inline-flex items-center gap-1"><i className={`w-2 h-2 rounded-full ${COR_CAL[k].ponto}`} />{t}</span>
           ))}
         </div>
@@ -968,7 +967,7 @@ function MeuCalendario({ uid, periodo, nomeCliente, registrar, apagar }: {
           )
         })}
       </div>
-      <p className="px-4 py-2 text-[11px] text-ink-400">Toque num dia para ver tudo{registrar ? ' e registrar uma visita, supervisão ou vistoria' : ''}.{periodo.tipo === 'semana' ? ' A semana do relatório fica destacada.' : ''}</p>
+      <p className="px-4 py-2 text-[11px] text-ink-400">Toque num dia para ver tudo{registrar ? ' e registrar uma visita ou supervisão' : ''}.{periodo.tipo === 'semana' ? ' A semana do relatório fica destacada.' : ''}</p>
 
       {aberto && (
         <div className="modal-overlay" onClick={() => setAberto(null)}>
@@ -981,10 +980,10 @@ function MeuCalendario({ uid, periodo, nomeCliente, registrar, apagar }: {
               <button className="p-1 text-ink-400 hover:text-ink-700" onClick={() => setAberto(null)} aria-label="Fechar"><X size={18} /></button>
             </div>
             {registrar && (
-              <div className="grid grid-cols-3 gap-2">
-                {(['visita', 'supervisao', 'vistoria'] as const).map(k => (
+              <div className="grid grid-cols-2 gap-2">
+                {(['visita', 'supervisao'] as const).map(k => (
                   <button key={k} className="btn-secondary text-sm justify-center" onClick={() => { setAberto(null); registrar({ data: aberto, tipo: k }) }}>
-                    <Plus size={14} />{ROTULO_TIPO_VISITA[k]}
+                    <Plus size={14} />{k === 'visita' ? 'Visita / vistoria' : ROTULO_TIPO_VISITA[k]}
                   </button>
                 ))}
               </div>
@@ -994,7 +993,7 @@ function MeuCalendario({ uid, periodo, nomeCliente, registrar, apagar }: {
               : (
                 <div className="space-y-4">
                   {dia.visitas.length > 0 && (
-                    <BlocoDia titulo="Visitas, supervisões e vistorias">
+                    <BlocoDia titulo="Visitas e supervisões">
                       {dia.visitas.map(v => {
                         const sit = situacao(v), tp = tipoDaVisita(v)
                         return (

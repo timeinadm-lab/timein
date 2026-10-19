@@ -80,17 +80,19 @@ export const ROTULO_PAPEL: Record<string, string> = { chefe: 'Chefe', recrutador
 export const ROTULO_TIPO_CAIXA: Record<LancamentoCaixa['tipo'], string> = { recebido: 'Recebi', compra: 'Compra', devolvido: 'Devolvi' }
 
 // ── Visitas da equipe (paga 076/078; não paga 099) ─────────────────────────
-// Pedido de 19/10/2026: o administrativo também faz visita, supervisão e
-// vistoria. Registra como no portal (entrada e saída), sem ganhar: só entra no
-// relatório e no calendário. A paga continua com valor e aprovação.
-export type TipoVisitaEquipe = 'visita' | 'supervisao' | 'vistoria'
-export const ROTULO_TIPO_VISITA: Record<TipoVisitaEquipe, string> = { visita: 'Visita', supervisao: 'Supervisão', vistoria: 'Vistoria' }
+// Pedido de 19/10/2026: o administrativo também faz visita e supervisão.
+// Registra como no portal (entrada e saída), sem ganhar: só entra no relatório
+// e no calendário. A paga continua com valor e aprovação.
+// Visita e vistoria são a mesma coisa (Gabriel, 19/10): ficam dois tipos; o
+// 'vistoria' que o banco aceita (099) aparece como visita.
+export type TipoVisitaEquipe = 'visita' | 'supervisao'
+export const ROTULO_TIPO_VISITA: Record<TipoVisitaEquipe, string> = { visita: 'Visita', supervisao: 'Supervisão' }
 export type VisitaEquipeBase = {
   data: string; entrada?: string | null; saida?: string | null
   paga?: boolean | null; status: string; tipo?: string | null
 }
 export const tipoDaVisita = (v: { tipo?: string | null }): TipoVisitaEquipe =>
-  v.tipo === 'supervisao' || v.tipo === 'vistoria' ? v.tipo : 'visita'
+  v.tipo === 'supervisao' ? 'supervisao' : 'visita'
 /** Sem a migração 099 toda visita é paga */
 export const ehPaga = (v: { paga?: boolean | null }) => v.paga !== false
 

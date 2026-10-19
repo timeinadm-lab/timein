@@ -42,6 +42,7 @@ type VisitaEquipe = {
 }
 type ModeloVisita = { id: string; client_id: string | null; unidade?: string | null; valor?: number | string | null; entrada?: string | null; saida?: string | null; observacoes?: string | null; paga?: boolean | null; tipo?: string | null }
 type InicialVisita = {
+  qual?: Qual   // o que abre no Registrar (visita, supervisão, reunião, atividade)
   id?: string; tipo?: TipoVisitaEquipe; paga?: boolean; cliente?: string; unidade?: string; data?: string
   entrada?: string; saida?: string; valor?: string; obs?: string
 }
@@ -214,6 +215,7 @@ function ListaEquipe({ periodo, abrir }: { periodo: Periodo; abrir: (id: string)
 // ── Perfil de uma pessoa ──────────────────────────────────────────────────
 function PerfilEquipe({ uid, periodo, proprio, voltar, chefia }: { uid: string; periodo: Periodo; proprio: boolean; voltar?: () => void; chefia: boolean }) {
   const { profile } = useAuth()
+  const navigate = useNavigate()
   const qc = useQueryClient()
   const { data, isLoading, error } = useQuery({ queryKey: ['equipe', periodo.ini, periodo.fim, uid], queryFn: () => carregar(periodo, uid) })
   const { data: clientes = [] } = useQuery({
@@ -277,6 +279,16 @@ function PerfilEquipe({ uid, periodo, proprio, voltar, chefia }: { uid: string; 
     if (await confirmar({ titulo: `Apagar esta ${ROTULO_TIPO_VISITA[tipoDaVisita(v)].toLowerCase()}?`, texto: `${formatDate(v.data)} · ${v.client?.name || nomeCliente(v.client_id) || 'Cliente'}`, confirmar: 'Apagar', perigo: true }))
       apagarVisita.mutate(v.id)
   }
+
+  // Atividade: marcar feita / não feita aqui mesmo (tocar de novo desmarca)
+  const marcarAtividade = useMutation({
+    mutationFn: async ({ id, v }: { id: string; v: boolean | null }) => {
+      const { error } = await supabase.from('activity_logs').update({ done: v }).eq('id', id)
+      if (error) throw error
+    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['equipe'] }); qc.invalidateQueries({ queryKey: ['activity-logs-day'] }) },
+    onError: (e: Error) => toast.error(e.message),
+  })
 
   const apagar = useMutation({
     mutationFn: async (id: string) => {
@@ -351,7 +363,7 @@ function PerfilEquipe({ uid, periodo, proprio, voltar, chefia }: { uid: string; 
           <p className="text-lg font-semibold text-ink-900 leading-tight">{nome}</p>
           <p className="text-xs text-ink-500">{papel}</p>
         </div>
-        {podeRegistrar && <button className="btn-secondary text-sm" onClick={() => setRegistrandoVisita({})}><Plus size={15} />Registrar visita</button>}
+        {podeRegistrar && <button className="btn-secondary text-sm" onClick={() => setRegistrandoVisita({})}><Plus size={15} />Registrar</button>}
         <label className="flex items-center gap-1.5 text-xs text-ink-600">
           <input type="checkbox" checked={comFotos} onChange={e => setComFotos(e.target.checked)} /> fotos dos comprovantes
         </label>
@@ -361,7 +373,7 @@ function PerfilEquipe({ uid, periodo, proprio, voltar, chefia }: { uid: string; 
       {/* Calendário grande do mês: tudo da pessoa */}
       <MeuCalendario uid={uid} periodo={periodo} nomeCliente={nomeCliente}
         registrar={podeRegistrar ? ini => setRegistrandoVisita(ini) : undefined}
-        apagar={proprio ? pedirApagar : undefined} />
+        apagar={proprio ? pedirApagar : undefined} marcar={proprio ? (id, v) => marcarAtividade.mutate({ id, v }) : undefined} />
 
       {/* Resumo do período */}
       <div className="card grid grid-cols-2 md:grid-cols-5 divide-x divide-ink-100 overflow-hidden">
@@ -445,17 +457,19 @@ function PerfilEquipe({ uid, periodo, proprio, voltar, chefia }: { uid: string; 
       </div>
 
       {/* Atividades por dia */}
-      <Secao titulo="Atividades" info={`${r.feitas} feita(s) · ${r.atividades.filter(a => a.done === false).length} não feita(s)`}>
+      <Secao titulo="Atividades" info={`${r.feitas} feita(s) · ${r.atividades.filter(a => a.done === false).length} não feita(s)`}
+        acao={proprio ? <button className="btn-secondary text-xs py-1.5" onClick={() => setRegistrandoVisita({ qual: 'atividade' })}><Plus size={13} />Atividade</button> : undefined}>
         {r.atividades.length === 0 ? <Vazio texto="Nenhuma atividade no período." /> : [...atividadesPorDia].map(([dia, lista]) => (
           <div key={dia} className="px-4 py-2.5">
             <p className="text-xs font-semibold text-ink-500 first-letter:uppercase mb-1">{diaLongo(dia)}</p>
-            {lista.map(a => <LinhaAtividade key={a.id} a={a} />)}
+            {lista.map(a => <LinhaAtividade key={a.id} a={a} marcar={proprio ? v => marcarAtividade.mutate({ id: a.id, v }) : undefined} />)}
           </div>
         ))}
       </Secao>
 
       {/* Reuniões e compromissos */}
-      <Secao titulo="Reuniões e compromissos" info={`${r.compromissos.length}`}>
+      <Secao titulo="Reuniões e compromissos" info={`${r.compromissos.length}`}
+        acao={proprio ? <button className="btn-secondary text-xs py-1.5" onClick={() => setRegistrandoVisita({ qual: 'reuniao' })}><Plus size={13} />Reunião</button> : undefined}>
         {r.compromissos.length === 0 ? <Vazio texto="Nenhuma reunião ou compromisso no período." /> :
           [...r.compromissos].sort((a, b) => a.scheduled_at.localeCompare(b.scheduled_at)).map(c => (
             <div key={c.id} className="px-4 py-2.5 flex items-start gap-3">
@@ -466,6 +480,7 @@ function PerfilEquipe({ uid, periodo, proprio, voltar, chefia }: { uid: string; 
               <div className="flex-1 min-w-0">
                 <p className="text-sm text-ink-900"><span className="text-ink-500">{c.category || 'Compromisso'} · </span>{c.title}</p>
                 {c.client?.name && <p className="text-xs text-ink-500">{c.client.name}</p>}
+                {proprio && <button className="text-[11px] underline text-ink-500 inline-flex items-center gap-0.5" onClick={() => navigate(`/agenda/${c.id}/editar`)}><Pencil size={10} />editar</button>}
               </div>
               <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full shrink-0 ${/realiz/i.test(c.status || '') ? 'bg-green-50 text-green-700' : /cancel|falt/i.test(c.status || '') ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-700'}`}>{c.status || 'Agendada'}</span>
             </div>
@@ -527,7 +542,7 @@ function PerfilEquipe({ uid, periodo, proprio, voltar, chefia }: { uid: string; 
       </div>
 
       {lancando && <LancarCaixa uid={uid} clientes={clientes} fechar={() => setLancando(false)} />}
-      {registrandoVisita && <RegistrarVisita uid={uid} clientes={clientes} inicial={registrandoVisita} fechar={() => setRegistrandoVisita(null)} />}
+      {registrandoVisita && <Registrar uid={uid} clientes={clientes} inicial={registrandoVisita} fechar={() => setRegistrandoVisita(null)} />}
       {recusando && (
         <div className="modal-overlay" onClick={() => setRecusando(null)}>
           <div className="modal-box max-w-sm space-y-3" onClick={e => e.stopPropagation()}>
@@ -545,7 +560,7 @@ function PerfilEquipe({ uid, periodo, proprio, voltar, chefia }: { uid: string; 
   )
 }
 
-function LinhaAtividade({ a }: { a: Atividade }) {
+function LinhaAtividade({ a, marcar }: { a: Atividade; marcar?: (v: boolean | null) => void }) {
   return (
     <div className="flex items-start gap-2 py-1">
       <span className={`mt-0.5 w-4 h-4 rounded-full flex items-center justify-center shrink-0 ${a.done === true ? 'bg-green-600' : a.done === false ? 'bg-red-500' : 'border border-ink-300'}`}>
@@ -556,16 +571,27 @@ function LinhaAtividade({ a }: { a: Atividade }) {
         <p className={`text-sm ${a.done === false ? 'text-ink-500' : 'text-ink-800'}`}>{a.activity_name}</p>
         {a.notes && <p className="text-xs text-ink-400">{a.notes}</p>}
       </div>
+      {marcar && (
+        <div className="ml-auto flex rounded-lg border border-ink-200 overflow-hidden text-[11px] shrink-0">
+          <button onClick={() => marcar(a.done === true ? null : true)} title="Feita"
+            className={`px-2 py-1 font-medium ${a.done === true ? 'bg-green-600 text-white' : 'bg-white text-ink-500 hover:bg-green-50'}`}>✓ Feita</button>
+          <button onClick={() => marcar(a.done === false ? null : false)} title="Não feita"
+            className={`px-2 py-1 font-medium border-l border-ink-200 ${a.done === false ? 'bg-red-500 text-white' : 'bg-white text-ink-500 hover:bg-red-50'}`}>✕ Não</button>
+        </div>
+      )}
     </div>
   )
 }
 
-function Secao({ titulo, info, children }: { titulo: string; info?: string; children: React.ReactNode }) {
+function Secao({ titulo, info, acao, children }: { titulo: string; info?: string; acao?: React.ReactNode; children: React.ReactNode }) {
   return (
     <div className="card overflow-hidden">
-      <div className="px-4 py-3 border-b border-ink-100 flex items-baseline justify-between gap-3">
-        <p className="text-sm font-semibold text-ink-900">{titulo}</p>
-        {info && <p className="text-xs text-ink-500">{info}</p>}
+      <div className="px-4 py-3 border-b border-ink-100 flex items-center justify-between gap-3">
+        <div className="flex items-baseline gap-3 min-w-0 flex-wrap">
+          <p className="text-sm font-semibold text-ink-900">{titulo}</p>
+          {info && <p className="text-xs text-ink-500">{info}</p>}
+        </div>
+        {acao}
       </div>
       <div className="divide-y divide-ink-100">{children}</div>
     </div>
@@ -660,10 +686,12 @@ function LancarCaixa({ uid, clientes, fechar }: { uid: string; clientes: { id: s
 // ── Registrar visita (= vistoria) ou supervisão (a própria pessoa) ────────
 // Como no portal: cliente, unidade, dia, entrada e saída, relatório. Não paga
 // por padrão (099): não calcula nada, entra no relatório e no calendário.
-function RegistrarVisita({ uid, clientes, inicial, fechar }: { uid: string; clientes: { id: string; name: string }[]; inicial: InicialVisita; fechar: () => void }) {
+function FormVisita({ uid, clientes, inicial, tipo, mudarTipo, fechar }: {
+  uid: string; clientes: { id: string; name: string }[]; inicial: InicialVisita
+  tipo: TipoVisitaEquipe; mudarTipo: (t: TipoVisitaEquipe) => void; fechar: () => void
+}) {
   const qc = useQueryClient()
   const editando = !!inicial.id
-  const [tipo, setTipo] = useState<TipoVisitaEquipe>(inicial.tipo || 'visita')
   const [paga, setPaga] = useState(inicial.paga ?? false)
   const [cliente, setCliente] = useState(inicial.cliente || '')
   const [unidade, setUnidade] = useState(inicial.unidade || '')
@@ -697,7 +725,7 @@ function RegistrarVisita({ uid, clientes, inicial, fechar }: { uid: string; clie
   })
   const nomeCli = (id?: string | null) => clientes.find(c => c.id === id)?.name || 'Cliente'
   const usarModelo = (m: ModeloVisita) => {
-    setCliente(m.client_id || ''); setUnidade(m.unidade || ''); setTipo(tipoDaVisita(m)); setPaga(ehPaga(m))
+    setCliente(m.client_id || ''); setUnidade(m.unidade || ''); mudarTipo(tipoDaVisita(m)); setPaga(ehPaga(m))
     setValor(m.valor != null ? String(m.valor).replace('.', ',') : '')
     setEntrada((m.entrada || '').slice(0, 5)); setSaida((m.saida || '').slice(0, 5)); setObs(m.observacoes || '')
     setGuardarModelo(false)
@@ -769,17 +797,10 @@ function RegistrarVisita({ uid, clientes, inicial, fechar }: { uid: string; clie
   })
 
   return (
-    <div className="modal-overlay" onClick={fechar}>
-      <div className="modal-box max-w-md space-y-4 max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+    <>
         <div>
           <h3 className="text-lg font-semibold text-ink-900">{editando ? `Editar ${nomeTipo.toLowerCase()}` : futura ? `Programar ${nomeTipo.toLowerCase()}` : `Registrar ${nomeTipo.toLowerCase()}`}</h3>
           <p className="text-xs text-ink-500">{paga ? 'Paga: depois do dia, a contabilidade aprova e ela entra em Pagamentos.' : 'Não paga: não calcula nada — entra no seu relatório e no calendário.'}</p>
-        </div>
-        <div className="grid grid-cols-2 gap-1 p-1 rounded-xl bg-ink-100/70">
-          {(['visita', 'supervisao'] as const).map(k => (
-            <button key={k} type="button" onClick={() => setTipo(k)}
-              className={`h-9 rounded-lg text-sm font-medium ${tipo === k ? 'bg-white shadow-sm text-ink-900' : 'text-ink-500'}`}>{k === 'visita' ? 'Visita / vistoria' : ROTULO_TIPO_VISITA[k]}</button>
-          ))}
         </div>
         {modelos.length > 0 && !editando && (
           <div>
@@ -853,8 +874,240 @@ function RegistrarVisita({ uid, clientes, inicial, fechar }: { uid: string; clie
           <button className="btn-secondary flex-1" onClick={fechar}>Cancelar</button>
           <button className="btn-primary flex-1" disabled={salvar.isPending} onClick={() => salvar.mutate()}>{salvar.isPending ? 'Salvando…' : editando ? 'Salvar' : futura ? 'Programar' : 'Registrar'}</button>
         </div>
+    </>
+  )
+}
+
+// ── Registrar: tudo num lugar só (pedido de 19/10/2026: "tem que facilitar,
+// direto ao ponto") — visita/vistoria, supervisão, reunião/compromisso e atividade
+type Qual = 'visita' | 'supervisao' | 'reuniao' | 'atividade'
+const ROTULO_QUAL: Record<Qual, string> = { visita: 'Visita / vistoria', supervisao: 'Supervisão', reuniao: 'Reunião', atividade: 'Atividade' }
+
+function Registrar({ uid, clientes, inicial, fechar }: { uid: string; clientes: { id: string; name: string }[]; inicial: InicialVisita; fechar: () => void }) {
+  const editando = !!inicial.id
+  const [qual, setQual] = useState<Qual>(inicial.qual || inicial.tipo || 'visita')
+  // Editando uma visita, só dá para trocar entre visita e supervisão
+  const opcoes: Qual[] = editando ? ['visita', 'supervisao'] : ['visita', 'supervisao', 'reuniao', 'atividade']
+  return (
+    <div className="modal-overlay" onClick={fechar}>
+      <div className="modal-box max-w-md space-y-4 max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className={`grid gap-1 p-1 rounded-xl bg-ink-100/70 ${opcoes.length === 4 ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-2'}`}>
+          {opcoes.map(k => (
+            <button key={k} type="button" onClick={() => setQual(k)}
+              className={`h-9 px-1 rounded-lg text-[13px] font-medium leading-tight ${qual === k ? 'bg-white shadow-sm text-ink-900' : 'text-ink-500'}`}>{ROTULO_QUAL[k]}</button>
+          ))}
+        </div>
+        {qual === 'reuniao' ? <FormReuniao uid={uid} clientes={clientes} dia={inicial.data} fechar={fechar} />
+          : qual === 'atividade' ? <FormAtividade uid={uid} dia={inicial.data} fechar={fechar} />
+          : <FormVisita uid={uid} clientes={clientes} inicial={inicial} tipo={qual} mudarTipo={setQual} fechar={fechar} />}
       </div>
     </div>
+  )
+}
+
+// Reunião ou compromisso — o mesmo que a tela de Reuniões grava (interviews),
+// com você já como participante
+const TIPOS_REUNIAO = ['Reunião', 'Compromisso', 'Treinamento', 'Ligação', 'Outro'] as const
+function FormReuniao({ uid, clientes, dia, fechar }: { uid: string; clientes: { id: string; name: string }[]; dia?: string; fechar: () => void }) {
+  const qc = useQueryClient()
+  const [categoria, setCategoria] = useState<typeof TIPOS_REUNIAO[number]>('Reunião')
+  const [titulo, setTitulo] = useState('')
+  const [data, setData] = useState(dia || hojeISO())
+  const [horaIni, setHoraIni] = useState('')
+  const [duracao, setDuracao] = useState('60')
+  const [modalidade, setModalidade] = useState('Online')
+  const [link, setLink] = useState('')
+  const [cliente, setCliente] = useState('')
+  const [outros, setOutros] = useState<string[]>([])
+  const [notas, setNotas] = useState('')
+  const jaFoi = data < hojeISO()
+  const [situacao, setSituacao] = useState<'Agendada' | 'Realizada' | null>(null)
+  const status = situacao || (jaFoi ? 'Realizada' : 'Agendada')
+  const ehCompromisso = categoria === 'Compromisso'
+  const { data: pessoas = [] } = useQuery({
+    queryKey: ['user-profiles-nomes'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('user_profiles').select('id, full_name').order('full_name')
+      if (error) throw error
+      return (data || []) as { id: string; full_name: string }[]
+    },
+    staleTime: 5 * 60_000,
+  })
+
+  const salvar = useMutation({
+    mutationFn: async () => {
+      if (!titulo.trim()) throw new Error(ehCompromisso ? 'Escreva o que é o compromisso' : 'Escreva o assunto')
+      if (!data || !horaIni) throw new Error('Escolha o dia e a hora')
+      // Hora de parede (sem fuso), como a tela de Reuniões grava
+      const { error } = await supabase.from('interviews').insert({
+        title: titulo.trim(), category: categoria, client_id: cliente || null,
+        recruiter_id: uid, participant_ids: [uid, ...outros.filter(p => p !== uid)],
+        scheduled_at: `${data}T${horaIni}`, duration_min: ehCompromisso ? 60 : Number(duracao),
+        modality: ehCompromisso ? 'Presencial' : modalidade, link_or_address: ehCompromisso ? null : (link.trim() || null),
+        notes: notas.trim() || null, status,
+      })
+      if (error) throw error
+    },
+    onSuccess: () => {
+      toast.success(`${categoria} ${status === 'Realizada' ? 'registrada' : 'agendada'} — já está no seu calendário`)
+      qc.invalidateQueries({ queryKey: ['equipe'] }); qc.invalidateQueries({ queryKey: ['interviews'] })
+      fechar()
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  return (
+    <>
+      <div>
+        <h3 className="text-lg font-semibold text-ink-900">{ehCompromisso ? 'Compromisso' : 'Reunião'}</h3>
+        <p className="text-xs text-ink-500">Entra no seu calendário, no relatório e na tela de Reuniões.</p>
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {TIPOS_REUNIAO.map(c => (
+          <button key={c} type="button" onClick={() => { setCategoria(c); if (c === 'Ligação') setModalidade('Telefone') }}
+            className={`px-3 py-1.5 rounded-xl text-sm font-medium border-2 ${categoria === c ? 'border-primary-600 bg-primary-50 text-primary-700' : 'border-ink-200 text-ink-500 hover:border-ink-300'}`}>{c}</button>
+        ))}
+      </div>
+      <div>
+        <label className="label">{ehCompromisso ? 'O que é *' : 'Assunto *'}</label>
+        <input className="input" value={titulo} onChange={e => setTitulo(e.target.value)} placeholder={ehCompromisso ? 'Ex.: Consulta médica, viagem para o cliente…' : 'Ex.: Alinhamento com o cliente, reunião de equipe…'} />
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div><label className="label">Dia *</label><input className="input" type="date" value={data} onChange={e => setData(e.target.value)} /></div>
+        <div><label className="label">Hora *</label><input className="input" type="time" value={horaIni} onChange={e => setHoraIni(e.target.value)} /></div>
+      </div>
+      {!ehCompromisso && (
+        <>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="label">Duração</label>
+              <select className="input" value={duracao} onChange={e => setDuracao(e.target.value)}>
+                {['30', '45', '60', '90', '120'].map(m => <option key={m} value={m}>{Number(m) >= 60 ? `${Number(m) / 60}h`.replace('.5h', 'h30') : `${m} min`}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="label">Como</label>
+              <select className="input" value={modalidade} onChange={e => setModalidade(e.target.value)}>
+                <option>Online</option><option>Presencial</option><option>Telefone</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <label className="label">Link ou endereço <span className="text-ink-400 font-normal">— opcional</span></label>
+            <input className="input" value={link} onChange={e => setLink(e.target.value)} placeholder="Link do Meet/Teams/Zoom ou o endereço" />
+          </div>
+          <div>
+            <label className="label">Quem mais vai <span className="text-ink-400 font-normal">— você já está</span></label>
+            <div className="flex flex-wrap gap-1.5">
+              {pessoas.filter(p => p.id !== uid).map(p => {
+                const on = outros.includes(p.id)
+                return (
+                  <button key={p.id} type="button" onClick={() => setOutros(o => on ? o.filter(x => x !== p.id) : [...o, p.id])}
+                    className={`px-2.5 py-1 rounded-full text-xs font-medium border ${on ? 'border-primary-600 bg-primary-50 text-primary-700' : 'border-ink-200 text-ink-500'}`}>{p.full_name.split(' ')[0]}</button>
+                )
+              })}
+            </div>
+          </div>
+        </>
+      )}
+      <div>
+        <label className="label">Cliente <span className="text-ink-400 font-normal">— opcional</span></label>
+        <select className="input" value={cliente} onChange={e => setCliente(e.target.value)}>
+          <option value="">Nenhum</option>
+          {clientes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+      </div>
+      <div>
+        <label className="label">Notas <span className="text-ink-400 font-normal">— opcional</span></label>
+        <textarea className="input" rows={2} value={notas} onChange={e => setNotas(e.target.value)} placeholder="Pauta, o que foi decidido…" />
+      </div>
+      <div className="flex gap-1 p-1 rounded-xl bg-ink-100/70 w-fit">
+        {(['Agendada', 'Realizada'] as const).map(s => (
+          <button key={s} type="button" onClick={() => setSituacao(s)}
+            className={`px-3 h-8 rounded-lg text-sm font-medium ${status === s ? 'bg-white shadow-sm text-ink-900' : 'text-ink-500'}`}>{s === 'Agendada' ? 'Vai acontecer' : 'Já aconteceu'}</button>
+        ))}
+      </div>
+      <div className="flex flex-col-reverse sm:flex-row gap-2">
+        <button className="btn-secondary flex-1" onClick={fechar}>Cancelar</button>
+        <button className="btn-primary flex-1" disabled={salvar.isPending} onClick={() => salvar.mutate()}>{salvar.isPending ? 'Salvando…' : status === 'Realizada' ? 'Registrar' : 'Agendar'}</button>
+      </div>
+    </>
+  )
+}
+
+// Atividade — o mesmo checklist da tela de Atividades (activity_logs), com a
+// sua lista pronta; "Outro" entra na lista para a próxima vez
+function FormAtividade({ uid, dia, fechar }: { uid: string; dia?: string; fechar: () => void }) {
+  const qc = useQueryClient()
+  const [data, setData] = useState(dia || hojeISO())
+  const [escolhida, setEscolhida] = useState('')
+  const [outro, setOutro] = useState(false)
+  const [texto, setTexto] = useState('')
+  const [notas, setNotas] = useState('')
+  const [feitaEscolha, setFeitaEscolha] = useState<boolean | null | undefined>(undefined)
+  // Padrão: o que já passou (ou é hoje) entra como feito; dia futuro, a fazer
+  const feita = feitaEscolha === undefined ? (data <= hojeISO() ? true : null) : feitaEscolha
+  const { data: tipos = [] } = useQuery({
+    queryKey: ['activity-types', uid],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('activity_types').select('id, name').eq('user_id', uid).order('name')
+      if (error) throw error
+      return (data || []) as { id: string; name: string }[]
+    },
+  })
+  const salvar = useMutation({
+    mutationFn: async () => {
+      const nome = (outro ? texto : escolhida).trim()
+      if (!nome) throw new Error('Escolha ou escreva a atividade')
+      const { error } = await supabase.from('activity_logs').insert({
+        user_id: uid, activity_date: data, activity_name: nome, notes: notas.trim() || null, done: feita, assigned_by: uid,
+      })
+      if (error) throw error
+      if (outro && !tipos.some(t => t.name.toLowerCase() === nome.toLowerCase())) {
+        await supabase.from('activity_types').insert({ name: nome, user_id: uid })
+      }
+    },
+    onSuccess: () => {
+      toast.success('Atividade registrada')
+      qc.invalidateQueries({ queryKey: ['equipe'] }); qc.invalidateQueries({ queryKey: ['activity-types', uid] }); qc.invalidateQueries({ queryKey: ['activity-logs-day'] })
+      fechar()
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+  return (
+    <>
+      <div>
+        <h3 className="text-lg font-semibold text-ink-900">Atividade</h3>
+        <p className="text-xs text-ink-500">Entra no seu checklist do dia, no calendário e no relatório.</p>
+      </div>
+      <div><label className="label">Dia *</label><input className="input" type="date" value={data} onChange={e => setData(e.target.value)} /></div>
+      <div>
+        <label className="label">Qual atividade *</label>
+        <div className="flex flex-wrap gap-1.5">
+          {tipos.map(t => (
+            <button key={t.id} type="button" onClick={() => { setEscolhida(t.name); setOutro(false) }}
+              className={`px-3 py-1.5 rounded-full text-sm font-medium border ${!outro && escolhida === t.name ? 'bg-primary-600 text-white border-primary-600' : 'bg-white border-ink-200 text-ink-600 hover:border-primary-300'}`}>{t.name}</button>
+          ))}
+          <button type="button" onClick={() => { setOutro(true); setEscolhida('') }}
+            className={`px-3 py-1.5 rounded-full text-sm font-medium border ${outro ? 'bg-primary-600 text-white border-primary-600' : 'bg-white border-dashed border-ink-300 text-ink-500'}`}>+ Outra</button>
+        </div>
+        {outro && <input className="input mt-2" value={texto} onChange={e => setTexto(e.target.value)} placeholder="Descreva (fica salva na sua lista)" autoFocus />}
+      </div>
+      <div>
+        <label className="label">Observação <span className="text-ink-400 font-normal">— opcional</span></label>
+        <textarea className="input" rows={2} value={notas} onChange={e => setNotas(e.target.value)} />
+      </div>
+      <div className="flex gap-1 p-1 rounded-xl bg-ink-100/70 w-fit">
+        {([[true, 'Feita'], [null, 'A fazer']] as const).map(([v, t]) => (
+          <button key={t} type="button" onClick={() => setFeitaEscolha(v)}
+            className={`px-3 h-8 rounded-lg text-sm font-medium ${feita === v ? 'bg-white shadow-sm text-ink-900' : 'text-ink-500'}`}>{t}</button>
+        ))}
+      </div>
+      <div className="flex flex-col-reverse sm:flex-row gap-2">
+        <button className="btn-secondary flex-1" onClick={fechar}>Cancelar</button>
+        <button className="btn-primary flex-1" disabled={salvar.isPending} onClick={() => salvar.mutate()}>{salvar.isPending ? 'Salvando…' : 'Registrar'}</button>
+      </div>
+    </>
   )
 }
 
@@ -874,9 +1127,10 @@ const COR_CAL = {
   atividadesOk: { cor: 'bg-green-100 text-green-800', ponto: 'bg-green-600' },
 } as const
 
-function MeuCalendario({ uid, periodo, nomeCliente, registrar, apagar }: {
+function MeuCalendario({ uid, periodo, nomeCliente, registrar, apagar, marcar }: {
   uid: string; periodo: Periodo; nomeCliente: (id?: string | null) => string
   registrar?: (inicial: InicialVisita) => void; apagar?: (v: VisitaEquipe) => void
+  marcar?: (atividadeId: string, v: boolean | null) => void
 }) {
   const navigate = useNavigate()
   const [mes, setMes] = useState(() => mesDoPeriodo(periodo))
@@ -967,7 +1221,7 @@ function MeuCalendario({ uid, periodo, nomeCliente, registrar, apagar }: {
           )
         })}
       </div>
-      <p className="px-4 py-2 text-[11px] text-ink-400">Toque num dia para ver tudo{registrar ? ' e registrar uma visita ou supervisão' : ''}.{periodo.tipo === 'semana' ? ' A semana do relatório fica destacada.' : ''}</p>
+      <p className="px-4 py-2 text-[11px] text-ink-400">Toque num dia para ver tudo{registrar ? ' e registrar visita, supervisão, reunião ou atividade' : ''}.{periodo.tipo === 'semana' ? ' A semana do relatório fica destacada.' : ''}</p>
 
       {aberto && (
         <div className="modal-overlay" onClick={() => setAberto(null)}>
@@ -981,9 +1235,9 @@ function MeuCalendario({ uid, periodo, nomeCliente, registrar, apagar }: {
             </div>
             {registrar && (
               <div className="grid grid-cols-2 gap-2">
-                {(['visita', 'supervisao'] as const).map(k => (
-                  <button key={k} className="btn-secondary text-sm justify-center" onClick={() => { setAberto(null); registrar({ data: aberto, tipo: k }) }}>
-                    <Plus size={14} />{k === 'visita' ? 'Visita / vistoria' : ROTULO_TIPO_VISITA[k]}
+                {(['visita', 'supervisao', 'reuniao', 'atividade'] as const).map(k => (
+                  <button key={k} className="btn-secondary text-sm justify-center" onClick={() => { setAberto(null); registrar({ data: aberto, qual: k }) }}>
+                    <Plus size={14} />{ROTULO_QUAL[k]}
                   </button>
                 ))}
               </div>
@@ -1048,7 +1302,7 @@ function MeuCalendario({ uid, periodo, nomeCliente, registrar, apagar }: {
                   )}
                   {dia.atividades.length > 0 && (
                     <BlocoDia titulo={`Atividades · ${dia.atividades.filter(x => x.done === true).length} de ${dia.atividades.length} feitas`} acao={{ rotulo: 'Abrir Atividades', ir: () => navigate('/atividades') }}>
-                      <div className="py-1">{dia.atividades.map(x => <LinhaAtividade key={x.id} a={x} />)}</div>
+                      <div className="py-1">{dia.atividades.map(x => <LinhaAtividade key={x.id} a={x} marcar={marcar ? v => marcar(x.id, v) : undefined} />)}</div>
                     </BlocoDia>
                   )}
                 </div>

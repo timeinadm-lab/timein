@@ -76,9 +76,42 @@ export function juntarPorPessoa(itens: ItemPagar[]): Map<ChaveDia, LinhaPagar[]>
 
 export type ComprovanteReembolso = {
   employee_id: string; nome: string; dia: string; descricao: string; data: string; valor: number; caminho: string | null
+  mes: string               // mês trabalhado (reference_month do reembolso)
+  obs?: string | null       // o que a pessoa escreveu no pedido
+  obsRh?: string | null     // observação do RH (095)
 }
 
 const dataBR = (iso: string) => iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}` : ''
+const brl = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+
+/** Um reembolso em texto: "• Lavanderia: R$ 80,00 — obs. da pessoa: "…"" */
+export const textoDoReembolso = (c: ComprovanteReembolso) =>
+  `• ${c.descricao}: ${brl(c.valor)}${c.obs?.trim() ? ` — obs. da pessoa: "${c.obs.trim()}"` : ''}${c.obsRh?.trim() ? ` — RH: "${c.obsRh.trim()}"` : ''}`
+
+/**
+ * De que é o reembolso (pedido de 19/10/2026: "R$ 130 é de uma coisa só ou de
+ * duas? e qual a observação que a pessoa colocou?"): a Observação da linha
+ * ganha os itens, um por linha, com o valor e o que a pessoa escreveu.
+ */
+export function comDetalheDosReembolsos(porDia: Map<ChaveDia, LinhaPagar[]>, comprovantes: ComprovanteReembolso[]): Map<ChaveDia, LinhaPagar[]> {
+  const out = new Map<ChaveDia, LinhaPagar[]>()
+  for (const [dia, linhas] of porDia) {
+    out.set(dia, linhas.map(l => {
+      if (!(l.reembolso > 0) || !l.employee_id) return l
+      const dela = comprovantes.filter(c => c.employee_id === l.employee_id && (!l.meses.length || l.meses.includes(c.mes)))
+      if (!dela.length) return l
+      const soma = r2(dela.reduce((s, c) => s + c.valor, 0))
+      const bloco = [
+        dela.length > 1 ? `Reembolsos (${dela.length} itens = ${brl(soma)}):` : 'Reembolso:',
+        ...dela.map(textoDoReembolso),
+        // Fixo com dois dias de pagamento: o reembolso vai dividido entre eles
+        Math.abs(soma - l.reembolso) > 0.009 ? `(neste pagamento entram ${brl(l.reembolso)} dos ${brl(soma)})` : '',
+      ].filter(Boolean).join('\n')
+      return { ...l, obs: [l.obs, bloco].filter(Boolean).join('\n') }
+    }))
+  }
+  return out
+}
 
 /** Reembolsos em ordem de nome (e data): é a ordem da aba e do PDF de comprovantes */
 export const ordenarComprovantes = (cs: ComprovanteReembolso[]) =>
@@ -113,7 +146,7 @@ export function abasDaPlanilha(nomeMes: string, porDia: Map<ChaveDia, LinhaPagar
           formula: `SUM(${c}${L}:${c}${ultima})`,
           result: r2(linhas.reduce((s, l) => s + [l.salario, l.reembolso, l.ajuda, l.total][i], 0)),
         })), ''],
-      rodape: 'Verde = já pago. Amarelo = sem PIX no cadastro. Os reembolsos estão na aba "Comprovantes"; os arquivos saem à parte no botão "Comprovantes (PDF)".',
+      rodape: 'Verde = já pago. Amarelo = sem PIX no cadastro. Na Observação, cada reembolso vem item por item, com o que a pessoa escreveu. Os arquivos saem à parte no botão "Comprovantes (PDF)".',
     })
   }
   abas.push({
@@ -124,13 +157,15 @@ export function abasDaPlanilha(nomeMes: string, porDia: Map<ChaveDia, LinhaPagar
       : 'Nenhum reembolso nos pagamentos deste mês',
     colunas: [
       { titulo: 'Nome completo', largura: 34 }, { titulo: 'Recebe no', largura: 11, tipo: 'centro' },
-      { titulo: 'Reembolso', largura: 36, tipo: 'texto' }, { titulo: 'Pedido em', largura: 12, tipo: 'data' },
+      { titulo: 'Reembolso', largura: 32, tipo: 'texto' }, { titulo: 'Pedido em', largura: 12, tipo: 'data' },
       { titulo: 'Valor', largura: 14, tipo: 'dinheiro' }, { titulo: 'Comprovante', largura: 22, tipo: 'centro' },
+      { titulo: 'Observação da pessoa', largura: 48, tipo: 'texto' },
     ],
     linhas: comprovantes.map((c, i): CelulaExcel[] => [c.nome, c.dia, c.descricao, dataBR(c.data), c.valor,
-      anexos[i] ? `Anexo ${anexos[i]}` : 'Sem comprovante anexado']),
+      anexos[i] ? `Anexo ${anexos[i]}` : 'Sem comprovante anexado',
+      [c.obs?.trim(), c.obsRh?.trim() ? `RH: ${c.obsRh.trim()}` : ''].filter(Boolean).join(' · ')]),
     cores: comprovantes.map((_, i) => (anexos[i] ? null : 'amarelo') as CorLinha),
-    total: comprovantes.length ? ['Total', '', '', '', { formula: `SUM(E5:E${4 + comprovantes.length})`, result: r2(comprovantes.reduce((s, c) => s + c.valor, 0)) }, ''] : undefined,
+    total: comprovantes.length ? ['Total', '', '', '', { formula: `SUM(E5:E${4 + comprovantes.length})`, result: r2(comprovantes.reduce((s, c) => s + c.valor, 0)) }, '', ''] : undefined,
     rodape: 'Amarelo = a pessoa não anexou o comprovante no sistema.',
   })
   return abas

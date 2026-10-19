@@ -15,11 +15,13 @@ export type AjudaPlanilha = {
   id: string; employee_id: string | null; client_id: string | null; periodo: 'semana' | 'mes'
   inicio: string; fim: string; tipo: string; descricao: string | null; valor: number
   status: string; pago_em: string | null; link_id?: string | null; expense_id?: string | null; observacao?: string | null
+  obsPessoa?: string | null   // reembolso: o que a pessoa escreveu no pedido
 }
 export type Grupo = 'contrato' | 'reembolso' | 'outros'
 export type Escolha = { tipo: 'mes' } | { tipo: 'semana'; de: string; ate: string }
 
 const r2 = (n: number) => Math.round(n * 100) / 100
+const brl = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 const curto = (ds: string) => `${ds.slice(8, 10)}/${ds.slice(5, 7)}`
 const dataBR = (ds: string | null) => ds ? `${ds.slice(8, 10)}/${ds.slice(5, 7)}/${ds.slice(0, 4)}` : ''
 
@@ -50,8 +52,12 @@ export function porPessoa(ajudas: AjudaPlanilha[], nome: (id: string | null) => 
     if (a.status === 'Pago') l.pago += a.valor
     const c = cliente(a.client_id)
     if (c && !l.clientes.includes(c)) l.clientes.push(c)
-    const o = grupoDa(a) === 'outros' ? `${a.tipo}${a.descricao ? ` (${a.descricao})` : ''}` : grupoDa(a) === 'reembolso' && a.descricao ? `Reembolso: ${a.descricao}` : ''
-    for (const x of [o, a.observacao || '']) if (x && !l.obs.includes(x)) l.obs.push(x)
+    // Reembolso item por item, com o valor e o que a pessoa escreveu (pedido de 19/10/2026)
+    const o = grupoDa(a) === 'outros' ? `${a.tipo}${a.descricao ? ` (${a.descricao})` : ''}`
+      : grupoDa(a) === 'reembolso' ? `Reembolso: ${a.descricao || 'sem descrição'} ${brl(a.valor)}${a.obsPessoa?.trim() ? ` — obs. da pessoa: "${a.obsPessoa.trim()}"` : ''}` : ''
+    // Dois reembolsos iguais (ex.: dois Uber de R$ 20) aparecem os dois: é a soma que a pessoa recebe
+    if (o && (grupoDa(a) === 'reembolso' || !l.obs.includes(o))) l.obs.push(o)
+    if (a.observacao && !l.obs.includes(a.observacao)) l.obs.push(a.observacao)
     m.set(k, l)
   }
   return [...m.values()].map(l => ({ ...l, contrato: r2(l.contrato), reembolso: r2(l.reembolso), outros: r2(l.outros), total: r2(l.total), pago: r2(l.pago) }))
@@ -88,7 +94,7 @@ export function abasAjudaCusto(opts: {
     ],
     linhas: pessoas.map((p, i): CelulaExcel[] => [
       p.nome, pixOu(p.employee_id), p.clientes.join(', '), p.contrato, p.reembolso, p.outros,
-      { formula: `D${L + i}+E${L + i}+F${L + i}`, result: p.total }, situacao(p.total, p.pago), p.obs.join(' · '),
+      { formula: `D${L + i}+E${L + i}+F${L + i}`, result: p.total }, situacao(p.total, p.pago), p.obs.join('\n'),
     ]),
     cores: pessoas.map(p => (situacao(p.total, p.pago) === 'Pago' ? 'verde' : !pix(p.employee_id) ? 'amarelo' : null) as CorLinha),
     total: pessoas.length ? ['Total', '', '',
@@ -114,7 +120,8 @@ export function abasAjudaCusto(opts: {
     colunas: colunasLanc,
     linhas: ordem.map((a): CelulaExcel[] => [
       cliente(a.client_id) || 'Sem cliente', periodoTexto(a), nome(a.employee_id), pixOu(a.employee_id), tipoTexto(a), a.descricao || '',
-      a.valor, a.status === 'Pago' ? 'Pago' : 'A pagar', dataBR(a.pago_em), a.observacao || '',
+      a.valor, a.status === 'Pago' ? 'Pago' : 'A pagar', dataBR(a.pago_em),
+      [a.obsPessoa?.trim() ? `Pessoa: ${a.obsPessoa.trim()}` : '', a.observacao?.trim() ? `RH: ${a.observacao.trim()}` : ''].filter(Boolean).join(' · '),
       ...(comprovante ? [comprovante(a)] : []),
     ]),
     cores: ordem.map(a => (a.status === 'Pago' ? 'verde' : null) as CorLinha),

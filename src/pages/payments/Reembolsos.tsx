@@ -166,6 +166,7 @@ export default function Reembolsos({ mes }: { mes: string }) {
         itens: itens.map(l => ({
           pessoa: l.employee?.full_name || 'Sem colaborador', descricao: l.description || l.category || 'Reembolso', valor: Number(l.amount) || 0,
           data: (l.created_at || '').slice(0, 10), caminho: comprovanteDe(l), extra: [situacaoTexto(l), l.client?.name].filter(Boolean).join(' · '),
+          obs: [l.notes?.trim(), l.obs_rh?.trim() ? `RH: ${l.obs_rh.trim()}` : ''].filter(Boolean).join(' · '),
         })),
         aoProgredir: t => setBaixando(`Baixando ${t}…`),
       })

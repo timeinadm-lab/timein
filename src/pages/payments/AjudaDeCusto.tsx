@@ -193,14 +193,20 @@ export default function AjudaDeCusto({ mes }: { mes: string }) {
       cliente: (id: string | null) => nomeCli.get(id || '') || '',
     }
     const idsReemb = itens.map(a => a.expense_id).filter(Boolean) as string[]
-    const notas = new Map<string, string>()
+    const notas = new Map<string, string>(), obsDe = new Map<string, string>()
     if (idsReemb.length) {
-      const { data: ex } = await supabase.from('employee_expenses').select('id, receipt_url').in('id', idsReemb)
-      for (const e of ex || []) if (e.receipt_url) notas.set(e.id as string, e.receipt_url as string)
+      const { data: ex } = await supabase.from('employee_expenses').select('id, receipt_url, notes').in('id', idsReemb)
+      for (const e of ex || []) {
+        if (e.receipt_url) notas.set(e.id as string, e.receipt_url as string)
+        if (e.notes) obsDe.set(e.id as string, e.notes as string)
+      }
     }
+    // Reembolso com o que a pessoa escreveu no pedido (vai na Observação e no PDF)
+    const comObs = itens.map(a => ({ ...a, obsPessoa: a.expense_id ? obsDe.get(a.expense_id) || null : null }))
+    base.ajudas = comObs
     const caminho = (a: Ajuda) => a.comprovante_url || (a.expense_id ? notas.get(a.expense_id) : null) || null
     // Ordem do PDF: por nome e data. A ajuda do contrato sem comprovante não entra (não tem o que mostrar)
-    const ordemPdf = itens.filter(a => caminho(a) || !a.link_id)
+    const ordemPdf = comObs.filter(a => caminho(a) || !a.link_id)
       .sort((x, y) => base.nome(x.employee_id).localeCompare(base.nome(y.employee_id), 'pt-BR') || x.inicio.localeCompare(y.inicio))
     const anexos = numerarAnexos(ordemPdf.map(a => ({ caminho: caminho(a) })))
     const anexoDe = new Map(ordemPdf.map((a, i) => [a.id, anexos[i]]))
@@ -235,6 +241,7 @@ export default function AjudaDeCusto({ mes }: { mes: string }) {
         itens: p.ordemPdf.map(a => ({
           pessoa: p.base.nome(a.employee_id) || 'Sem colaborador', descricao: [tipoTexto(a), a.descricao].filter(Boolean).join(' · '),
           valor: a.valor, data: a.inicio, caminho: p.caminho(a), extra: [periodoTexto(a), p.base.cliente(a.client_id)].filter(Boolean).join(' · '),
+          obs: [a.obsPessoa?.trim(), a.observacao?.trim() ? `RH: ${a.observacao.trim()}` : ''].filter(Boolean).join(' · '),
         })),
         aoProgredir: t => setBaixando(`Baixando ${t}…`),
       })

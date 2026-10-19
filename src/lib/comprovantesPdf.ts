@@ -18,6 +18,7 @@ export type ItemComprovante = {
   data: string            // yyyy-MM-dd
   caminho: string | null  // arquivo no armazenamento (ou URL antiga)
   extra?: string          // "Recebe no Dia 20", "Semana 12/10 a 18/10 · Cliente"
+  obs?: string | null     // o que a pessoa escreveu no pedido (e a do RH)
 }
 
 const brl = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -78,7 +79,7 @@ export async function gerarPdfComprovantes(opts: {
   secao('Lista')
   tabela(
     [{ titulo: 'Anexo', larg: 14 }, { titulo: 'Nome', larg: 46 }, { titulo: 'O quê', larg: 46 }, { titulo: 'Data', larg: 20 }, { titulo: 'Valor', larg: 22, direita: true }, { titulo: 'Onde', larg: 34 }],
-    itens.map((i, k) => [anexos[k] ? String(anexos[k]) : 'Sem', i.pessoa, i.descricao, dataBr(i.data), brl(i.valor), i.extra || '']),
+    itens.map((i, k) => [anexos[k] ? String(anexos[k]) : 'Sem', i.pessoa, i.obs ? `${i.descricao} - obs.: "${i.obs}"` : i.descricao, dataBr(i.data), brl(i.valor), i.extra || '']),
     k => (anexos[k] ? null : [254, 243, 199]),
   )
   garantir(10)
@@ -97,7 +98,8 @@ export async function gerarPdfComprovantes(opts: {
   const normal = await final.embedFont(StandardFonts.Helvetica)
   const A4: [number, number] = [595.28, 841.89]
   const VERDE = rgb(0.06, 0.31, 0.19), CLARO = rgb(0.75, 0.86, 0.79)
-  const FAIXA = 46, MARGEM = 24, RODAPE = 26
+  const MARGEM = 24, RODAPE = 26
+  const faixaDe = (k: number) => (itens[k].obs ? 60 : 46)   // com observação, a faixa ganha uma linha
   const cabe = (t: string, fonte: typeof normal, tam: number, larg: number) => {
     let s = winAnsi(t)
     if (fonte.widthOfTextAtSize(s, tam) <= larg) return s
@@ -108,21 +110,23 @@ export async function gerarPdfComprovantes(opts: {
     const pg = final.addPage(A4)
     const [w, h] = A4
     const i = itens[k]
+    const FAIXA = faixaDe(k)
     pg.drawRectangle({ x: 0, y: h - FAIXA, width: w, height: FAIXA, color: VERDE })
     pg.drawText(cabe(`Anexo ${anexos[k]} de ${totalAnexos} · ${i.pessoa}${continua ? ' (continuação)' : ''}`, negrito, 12, w - 2 * MARGEM), { x: MARGEM, y: h - 20, size: 12, font: negrito, color: rgb(1, 1, 1) })
     pg.drawText(cabe([i.descricao, brl(i.valor), dataBr(i.data), i.extra].filter(Boolean).join(' · '), normal, 9, w - 2 * MARGEM), { x: MARGEM, y: h - 36, size: 9, font: normal, color: CLARO })
+    if (i.obs) pg.drawText(cabe(`Obs.: "${i.obs}"`, normal, 9, w - 2 * MARGEM), { x: MARGEM, y: h - 50, size: 9, font: normal, color: rgb(1, 1, 1) })
     return pg
   }
   // Área livre embaixo da faixa
-  const area = { x: MARGEM, y: RODAPE, w: A4[0] - 2 * MARGEM, h: A4[1] - FAIXA - 12 - RODAPE }
-  const encaixar = (w: number, h: number) => {
+  const encaixar = (item: number, w: number, h: number) => {
+    const area = { x: MARGEM, y: RODAPE, w: A4[0] - 2 * MARGEM, h: A4[1] - faixaDe(item) - 12 - RODAPE }
     const k = Math.min(area.w / w, area.h / h, 1.6)
     return { w: w * k, h: h * k, x: area.x + (area.w - w * k) / 2, y: area.y + area.h - h * k }
   }
   const aviso = (k: number, msg: string) => {
     const pg = novaPaginaComFaixa(k)
-    pg.drawText(winAnsi(msg), { x: MARGEM, y: A4[1] - FAIXA - 40, size: 11, font: negrito, color: rgb(0.78, 0.15, 0.15) })
-    pg.drawText('Veja o arquivo direto no sistema.', { x: MARGEM, y: A4[1] - FAIXA - 58, size: 10, font: normal, color: rgb(0.4, 0.4, 0.4) })
+    pg.drawText(winAnsi(msg), { x: MARGEM, y: A4[1] - faixaDe(k) - 40, size: 11, font: negrito, color: rgb(0.78, 0.15, 0.15) })
+    pg.drawText('Veja o arquivo direto no sistema.', { x: MARGEM, y: A4[1] - faixaDe(k) - 58, size: 10, font: normal, color: rgb(0.4, 0.4, 0.4) })
   }
 
   for (let k = 0; k < itens.length; k++) {
@@ -139,7 +143,7 @@ export async function gerarPdfComprovantes(opts: {
         const paginas = await final.embedPdf(origem, origem.getPageIndices())
         paginas.forEach((ep, n) => {
           const pg = novaPaginaComFaixa(k, n > 0)
-          const r = encaixar(ep.width, ep.height)
+          const r = encaixar(k, ep.width, ep.height)
           pg.drawRectangle({ x: r.x - 0.5, y: r.y - 0.5, width: r.w + 1, height: r.h + 1, borderColor: rgb(0.85, 0.86, 0.84), borderWidth: 0.6 })
           pg.drawPage(ep, { x: r.x, y: r.y, width: r.w, height: r.h })
         })
@@ -151,7 +155,7 @@ export async function gerarPdfComprovantes(opts: {
     try {
       const img = await final.embedJpg(jpg.bytes)
       const pg = novaPaginaComFaixa(k)
-      const r = encaixar(jpg.w, jpg.h)
+      const r = encaixar(k, jpg.w, jpg.h)
       pg.drawRectangle({ x: r.x - 0.5, y: r.y - 0.5, width: r.w + 1, height: r.h + 1, borderColor: rgb(0.85, 0.86, 0.84), borderWidth: 0.6 })
       pg.drawImage(img, { x: r.x, y: r.y, width: r.w, height: r.h })
     } catch { aviso(k, 'Não foi possível abrir este comprovante.') }

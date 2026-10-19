@@ -15,7 +15,8 @@ const A = (x: Partial<AjudaPlanilha>): AjudaPlanilha => ({
 const ajudas = [
   A({ link_id: 'l1', valor: 350, inicio: '2026-10-05', fim: '2026-10-11', status: 'Pago', pago_em: '2026-10-06' }),
   A({ link_id: 'l1', valor: 350 }),
-  A({ expense_id: 'e1', tipo: 'Reembolso', descricao: 'Uber', valor: 81 }),
+  A({ expense_id: 'e1', tipo: 'Reembolso', descricao: 'Uber', valor: 40, obsPessoa: 'ida ao cliente' }),
+  A({ expense_id: 'e2', tipo: 'Reembolso', descricao: 'Uber', valor: 41 }),
   A({ employee_id: 'b', link_id: 'l2', valor: 0 }),                                  // semana zerada: não entra
   A({ employee_id: 'b', periodo: 'mes', inicio: '2026-10-01', fim: '2026-10-31', tipo: 'Hospedagem', descricao: 'Airbnb', valor: 2000 }),
 ]
@@ -23,15 +24,17 @@ const nome = (id: string | null) => ({ j: 'Jane Cristina', b: 'Bruna' } as Recor
 const cli = (id: string | null) => (id === 'pg' ? 'Ponta Grossa' : '')
 
 const mes = filtrarPeriodo(ajudas, { tipo: 'mes' })
-ok(mes.length === 4, 'mês: tudo menos o zerado')
+ok(mes.length === 5, 'mês: tudo menos o zerado')
 const sem = filtrarPeriodo(ajudas, { tipo: 'semana', de: '2026-10-12', ate: '2026-10-18' })
-ok(sem.length === 2 && sem.every(a => a.inicio === '2026-10-12'), 'semana: só os lançamentos daquela semana')
+ok(sem.length === 3 && sem.every(a => a.inicio === '2026-10-12'), 'semana: só os lançamentos daquela semana')
 
 const ps = porPessoa(mes, nome, cli)
 ok(ps.map(p => p.nome).join(',') === 'Bruna,Jane Cristina', 'uma linha por pessoa em ordem de nome')
 const jane = ps[1]
 ok(jane.contrato === 700 && jane.reembolso === 81 && jane.outros === 0 && jane.total === 781 && jane.pago === 350, 'Jane: contrato + reembolso, 350 pago')
 ok(ps[0].outros === 2000 && ps[0].obs[0] === 'Hospedagem (Airbnb)', 'Bruna: outros custos com a descrição na observação')
+ok(jane.obs.filter(o => o.startsWith('Reembolso: Uber')).length === 2, 'Jane: os dois Uber aparecem, item por item')
+ok(jane.obs.some(o => o.includes('R$') && o.includes('obs. da pessoa: "ida ao cliente"')), 'reembolso com valor e a observação da pessoa')
 
 const abas = abasAjudaCusto({ tituloPeriodo: 'outubro de 2026', ajudas: mes, nome, pix: id => (id === 'j' ? 'jane@pix' : ''), cliente: cli, comprovante: () => 'Sem comprovante' })
 ok(abas.map(a => a.nome).join('|') === 'Para pagar|Lançamentos|Ponta Grossa', 'abas: Para pagar, Lançamentos, uma por cliente')
@@ -41,7 +44,7 @@ ok((pp.linhas[1][6] as { formula: string }).formula === 'D6+E6+F6', 'Total da pe
 ok((pp.total![6] as { result: number }).result === 2781, 'total geral')
 ok(pp.cores![0] === 'amarelo', 'sem PIX fica amarelo')
 const lanc = abas[1]
-ok(lanc.colunas.at(-1)!.titulo === 'Comprovante' && (lanc.total![6] as { formula: string }).formula === 'SUM(G5:G8)', 'lançamentos com comprovante e total da coluna Valor')
+ok(lanc.colunas.at(-1)!.titulo === 'Comprovante' && (lanc.total![6] as { formula: string }).formula === 'SUM(G5:G9)', 'lançamentos com comprovante e total da coluna Valor')
 ok(lanc.cores!.filter(c => c === 'verde').length === 1, 'pago fica verde')
 
 if (falhas) { console.log(`\n${falhas} falha(s)`); process.exit(1) }

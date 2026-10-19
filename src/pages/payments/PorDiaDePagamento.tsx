@@ -228,7 +228,7 @@ export default function PorDiaDePagamento({ mes, nomeMes, aguardando, irParaConf
   const [progresso, setProgresso] = useState('')
   const dadosDaPlanilha = async () => {
     const { carregarAbertura } = await import('../../lib/planilhaPagamentosDados')
-    const { juntarPorPessoa, ordenarComprovantes, DIAS_PLANILHA } = await import('../../lib/planilhaParaPagar')
+    const { juntarPorPessoa, ordenarComprovantes, comDetalheDosReembolsos, DIAS_PLANILHA } = await import('../../lib/planilhaParaPagar')
     type Item = import('../../lib/planilhaParaPagar').ItemPagar
     type Comp = import('../../lib/planilhaParaPagar').ComprovanteReembolso
     const lancados = grupos.flatMap(g => g.itens).filter(p => !p.id.startsWith('rh-') && !p.id.startsWith('d8-'))
@@ -244,7 +244,6 @@ export default function PorDiaDePagamento({ mes, nomeMes, aguardando, irParaConf
           g.chave === 'avulso' ? `vence ${formatDate(p.due_date)}` : '',
           p.reference_month && p.reference_month !== mes ? `trabalho de ${mesCurto(p.reference_month)}` : '',
           pago ? `já pago${p.paid_at ? ` em ${formatDate(String(p.paid_at).slice(0, 10))}` : ''}` : p.aguardando ? `não lançado: ${p.aguardando.motivo}` : (p.description || ''),
-          ...(((a as { reembolsos?: string[] }).reembolsos) || []).map(r => `reembolso: ${r}`),
         ].filter(Boolean),
       }
     }))
@@ -259,7 +258,7 @@ export default function PorDiaDePagamento({ mes, nomeMes, aguardando, irParaConf
     const comprovantes: Comp[] = []
     if (pares.length) {
       const { data: gastos, error: eG } = await supabase.from('employee_expenses')
-        .select('id, employee_id, reference_month, category, amount, description, status, receipt_url, created_at')
+        .select('*')   // inclui notes (o que a pessoa escreveu) e obs_rh
         .in('employee_id', [...new Set(pares.map(p => p.emp))]).in('reference_month', [...new Set(pares.map(p => p.mes))])
       if (eG) throw eG
       const validos = (gastos || []).filter(x => (x.status ?? 'aprovado') === 'aprovado' && !['Adiantamento', 'Ajuda de Custo'].includes(x.category as string))
@@ -273,10 +272,13 @@ export default function PorDiaDePagamento({ mes, nomeMes, aguardando, irParaConf
         const par = pares.find(p => p.emp === x.employee_id && p.mes === x.reference_month)
         if (!par) continue
         comprovantes.push({ employee_id: x.employee_id, nome: par.nome, dia: par.dia, descricao: x.description || x.category || 'Reembolso',
-          data: String(x.created_at || '').slice(0, 10), valor: Number(x.amount) || 0, caminho: (x.receipt_url as string | null) || null })
+          data: String(x.created_at || '').slice(0, 10), valor: Number(x.amount) || 0, caminho: (x.receipt_url as string | null) || null,
+          mes: x.reference_month as string, obs: (x.notes as string | null) || null, obsRh: (x.obs_rh as string | null) || null })
       }
     }
-    return { porDia, comprovantes: ordenarComprovantes(comprovantes) }
+    // De que é cada reembolso (item, valor e o que a pessoa escreveu) vai na Observação
+    const ordenados = ordenarComprovantes(comprovantes)
+    return { porDia: comDetalheDosReembolsos(porDia, ordenados), comprovantes: ordenados }
   }
 
   const baixarPlanilhaPagar = async () => {
@@ -306,7 +308,8 @@ export default function PorDiaDePagamento({ mes, nomeMes, aguardando, irParaConf
       const { gerarPdfComprovantes, baixarBlob } = await import('../../lib/comprovantesPdf')
       const blob = await gerarPdfComprovantes({
         titulo: 'Comprovantes dos reembolsos', periodo: nomeMes,
-        itens: comprovantes.map(c => ({ pessoa: c.nome, descricao: c.descricao, valor: c.valor, data: c.data, caminho: c.caminho, extra: `Recebe no ${c.dia}` })),
+        itens: comprovantes.map(c => ({ pessoa: c.nome, descricao: c.descricao, valor: c.valor, data: c.data, caminho: c.caminho, extra: `Recebe no ${c.dia}`,
+          obs: [c.obs?.trim(), c.obsRh?.trim() ? `RH: ${c.obsRh.trim()}` : ''].filter(Boolean).join(' · ') })),
         aoProgredir: setProgresso,
       })
       baixarBlob(blob, `comprovantes_${mes}.pdf`)

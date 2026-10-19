@@ -1,5 +1,5 @@
 // Teste da planilha para pagar. Rodar: node src/lib/planilhaParaPagar.test.ts
-import { juntarPorPessoa, abasDaPlanilha, ordenarComprovantes } from './planilhaParaPagar'
+import { juntarPorPessoa, abasDaPlanilha, ordenarComprovantes, comDetalheDosReembolsos } from './planilhaParaPagar'
 import { numerarAnexos } from './comprovantesPdf'
 import { abasComAnexo } from './planilhaComComprovantes'
 import type { ItemPagar } from './planilhaParaPagar'
@@ -36,10 +36,22 @@ ok(gr.total === 2290 && gr.reembolso === 130, 'Graziele: 2160 + 130 = 2290')
 ok(porDia.get('d8')![0].pago && porDia.get('d15')!.length === 0, 'dia 8 pago; dia 15 vazio')
 
 const comps = ordenarComprovantes([
-  { employee_id: 'g', nome: 'Graziele', dia: 'Dia 20', descricao: 'Passagem', data: '2026-10-11', valor: 50, caminho: null },
-  { employee_id: 'g', nome: 'Graziele', dia: 'Dia 20', descricao: 'Lavanderia', data: '2026-10-10', valor: 80, caminho: 'x.jpg' },
+  { employee_id: 'g', nome: 'Graziele', dia: 'Dia 20', mes: '2026-10', descricao: 'Passagem do ônibus', data: '2026-10-11', valor: 50, caminho: null },
+  { employee_id: 'g', nome: 'Graziele', dia: 'Dia 20', mes: '2026-10', descricao: 'Lavanderia', data: '2026-10-10', valor: 80, caminho: 'x.jpg', obs: 'jaleco do hospital' },
 ])
 ok(comps[0].descricao === 'Lavanderia', 'comprovantes em ordem de nome e data')
+
+// De que é o reembolso: item por item na Observação, com o que a pessoa escreveu
+const detalhe = comDetalheDosReembolsos(porDia, comps)
+const obsG = detalhe.get('d20')!.find(l => l.nome === 'Graziele')!.obs
+ok(obsG.includes('Reembolsos (2 itens = R$'), 'Graziele: avisa que são 2 itens')
+ok(obsG.includes('• Lavanderia: R$') && obsG.includes('obs. da pessoa: "jaleco do hospital"'), 'item com valor e a observação da pessoa')
+ok(obsG.includes('• Passagem do ônibus: R$') && !obsG.includes('neste pagamento entram'), 'segundo item; soma bate com o reembolso (sem aviso)')
+ok(obsG.startsWith('GRSA PROJETOS'), 'mantém o que já tinha na observação')
+ok(detalhe.get('d20')!.find(l => l.nome === 'Ana')!.obs === ana.obs, 'quem não tem reembolso não muda')
+const metade = comDetalheDosReembolsos(new Map([['d20', [{ ...gr, reembolso: 65 }]]]), comps).get('d20')![0].obs
+ok(metade.includes('neste pagamento entram R$'), 'reembolso dividido entre dois dias: avisa quanto entra neste')
+
 const abas = abasDaPlanilha('outubro de 2026', porDia, id => (id === 'b' ? '' : 'pix@x'), comps, numerarAnexos(comps))
 ok(abas.map(a => a.nome).join(',') === 'Dia 8,Dia 20,Comprovantes', 'aba por dia com gente + Comprovantes')
 const a20 = abas[1]
@@ -51,6 +63,7 @@ ok(abas[0].cores![0] === 'verde', 'pago fica verde')
 const aba = abas[2]
 ok(aba.linhas[0][5] === 'Anexo 1' && aba.linhas[1][5] === 'Sem comprovante anexado', 'aba Comprovantes: número do anexo no PDF (sem arquivo avisa)')
 ok(aba.cores![1] === 'amarelo' && (aba.total![4] as { result: number }).result === 130, 'sem comprovante em amarelo; total dos reembolsos')
+ok(aba.colunas[6].titulo === 'Observação da pessoa' && aba.linhas[0][6] === 'jaleco do hospital', 'aba Comprovantes com a observação da pessoa')
 
 // Planilha da aba Reembolsos: "Anexo N" na ordem das linhas, total da coluna de dinheiro
 const [r] = abasComAnexo([{ nome: 'Reembolsos', cabecalho: ['Nome', 'Valor'], colunasDinheiro: [1], linhas: [

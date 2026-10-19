@@ -406,6 +406,98 @@ export default function EmployeeDetail() {
     },
     enabled: tab === 'agenda',
   })
+  // Visitas registradas no mês da agenda: pintam cada dia marcado de realizada
+  // (verde), agendada (amarelo) ou não realizada (vermelho) — como na Supervisão
+  const { data: agendaVisitas } = useQuery({
+    queryKey: ['employee-agenda-visitas', id, agendaMonth],
+    queryFn: async () => {
+      const [aYr, aMo] = agendaMonth.split('-').map(Number)
+      const { data, error } = await supabase
+        .from('nutritionist_visits')
+        .select('visit_date, client_id, check_in, is_unavailable, is_holiday')
+        .eq('employee_id', id)
+        .gte('visit_date', `${agendaMonth}-01`)
+        .lte('visit_date', `${agendaMonth}-${String(new Date(aYr, aMo, 0).getDate()).padStart(2, '0')}`)
+      if (error) throw error
+      return (data || []) as { visit_date: string; client_id: string | null; check_in: string | null; is_unavailable?: boolean | null; is_holiday?: boolean | null }[]
+    },
+    enabled: tab === 'agenda',
+  })
+  type ItemAgenda = {
+    id: string; planned_date: string; planned_time?: string | null; client_id?: string | null; unit_id?: string | null
+    client?: { name?: string } | null; unit?: { name?: string } | null; notes?: string | null; hours_expected?: number | null
+    rescheduled_at?: string | null; original_date?: string | null; created_by_admin?: boolean | null
+  }
+  // Situação de cada dia marcado — a mesma legenda da Supervisão
+  const situacaoAgenda = (a: ItemAgenda): 'realizada' | 'agendada' | 'nao' | 'folga' => {
+    const doDia = (agendaVisitas || []).filter(v => v.visit_date === a.planned_date && (!a.client_id || v.client_id === a.client_id))
+    if (doDia.some(v => v.check_in && !v.is_unavailable && !v.is_holiday)) return 'realizada'
+    if (doDia.some(v => v.is_holiday)) return 'folga'
+    if (doDia.some(v => v.is_unavailable)) return 'nao'
+    return a.planned_date < hojeISO() ? 'nao' : 'agendada'
+  }
+  const COR_SITUACAO = { realizada: 'bg-green-600', agendada: 'bg-amber-500', nao: 'bg-red-600', folga: 'bg-ink-400' } as const
+  const editarAgenda = (a: ItemAgenda) => {
+    setEditAgendaId(a.id)
+    setAgendaForm({
+      client_id: a.client_id || '',
+      unit_id: a.unit_id || '',
+      planned_date: a.planned_date,
+      planned_time: a.planned_time ? a.planned_time.slice(0, 5) : '',
+      notes: a.notes || '',
+      hours_expected: a.hours_expected != null ? String(a.hours_expected) : '',
+    })
+    setShowAgendaForm(true)
+  }
+  // Imprimir/PDF da agenda em calendário (como a planilha de agenda da equipe):
+  // o nome de cada visita no dia, com a cor da situação; depois a lista detalhada
+  const imprimirAgenda = () => {
+    const esc = (s: string) => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!))
+    const [yr, mo] = agendaMonth.split('-').map(Number)
+    const itens = ((agendaItems || []) as ItemAgenda[]).slice().sort((x, y) => x.planned_date.localeCompare(y.planned_date) || (x.planned_time || '').localeCompare(y.planned_time || ''))
+    const COR = { realizada: '#16a34a', agendada: '#f59e0b', nao: '#dc2626', folga: '#9ca3af' }
+    const celulas: (number | null)[] = [...Array(new Date(yr, mo - 1, 1).getDay()).fill(null), ...Array.from({ length: new Date(yr, mo, 0).getDate() }, (_, i) => i + 1)]
+    while (celulas.length % 7) celulas.push(null)
+    const nomeMes = format(new Date(yr, mo - 1, 15), "MMMM 'de' yyyy", { locale: ptBR })
+    const hoje = hojeISO()
+    let semanas = ''
+    for (let s = 0; s < celulas.length; s += 7) {
+      semanas += '<tr>' + celulas.slice(s, s + 7).map((d, k) => {
+        if (!d) return '<td class="vazio"></td>'
+        const ds = `${agendaMonth}-${String(d).padStart(2, '0')}`
+        const doDia = itens.filter(a => a.planned_date === ds)
+        return `<td class="${k === 0 || k === 6 ? 'fds' : ''}${ds === hoje ? ' hoje' : ''}"><div class="n">${d}</div>${doDia.map(a =>
+          `<div class="it"><span class="dot" style="background:${COR[situacaoAgenda(a)]}"></span><div><b>${esc(a.client?.name || '-')}</b>${a.unit?.name ? `<i>${esc(a.unit.name)}</i>` : ''}${a.planned_time ? `<i>${a.planned_time.slice(0, 5)}</i>` : ''}</div></div>`).join('')}</td>`
+      }).join('') + '</tr>'
+    }
+    const lista = itens.map(a => `<tr><td>${formatDate(a.planned_date)}</td><td>${a.planned_time ? a.planned_time.slice(0, 5) : ''}</td><td>${esc(a.client?.name || '-')}</td><td>${esc(a.unit?.name || '')}</td><td>${a.hours_expected ? a.hours_expected + 'h' : ''}</td><td>${esc(a.notes || '')}</td></tr>`).join('')
+    const w = window.open('', '_blank')
+    if (!w) { toast.error('O navegador bloqueou a janela de impressão. Libere pop-ups para este site.'); return }
+    w.document.write(`<html><head><title>Agenda ${esc(employee?.full_name || '')} ${agendaMonth}</title><style>
+      @page{size:A4 landscape;margin:9mm}*{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+      body{font-family:Inter,Arial,sans-serif;color:#1d211f;margin:0;padding:14px}
+      .topo{display:flex;justify-content:space-between;align-items:flex-end;background:#0f4e30;color:#fff;padding:10px 14px;border-radius:8px}
+      .topo h1{margin:0;font-size:18px}.topo p{margin:2px 0 0;font-size:11px;color:#bfdcc8}.topo .mes{font-size:15px;font-weight:600;text-transform:capitalize}
+      table.cal{width:100%;border-collapse:collapse;table-layout:fixed;margin-top:10px}
+      table.cal th{background:#0f4e30;color:#fff;font-size:10px;letter-spacing:.04em;padding:5px;text-transform:uppercase}
+      table.cal td{border:1px solid #dfe3dd;vertical-align:top;height:86px;padding:4px 5px}
+      td.fds{background:#f7f8f6}td.vazio{background:#fbfbfa}td.hoje{outline:2px solid #0f4e30;outline-offset:-2px}
+      .n{font-size:11px;font-weight:700;color:#6b716c;margin-bottom:2px}
+      .it{display:flex;gap:4px;align-items:flex-start;margin-top:3px;font-size:10px;line-height:1.2}
+      .it .dot{width:7px;height:7px;border-radius:50%;margin-top:3px;flex-shrink:0}.it b{font-weight:600;display:block}.it i{font-style:normal;color:#6b716c;display:block;font-size:9px}
+      .leg{display:flex;gap:14px;font-size:10px;color:#6b716c;margin-top:6px}.leg span{display:flex;align-items:center;gap:4px}.leg i{width:7px;height:7px;border-radius:50%;display:inline-block}
+      h2{font-size:13px;margin:0 0 6px;color:#0f4e30}table.lst{width:100%;border-collapse:collapse;font-size:11px}
+      table.lst th{background:#f3f4f1;text-align:left;padding:5px;font-size:10px;color:#555}table.lst td{padding:5px;border-bottom:1px solid #eee}
+      .quebra{page-break-before:always;padding-top:4px}
+    </style></head><body>
+      <div class="topo"><div><h1>${esc(employee?.full_name || '')}</h1><p>Agenda de visitas · ${itens.length} visita(s) marcada(s)</p></div><div class="mes">${nomeMes}</div></div>
+      <table class="cal"><thead><tr>${['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'].map(d => `<th>${d}</th>`).join('')}</tr></thead><tbody>${semanas}</tbody></table>
+      <div class="leg"><span><i style="background:#f59e0b"></i>Agendada</span><span><i style="background:#16a34a"></i>Realizada</span><span><i style="background:#dc2626"></i>Não realizada / sem registro</span></div>
+      ${itens.length ? `<div class="quebra"><h2>Lista do mês</h2><table class="lst"><thead><tr><th>Data</th><th>Hora</th><th>Cliente</th><th>Unidade</th><th>Horas</th><th>Obs.</th></tr></thead><tbody>${lista}</tbody></table></div>` : ''}
+    </body></html>`)
+    w.document.close()
+    setTimeout(() => w.print(), 300)
+  }
 
   const { data: visitHistory } = useQuery({
     queryKey: ['employee-visit-history', id, visMonth],
@@ -3440,109 +3532,75 @@ export default function EmployeeDetail() {
             <div className="flex items-center gap-2">
               <input type="month" className="input text-sm py-1" value={agendaMonth} onChange={e => setAgendaMonth(e.target.value)} />
               <button onClick={() => setShowAgendaForm(true)} className="btn-secondary text-sm flex items-center gap-1"><Plus size={14} />Adicionar data</button>
-              <button
-                className="btn-secondary text-sm flex items-center gap-1"
-                onClick={() => {
-                  const rows = (agendaItems || []).map((a: { planned_date: string; client?: { name?: string }; unit?: { name?: string }; notes?: string }) =>
-                    `<tr><td>${formatDate(a.planned_date)}</td><td>${a.client?.name || '-'}</td><td>${a.unit?.name || '-'}</td><td>${a.notes || ''}</td></tr>`
-                  ).join('')
-                  const w = window.open('', '_blank')!
-                  w.document.write(`<html><head><title>Agenda ${agendaMonth}</title><style>body{font-family:Arial;padding:24px}table{width:100%;border-collapse:collapse;margin-top:12px}th{background:#f3f4f6;padding:8px;text-align:left;font-size:12px;border-bottom:2px solid #e5e7eb}td{padding:8px;border-bottom:1px solid #f3f4f6;font-size:13px}h2{margin:0 0 4px}p{margin:0 0 12px;color:#6b7280;font-size:13px}</style></head><body><h2>${employee?.full_name} — Agenda ${agendaMonth}</h2><p>Planejamento de visitas</p><table><thead><tr><th>Data</th><th>Cliente</th><th>Unidade</th><th>Obs.</th></tr></thead><tbody>${rows || '<tr><td colspan="4" style="color:#aaa">Nenhuma data agendada</td></tr>'}</tbody></table></body></html>`)
-                  w.document.close(); w.print()
-                }}
-              ><Download size={14} />PDF</button>
+              <button className="btn-secondary text-sm flex items-center gap-1" onClick={imprimirAgenda}
+                title="Imprime (ou salva em PDF) a agenda em calendário, com o nome de cada visita no dia">
+                <Download size={14} />Imprimir / PDF
+              </button>
             </div>
           </div>
 
-          {/* Permissão de agenda — consultoria e freela (freela é onde mais importa:
-              se ela monta os próprios dias, recebe pelos dias que ela escolheu) */}
-          {(links || []).filter(l => l.service_type === 'Consultoria' || l.service_type === 'Volante' || pagaPorDiaria(l)).length > 0 && (
-            <div className="rounded-xl border border-gray-100 divide-y divide-gray-50">
-              {(links || []).filter(l => l.service_type === 'Consultoria' || l.service_type === 'Volante' || pagaPorDiaria(l)).map(l => {
-                const mode = (l as { agenda_mode?: string }).agenda_mode || 'colaborador'
-                return (
-                  <div key={l.id} className="flex items-center justify-between gap-3 px-3 py-2.5 flex-wrap">
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-gray-800">
-                        {(l.client as { name?: string })?.name || '—'}
-                        {pagaPorDiaria(l) && <span className="ml-1.5 badge bg-ink-100 text-ink-600 text-[10px]">por diária</span>}
-                      </p>
-                      <p className="text-xs text-gray-400">{mode === 'gestor' ? 'O RH monta a agenda (ela só vê)' : 'O colaborador monta a própria agenda'}</p>
-                    </div>
-                    <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs shrink-0">
-                      {([['colaborador', '👤 Colaborador'], ['gestor', '🏢 RH monta']] as const).map(([v, t]) => (
-                        <button key={v} onClick={() => setAgendaMode.mutate({ linkId: l.id, mode: v })}
-                          className={`px-2.5 py-1.5 font-medium transition-colors ${mode === v ? 'bg-primary-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>
-                          {t}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-
-          {/* Calendário do mês — clique num dia pra montar o que ele faz naquele dia */}
+          {/* Calendário do mês — igual ao da Supervisão (pedido de 19/10/2026): o
+              nome de cada visita aparece no dia, com a cor da situação, para
+              printar e mostrar sem precisar clicar. Dia = marcar; nome = editar. */}
           {(() => {
             const [yr, mo] = agendaMonth.split('-').map(Number)
             const firstWeekday = new Date(yr, mo - 1, 1).getDay()
             const daysInMonth = new Date(yr, mo, 0).getDate()
             const todayStr = hojeISO()
-            const byDay: Record<string, number> = {}
-            ;(agendaItems || []).forEach((a: { planned_date: string }) => { byDay[a.planned_date] = (byDay[a.planned_date] || 0) + 1 })
+            const itens = (agendaItems || []) as ItemAgenda[]
             // Dias que vêm da ESCALA (fixo/plantão). Quem é consultoria ou freela
             // não tem escala e devolve lista vazia — pra esses só valem os dias
             // lançados. Assim o mesmo calendário serve aos três tipos.
             const diasEscala = new Set(
               (links || []).flatMap(l => diasDaEscala(l as LinkEscala, agendaMonth)),
             )
-            const cells: (number | null)[] = [...Array(firstWeekday).fill(null), ...Array.from({ length: daysInMonth }, (_, i) => i + 1)]
+            const temFolga = itens.some(a => situacaoAgenda(a) === 'folga')
             return (
               <div>
-                <p className="text-xs text-gray-400 mb-2">Clique num dia para adicionar, editar ou marcar um extra.</p>
-                {/* Legenda: sem ela o azul da escala e o laranja do lançamento
-                    viram só "duas cores" e ninguém sabe o que significam. */}
-                <div className="flex items-center gap-3 flex-wrap mb-2 text-[11px] text-ink-500">
-                  {diasEscala.size > 0 && (
-                    <span className="flex items-center gap-1">
-                      <span className="w-3 h-3 rounded bg-blue-100 border border-blue-300 inline-block" /> dia da escala
-                    </span>
-                  )}
-                  <span className="flex items-center gap-1">
-                    <span className="w-3 h-3 rounded bg-orange-200 border border-orange-400 inline-block" /> dia marcado
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <span className="w-3 h-3 rounded bg-primary-100 ring-2 ring-primary-400 inline-block" /> hoje
-                  </span>
+                <div className="grid grid-cols-7 gap-1 text-center text-[11px] text-ink-400 mb-1">
+                  {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'].map(d => <div key={d}>{d}</div>)}
                 </div>
-                <div className="grid grid-cols-7 gap-1 text-center">
-                  {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'].map((d, i) => <div key={i} className="text-[10px] font-semibold text-gray-400 py-1">{d}</div>)}
-                  {cells.map((day, i) => {
-                    if (day === null) return <div key={i} />
-                    const dateStr = `${agendaMonth}-${String(day).padStart(2, '0')}`
-                    const count = byDay[dateStr] || 0
+                <div className="grid grid-cols-7 gap-1">
+                  {Array.from({ length: firstWeekday }).map((_, i) => <div key={'b' + i} />)}
+                  {Array.from({ length: daysInMonth }).map((_, i) => {
+                    const dateStr = `${agendaMonth}-${String(i + 1).padStart(2, '0')}`
+                    const doDia = itens.filter(a => a.planned_date === dateStr)
+                      .sort((x, y) => (x.planned_time || '').localeCompare(y.planned_time || ''))
                     const naEscala = diasEscala.has(dateStr)
                     const isToday = dateStr === todayStr
-                    // Marcado ganha do calculado: se o RH lançou algo naquele dia,
-                    // é isso que ele quer ver, mesmo caindo em dia de escala.
-                    const cor = count > 0
-                      ? 'bg-orange-200 text-orange-900 font-bold hover:bg-orange-300'
-                      : naEscala
-                        ? 'bg-blue-100 text-blue-800 font-semibold hover:bg-blue-200'
-                        : 'hover:bg-gray-100 text-gray-700'
+                    const marcar = () => { setEditAgendaId(null); setAgendaForm(p => ({ ...p, planned_date: dateStr })); setShowAgendaForm(true) }
                     return (
-                      <button key={i}
-                        title={count > 0 ? 'Dia marcado — clique para editar'
-                          : naEscala ? 'Dia da escala — clique para marcar um extra ou anotar algo'
-                          : 'Clique para marcar este dia'}
-                        onClick={() => { setEditAgendaId(null); setAgendaForm(p => ({ ...p, planned_date: dateStr })); setShowAgendaForm(true) }}
-                        className={`aspect-square rounded-lg flex items-center justify-center text-sm transition-colors relative ${cor} ${isToday ? 'ring-2 ring-primary-400' : ''}`}>
-                        {day}
-                        {count > 0 && <span className="absolute bottom-1 text-[9px] font-bold text-orange-700">●{count > 1 ? count : ''}</span>}
-                      </button>
+                      <div key={dateStr} role="button" tabIndex={0} onClick={marcar} onKeyDown={e => { if (e.key === 'Enter') marcar() }}
+                        title={doDia.length ? doDia.map(a => [a.planned_time?.slice(0, 5), a.client?.name, a.unit?.name].filter(Boolean).join(' · ')).join('\n')
+                          : naEscala ? 'Dia da escala — clique para marcar um extra ou anotar algo' : 'Clique para marcar este dia'}
+                        className={`min-h-[3.25rem] sm:min-h-[4.75rem] rounded-lg border p-1 text-left cursor-pointer transition-colors hover:bg-ink-50
+                          ${isToday ? 'border-primary-600' : 'border-ink-100'} ${naEscala && !doDia.length ? 'bg-blue-50' : ''}`}>
+                        <span className={`text-[11px] ${isToday ? 'text-primary-700 font-semibold' : naEscala ? 'text-blue-700 font-medium' : 'text-ink-500'}`}>{i + 1}</span>
+                        <div className="mt-0.5 space-y-0.5">
+                          {doDia.slice(0, 4).map(a => (
+                            <button key={a.id} type="button" title={`Editar · ${[a.planned_time?.slice(0, 5), a.client?.name, a.unit?.name].filter(Boolean).join(' · ')}`}
+                              onClick={e => { e.stopPropagation(); editarAgenda(a) }}
+                              className="flex items-start gap-1 min-w-0 w-full text-left rounded hover:bg-white">
+                              <span className={`dot mt-[3px] ${COR_SITUACAO[situacaoAgenda(a)]}`} />
+                              <span className="hidden sm:block min-w-0 text-[10px] leading-tight text-ink-700">
+                                <span className="line-clamp-2 break-words">{a.client?.name || '—'}</span>
+                                {a.unit?.name && <span className="block truncate text-ink-400">{a.unit.name}</span>}
+                              </span>
+                            </button>
+                          ))}
+                          {doDia.length > 4 && <span className="text-[10px] text-ink-400">+{doDia.length - 4}</span>}
+                        </div>
+                      </div>
                     )
                   })}
+                </div>
+                <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3 text-[11px] text-ink-500">
+                  <span className="flex items-center gap-1.5"><span className="dot bg-amber-500" />Agendada</span>
+                  <span className="flex items-center gap-1.5"><span className="dot bg-green-600" />Realizada</span>
+                  <span className="flex items-center gap-1.5"><span className="dot bg-red-600" />Não realizada / sem registro</span>
+                  {temFolga && <span className="flex items-center gap-1.5"><span className="dot bg-ink-400" />Folga</span>}
+                  {diasEscala.size > 0 && <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-blue-50 border border-blue-200 inline-block" />Dia da escala</span>}
+                  <span className="text-ink-400">Toque num dia para marcar · no nome para editar</span>
                 </div>
               </div>
             )
@@ -3649,18 +3707,7 @@ export default function EmployeeDetail() {
                   ) : (
                     <>
                       <button
-                        onClick={() => {
-                          setEditAgendaId(a.id)
-                          setAgendaForm({
-                            client_id: (a as { client_id?: string }).client_id || '',
-                            unit_id: (a as { unit_id?: string }).unit_id || '',
-                            planned_date: a.planned_date,
-                            planned_time: a.planned_time ? a.planned_time.slice(0, 5) : '',
-                            notes: a.notes || '',
-                            hours_expected: a.hours_expected != null ? String(a.hours_expected) : '',
-                          })
-                          setShowAgendaForm(true)
-                        }}
+                        onClick={() => editarAgenda(a as ItemAgenda)}
                         className="text-xs text-primary-600 hover:underline px-2 py-1 font-medium">
                         Editar
                       </button>
@@ -3675,6 +3722,36 @@ export default function EmployeeDetail() {
               </div>
             ))}
           </div>
+
+          {/* Quem monta a agenda — consultoria e freela (freela é onde mais importa:
+              se ela monta os próprios dias, recebe pelos dias que ela escolheu) */}
+          {(links || []).filter(l => l.service_type === 'Consultoria' || l.service_type === 'Volante' || pagaPorDiaria(l)).length > 0 && (
+            <div className="rounded-xl border border-gray-100 divide-y divide-gray-50">
+              <p className="px-3 py-2 text-xs font-semibold text-ink-500 bg-ink-50/60 rounded-t-xl">Quem monta a agenda</p>
+              {(links || []).filter(l => l.service_type === 'Consultoria' || l.service_type === 'Volante' || pagaPorDiaria(l)).map(l => {
+                const mode = (l as { agenda_mode?: string }).agenda_mode || 'colaborador'
+                return (
+                  <div key={l.id} className="flex items-center justify-between gap-3 px-3 py-2.5 flex-wrap">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-gray-800">
+                        {(l.client as { name?: string })?.name || '—'}
+                        {pagaPorDiaria(l) && <span className="ml-1.5 badge bg-ink-100 text-ink-600 text-[10px]">por diária</span>}
+                      </p>
+                      <p className="text-xs text-gray-400">{mode === 'gestor' ? 'O RH monta a agenda (ela só vê)' : 'O colaborador monta a própria agenda'}</p>
+                    </div>
+                    <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs shrink-0">
+                      {([['colaborador', '👤 Colaborador'], ['gestor', '🏢 RH monta']] as const).map(([v, t]) => (
+                        <button key={v} onClick={() => setAgendaMode.mutate({ linkId: l.id, mode: v })}
+                          className={`px-2.5 py-1.5 font-medium transition-colors ${mode === v ? 'bg-primary-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>
+                          {t}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
         </div>
       )}
 

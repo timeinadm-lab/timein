@@ -8,7 +8,7 @@ import { formatCurrency, formatDate, hojeISO } from '../../lib/utils'
 import { getSignedUrl } from '../../lib/storage'
 import { confirmar } from '../../components/ui/ConfirmDialog'
 import { extensaoDoArquivo, comprimirImagem } from '../../lib/imagem'
-import { baixarPlanilhaComComprovantes } from '../../lib/planilhaComComprovantes'
+import { ptBR } from 'date-fns/locale'
 
 /**
  * Ajuda de custo (migração 083) — pedido de 05/10/2026: a planilha de custos
@@ -125,7 +125,7 @@ export default function AjudaDeCusto({ mes }: { mes: string }) {
       await sincronizarSemanasDoContrato(ini, fimMes)
       const [a, e, c, l] = await Promise.all([
         supabase.from('ajudas_custo').select('*').lte('inicio', fimMes).gte('fim', ini).order('inicio'),
-        supabase.from('employees').select('id, full_name, status, dismissal_date').order('full_name'),
+        supabase.from('employees').select('id, full_name, status, dismissal_date, pix').order('full_name'),
         supabase.from('clients').select('id, name').order('name'),
         supabase.from('employee_client_links').select('employee_id, client_id, start_date, contract_end_date'),
       ])
@@ -134,6 +134,7 @@ export default function AjudaDeCusto({ mes }: { mes: string }) {
         ajudas: (a.data || []).map(x => ({ ...x, valor: Number(x.valor) })) as Ajuda[],
         pessoas: (e.data || []).filter(x => x.status === 'Ativo').map(x => ({ id: x.id, nome: x.full_name })) as Nome[],
         todasPessoas: new Map((e.data || []).map(x => [x.id, x.full_name as string])),
+        pixDe: new Map((e.data || []).map(x => [x.id as string, ((x as { pix?: string | null }).pix || '') as string])),
         clientes: (c.data || []).map(x => ({ id: x.id, nome: x.name })) as Nome[],
         vinculos: (l.data || []) as Vinculo[],
         saidas: new Map((e.data || []).filter(x => x.status === 'Inativo').map(x => [x.id as string, (x as { dismissal_date?: string | null }).dismissal_date || null])),
@@ -167,85 +168,56 @@ export default function AjudaDeCusto({ mes }: { mes: string }) {
       .sort((x, y) => x.nome.localeCompare(y.nome))
   }, [lista, nomeCli])
 
-  const baixarPlanilha = async () => {
-    const XLSX = await import('xlsx')
-    const linhas: (string | number)[][] = [['Cliente', 'Período', 'Colaborador', 'Tipo', 'Descrição', 'Valor', 'Status', 'Pago em']]
-    for (const g of porCliente) {
-      for (const a of [...g.itens].sort((x, y) => x.inicio.localeCompare(y.inicio))) {
-        linhas.push([g.nome, a.periodo === 'mes' ? 'Mês inteiro' : `Semana ${curto(a.inicio)} a ${curto(a.fim)}`,
-          data?.todasPessoas.get(a.employee_id || '') || '', a.tipo, a.descricao || '', a.valor, a.status, a.pago_em ? formatDate(a.pago_em) : ''])
-      }
-      linhas.push(['', '', '', '', `Total ${g.nome}`, g.itens.reduce((s, a) => s + a.valor, 0), '', ''], [])
-    }
-    linhas.push(['', '', '', '', 'TOTAL DO MÊS', total, '', ''])
-    const ws = XLSX.utils.aoa_to_sheet(linhas)
-    ws['!cols'] = [{ wch: 22 }, { wch: 22 }, { wch: 26 }, { wch: 14 }, { wch: 30 }, { wch: 12 }, { wch: 10 }, { wch: 12 }]
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, 'Todos')
-    // Uma aba por cliente no formato da planilha do contador ("Custo Ponta Grossa"):
-    // custos do mês (Airbnb, carro…) e o CONTROLE de cada semana, nutri por nutri
-    const nomesUsados = new Set<string>(['Todos'])
-    for (const g of porCliente) {
-      const pessoa = (a: Ajuda) => data?.todasPessoas.get(a.employee_id || '') || ''
-      const soma = (xs: Ajuda[]) => xs.reduce((t, a) => t + a.valor, 0)
-      const custos = g.itens.filter(a => a.periodo === 'mes')
-      const l: (string | number)[][] = [[g.nome], []]
-      if (custos.length) {
-        l.push(['Custos do mês', '', '', '', ''], ['Descrição', 'Nutri', 'Tipo', 'Valor', 'Situação'])
-        for (const a of custos) l.push([a.descricao || a.tipo, pessoa(a), a.tipo, a.valor, a.status === 'Pago' ? 'Pago' : 'A pagar'])
-        l.push(['Total', '', '', soma(custos), ''], [])
-      }
-      semanas.forEach((sem, i) => {
-        const itens = g.itens.filter(a => a.periodo === 'semana' && a.inicio >= sem.de && a.inicio <= sem.ate)
-        if (!itens.length) return
-        l.push([`CONTROLE Semana ${i + 1} (${curto(sem.de)} a ${curto(sem.ate)})`, '', '', '', ''], ['DATA', 'NUTRI', 'TIPO', 'AJ DE CUSTO', 'SITUAÇÃO'])
-        for (const a of [...itens].sort((x, y) => pessoa(x).localeCompare(pessoa(y)))) {
-          l.push([curto(a.inicio), pessoa(a), a.link_id ? 'Contrato' : `${a.tipo}${a.descricao ? ' · ' + a.descricao : ''}`, a.valor, a.status === 'Pago' ? 'Pago' : a.valor === 0 ? 'Sem ajuda' : 'A pagar'])
-        }
-        l.push(['TOTAL', '', '', soma(itens), ''], [])
-      })
-      l.push(['TOTAL DO CLIENTE NO MÊS', '', '', soma(g.itens), ''])
-      const wsC = XLSX.utils.aoa_to_sheet(l)
-      wsC['!cols'] = [{ wch: 30 }, { wch: 24 }, { wch: 26 }, { wch: 14 }, { wch: 12 }]
-      for (const k of Object.keys(wsC)) { const c = wsC[k] as { t?: string; z?: string }; if (!k.startsWith('!') && c.t === 'n') c.z = '"R$" #,##0.00' }
-      let nome = g.nome.replace(/[\\/?*[\]:]/g, ' ').slice(0, 28).trim() || 'Sem cliente'
-      for (let n = 2; nomesUsados.has(nome); n++) nome = `${nome.slice(0, 26)} ${n}`
-      nomesUsados.add(nome)
-      XLSX.utils.book_append_sheet(wb, wsC, nome)
-    }
-    XLSX.writeFile(wb, `ajuda_de_custo_${mes}.xlsx`)
-  }
-
-  // Planilha + pasta com os comprovantes (pedido de 16/10/2026). Reembolso que
-  // entrou sozinho usa a nota que a colaboradora mandou no portal.
+  // Planilha (pedido de 19/10/2026): escolhe o mês inteiro ou uma semana; sai
+  // apresentável (Para pagar por pessoa com PIX e total, Lançamentos e uma aba
+  // por cliente). Com comprovantes: zip com a pasta e o link em cada lançamento.
+  // Reembolso que entrou sozinho usa a nota que a colaboradora mandou no portal.
   const [baixando, setBaixando] = useState<string | null>(null)
-  const baixarComComprovantes = async () => {
+  const [painelPlanilha, setPainelPlanilha] = useState(false)
+  const [escolhaPlanilha, setEscolhaPlanilha] = useState('mes')   // 'mes' ou o início da semana
+  const [comComprovantes, setComComprovantes] = useState(true)
+  const baixarPlanilha = async () => {
     setBaixando('Preparando…')
     try {
-      const idsReemb = lista.map(a => a.expense_id).filter(Boolean) as string[]
+      const { filtrarPeriodo, abasAjudaCusto, tipoTexto } = await import('../../lib/planilhaAjudaCusto')
+      const sem = semanas.find(s => s.de === escolhaPlanilha)
+      const escolha = sem ? { tipo: 'semana' as const, de: sem.de, ate: sem.ate } : { tipo: 'mes' as const }
+      const itens = filtrarPeriodo(lista, escolha) as Ajuda[]
+      if (!itens.length) { toast.error('Nada lançado nesse período.'); return }
+      const nomeMes = format(parseISO(ini), "MMMM 'de' yyyy", { locale: ptBR })
+      const tituloPeriodo = sem ? `semana de ${curto(sem.de)} a ${curto(sem.ate)}` : nomeMes
+      const arquivo = `ajuda_de_custo_${sem ? `semana_${sem.de.slice(8, 10)}-${sem.de.slice(5, 7)}` : mes}${filtroCliente ? `_${(nomeCli.get(filtroCliente) || '').replace(/[^\w]+/g, '_').slice(0, 30)}` : ''}`
+      const base = {
+        tituloPeriodo: filtroCliente ? `${tituloPeriodo} · ${nomeCli.get(filtroCliente) || ''}` : tituloPeriodo, ajudas: itens,
+        nome: (id: string | null) => data?.todasPessoas.get(id || '') || '',
+        pix: (id: string | null) => data?.pixDe.get(id || '') || '',
+        cliente: (id: string | null) => nomeCli.get(id || '') || '',
+      }
+      if (!comComprovantes) {
+        const { baixarExcelBonito } = await import('../../lib/excelBonito')
+        await baixarExcelBonito(arquivo, abasAjudaCusto(base))
+        toast.success('Planilha baixada')
+        return
+      }
+      const idsReemb = itens.map(a => a.expense_id).filter(Boolean) as string[]
       const notas = new Map<string, string>()
       if (idsReemb.length) {
         const { data: ex } = await supabase.from('employee_expenses').select('id, receipt_url').in('id', idsReemb)
         for (const e of ex || []) if (e.receipt_url) notas.set(e.id as string, e.receipt_url as string)
       }
-      const pessoa = (a: Ajuda) => data?.todasPessoas.get(a.employee_id || '') || ''
-      const ordenada = [...lista].sort((x, y) => (nomeCli.get(x.client_id || '') || '').localeCompare(nomeCli.get(y.client_id || '') || '') || x.inicio.localeCompare(y.inicio) || pessoa(x).localeCompare(pessoa(y)))
-      const r = await baixarPlanilhaComComprovantes(`ajuda_de_custo_${mes}`, [{
-        nome: 'Ajuda de custo',
-        cabecalho: ['Cliente', 'Período', 'Colaborador', 'Tipo', 'Descrição', 'Valor', 'Situação', 'Pago em', 'Observação'],
-        larguras: [22, 22, 26, 14, 30, 12, 10, 12, 30],
-        colunasDinheiro: [5],
-        linhas: ordenada.filter(a => a.valor > 0 || a.status === 'Pago').map(a => ({
-          valores: [nomeCli.get(a.client_id || '') || 'Sem cliente', a.periodo === 'mes' ? 'Mês inteiro' : `Semana ${curto(a.inicio)} a ${curto(a.fim)}`,
-            pessoa(a), a.link_id ? 'Contrato' : a.tipo, a.descricao || '', a.valor, a.status === 'Pago' ? 'Pago' : 'A pagar',
-            a.pago_em ? formatDate(a.pago_em) : '', a.observacao || ''],
-          comprovante: a.comprovante_url || (a.expense_id ? notas.get(a.expense_id) : null) || null,
-          nomeArquivo: `${pessoa(a) || 'sem nome'} - ${a.link_id ? 'Contrato' : a.tipo} - ${curto(a.inicio).replace('/', '-')}`,
-        })),
-      }], (f, t) => setBaixando(`Baixando comprovantes ${f} de ${t}…`))
-      toast.success(`Planilha baixada com ${r.comprovantes} comprovante(s).${r.falhas ? ` ${r.falhas} não baixou.` : ''}`)
+      const { baixarArquivosParaZip, fecharZip, celulaComprovante } = await import('../../lib/planilhaComComprovantes')
+      const { default: JSZip } = await import('jszip')
+      const zip = new JSZip()
+      const caminho = (a: Ajuda) => a.comprovante_url || (a.expense_id ? notas.get(a.expense_id) : null) || null
+      const { nomes, falhas } = await baixarArquivosParaZip(zip, itens.map(a => ({
+        caminho: caminho(a), nomeArquivo: `${base.nome(a.employee_id) || 'sem nome'} - ${tipoTexto(a)} - ${curto(a.inicio).replace('/', '-')}`,
+      })), (f, t) => setBaixando(`Baixando comprovantes ${f} de ${t}…`))
+      const nomeDe = new Map(itens.map((a, i) => [a.id, nomes[i]]))
+      await fecharZip(zip, arquivo, abasAjudaCusto({ ...base, comprovante: a => celulaComprovante(nomeDe.get(a.id) || null, !!caminho(a as Ajuda)) }))
+      toast.success(`Planilha baixada com ${nomes.filter(Boolean).length} comprovante(s).${falhas ? ` ${falhas} não baixou.` : ''}`)
+      setPainelPlanilha(false)
     } catch (e) { toast.error('Não gerou a planilha: ' + (e as Error).message) }
-    setBaixando(null)
+    finally { setBaixando(null) }
   }
 
   if (semMigracao) return <div className="card p-4 text-sm text-amber-800 bg-amber-50 border-amber-200">Para usar a Ajuda de custo, rode a migração 083 no Supabase.</div>
@@ -272,10 +244,44 @@ export default function AjudaDeCusto({ mes }: { mes: string }) {
             <button key={k} type="button" onClick={() => setModo(k)} className={`h-8 px-2.5 rounded-lg text-sm font-medium inline-flex items-center gap-1.5 ${modo === k ? 'bg-white shadow-sm text-ink-900' : 'text-ink-500'}`}><I size={14} />{t}</button>
           ))}
         </div>
-        <button className="btn-secondary text-sm" disabled={!lista.length} onClick={baixarPlanilha}><Download size={15} />Planilha</button>
-        <button className="btn-secondary text-sm" disabled={!lista.length || !!baixando} onClick={baixarComComprovantes}><Paperclip size={15} />{baixando || 'Com comprovantes'}</button>
+        <button className={`btn-secondary text-sm ${painelPlanilha ? 'ring-2 ring-primary-200' : ''}`} disabled={!lista.length} onClick={() => setPainelPlanilha(v => !v)}><Download size={15} />Planilha</button>
         <button className="btn-primary text-sm" onClick={() => setForm({ periodo: 'semana', inicio: segunda(hojeISO() < ini || hojeISO() > fimMes ? ini : hojeISO()), tipo: 'Hospedagem', status: 'Pendente' })}><Plus size={15} />Lançar</button>
       </div>
+
+      {/* Escolha da planilha: mês inteiro ou uma semana */}
+      {painelPlanilha && (
+        <div className="card p-4 space-y-3 border-primary-200">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-sm font-semibold text-ink-900">Baixar planilha da ajuda de custo</p>
+            <button className="p-1 text-ink-400 hover:text-ink-700" onClick={() => setPainelPlanilha(false)} title="Fechar"><X size={16} /></button>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {[{ k: 'mes', t: 'Mês inteiro', s: format(parseISO(ini), 'MMMM', { locale: ptBR }) },
+              ...semanas.map((s, i) => ({ k: s.de, t: `Semana ${i + 1}`, s: `${curto(s.de)} a ${curto(s.ate)}` }))].map(o => {
+              const qtd = o.k === 'mes' ? lista.filter(a => a.valor > 0 || a.status === 'Pago').length
+                : lista.filter(a => a.periodo === 'semana' && a.inicio === o.k && (a.valor > 0 || a.status === 'Pago')).length
+              return (
+                <button key={o.k} type="button" onClick={() => setEscolhaPlanilha(o.k)} disabled={!qtd}
+                  className={`px-3 py-2 rounded-xl border text-left min-w-[7.5rem] disabled:opacity-40 ${escolhaPlanilha === o.k ? 'border-primary-600 bg-primary-50 ring-1 ring-primary-200' : 'border-ink-200 hover:border-ink-300'}`}>
+                  <p className="text-sm font-medium text-ink-900">{o.t}</p>
+                  <p className="text-[11px] text-ink-500">{o.s} · {qtd} lanç.</p>
+                </button>
+              )
+            })}
+          </div>
+          <label className="flex items-center gap-2 text-sm text-ink-700">
+            <input type="checkbox" checked={comComprovantes} onChange={e => setComComprovantes(e.target.checked)} />
+            <Paperclip size={14} className="text-ink-500" />Com os comprovantes (baixa um .zip com a pasta)
+          </label>
+          <p className="text-[11px] text-ink-500">
+            Sai com: <b>Para pagar</b> (uma linha por pessoa, com PIX, ajuda do contrato, reembolsos, outros custos e total), <b>Lançamentos</b> e uma aba por cliente.
+            {filtroCliente ? <> Só o cliente filtrado: <b>{nomeCli.get(filtroCliente)}</b>.</> : null}
+          </p>
+          <div className="flex justify-end">
+            <button className="btn-primary text-sm" disabled={!!baixando} onClick={baixarPlanilha}><Download size={15} />{baixando || 'Baixar planilha'}</button>
+          </div>
+        </div>
+      )}
 
       {modo === 'tabela' && porCliente.length > 0 ? (
         <TabelaSemanas lista={lista} semanas={semanas} pessoas={data.todasPessoas} nomeCli={nomeCli} vinculos={data.vinculos} saidas={data.saidas}

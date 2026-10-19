@@ -45,7 +45,7 @@ export default function PorDiaDePagamento({ mes, nomeMes, aguardando, irParaConf
   const qc = useQueryClient()
   const navigate = useNavigate()
   const [escolhido, setEscolhido] = useState<ChaveDia | null>(null)
-  const [gerando, setGerando] = useState<'' | 'excel' | 'pdf'>('')
+  const [gerando, setGerando] = useState<'' | 'excel' | 'pdf' | 'comprovantes'>('')
   const { inicio, fim } = limitesDoMes(mes)
   const hoje = hojeISO()
 
@@ -221,103 +221,98 @@ export default function PorDiaDePagamento({ mes, nomeMes, aguardando, irParaConf
     } finally { setGerando('') }
   }
   // Planilha para pagar (19/10/2026): uma aba por dia, uma linha por pessoa
-  // (salário, reembolso, ajuda, total em fórmula, observação) + aba e pasta de
-  // comprovantes. Entra quem ainda está "Aguardando RH" — não precisa lançar.
+  // (salário, reembolso, ajuda, total em fórmula, observação) + aba com os
+  // reembolsos. Entra quem ainda está "Aguardando RH" — não precisa lançar.
+  // Só o .xlsx ("o zip não subia"); os comprovantes saem à parte num PDF único,
+  // com o mesmo número de anexo da aba Comprovantes.
   const [progresso, setProgresso] = useState('')
+  const dadosDaPlanilha = async () => {
+    const { carregarAbertura } = await import('../../lib/planilhaPagamentosDados')
+    const { juntarPorPessoa, ordenarComprovantes, DIAS_PLANILHA } = await import('../../lib/planilhaParaPagar')
+    type Item = import('../../lib/planilhaParaPagar').ItemPagar
+    type Comp = import('../../lib/planilhaParaPagar').ComprovanteReembolso
+    const lancados = grupos.flatMap(g => g.itens).filter(p => !p.id.startsWith('rh-') && !p.id.startsWith('d8-'))
+    const { abertura } = await carregarAbertura(lancados, mes, fim)
+    const itens: Item[] = grupos.flatMap(g => g.itens.map((p): Item => {
+      const a = p.partes ?? abertura.get(p.id) ?? { salario: Number(p.amount) || 0, ajuda: 0, reembolso: 0, adiantamento: 0 }
+      const pago = p.status === 'Pago'
+      return {
+        dia: g.chave, employee_id: p.employee_id || null, nome: pessoa(p) || p.description || 'Sem colaborador',
+        salario: a.salario, ajuda: a.ajuda, reembolso: a.reembolso, adiantamento: a.adiantamento,
+        mesTrabalhado: p.reference_month || (p.aguardando ? mes : null), pago,
+        obs: [cliente(p),
+          g.chave === 'avulso' ? `vence ${formatDate(p.due_date)}` : '',
+          p.reference_month && p.reference_month !== mes ? `trabalho de ${mesCurto(p.reference_month)}` : '',
+          pago ? `já pago${p.paid_at ? ` em ${formatDate(String(p.paid_at).slice(0, 10))}` : ''}` : p.aguardando ? `não lançado: ${p.aguardando.motivo}` : (p.description || ''),
+          ...(((a as { reembolsos?: string[] }).reembolsos) || []).map(r => `reembolso: ${r}`),
+        ].filter(Boolean),
+      }
+    }))
+    const porDia = juntarPorPessoa(itens)
+
+    // Comprovantes: os reembolsos aprovados de quem tem reembolso na planilha,
+    // dos meses trabalhados daquele pagamento (menos os pagos na segunda)
+    const pares: { emp: string; mes: string; dia: string; nome: string }[] = []
+    for (const { chave, titulo } of DIAS_PLANILHA) for (const l of porDia.get(chave) || []) {
+      if (l.reembolso > 0 && l.employee_id) for (const m of (l.meses.length ? l.meses : [mes])) pares.push({ emp: l.employee_id, mes: m, dia: titulo, nome: l.nome })
+    }
+    const comprovantes: Comp[] = []
+    if (pares.length) {
+      const { data: gastos, error: eG } = await supabase.from('employee_expenses')
+        .select('id, employee_id, reference_month, category, amount, description, status, receipt_url, created_at')
+        .in('employee_id', [...new Set(pares.map(p => p.emp))]).in('reference_month', [...new Set(pares.map(p => p.mes))])
+      if (eG) throw eG
+      const validos = (gastos || []).filter(x => (x.status ?? 'aprovado') === 'aprovado' && !['Adiantamento', 'Ajuda de Custo'].includes(x.category as string))
+      const naSegunda = new Set<string>()
+      if (validos.length) {
+        const { data: aj } = await supabase.from('ajudas_custo').select('expense_id').in('expense_id', validos.map(x => x.id))
+        for (const x of aj || []) if (x.expense_id) naSegunda.add(x.expense_id as string)
+      }
+      for (const x of validos) {
+        if (naSegunda.has(x.id)) continue
+        const par = pares.find(p => p.emp === x.employee_id && p.mes === x.reference_month)
+        if (!par) continue
+        comprovantes.push({ employee_id: x.employee_id, nome: par.nome, dia: par.dia, descricao: x.description || x.category || 'Reembolso',
+          data: String(x.created_at || '').slice(0, 10), valor: Number(x.amount) || 0, caminho: (x.receipt_url as string | null) || null })
+      }
+    }
+    return { porDia, comprovantes: ordenarComprovantes(comprovantes) }
+  }
+
   const baixarPlanilhaPagar = async () => {
     setGerando('excel')
     try {
-      const { carregarAbertura } = await import('../../lib/planilhaPagamentosDados')
-      const { juntarPorPessoa, abasDaPlanilha, nomeDeArquivo, DIAS_PLANILHA } = await import('../../lib/planilhaParaPagar')
-      const { montarExcelBonito } = await import('../../lib/excelBonito')
-      const { parseStorage } = await import('../../lib/storage')
-      type Item = import('../../lib/planilhaParaPagar').ItemPagar
-      type Comp = import('../../lib/planilhaParaPagar').ComprovanteReembolso
-
-      const lancados = grupos.flatMap(g => g.itens).filter(p => !p.id.startsWith('rh-') && !p.id.startsWith('d8-'))
-      const { abertura } = await carregarAbertura(lancados, mes, fim)
-      const itens: Item[] = grupos.flatMap(g => g.itens.map((p): Item => {
-        const a = p.partes ?? abertura.get(p.id) ?? { salario: Number(p.amount) || 0, ajuda: 0, reembolso: 0, adiantamento: 0 }
-        const pago = p.status === 'Pago'
-        return {
-          dia: g.chave, employee_id: p.employee_id || null, nome: pessoa(p) || p.description || 'Sem colaborador',
-          salario: a.salario, ajuda: a.ajuda, reembolso: a.reembolso, adiantamento: a.adiantamento,
-          mesTrabalhado: p.reference_month || (p.aguardando ? mes : null), pago,
-          obs: [cliente(p),
-            g.chave === 'avulso' ? `vence ${formatDate(p.due_date)}` : '',
-            p.reference_month && p.reference_month !== mes ? `trabalho de ${mesCurto(p.reference_month)}` : '',
-            pago ? `já pago${p.paid_at ? ` em ${formatDate(String(p.paid_at).slice(0, 10))}` : ''}` : p.aguardando ? `não lançado: ${p.aguardando.motivo}` : (p.description || ''),
-            ...(((a as { reembolsos?: string[] }).reembolsos) || []).map(r => `reembolso: ${r}`),
-          ].filter(Boolean),
-        }
-      }))
-      const porDia = juntarPorPessoa(itens)
-
-      // Comprovantes: os reembolsos aprovados de quem tem reembolso na planilha,
-      // dos meses trabalhados daquele pagamento (menos os pagos na segunda)
-      const pares: { emp: string; mes: string; dia: string; nome: string }[] = []
-      for (const { chave, titulo } of DIAS_PLANILHA) for (const l of porDia.get(chave) || []) {
-        if (l.reembolso > 0 && l.employee_id) for (const m of (l.meses.length ? l.meses : [mes])) pares.push({ emp: l.employee_id, mes: m, dia: titulo, nome: l.nome })
-      }
-      const comprovantes: Comp[] = []
-      if (pares.length) {
-        const { data: gastos, error: eG } = await supabase.from('employee_expenses')
-          .select('id, employee_id, reference_month, category, amount, description, status, receipt_url, created_at')
-          .in('employee_id', [...new Set(pares.map(p => p.emp))]).in('reference_month', [...new Set(pares.map(p => p.mes))])
-        if (eG) throw eG
-        const validos = (gastos || []).filter(x => (x.status ?? 'aprovado') === 'aprovado' && !['Adiantamento', 'Ajuda de Custo'].includes(x.category as string))
-        const naSegunda = new Set<string>()
-        if (validos.length) {
-          const { data: aj } = await supabase.from('ajudas_custo').select('expense_id').in('expense_id', validos.map(x => x.id))
-          for (const x of aj || []) if (x.expense_id) naSegunda.add(x.expense_id as string)
-        }
-        for (const x of validos) {
-          if (naSegunda.has(x.id)) continue
-          const par = pares.find(p => p.emp === x.employee_id && p.mes === x.reference_month)
-          if (!par) continue
-          comprovantes.push({ employee_id: x.employee_id, nome: par.nome, dia: par.dia, descricao: x.description || x.category || 'Reembolso',
-            data: String(x.created_at || '').slice(0, 10), valor: Number(x.amount) || 0, caminho: (x.receipt_url as string | null) || null })
-        }
-      }
-
-      // Baixa os arquivos para o zip, com o nome da pessoa no começo
-      const { default: JSZip } = await import('jszip')
-      const zip = new JSZip()
-      const pasta = zip.folder('comprovantes')!
-      const arquivo = new Map<Comp, string>()
-      const usados = new Set<string>()
-      let feitos = 0
-      for (const c of comprovantes) {
-        feitos++
-        setProgresso(`comprovante ${feitos} de ${comprovantes.length}`)
-        const onde = c.caminho ? parseStorage(c.caminho, 'arquivos') : null
-        if (!onde) continue
-        const { data: blob, error: eD } = await supabase.storage.from(onde.bucket).download(onde.path)
-        if (eD || !blob) continue
-        const ext = (onde.path.split('.').pop() || 'jpg').toLowerCase().slice(0, 5)
-        const base = nomeDeArquivo(`${c.nome} - ${c.descricao} - ${c.data.slice(8, 10)}-${c.data.slice(5, 7)}`)
-        let nome = `${base}.${ext}`
-        for (let n = 2; usados.has(nome); n++) nome = `${base}_${n}.${ext}`
-        usados.add(nome)
-        pasta.file(nome, blob)
-        arquivo.set(c, nome)
-      }
-
+      const { porDia, comprovantes } = await dadosDaPlanilha()
+      const { abasDaPlanilha } = await import('../../lib/planilhaParaPagar')
+      const { numerarAnexos } = await import('../../lib/comprovantesPdf')
+      const { baixarExcelBonito } = await import('../../lib/excelBonito')
       const pixDe = (id: string | null) => {
         const b = id ? bancos?.get(id) : undefined
         return b?.pix ? b.pix : textoBanco(b) ? `SEM PIX · ${textoBanco(b)}` : 'SEM PIX NO CADASTRO'
       }
-      const buf = await montarExcelBonito(abasDaPlanilha(nomeMes, porDia, pixDe, comprovantes, c => arquivo.get(c) || null))
-      zip.file(`pagamentos_${mes}.xlsx`, buf)
-      zip.file('LEIA-ME.txt', 'Descompacte esta pasta antes de abrir a planilha.\r\nUma aba por dia de pagamento. O Total recalcula quando voce edita Salario, Reembolso ou Ajuda.\r\nNa aba "Comprovantes", clique em "Abrir comprovante" para ver cada arquivo (ficam na pasta "comprovantes", em ordem de nome).\r\n')
-      const blob = await zip.generateAsync({ type: 'blob' })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a'); a.href = url; a.download = `pagamentos_${mes}.zip`; a.click()
-      setTimeout(() => URL.revokeObjectURL(url), 5000)
-      const semArquivo = comprovantes.filter(c => !arquivo.has(c)).length
-      toast.success(`Planilha baixada${comprovantes.length ? ` com ${arquivo.size} comprovante(s)` : ''}${semArquivo ? ` · ${semArquivo} sem arquivo` : ''}`)
+      await baixarExcelBonito(`pagamentos_${mes}`, abasDaPlanilha(nomeMes, porDia, pixDe, comprovantes, numerarAnexos(comprovantes)))
+      toast.success('Planilha baixada')
     } catch (e) {
       toast.error('Não foi possível gerar a planilha: ' + (e as Error).message)
+    } finally { setGerando('') }
+  }
+
+  // Os comprovantes dos reembolsos da planilha, num PDF só (um por página, em ordem de nome)
+  const baixarComprovantesPdf = async () => {
+    setGerando('comprovantes')
+    try {
+      const { comprovantes } = await dadosDaPlanilha()
+      if (!comprovantes.length) { toast('Nenhum reembolso nos pagamentos deste mês.'); return }
+      const { gerarPdfComprovantes, baixarBlob } = await import('../../lib/comprovantesPdf')
+      const blob = await gerarPdfComprovantes({
+        titulo: 'Comprovantes dos reembolsos', periodo: nomeMes,
+        itens: comprovantes.map(c => ({ pessoa: c.nome, descricao: c.descricao, valor: c.valor, data: c.data, caminho: c.caminho, extra: `Recebe no ${c.dia}` })),
+        aoProgredir: setProgresso,
+      })
+      baixarBlob(blob, `comprovantes_${mes}.pdf`)
+      toast.success(`PDF com ${comprovantes.filter(c => c.caminho).length} comprovante(s) baixado`)
+    } catch (e) {
+      toast.error('Não foi possível gerar os comprovantes: ' + (e as Error).message)
     } finally { setGerando(''); setProgresso('') }
   }
 
@@ -360,8 +355,12 @@ export default function PorDiaDePagamento({ mes, nomeMes, aguardando, irParaConf
           </div>
           <div className="flex gap-2 flex-wrap">
             <button onClick={baixarPlanilhaPagar} disabled={!!gerando || !t.qtd} className="btn-primary text-sm"
-              title="Uma aba por dia: nome, PIX, salário, reembolso, ajuda de custo, total e observação — mais os comprovantes dos reembolsos. Entra também quem ainda não foi lançado.">
-              <FileSpreadsheet size={16} />{progresso ? `Baixando ${progresso}…` : gerando === 'excel' ? 'Gerando…' : 'Planilha para pagar'}
+              title="Só a planilha (.xlsx): uma aba por dia com nome, PIX, salário, reembolso, ajuda de custo, total e observação. Entra também quem ainda não foi lançado.">
+              <FileSpreadsheet size={16} />{gerando === 'excel' ? 'Gerando…' : 'Planilha para pagar'}
+            </button>
+            <button onClick={baixarComprovantesPdf} disabled={!!gerando || !t.qtd} className="btn-secondary text-sm"
+              title="Os comprovantes dos reembolsos num PDF só, um por página, em ordem de nome. O número do anexo é o mesmo da aba Comprovantes da planilha.">
+              <Paperclip size={16} />{progresso ? `Baixando ${progresso}…` : gerando === 'comprovantes' ? 'Gerando…' : 'Comprovantes (PDF)'}
             </button>
             <button onClick={() => baixarLista(null)} disabled={!!gerando || !t.qtd} className="btn-secondary text-sm">
               <FileDown size={16} />{gerando === 'pdf' ? 'Gerando…' : 'Lista do contador'}

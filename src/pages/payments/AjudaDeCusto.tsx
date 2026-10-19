@@ -170,53 +170,77 @@ export default function AjudaDeCusto({ mes }: { mes: string }) {
 
   // Planilha (pedido de 19/10/2026): escolhe o mês inteiro ou uma semana; sai
   // apresentável (Para pagar por pessoa com PIX e total, Lançamentos e uma aba
-  // por cliente). Com comprovantes: zip com a pasta e o link em cada lançamento.
-  // Reembolso que entrou sozinho usa a nota que a colaboradora mandou no portal.
+  // por cliente). Só o .xlsx — o zip com pasta não subia. Os comprovantes saem
+  // à parte num PDF único (um por página, por nome); o "Anexo N" da planilha é
+  // a página no PDF. Reembolso que entrou sozinho usa a nota do portal.
   const [baixando, setBaixando] = useState<string | null>(null)
   const [painelPlanilha, setPainelPlanilha] = useState(false)
   const [escolhaPlanilha, setEscolhaPlanilha] = useState('mes')   // 'mes' ou o início da semana
-  const [comComprovantes, setComComprovantes] = useState(true)
+  const prepararPlanilha = async () => {
+    const { filtrarPeriodo } = await import('../../lib/planilhaAjudaCusto')
+    const { numerarAnexos } = await import('../../lib/comprovantesPdf')
+    const sem = semanas.find(s => s.de === escolhaPlanilha)
+    const escolha = sem ? { tipo: 'semana' as const, de: sem.de, ate: sem.ate } : { tipo: 'mes' as const }
+    const itens = filtrarPeriodo(lista, escolha) as Ajuda[]
+    if (!itens.length) { toast.error('Nada lançado nesse período.'); return null }
+    const nomeMes = format(parseISO(ini), "MMMM 'de' yyyy", { locale: ptBR })
+    const tituloPeriodo = sem ? `semana de ${curto(sem.de)} a ${curto(sem.ate)}` : nomeMes
+    const arquivo = `${sem ? `semana_${sem.de.slice(8, 10)}-${sem.de.slice(5, 7)}` : mes}${filtroCliente ? `_${(nomeCli.get(filtroCliente) || '').replace(/[^\w]+/g, '_').slice(0, 30)}` : ''}`
+    const base = {
+      tituloPeriodo: filtroCliente ? `${tituloPeriodo} · ${nomeCli.get(filtroCliente) || ''}` : tituloPeriodo, ajudas: itens,
+      nome: (id: string | null) => data?.todasPessoas.get(id || '') || '',
+      pix: (id: string | null) => data?.pixDe.get(id || '') || '',
+      cliente: (id: string | null) => nomeCli.get(id || '') || '',
+    }
+    const idsReemb = itens.map(a => a.expense_id).filter(Boolean) as string[]
+    const notas = new Map<string, string>()
+    if (idsReemb.length) {
+      const { data: ex } = await supabase.from('employee_expenses').select('id, receipt_url').in('id', idsReemb)
+      for (const e of ex || []) if (e.receipt_url) notas.set(e.id as string, e.receipt_url as string)
+    }
+    const caminho = (a: Ajuda) => a.comprovante_url || (a.expense_id ? notas.get(a.expense_id) : null) || null
+    // Ordem do PDF: por nome e data. A ajuda do contrato sem comprovante não entra (não tem o que mostrar)
+    const ordemPdf = itens.filter(a => caminho(a) || !a.link_id)
+      .sort((x, y) => base.nome(x.employee_id).localeCompare(base.nome(y.employee_id), 'pt-BR') || x.inicio.localeCompare(y.inicio))
+    const anexos = numerarAnexos(ordemPdf.map(a => ({ caminho: caminho(a) })))
+    const anexoDe = new Map(ordemPdf.map((a, i) => [a.id, anexos[i]]))
+    return { base, arquivo, caminho, ordemPdf, anexoDe }
+  }
   const baixarPlanilha = async () => {
-    setBaixando('Preparando…')
+    setBaixando('Gerando…')
     try {
-      const { filtrarPeriodo, abasAjudaCusto, tipoTexto } = await import('../../lib/planilhaAjudaCusto')
-      const sem = semanas.find(s => s.de === escolhaPlanilha)
-      const escolha = sem ? { tipo: 'semana' as const, de: sem.de, ate: sem.ate } : { tipo: 'mes' as const }
-      const itens = filtrarPeriodo(lista, escolha) as Ajuda[]
-      if (!itens.length) { toast.error('Nada lançado nesse período.'); return }
-      const nomeMes = format(parseISO(ini), "MMMM 'de' yyyy", { locale: ptBR })
-      const tituloPeriodo = sem ? `semana de ${curto(sem.de)} a ${curto(sem.ate)}` : nomeMes
-      const arquivo = `ajuda_de_custo_${sem ? `semana_${sem.de.slice(8, 10)}-${sem.de.slice(5, 7)}` : mes}${filtroCliente ? `_${(nomeCli.get(filtroCliente) || '').replace(/[^\w]+/g, '_').slice(0, 30)}` : ''}`
-      const base = {
-        tituloPeriodo: filtroCliente ? `${tituloPeriodo} · ${nomeCli.get(filtroCliente) || ''}` : tituloPeriodo, ajudas: itens,
-        nome: (id: string | null) => data?.todasPessoas.get(id || '') || '',
-        pix: (id: string | null) => data?.pixDe.get(id || '') || '',
-        cliente: (id: string | null) => nomeCli.get(id || '') || '',
-      }
-      if (!comComprovantes) {
-        const { baixarExcelBonito } = await import('../../lib/excelBonito')
-        await baixarExcelBonito(arquivo, abasAjudaCusto(base))
-        toast.success('Planilha baixada')
-        return
-      }
-      const idsReemb = itens.map(a => a.expense_id).filter(Boolean) as string[]
-      const notas = new Map<string, string>()
-      if (idsReemb.length) {
-        const { data: ex } = await supabase.from('employee_expenses').select('id, receipt_url').in('id', idsReemb)
-        for (const e of ex || []) if (e.receipt_url) notas.set(e.id as string, e.receipt_url as string)
-      }
-      const { baixarArquivosParaZip, fecharZip, celulaComprovante } = await import('../../lib/planilhaComComprovantes')
-      const { default: JSZip } = await import('jszip')
-      const zip = new JSZip()
-      const caminho = (a: Ajuda) => a.comprovante_url || (a.expense_id ? notas.get(a.expense_id) : null) || null
-      const { nomes, falhas } = await baixarArquivosParaZip(zip, itens.map(a => ({
-        caminho: caminho(a), nomeArquivo: `${base.nome(a.employee_id) || 'sem nome'} - ${tipoTexto(a)} - ${curto(a.inicio).replace('/', '-')}`,
-      })), (f, t) => setBaixando(`Baixando comprovantes ${f} de ${t}…`))
-      const nomeDe = new Map(itens.map((a, i) => [a.id, nomes[i]]))
-      await fecharZip(zip, arquivo, abasAjudaCusto({ ...base, comprovante: a => celulaComprovante(nomeDe.get(a.id) || null, !!caminho(a as Ajuda)) }))
-      toast.success(`Planilha baixada com ${nomes.filter(Boolean).length} comprovante(s).${falhas ? ` ${falhas} não baixou.` : ''}`)
-      setPainelPlanilha(false)
+      const p = await prepararPlanilha()
+      if (!p) return
+      const { abasAjudaCusto } = await import('../../lib/planilhaAjudaCusto')
+      const { baixarExcelBonito } = await import('../../lib/excelBonito')
+      await baixarExcelBonito(`ajuda_de_custo_${p.arquivo}`, abasAjudaCusto({ ...p.base, comprovante: a => {
+        const n = p.anexoDe.get(a.id)
+        return n ? `Anexo ${n}` : 'Sem comprovante'
+      } }))
+      toast.success('Planilha baixada')
     } catch (e) { toast.error('Não gerou a planilha: ' + (e as Error).message) }
+    finally { setBaixando(null) }
+  }
+  const baixarComprovantes = async () => {
+    setBaixando('Gerando PDF…')
+    try {
+      const p = await prepararPlanilha()
+      if (!p) return
+      const n = p.ordemPdf.filter(a => p.caminho(a)).length
+      if (!n) { toast.error('Nenhum comprovante anexado nesse período.'); return }
+      const { tipoTexto, periodoTexto } = await import('../../lib/planilhaAjudaCusto')
+      const { gerarPdfComprovantes, baixarBlob } = await import('../../lib/comprovantesPdf')
+      const blob = await gerarPdfComprovantes({
+        titulo: 'Comprovantes da ajuda de custo', periodo: p.base.tituloPeriodo,
+        itens: p.ordemPdf.map(a => ({
+          pessoa: p.base.nome(a.employee_id) || 'Sem colaborador', descricao: [tipoTexto(a), a.descricao].filter(Boolean).join(' · '),
+          valor: a.valor, data: a.inicio, caminho: p.caminho(a), extra: [periodoTexto(a), p.base.cliente(a.client_id)].filter(Boolean).join(' · '),
+        })),
+        aoProgredir: t => setBaixando(`Baixando ${t}…`),
+      })
+      baixarBlob(blob, `comprovantes_ajuda_de_custo_${p.arquivo}.pdf`)
+      toast.success(`PDF com ${n} comprovante(s) baixado`)
+    } catch (e) { toast.error('Não gerou os comprovantes: ' + (e as Error).message) }
     finally { setBaixando(null) }
   }
 
@@ -269,15 +293,13 @@ export default function AjudaDeCusto({ mes }: { mes: string }) {
               )
             })}
           </div>
-          <label className="flex items-center gap-2 text-sm text-ink-700">
-            <input type="checkbox" checked={comComprovantes} onChange={e => setComComprovantes(e.target.checked)} />
-            <Paperclip size={14} className="text-ink-500" />Com os comprovantes (baixa um .zip com a pasta)
-          </label>
           <p className="text-[11px] text-ink-500">
-            Sai com: <b>Para pagar</b> (uma linha por pessoa, com PIX, ajuda do contrato, reembolsos, outros custos e total), <b>Lançamentos</b> e uma aba por cliente.
+            A planilha sai sozinha (.xlsx): <b>Para pagar</b> (uma linha por pessoa, com PIX, ajuda do contrato, reembolsos, outros custos e total), <b>Lançamentos</b> e uma aba por cliente.
+            Os comprovantes saem à parte num PDF, um por página — o "Anexo" da planilha é o número no PDF.
             {filtroCliente ? <> Só o cliente filtrado: <b>{nomeCli.get(filtroCliente)}</b>.</> : null}
           </p>
-          <div className="flex justify-end">
+          <div className="flex justify-end gap-2 flex-wrap">
+            <button className="btn-secondary text-sm" disabled={!!baixando} onClick={baixarComprovantes}><Paperclip size={15} />Comprovantes (PDF)</button>
             <button className="btn-primary text-sm" disabled={!!baixando} onClick={baixarPlanilha}><Download size={15} />{baixando || 'Baixar planilha'}</button>
           </div>
         </div>

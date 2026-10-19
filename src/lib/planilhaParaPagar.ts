@@ -5,7 +5,8 @@
 //   Nome completo · PIX · Salário · Reembolso · Ajuda de custo · Total · Observação
 // O Total é fórmula (Salário + Reembolso + Ajuda): editou um valor, o total
 // acompanha. Mais a aba "Comprovantes": cada reembolso que entrou na planilha,
-// por nome, com o link para o arquivo na pasta "comprovantes" do zip.
+// por nome, com o número do anexo no PDF de comprovantes (que sai à parte —
+// o zip com pasta não subia; pedido de 19/10/2026: "só a planilha").
 // Entra quem já foi lançado E quem ainda está "Aguardando RH".
 // A parte que junta as linhas não usa banco: testada em planilhaParaPagar.test.ts.
 // ============================================================
@@ -77,15 +78,15 @@ export type ComprovanteReembolso = {
   employee_id: string; nome: string; dia: string; descricao: string; data: string; valor: number; caminho: string | null
 }
 
-/** Nome de arquivo seguro, sem acento e sem espaço (o link abre em qualquer Excel) */
-export const nomeDeArquivo = (s: string) =>
-  s.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^\w\- ]+/g, ' ').trim().replace(/\s+/g, '_').slice(0, 80) || 'comprovante'
-
 const dataBR = (iso: string) => iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}` : ''
 
-/** As abas do Excel. `arquivoDe` diz o nome no zip de cada comprovante já baixado. */
+/** Reembolsos em ordem de nome (e data): é a ordem da aba e do PDF de comprovantes */
+export const ordenarComprovantes = (cs: ComprovanteReembolso[]) =>
+  [...cs].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR') || a.data.localeCompare(b.data))
+
+/** As abas do Excel. `comprovantes` já em ordem; `anexos[i]` = número no PDF (null = sem arquivo). */
 export function abasDaPlanilha(nomeMes: string, porDia: Map<ChaveDia, LinhaPagar[]>, pixDe: (id: string | null) => string,
-  comprovantes: ComprovanteReembolso[], arquivoDe: (c: ComprovanteReembolso) => string | null): AbaExcel[] {
+  comprovantes: ComprovanteReembolso[], anexos: (number | null)[]): AbaExcel[] {
   const abas: AbaExcel[] = []
   for (const { chave, titulo } of DIAS_PLANILHA) {
     const linhas = porDia.get(chave) || []
@@ -112,28 +113,25 @@ export function abasDaPlanilha(nomeMes: string, porDia: Map<ChaveDia, LinhaPagar
           formula: `SUM(${c}${L}:${c}${ultima})`,
           result: r2(linhas.reduce((s, l) => s + [l.salario, l.reembolso, l.ajuda, l.total][i], 0)),
         })), ''],
-      rodape: 'Verde = já pago. Amarelo = sem PIX no cadastro. Os comprovantes dos reembolsos estão na aba "Comprovantes" e na pasta "comprovantes" deste zip.',
+      rodape: 'Verde = já pago. Amarelo = sem PIX no cadastro. Os reembolsos estão na aba "Comprovantes"; os arquivos saem à parte no botão "Comprovantes (PDF)".',
     })
   }
-  const ordenados = [...comprovantes].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR') || a.data.localeCompare(b.data))
   abas.push({
     nome: 'Comprovantes',
     titulo: `Comprovantes dos reembolsos · ${nomeMes}`,
-    subtitulo: ordenados.length
-      ? `${ordenados.length} reembolso(s) · descompacte o zip e clique em "Abrir" para ver cada um`
+    subtitulo: comprovantes.length
+      ? `${comprovantes.length} reembolso(s) · o "Anexo" é a página no PDF de comprovantes (botão "Comprovantes (PDF)" em Pagamentos)`
       : 'Nenhum reembolso nos pagamentos deste mês',
     colunas: [
       { titulo: 'Nome completo', largura: 34 }, { titulo: 'Recebe no', largura: 11, tipo: 'centro' },
       { titulo: 'Reembolso', largura: 36, tipo: 'texto' }, { titulo: 'Pedido em', largura: 12, tipo: 'data' },
-      { titulo: 'Valor', largura: 14, tipo: 'dinheiro' }, { titulo: 'Comprovante', largura: 22 },
+      { titulo: 'Valor', largura: 14, tipo: 'dinheiro' }, { titulo: 'Comprovante', largura: 22, tipo: 'centro' },
     ],
-    linhas: ordenados.map((c): CelulaExcel[] => {
-      const arq = arquivoDe(c)
-      return [c.nome, c.dia, c.descricao, dataBR(c.data), c.valor,
-        arq ? { text: 'Abrir comprovante', hyperlink: `comprovantes/${arq}` } : c.caminho ? 'Não baixou — ver no sistema' : 'Sem comprovante anexado']
-    }),
-    cores: ordenados.map(c => (arquivoDe(c) ? null : 'amarelo') as CorLinha),
-    rodape: 'Os arquivos ficam na pasta "comprovantes", com o nome da pessoa no começo — dá para olhar um por um em ordem alfabética.',
+    linhas: comprovantes.map((c, i): CelulaExcel[] => [c.nome, c.dia, c.descricao, dataBR(c.data), c.valor,
+      anexos[i] ? `Anexo ${anexos[i]}` : 'Sem comprovante anexado']),
+    cores: comprovantes.map((_, i) => (anexos[i] ? null : 'amarelo') as CorLinha),
+    total: comprovantes.length ? ['Total', '', '', '', { formula: `SUM(E5:E${4 + comprovantes.length})`, result: r2(comprovantes.reduce((s, c) => s + c.valor, 0)) }, ''] : undefined,
+    rodape: 'Amarelo = a pessoa não anexou o comprovante no sistema.',
   })
   return abas
 }

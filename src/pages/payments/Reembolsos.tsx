@@ -6,7 +6,7 @@ import { supabase } from '../../lib/supabase'
 import { formatCurrency, formatDate, hojeISO } from '../../lib/utils'
 import { SignedLink } from '../../components/ui/SignedFile'
 import { confirmar } from '../../components/ui/ConfirmDialog'
-import { baixarPlanilhaComComprovantes } from '../../lib/planilhaComComprovantes'
+import { baixarPlanilhaComAnexos } from '../../lib/planilhaComComprovantes'
 
 /**
  * Aba Reembolsos (pedido de 16/10/2026: "preciso de uma visão mais clara dos
@@ -127,25 +127,51 @@ export default function Reembolsos({ mes }: { mes: string }) {
   const ondeTexto = (l: Linha) => l.onde === 'analisar' ? 'Para analisar' : l.onde === 'negado' ? 'Negado'
     : l.onde === 'segunda' ? `Na segunda ${l.ajuda ? dm(l.ajuda.inicio) : ''} (ajuda de custo)` : 'No salário do mês'
 
+  // Só a planilha (.xlsx) e, à parte, os comprovantes num PDF (19/10/2026: o zip
+  // não subia). Mesma ordem nos dois: o "Anexo N" da planilha é a página no PDF.
+  const nomeMes = new Date(mes + '-15T12:00:00').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
+  const emOrdem = () => [...linhas].sort((a, b) => (a.employee?.full_name || '').localeCompare(b.employee?.full_name || '', 'pt-BR')
+    || String(a.created_at || '').localeCompare(String(b.created_at || '')))
+  const comprovanteDe = (l: Linha) => l.receipt_url || l.ajuda?.comprovante_url || null
+  const situacaoTexto = (l: Linha) => l.status === 'pendente' ? 'Para analisar' : l.status === 'negado' ? 'Negado' : 'Aprovado'
   const baixar = async () => {
-    setBaixando('Preparando…')
+    setBaixando('Gerando…')
     try {
-      const nomeMes = new Date(mes + '-15T12:00:00').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
-      const r = await baixarPlanilhaComComprovantes(`reembolsos_${mes}`, [{
-        nome: 'Reembolsos',
+      await baixarPlanilhaComAnexos(`reembolsos_${mes}`, [{
+        nome: 'Reembolsos', titulo: `Reembolsos · ${nomeMes}`,
         cabecalho: ['Colaborador', 'Cliente', 'O quê', 'Tipo', 'Valor', 'Pedido em', 'Situação', 'Onde é pago', 'Pagamento', 'Obs. da colaboradora', 'Observação do RH'],
-        larguras: [26, 20, 30, 14, 12, 12, 14, 30, 24, 30, 30],
+        larguras: [28, 22, 30, 14, 13, 12, 14, 30, 24, 30, 30],
         colunasDinheiro: [4],
-        linhas: [...linhas].sort((a, b) => (a.employee?.full_name || '').localeCompare(b.employee?.full_name || '')).map(l => ({
+        linhas: emOrdem().map(l => ({
           valores: [l.employee?.full_name || '', l.client?.name || '', l.description, l.category || 'Reembolso', Number(l.amount),
-            l.created_at ? formatDate(l.created_at.slice(0, 10)) : '', l.status === 'pendente' ? 'Para analisar' : l.status === 'negado' ? 'Negado' : 'Aprovado',
+            l.created_at ? formatDate(l.created_at.slice(0, 10)) : '', situacaoTexto(l),
             ondeTexto(l), l.onde === 'salario' || l.onde === 'segunda' ? l.pagoTexto : '', l.notes || '', l.obs_rh || ''],
-          comprovante: l.receipt_url || l.ajuda?.comprovante_url || null,
-          nomeArquivo: `${l.employee?.full_name || 'sem nome'} - ${l.description} - ${l.created_at ? dm(l.created_at.slice(0, 10)).replace('/', '-') : ''}`,
+          comprovante: comprovanteDe(l),
+          cor: l.status === 'negado' ? 'cinza' as const : undefined,
         })),
-      }], (f, t) => setBaixando(`Baixando comprovantes ${f} de ${t}…`))
-      toast.success(`Planilha de ${nomeMes} baixada com ${r.comprovantes} comprovante(s).${r.falhas ? ` ${r.falhas} não baixou.` : ''}`)
+      }])
+      toast.success(`Planilha de ${nomeMes} baixada`)
     } catch (e) { toast.error('Não gerou a planilha: ' + (e as Error).message) }
+    setBaixando(null)
+  }
+  const baixarComprovantes = async () => {
+    const itens = emOrdem()
+    const n = itens.filter(comprovanteDe).length
+    if (!n) { toast.error('Nenhum comprovante anexado neste mês.'); return }
+    setBaixando('Gerando PDF…')
+    try {
+      const { gerarPdfComprovantes, baixarBlob } = await import('../../lib/comprovantesPdf')
+      const blob = await gerarPdfComprovantes({
+        titulo: 'Comprovantes dos reembolsos', periodo: nomeMes,
+        itens: itens.map(l => ({
+          pessoa: l.employee?.full_name || 'Sem colaborador', descricao: l.description || l.category || 'Reembolso', valor: Number(l.amount) || 0,
+          data: (l.created_at || '').slice(0, 10), caminho: comprovanteDe(l), extra: [situacaoTexto(l), l.client?.name].filter(Boolean).join(' · '),
+        })),
+        aoProgredir: t => setBaixando(`Baixando ${t}…`),
+      })
+      baixarBlob(blob, `comprovantes_reembolsos_${mes}.pdf`)
+      toast.success(`PDF com ${n} comprovante(s) baixado`)
+    } catch (e) { toast.error('Não gerou os comprovantes: ' + (e as Error).message) }
     setBaixando(null)
   }
 
@@ -177,8 +203,12 @@ export default function Reembolsos({ mes }: { mes: string }) {
           <CheckCircle2 size={12} className="inline -mt-0.5 text-green-700" /> Já pago: <b className="text-ink-800">{formatCurrency(soma(resumo.pago))}</b>
           {filtro !== 'todos' && <> · <button className="text-primary-700 underline" onClick={() => setFiltro('todos')}>ver todos</button></>}
         </p>
+        <button className="btn-secondary text-sm" disabled={!linhas.length || !!baixando} onClick={baixarComprovantes}
+          title="Os comprovantes num PDF só, um por página, em ordem de nome">
+          <Paperclip size={15} />Comprovantes (PDF)
+        </button>
         <button className="btn-secondary text-sm" disabled={!linhas.length || !!baixando} onClick={baixar}>
-          <Download size={15} />{baixando || 'Planilha com comprovantes'}
+          <Download size={15} />{baixando || 'Planilha'}
         </button>
       </div>
 

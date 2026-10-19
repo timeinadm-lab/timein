@@ -1,5 +1,7 @@
 // Teste da planilha para pagar. Rodar: node src/lib/planilhaParaPagar.test.ts
-import { juntarPorPessoa, abasDaPlanilha } from './planilhaParaPagar'
+import { juntarPorPessoa, abasDaPlanilha, ordenarComprovantes } from './planilhaParaPagar'
+import { numerarAnexos } from './comprovantesPdf'
+import { abasComAnexo } from './planilhaComComprovantes'
 import type { ItemPagar } from './planilhaParaPagar'
 
 let falhas = 0
@@ -33,8 +35,12 @@ const gr = d20[1]
 ok(gr.total === 2290 && gr.reembolso === 130, 'Graziele: 2160 + 130 = 2290')
 ok(porDia.get('d8')![0].pago && porDia.get('d15')!.length === 0, 'dia 8 pago; dia 15 vazio')
 
-const abas = abasDaPlanilha('outubro de 2026', porDia, id => (id === 'b' ? '' : 'pix@x'),
-  [{ employee_id: 'g', nome: 'Graziele', dia: 'Dia 20', descricao: 'Lavanderia', data: '2026-10-10', valor: 80, caminho: 'x.jpg' }], () => 'Graziele_-_Lavanderia.jpg')
+const comps = ordenarComprovantes([
+  { employee_id: 'g', nome: 'Graziele', dia: 'Dia 20', descricao: 'Passagem', data: '2026-10-11', valor: 50, caminho: null },
+  { employee_id: 'g', nome: 'Graziele', dia: 'Dia 20', descricao: 'Lavanderia', data: '2026-10-10', valor: 80, caminho: 'x.jpg' },
+])
+ok(comps[0].descricao === 'Lavanderia', 'comprovantes em ordem de nome e data')
+const abas = abasDaPlanilha('outubro de 2026', porDia, id => (id === 'b' ? '' : 'pix@x'), comps, numerarAnexos(comps))
 ok(abas.map(a => a.nome).join(',') === 'Dia 8,Dia 20,Comprovantes', 'aba por dia com gente + Comprovantes')
 const a20 = abas[1]
 const tot = a20.linhas[0][5] as { formula: string; result: number }
@@ -42,8 +48,16 @@ ok(tot.formula === 'C5+D5+E5' && tot.result === 1400, 'Total é fórmula da pró
 ok((a20.total![5] as { formula: string }).formula === 'SUM(F5:F6)', 'linha de total soma a coluna')
 ok(a20.colunas.map(c => c.titulo).join('|') === 'Nome completo|PIX|Salário|Reembolso|Ajuda de custo|Total|Observação', 'colunas pedidas')
 ok(abas[0].cores![0] === 'verde', 'pago fica verde')
-const link = abas[2].linhas[0][5] as { hyperlink: string }
-ok(link.hyperlink === 'comprovantes/Graziele_-_Lavanderia.jpg', 'comprovante com link para a pasta do zip')
+const aba = abas[2]
+ok(aba.linhas[0][5] === 'Anexo 1' && aba.linhas[1][5] === 'Sem comprovante anexado', 'aba Comprovantes: número do anexo no PDF (sem arquivo avisa)')
+ok(aba.cores![1] === 'amarelo' && (aba.total![4] as { result: number }).result === 130, 'sem comprovante em amarelo; total dos reembolsos')
+
+// Planilha da aba Reembolsos: "Anexo N" na ordem das linhas, total da coluna de dinheiro
+const [r] = abasComAnexo([{ nome: 'Reembolsos', cabecalho: ['Nome', 'Valor'], colunasDinheiro: [1], linhas: [
+  { valores: ['Ana', 10], comprovante: 'a.pdf' }, { valores: ['Bia', 20] }, { valores: ['Caio', 5], comprovante: 'c.jpg' },
+] }])
+ok(r.linhas.map(l => l[2]).join('|') === 'Anexo 1|Sem comprovante|Anexo 2', 'Reembolsos: anexo numerado só para quem tem arquivo')
+ok((r.total![1] as { formula: string; result: number }).formula === 'SUM(B5:B7)' && (r.total![1] as { result: number }).result === 35, 'Reembolsos: total da coluna Valor')
 
 if (falhas) { console.log(`\n${falhas} falha(s)`); process.exit(1) }
 console.log('\nTudo certo.')

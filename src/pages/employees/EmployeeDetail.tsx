@@ -458,7 +458,7 @@ export default function EmployeeDetail() {
     const COR = { realizada: '#16a34a', agendada: '#f59e0b', nao: '#dc2626', folga: '#9ca3af' }
     const celulas: (number | null)[] = [...Array(new Date(yr, mo - 1, 1).getDay()).fill(null), ...Array.from({ length: new Date(yr, mo, 0).getDate() }, (_, i) => i + 1)]
     while (celulas.length % 7) celulas.push(null)
-    const nomeMes = format(new Date(yr, mo - 1, 15), "MMMM 'de' yyyy", { locale: ptBR })
+    const nomeMes = format(new Date(yr, mo - 1, 15), "MMMM 'de' yyyy", { locale: ptBR }).replace(/^./, c => c.toUpperCase())
     const hoje = hojeISO()
     let semanas = ''
     for (let s = 0; s < celulas.length; s += 7) {
@@ -477,7 +477,7 @@ export default function EmployeeDetail() {
       @page{size:A4 landscape;margin:9mm}*{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
       body{font-family:Inter,Arial,sans-serif;color:#1d211f;margin:0;padding:14px}
       .topo{display:flex;justify-content:space-between;align-items:flex-end;background:#0f4e30;color:#fff;padding:10px 14px;border-radius:8px}
-      .topo h1{margin:0;font-size:18px}.topo p{margin:2px 0 0;font-size:11px;color:#bfdcc8}.topo .mes{font-size:15px;font-weight:600;text-transform:capitalize}
+      .topo h1{margin:0;font-size:18px}.topo p{margin:2px 0 0;font-size:11px;color:#bfdcc8}.topo .mes{font-size:15px;font-weight:600}
       table.cal{width:100%;border-collapse:collapse;table-layout:fixed;margin-top:10px}
       table.cal th{background:#0f4e30;color:#fff;font-size:10px;letter-spacing:.04em;padding:5px;text-transform:uppercase}
       table.cal td{border:1px solid #dfe3dd;vertical-align:top;height:86px;padding:4px 5px}

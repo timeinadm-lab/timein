@@ -494,7 +494,6 @@ function FichaFornecedor({ registro, lista, fechar }: { registro: Registro | nul
             </div>
             {texto('proxima_acao', 'Próxima ação', { placeholder: 'Ex.: cobrar data com o fornecedor' })}
           </div>
-          {!encerrada && <BarraDocs a={f} grande />}
         </div>
 
         <div className="px-5 sm:px-6 space-y-4">
@@ -721,21 +720,10 @@ function LinhaDocumento({ nome, dica, estado, detalhe, anexos, subindo, anexar, 
 }
 
 /** Em que pé está: os 7 documentos (verde ok, âmbar falta o arquivo, cinza não se aplica) */
-function BarraDocs({ a, grande }: { a: AuditoriaFornecedor; grande?: boolean }) {
+function BarraDocs({ a }: { a: AuditoriaFornecedor }) {
   const docs = documentosDoProcesso(a)
   const d = andamentoDocs(a)
   const cor = (e: EstadoDoc) => e === 'ok' ? 'bg-primary-500' : e === 'nao_se_aplica' ? 'bg-ink-300' : e === 'sem_arquivo' ? 'bg-amber-400' : 'bg-ink-200'
-  if (grande) return (
-    <div className="flex flex-wrap gap-1">
-      {docs.map(x => (
-        <span key={x.chave} title={`${x.nome}: ${ROTULO_ESTADO[x.estado]}`}
-          className={`text-[11px] px-2 py-0.5 rounded-full border inline-flex items-center gap-1 ${x.estado === 'ok' ? 'bg-primary-50 border-primary-200 text-primary-800'
-            : x.estado === 'nao_se_aplica' ? 'bg-ink-50 border-ink-200 text-ink-400 line-through' : x.estado === 'sem_arquivo' ? 'bg-amber-50 border-amber-200 text-amber-800' : 'bg-white border-ink-200 text-ink-400'}`}>
-          {x.estado === 'ok' && <Check size={11} />}{x.nome}
-        </span>
-      ))}
-    </div>
-  )
   return (
     <div className="flex items-center gap-1.5 justify-end" title={docs.map(x => `${x.estado === 'ok' ? '✓' : x.estado === 'nao_se_aplica' ? '–' : '✗'} ${x.nome}`).join('\n')}>
       <div className="flex gap-0.5">{docs.map(x => <span key={x.chave} className={`w-2.5 h-1.5 rounded-sm ${cor(x.estado)}`} />)}</div>

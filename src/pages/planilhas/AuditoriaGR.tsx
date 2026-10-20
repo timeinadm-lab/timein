@@ -1,18 +1,20 @@
 import { useMemo, useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
-import { Plus, Upload, Download, Search, AlertTriangle, ChevronRight, Trash2, Check, Paperclip, ExternalLink, X } from 'lucide-react'
+import { Plus, Upload, Download, Search, AlertTriangle, ChevronRight, Trash2, Check, Paperclip, ExternalLink, X, FileText } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { formatCurrency, formatDate, hojeISO } from '../../lib/utils'
 import { getSignedUrl } from '../../lib/storage'
 import { comprimirImagem, extensaoDoArquivo } from '../../lib/imagem'
 import { baixarExcelBonito } from '../../lib/excelBonito'
+import { imagensDosAnexos } from '../../lib/anexosExcel'
 import {
   STATUS_FORNECEDOR, STATUS_INICIAL, PAGAMENTO_OPCOES, FORMAS_PAGAMENTO, QUEM_PAGA, ROTULO_QUEM_PAGA, RESULTADOS, ENCERRADOS, AUDITOR_PAGAMENTO, ETAPAS,
   lerPlanilha, numerosDoTopo, totalOrcamento, validadePadrao, avisoValidade, faltandoNaFicha, quantoFalta, localDaAuditoria,
   temComprovante, corDoStatus, corDoPagamento, abasRelatorioGR, nomeRelatorioGR, etapasDoProcesso, mesDoProcesso, nomeDoMes,
+  TIPOS_ANEXO, tipoDoAnexo, anexosDe,
 } from '../../lib/auditoriasFornecedores'
-import type { AuditoriaFornecedor, BlocoFicha } from '../../lib/auditoriasFornecedores'
+import type { AuditoriaFornecedor, BlocoFicha, AnexoGR } from '../../lib/auditoriasFornecedores'
 import type { CorLinha } from '../../lib/excelBonito'
 
 /**
@@ -22,13 +24,16 @@ import type { CorLinha } from '../../lib/excelBonito'
  * mês e "em que pé está" (6 etapas). O Excel (só uso interno) sai em 4 abas:
  * Resumo, Andamento, Acompanhamento igual ao da GR e Financeiro com o auditor
  * terceirizado e a sobra. Fica em Planilhas e em Auditorias.
+ * Anexos à vontade (102): comprovantes, nota, fotos, cada um com observação
+ * embaixo; o Excel ganha a aba Anexos com as imagens dentro.
  */
 
 type Registro = AuditoriaFornecedor & { id: string }
 const semTabela = (m: string) => /auditorias_fornecedores/.test(m) && /does not exist|schema cache|relation/i.test(m)
 const semMigracao100 = (m: string) => /aud_forn_|local_auditoria|forma_pagamento|precisa_nota|nota_numero|nota_emitida_em|comprovante_url|obs_financeiro/i.test(m)
 const semMigracao101 = (m: string) => /valor_auditor|auditor_pix|auditor_pagamento|auditor_pago_em/i.test(m)
-const erroAmigavel = (m: string) => semMigracao101(m) ? 'Falta rodar a migração 101 no Supabase (valor do auditor).'
+const semMigracao102 = (m: string) => /anexos/i.test(m)
+const erroAmigavel = (m: string) => semMigracao102(m) ? 'Falta rodar a migração 102 no Supabase (anexos da Auditoria GR).' : semMigracao101(m) ? 'Falta rodar a migração 101 no Supabase (valor do auditor).'
   : semMigracao100(m) ? 'Falta rodar a migração 100 no Supabase (financeiro da Auditoria GR).' : m
 
 const CLASSE_COR: Record<Exclude<CorLinha, null>, string> = {
@@ -125,14 +130,19 @@ export default function AuditoriaGR() {
     onSettled: () => { if (arquivo.current) arquivo.current.value = '' },
   })
 
-  const [baixando, setBaixando] = useState(false)
+  const [baixando, setBaixando] = useState<string | null>(null)
   const baixar = async () => {
-    setBaixando(true)
+    setBaixando('Gerando…')
     // Baixa o que está na tela: mês, filtro e busca
     const filtroTexto = [mes ? nomeDoMes(mes) : 'todos os meses', filtro !== 'todas' ? FILTROS.find(([k]) => k === filtro)![1] : null, busca.trim() ? `busca "${busca.trim()}"` : null].filter(Boolean).join(' · ')
-    try { await baixarExcelBonito(nomeRelatorioGR(hoje, mes), abasRelatorioGR(visiveis, hoje, { filtro: filtroTexto })) }
-    catch (e) { toast.error(String((e as Error)?.message || e)) }
-    setBaixando(false)
+    try {
+      // Os anexos entram dentro do Excel (fotos e páginas dos PDFs)
+      const caminhos = visiveis.flatMap(a => anexosDe(a).map(x => x.caminho))
+      const imagens = caminhos.length ? await imagensDosAnexos(caminhos, t => setBaixando(`Anexos: ${t}…`)) : undefined
+      setBaixando('Montando…')
+      await baixarExcelBonito(nomeRelatorioGR(hoje, mes), abasRelatorioGR(visiveis, hoje, { filtro: filtroTexto, imagens }))
+    } catch (e) { toast.error(String((e as Error)?.message || e)) }
+    setBaixando(null)
   }
 
   if (faltaTabela) return <div className="card p-4 border-amber-200 bg-amber-50 text-sm text-amber-800">Para usar a Auditoria GR, rode a migração 087 no Supabase.</div>
@@ -150,8 +160,8 @@ export default function AuditoriaGR() {
           <button className="btn-secondary text-sm" disabled={importar.isPending} onClick={() => arquivo.current?.click()} title="Trazer a planilha da GR (atualiza pelo ID)">
             <Upload size={15} />{importar.isPending ? 'Importando…' : 'Importar'}
           </button>
-          <button className="btn-secondary text-sm" disabled={!visiveis.length || baixando} onClick={baixar} title="Baixa o que está na tela (mês, filtro e busca)">
-            <Download size={15} />{baixando ? 'Gerando…' : 'Relatório (Excel)'}
+          <button className="btn-secondary text-sm" disabled={!visiveis.length || !!baixando} onClick={baixar} title="Baixa o que está na tela (mês, filtro e busca), com os anexos dentro">
+            <Download size={15} />{baixando || 'Relatório (Excel)'}
           </button>
           <button className="btn-primary text-sm" onClick={() => setAberto('novo')}><Plus size={15} />Novo</button>
         </div>
@@ -265,7 +275,7 @@ const VAZIO: Omit<AuditoriaFornecedor, 'codigo'> = {
   pagamento: 'Não pago', pago_em: null, comprovante_enviado: false, comprovante_recebido_em: null, agendada_para: null, horario: null,
   realizada_em: null, auditor: null, nota: null, resultado: null, validade: null, auditoria_id: null, observacoes: null,
   local_auditoria: null, forma_pagamento: null, precisa_nota: null, nota_numero: null, nota_emitida_em: null, comprovante_url: null, obs_financeiro: null,
-  valor_auditor: null, auditor_pix: null, auditor_pagamento: 'A pagar', auditor_pago_em: null,
+  valor_auditor: null, auditor_pix: null, auditor_pagamento: 'A pagar', auditor_pago_em: null, anexos: [],
 }
 
 function proximoCodigo(lista: AuditoriaFornecedor[]) {
@@ -315,28 +325,42 @@ function FichaFornecedor({ registro, lista, fechar }: { registro: Registro | nul
     }))
   }
 
-  // Comprovante: foto ou PDF no bucket "arquivos"
-  const [subindo, setSubindo] = useState(false)
+  // Anexos (102): quantos quiser — foto ou PDF no bucket "arquivos", cada um com observação
+  const [subindo, setSubindo] = useState<string | null>(null)
+  const anexosRef = useRef<HTMLInputElement>(null)
   const comprovanteRef = useRef<HTMLInputElement>(null)
-  const anexar = async (arq: File | undefined) => {
-    if (!arq) return
-    setSubindo(true)
-    try {
-      const file = arq.type.startsWith('image/') ? await comprimirImagem(arq) : arq
-      const pasta = (f.codigo || 'sem-id').replace(/[^\w-]/g, '_')
-      const caminho = `auditoria-gr/${pasta}/comprovante_${Date.now()}.${extensaoDoArquivo(file)}`
-      const { error } = await supabase.storage.from('arquivos').upload(caminho, file, { upsert: false, contentType: file.type || undefined })
-      if (error) throw error
-      setF(x => ({ ...x, comprovante_url: caminho, comprovante_enviado: true, comprovante_recebido_em: x.comprovante_recebido_em || hojeISO() }))
-      toast.success('Comprovante anexado. Não esqueça de salvar.')
-    } catch (e) { toast.error('O comprovante não subiu: ' + (e as Error).message) }
-    setSubindo(false)
+  const anexos = anexosDe(f)
+  const anexar = async (arqs: FileList | null, tipoFixo?: string) => {
+    const lista = arqs ? Array.from(arqs) : []
+    if (!lista.length) return
+    const pasta = (f.codigo || 'sem-id').replace(/[^\w-]/g, '_')
+    let ok = 0
+    for (let i = 0; i < lista.length; i++) {
+      const arq = lista[i]
+      setSubindo(lista.length > 1 ? `Enviando ${i + 1} de ${lista.length}…` : 'Enviando…')
+      try {
+        const ehImagem = arq.type.startsWith('image/')
+        const file = ehImagem ? await comprimirImagem(arq) : arq
+        const caminho = `auditoria-gr/${pasta}/anexo_${Date.now()}_${i}.${extensaoDoArquivo(file)}`
+        const { error } = await supabase.storage.from('arquivos').upload(caminho, file, { upsert: false, contentType: file.type || undefined })
+        if (error) throw error
+        const novo: AnexoGR = { caminho, nome: arq.name, tipo: tipoFixo || tipoDoAnexo(arq.name, ehImagem), obs: null, em: hojeISO() }
+        setF(x => ({
+          ...x, anexos: [...anexosDe(x), novo],
+          ...(novo.tipo === 'Comprovante' ? { comprovante_enviado: true, comprovante_recebido_em: x.comprovante_recebido_em || hojeISO() } : {}),
+        }))
+        ok++
+      } catch (e) { toast.error(`${arq.name} não subiu: ${(e as Error).message}`) }
+    }
+    setSubindo(null)
+    if (anexosRef.current) anexosRef.current.value = ''
     if (comprovanteRef.current) comprovanteRef.current.value = ''
+    if (ok) toast.success(`${ok} anexo(s) adicionado(s). Não esqueça de salvar.`)
   }
-  const verComprovante = async () => {
-    const url = f.comprovante_url ? await getSignedUrl(f.comprovante_url, 'arquivos') : null
-    if (url) window.open(url, '_blank'); else toast.error('Não consegui abrir o comprovante.')
-  }
+  const mudarAnexo = (caminho: string, mudanca: Partial<AnexoGR>) =>
+    setF(x => ({ ...x, anexos: anexosDe(x).map(a => a.caminho === caminho ? { ...a, ...mudanca } : a) }))
+  const tirarAnexo = (caminho: string) => setF(x => ({ ...x, anexos: anexosDe(x).filter(a => a.caminho !== caminho) }))
+  const comprovantes = anexos.filter(a => a.tipo === 'Comprovante').length
 
   const codigoRepetido = lista.some(a => a.codigo.trim().toLowerCase() === f.codigo.trim().toLowerCase() && a.id !== registro?.id)
   const falta = !f.codigo.trim() ? 'Informe o ID.' : codigoRepetido ? 'Já existe um fornecedor com esse ID.' : !f.fornecedor.trim() ? 'Informe o nome do fornecedor.' : ''
@@ -347,6 +371,8 @@ function FichaFornecedor({ registro, lista, fechar }: { registro: Registro | nul
       const { id: _id, criado_em: _c, atualizado_em: _a, ...resto } = f as Registro & { criado_em?: string; atualizado_em?: string }
       const linha = Object.fromEntries(Object.entries({ ...resto, codigo: f.codigo.trim(), fornecedor: f.fornecedor.trim() })
         .map(([k, v]) => [k, typeof v === 'string' && !v.trim() ? null : v]))
+      // Antes da migração 102 a coluna não existe: sem anexo, a ficha salva do mesmo jeito
+      if (!anexos.length && registro && !('anexos' in registro)) delete linha.anexos
       const { error } = registro
         ? await supabase.from('auditorias_fornecedores').update({ ...linha, atualizado_em: new Date().toISOString() }).eq('id', registro.id)
         : await supabase.from('auditorias_fornecedores').insert(linha)
@@ -498,18 +524,13 @@ function FichaFornecedor({ registro, lista, fechar }: { registro: Registro | nul
                 {f.precisa_nota && <>{texto('nota_numero', 'Nº da nota')}{data('nota_emitida_em', 'Nota emitida em')}</>}
                 <div className="sm:col-span-2">
                   <label className="label">Comprovante</label>
-                  <input ref={comprovanteRef} type="file" accept="image/*,application/pdf" className="hidden" onChange={e => anexar(e.target.files?.[0])} />
+                  <input ref={comprovanteRef} type="file" multiple accept="image/*,application/pdf" className="hidden" onChange={e => anexar(e.target.files, 'Comprovante')} />
                   <div className="flex items-center gap-2 flex-wrap">
-                    {f.comprovante_url ? <>
-                      <button type="button" className="btn-secondary text-sm" onClick={verComprovante}><ExternalLink size={14} />Ver comprovante</button>
-                      <button type="button" className="text-xs text-ink-500 underline" onClick={() => comprovanteRef.current?.click()}>trocar</button>
-                      <button type="button" className="text-xs text-red-600 underline" onClick={() => setF(x => ({ ...x, comprovante_url: null }))}>tirar</button>
-                    </> : (
-                      <button type="button" className="btn-secondary text-sm" disabled={subindo} onClick={() => comprovanteRef.current?.click()}>
-                        <Paperclip size={14} />{subindo ? 'Enviando…' : 'Anexar foto ou PDF'}
-                      </button>
-                    )}
-                    {!f.comprovante_url && temComprovante(f) && <span className="text-xs text-ink-500">marcado como enviado (planilha)</span>}
+                    <button type="button" className="btn-secondary text-sm" disabled={!!subindo} onClick={() => comprovanteRef.current?.click()}>
+                      <Paperclip size={14} />{subindo || 'Anexar comprovante'}
+                    </button>
+                    {comprovantes > 0 && <span className="text-xs text-green-700 font-medium">{comprovantes} comprovante(s) em Anexos, lá embaixo</span>}
+                    {!comprovantes && temComprovante(f) && <span className="text-xs text-ink-500">marcado como enviado (planilha)</span>}
                     {f.comprovante_recebido_em && <span className="text-xs text-ink-500">recebido em {formatDate(f.comprovante_recebido_em)}</span>}
                   </div>
                 </div>
@@ -557,6 +578,51 @@ function FichaFornecedor({ registro, lista, fechar }: { registro: Registro | nul
             </div>
           </>)}
 
+          {/* Anexos (102): quantos quiser, cada um com a observação embaixo */}
+          <section className="rounded-xl border border-ink-200 p-4 space-y-3">
+            <header className="flex items-center gap-2.5 flex-wrap">
+              <span className="w-7 h-7 rounded-lg grid place-items-center text-sm font-bold shrink-0 bg-primary-50 text-primary-700">7</span>
+              <div className="flex-1 min-w-0">
+                <h4 className="font-semibold text-ink-900">Anexos</h4>
+                <p className="text-[11px] text-ink-500">Comprovantes, nota fiscal, fotos… quantos quiser. Vão dentro do relatório em Excel.</p>
+              </div>
+              <input ref={anexosRef} type="file" multiple accept="image/*,application/pdf" className="hidden" onChange={e => anexar(e.target.files)} />
+              <button type="button" className="btn-secondary text-sm" disabled={!!subindo} onClick={() => anexosRef.current?.click()}>
+                <Paperclip size={14} />{subindo || 'Anexar arquivos'}
+              </button>
+            </header>
+            {!anexos.length ? (
+              <button type="button" onClick={() => anexosRef.current?.click()} disabled={!!subindo}
+                className="w-full rounded-lg border border-dashed border-ink-300 py-6 text-sm text-ink-500 hover:border-primary-400 hover:text-primary-700">
+                Nenhum anexo ainda. Toque para escolher fotos ou PDFs (pode escolher vários de uma vez).
+              </button>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {anexos.map((a, i) => (
+                  <div key={a.caminho} className="rounded-lg border border-ink-200 bg-white overflow-hidden flex flex-col">
+                    <Miniatura caminho={a.caminho} />
+                    <div className="p-2.5 space-y-2 flex-1 flex flex-col">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] font-semibold text-ink-500 tnum">#{i + 1}</span>
+                        <p className="text-xs text-ink-700 truncate flex-1" title={a.nome}>{a.nome}</p>
+                        <button type="button" className="text-ink-400 hover:text-primary-700" title="Abrir" onClick={() => abrirArquivo(a.caminho)}><ExternalLink size={14} /></button>
+                        <button type="button" className="text-ink-400 hover:text-red-600" title="Tirar" onClick={() => tirarAnexo(a.caminho)}><Trash2 size={14} /></button>
+                      </div>
+                      <div className="flex flex-wrap gap-1">
+                        {TIPOS_ANEXO.map(t => (
+                          <button key={t} type="button" onClick={() => mudarAnexo(a.caminho, { tipo: t })}
+                            className={`text-[11px] px-2 py-0.5 rounded-md border ${a.tipo === t ? 'bg-primary-600 text-white border-primary-600 font-medium' : 'bg-white text-ink-600 border-ink-200 hover:border-ink-300'}`}>{t}</button>
+                        ))}
+                      </div>
+                      <textarea className="input text-sm mt-auto" rows={2} value={a.obs ?? ''} placeholder="Observação (vai embaixo do anexo no relatório)"
+                        onChange={e => mudarAnexo(a.caminho, { obs: e.target.value || null })} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
           <section className="space-y-1.5">
             <label className="label">Observações internas</label>
             <textarea className="input text-sm" rows={2} value={f.observacoes ?? ''} onChange={e => set('observacoes', e.target.value)} placeholder="Não vai para o relatório" />
@@ -571,10 +637,31 @@ function FichaFornecedor({ registro, lista, fechar }: { registro: Registro | nul
           {falta && <p className="text-xs text-amber-700">{falta}</p>}
           <div className="flex-1" />
           <button className="btn-secondary" onClick={fechar}>Cancelar</button>
-          <button className="btn-primary" disabled={salvar.isPending || !!falta || subindo} onClick={() => salvar.mutate()}>{salvar.isPending ? 'Salvando…' : 'Salvar'}</button>
+          <button className="btn-primary" disabled={salvar.isPending || !!falta || !!subindo} onClick={() => salvar.mutate()}>{salvar.isPending ? 'Salvando…' : 'Salvar'}</button>
         </div>
       </div>
     </div>
+  )
+}
+
+const abrirArquivo = async (caminho: string) => {
+  const url = await getSignedUrl(caminho, 'arquivos')
+  if (url) window.open(url, '_blank'); else toast.error('Não consegui abrir o arquivo.')
+}
+
+/** Miniatura do anexo: foto aparece; PDF mostra o ícone */
+function Miniatura({ caminho }: { caminho: string }) {
+  const ehPdf = /\.pdf$/i.test(caminho)
+  const { data: url } = useQuery({
+    queryKey: ['anexo-gr-url', caminho], enabled: !ehPdf, staleTime: 50 * 60 * 1000,
+    queryFn: () => getSignedUrl(caminho, 'arquivos', 3600),
+  })
+  return (
+    <button type="button" onClick={() => abrirArquivo(caminho)} className="h-36 bg-ink-50 grid place-items-center overflow-hidden border-b border-ink-100" title="Abrir">
+      {ehPdf ? <span className="flex flex-col items-center gap-1 text-ink-500"><FileText size={30} /><span className="text-[11px] font-medium">PDF</span></span>
+        : url ? <img src={url} alt="" className="w-full h-full object-cover" loading="lazy" />
+        : <span className="text-[11px] text-ink-400">carregando…</span>}
+    </button>
   )
 }
 

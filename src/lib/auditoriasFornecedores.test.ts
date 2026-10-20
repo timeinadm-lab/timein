@@ -1,5 +1,5 @@
 // Auditorias de fornecedores GRSA: leitura da planilha, números do topo e validade. Rodar: npm run testes
-import { lerPlanilha, numerosDoTopo, validadePadrao, avisoValidade, lerData, COLUNAS, totalOrcamento, lerPagamento, faltandoNaFicha, quantoFalta, localDaAuditoria, abasRelatorioGR, nomeRelatorioGR, etapasDoProcesso, etapasFeitas, mesDoProcesso, nomeDoMes } from './auditoriasFornecedores'
+import { lerPlanilha, numerosDoTopo, validadePadrao, avisoValidade, lerData, COLUNAS, totalOrcamento, lerPagamento, faltandoNaFicha, quantoFalta, localDaAuditoria, abasRelatorioGR, nomeRelatorioGR, tipoDoAnexo, temComprovante, etapasDoProcesso, etapasFeitas, mesDoProcesso, nomeDoMes } from './auditoriasFornecedores'
 import type { AuditoriaFornecedor } from './auditoriasFornecedores'
 
 let falhas = 0
@@ -114,6 +114,23 @@ ok(fin.linhas[5][4] === 'Fornecedor' && fin.linhas[5][5] === 'Pix na conta da em
 const res = abas[0].linhas
 ok(res.find(l => l[0] === 'A receber')?.[2] === 1530 && res.find(l => l[0] === 'Já recebido (pago)')?.[2] === 990, 'resumo: a receber e recebido', res)
 ok(nomeRelatorioGR('2026-10-20') === 'Auditoria_GR_20.10.26' && nomeRelatorioGR('2026-10-20', '2026-10') === 'Auditoria_GR_outubro-2026', 'nome do arquivo (geral e do mês)')
+
+console.log('Anexos (102)')
+ok(tipoDoAnexo('NF 1045.pdf', false) === 'Nota fiscal' && tipoDoAnexo('danfe.pdf', false) === 'Nota fiscal' && tipoDoAnexo('comprovante pix.jpg', true) === 'Comprovante', 'tipo pelo nome')
+ok(tipoDoAnexo('IMG_2026.jpg', true) === 'Foto' && tipoDoAnexo('informe.pdf', false) === 'Documento', 'foto e documento (informe não é NF)')
+const comAnexos = { ...cheia, comprovante_enviado: false, comprovante_url: null, anexos: [
+  { caminho: 'auditoria-gr/X/a.jpg', nome: 'pix.jpg', tipo: 'Comprovante', obs: 'Pix do fornecedor', em: '2026-10-08' },
+  { caminho: 'auditoria-gr/X/b.pdf', nome: 'NF.pdf', tipo: 'Nota fiscal', obs: null, em: '2026-10-09' },
+  { caminho: 'auditoria-gr/X/c.jpg', nome: 'cozinha.jpg', tipo: 'Foto', obs: 'Área de produção', em: '2026-10-10' },
+] }
+ok(temComprovante(comAnexos) && !temComprovante({ ...comAnexos, anexos: [comAnexos.anexos[2]] }), 'comprovante conta pelo anexo')
+const abasA = abasRelatorioGR([...registros, comAnexos], '2026-10-20', { imagens: new Map([['auditoria-gr/X/a.jpg', { imagens: [{ bytes: new Uint8Array([1]), w: 10, h: 10, ext: 'jpeg' as const }] }]]) })
+const abaA = abasA.find(a => a.nome === 'Anexos')!
+ok(abasA.length === 5 && abaA.linhas.length === 3 && abaA.linhas[0][0] === 'Anexo 1' && abaA.linhas[0][5] === 'Pix do fornecedor', 'aba Anexos: lista numerada com a observação')
+ok(abaA.galeria!.cartoes.length === 3 && abaA.galeria!.cartoes[0].imagens.length === 1 && !abaA.galeria!.cartoes[0].aviso && abaA.galeria!.cartoes[1].aviso, 'galeria: imagem dentro; sem imagem = aviso')
+ok(abaA.galeria!.cartoes[2].obs === 'Área de produção' && abaA.galeria!.cartoes[0].titulo.startsWith('Anexo 1 · GRSA-100'), 'cartão: título e obs embaixo', abaA.galeria!.cartoes[0].titulo)
+ok(abasA[3].linhas[5][14] === 'Anexo 1, 2', 'financeiro: comprovante aponta o anexo', abasA[3].linhas[5][14])
+ok(abas.length === 4, 'sem anexo: sem aba Anexos')
 
 console.log('Validade (3 anos)')
 ok(validadePadrao('2026-09-18') === '2029-09-18', '18/09/2026 → 18/09/2029')

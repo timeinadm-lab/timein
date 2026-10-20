@@ -8,9 +8,9 @@ import { getSignedUrl } from '../../lib/storage'
 import { comprimirImagem, extensaoDoArquivo } from '../../lib/imagem'
 import { baixarExcelBonito } from '../../lib/excelBonito'
 import {
-  STATUS_FORNECEDOR, STATUS_INICIAL, PAGAMENTO_OPCOES, FORMAS_PAGAMENTO, QUEM_PAGA, ROTULO_QUEM_PAGA, RESULTADOS, ENCERRADOS,
+  STATUS_FORNECEDOR, STATUS_INICIAL, PAGAMENTO_OPCOES, FORMAS_PAGAMENTO, QUEM_PAGA, ROTULO_QUEM_PAGA, RESULTADOS, ENCERRADOS, AUDITOR_PAGAMENTO, ETAPAS,
   lerPlanilha, numerosDoTopo, totalOrcamento, validadePadrao, avisoValidade, faltandoNaFicha, quantoFalta, localDaAuditoria,
-  temComprovante, corDoStatus, corDoPagamento, abasRelatorioGR, nomeRelatorioGR,
+  temComprovante, corDoStatus, corDoPagamento, abasRelatorioGR, nomeRelatorioGR, etapasDoProcesso, mesDoProcesso, nomeDoMes,
 } from '../../lib/auditoriasFornecedores'
 import type { AuditoriaFornecedor, BlocoFicha } from '../../lib/auditoriasFornecedores'
 import type { CorLinha } from '../../lib/excelBonito'
@@ -18,15 +18,18 @@ import type { CorLinha } from '../../lib/excelBonito'
 /**
  * Auditoria GR (pedido de 20/10/2026, aprovado pela chefe): planilha/relatório
  * das auditorias de fornecedores da GRSA. Cada fornecedor é uma ficha em 6
- * blocos — dá para salvar faltando e completar depois ("faltam X"). O Excel
- * sai em 3 abas (Resumo, Acompanhamento igual ao da GR e Financeiro) para
- * controle e para apresentar ao cliente. Fica em Planilhas e em Auditorias.
+ * blocos — dá para salvar faltando e completar depois ("faltam X"). Filtro por
+ * mês e "em que pé está" (6 etapas). O Excel (só uso interno) sai em 4 abas:
+ * Resumo, Andamento, Acompanhamento igual ao da GR e Financeiro com o auditor
+ * terceirizado e a sobra. Fica em Planilhas e em Auditorias.
  */
 
 type Registro = AuditoriaFornecedor & { id: string }
 const semTabela = (m: string) => /auditorias_fornecedores/.test(m) && /does not exist|schema cache|relation/i.test(m)
 const semMigracao100 = (m: string) => /aud_forn_|local_auditoria|forma_pagamento|precisa_nota|nota_numero|nota_emitida_em|comprovante_url|obs_financeiro/i.test(m)
-const erroAmigavel = (m: string) => semMigracao100(m) ? 'Falta rodar a migração 100 no Supabase (financeiro da Auditoria GR).' : m
+const semMigracao101 = (m: string) => /valor_auditor|auditor_pix|auditor_pagamento|auditor_pago_em/i.test(m)
+const erroAmigavel = (m: string) => semMigracao101(m) ? 'Falta rodar a migração 101 no Supabase (valor do auditor).'
+  : semMigracao100(m) ? 'Falta rodar a migração 100 no Supabase (financeiro da Auditoria GR).' : m
 
 const CLASSE_COR: Record<Exclude<CorLinha, null>, string> = {
   verde: 'bg-green-50 text-green-700 border-green-200', azul: 'bg-blue-50 text-blue-700 border-blue-200',
@@ -42,6 +45,7 @@ export default function AuditoriaGR() {
   const hoje = hojeISO()
   const [busca, setBusca] = useState('')
   const [filtro, setFiltro] = useState<Filtro>('andamento')
+  const [mes, setMes] = useState<string | null>(null)        // null = todos os meses
   const [aberto, setAberto] = useState<Registro | 'novo' | null>(null)
   const arquivo = useRef<HTMLInputElement>(null)
 
@@ -54,19 +58,27 @@ export default function AuditoriaGR() {
     },
   })
   const faltaTabela = error && semTabela((error as Error).message)
-  const n = numerosDoTopo(lista)
   const encerrada = (a: Registro) => ENCERRADOS.includes(a.status)
 
+  // Período: "auditorias do mês" (realizada → agendada → orçamento)
+  const meses = useMemo(() => {
+    const s = new Set(lista.map(mesDoProcesso).filter(Boolean) as string[])
+    s.add(hojeISO().slice(0, 7))
+    return [...s].sort().reverse()
+  }, [lista])
+  const doPeriodo = useMemo(() => mes ? lista.filter(a => mesDoProcesso(a) === mes) : lista, [lista, mes])
+  const n = numerosDoTopo(doPeriodo)
+
   const contagem: Record<Filtro, number> = {
-    andamento: lista.filter(a => !encerrada(a) && a.status !== 'Concluída').length,
-    aberto: lista.filter(a => quantoFalta(a) > 0).length,
+    andamento: doPeriodo.filter(a => !encerrada(a) && a.status !== 'Concluída').length,
+    aberto: doPeriodo.filter(a => quantoFalta(a) > 0).length,
     receber: n.qtdAReceber,
     concluidas: n.concluidas,
-    todas: lista.length,
+    todas: doPeriodo.length,
   }
   const visiveis = useMemo(() => {
     const t = busca.trim().toLowerCase()
-    return lista
+    return doPeriodo
       .filter(a => filtro === 'todas' ? true
         : filtro === 'andamento' ? !encerrada(a) && a.status !== 'Concluída'
         : filtro === 'aberto' ? quantoFalta(a) > 0
@@ -74,7 +86,7 @@ export default function AuditoriaGR() {
         : a.status === 'Concluída')
       .filter(a => !t || [a.codigo, a.fornecedor, a.planta, a.cidade, a.uf, a.cnpj, a.comprador, a.categoria, a.unidade_grsa].some(v => (v || '').toLowerCase().includes(t)))
       .sort((a, b) => a.codigo.localeCompare(b.codigo, 'pt-BR', { numeric: true }))
-  }, [lista, busca, filtro])
+  }, [doPeriodo, busca, filtro])
 
   // Renovações vencidas ou vencendo: aparecem em cima, em destaque
   const avisos = lista.map(a => ({ a, aviso: avisoValidade(a.validade, hoje) })).filter(x => x.aviso && !encerrada(x.a))
@@ -116,7 +128,9 @@ export default function AuditoriaGR() {
   const [baixando, setBaixando] = useState(false)
   const baixar = async () => {
     setBaixando(true)
-    try { await baixarExcelBonito(nomeRelatorioGR(hoje), abasRelatorioGR(lista, hoje)) }
+    // Baixa o que está na tela: mês, filtro e busca
+    const filtroTexto = [mes ? nomeDoMes(mes) : 'todos os meses', filtro !== 'todas' ? FILTROS.find(([k]) => k === filtro)![1] : null, busca.trim() ? `busca "${busca.trim()}"` : null].filter(Boolean).join(' · ')
+    try { await baixarExcelBonito(nomeRelatorioGR(hoje, mes), abasRelatorioGR(visiveis, hoje, { filtro: filtroTexto })) }
     catch (e) { toast.error(String((e as Error)?.message || e)) }
     setBaixando(false)
   }
@@ -136,7 +150,7 @@ export default function AuditoriaGR() {
           <button className="btn-secondary text-sm" disabled={importar.isPending} onClick={() => arquivo.current?.click()} title="Trazer a planilha da GR (atualiza pelo ID)">
             <Upload size={15} />{importar.isPending ? 'Importando…' : 'Importar'}
           </button>
-          <button className="btn-secondary text-sm" disabled={!lista.length || baixando} onClick={baixar}>
+          <button className="btn-secondary text-sm" disabled={!visiveis.length || baixando} onClick={baixar} title="Baixa o que está na tela (mês, filtro e busca)">
             <Download size={15} />{baixando ? 'Gerando…' : 'Relatório (Excel)'}
           </button>
           <button className="btn-primary text-sm" onClick={() => setAberto('novo')}><Plus size={15} />Novo</button>
@@ -145,7 +159,17 @@ export default function AuditoriaGR() {
 
       {isLoading ? <p className="text-sm text-ink-500">Carregando…</p> : (
         <>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+          {/* Período: auditorias do mês */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-sm text-ink-500">Período</span>
+            <select className="input w-auto font-medium first-letter:uppercase" value={mes ?? ''} onChange={e => setMes(e.target.value || null)}>
+              <option value="">Todos os meses</option>
+              {meses.map(m => <option key={m} value={m}>{nomeDoMes(m).replace(/^./, c => c.toUpperCase())}</option>)}
+            </select>
+            {mes && <span className="text-[11px] text-ink-400">pela data da auditoria (realizada ou agendada); sem data, pelo orçamento</span>}
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             {([
               ['Fornecedores', String(n.fornecedores), ''],
               ['Agendadas', String(n.agendadas), ''],
@@ -153,6 +177,8 @@ export default function AuditoriaGR() {
               ['Total orçado', formatCurrency(n.orcamentosAtivos), ''],
               ['Já recebido', formatCurrency(n.recebido), 'text-green-700'],
               ['A receber', formatCurrency(n.aReceber), n.aReceber ? 'text-amber-700' : ''],
+              ['Auditores a pagar', formatCurrency(n.aPagarAuditor), n.aPagarAuditor ? 'text-amber-700' : ''],
+              ['Sobra (orçado − auditores)', formatCurrency(n.sobra), 'text-primary-700'],
             ] as const).map(([t, v, cor]) => (
               <div key={t} className="card px-3 py-2.5">
                 <p className="text-[11px] text-ink-500">{t}</p>
@@ -212,7 +238,10 @@ export default function AuditoriaGR() {
                           : <span className="text-[10px] font-medium px-1.5 py-0.5 rounded border border-green-200 text-green-700 inline-flex items-center gap-0.5"><Check size={10} />Completa</span>}
                       </div>
                     </div>
-                    <p className="text-sm font-semibold text-ink-800 tnum shrink-0">{formatCurrency(totalOrcamento(a))}</p>
+                    <div className="shrink-0 text-right space-y-1">
+                      <p className="text-sm font-semibold text-ink-800 tnum">{formatCurrency(totalOrcamento(a))}</p>
+                      <Etapas a={a} />
+                    </div>
                     <ChevronRight size={16} className="text-ink-300 shrink-0" />
                   </button>
                 )
@@ -236,6 +265,7 @@ const VAZIO: Omit<AuditoriaFornecedor, 'codigo'> = {
   pagamento: 'Não pago', pago_em: null, comprovante_enviado: false, comprovante_recebido_em: null, agendada_para: null, horario: null,
   realizada_em: null, auditor: null, nota: null, resultado: null, validade: null, auditoria_id: null, observacoes: null,
   local_auditoria: null, forma_pagamento: null, precisa_nota: null, nota_numero: null, nota_emitida_em: null, comprovante_url: null, obs_financeiro: null,
+  valor_auditor: null, auditor_pix: null, auditor_pagamento: 'A pagar', auditor_pago_em: null,
 }
 
 function proximoCodigo(lista: AuditoriaFornecedor[]) {
@@ -258,6 +288,7 @@ function FichaFornecedor({ registro, lista, fechar }: { registro: Registro | nul
     if (k === 'realizada_em' && (!x.validade || x.validade === validadePadrao(x.realizada_em))) novo.validade = validadePadrao(v as string | null)
     // Marcou pago: a data de hoje entra sozinha (dá para trocar)
     if (k === 'pagamento' && v === 'Pago' && !x.pago_em) novo.pago_em = hojeISO()
+    if (k === 'auditor_pagamento' && v === 'Pago' && !x.auditor_pago_em) novo.auditor_pago_em = hojeISO()
     return novo
   })
   const faltando = faltandoNaFicha(f)
@@ -414,6 +445,7 @@ function FichaFornecedor({ registro, lista, fechar }: { registro: Registro | nul
             </div>
             {texto('proxima_acao', 'Próxima ação', { placeholder: 'Ex.: cobrar data com o fornecedor' })}
           </div>
+          <Etapas a={f} grande />
         </div>
 
         <div className="px-5 sm:px-6 space-y-4">
@@ -482,6 +514,20 @@ function FichaFornecedor({ registro, lista, fechar }: { registro: Registro | nul
                   </div>
                 </div>
               </>}
+              {/* Auditor terceirizado (101): quanto recebe e se já foi pago */}
+              <div className="sm:col-span-2 rounded-lg border border-amber-200 bg-white/70 p-3 space-y-3">
+                <p className="text-sm font-semibold text-ink-900">Auditor (terceirizado){f.auditor ? <span className="font-normal text-ink-500"> · {f.auditor}</span> : <span className="font-normal text-ink-400"> · nome na Agenda</span>}</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {numero('valor_auditor', 'Valor pago ao auditor')}
+                  {texto('auditor_pix', 'PIX do auditor')}
+                  {escolha('auditor_pagamento', 'Pagamento do auditor', AUDITOR_PAGAMENTO, { obrigatorio: true })}
+                  {f.auditor_pagamento === 'Pago' ? data('auditor_pago_em', 'Auditor pago em') : <div className="hidden sm:block" />}
+                </div>
+                <div className="flex items-center justify-between rounded-lg bg-primary-50 px-3 py-2 text-sm">
+                  <span className="text-primary-800">Sobra para a Time IN (total − auditor)</span>
+                  <b className="text-primary-900 tnum">{formatCurrency(totalOrcamento(f) - (Number(f.valor_auditor) || 0))}</b>
+                </div>
+              </div>
               <div className="sm:col-span-2">
                 <label className="label">Observação financeira</label>
                 <textarea className="input text-sm" rows={2} value={f.obs_financeiro ?? ''} onChange={e => set('obs_financeiro', e.target.value)} placeholder="Ex.: Pix na conta da Time IN, CNPJ…" />
@@ -528,6 +574,27 @@ function FichaFornecedor({ registro, lista, fechar }: { registro: Registro | nul
           <button className="btn-primary" disabled={salvar.isPending || !!falta || subindo} onClick={() => salvar.mutate()}>{salvar.isPending ? 'Salvando…' : 'Salvar'}</button>
         </div>
       </div>
+    </div>
+  )
+}
+
+/** Em que pé está: 6 etapas (orçamento → resultado) */
+function Etapas({ a, grande }: { a: AuditoriaFornecedor; grande?: boolean }) {
+  const e = etapasDoProcesso(a)
+  const feitas = e.filter(Boolean).length
+  if (grande) return (
+    <div className="flex flex-wrap gap-1">
+      {ETAPAS.map((nome, i) => (
+        <span key={nome} className={`text-[11px] px-2 py-0.5 rounded-full border inline-flex items-center gap-1 ${e[i] ? 'bg-primary-50 border-primary-200 text-primary-800' : 'bg-white border-ink-200 text-ink-400'}`}>
+          {e[i] && <Check size={11} />}{nome}
+        </span>
+      ))}
+    </div>
+  )
+  return (
+    <div className="flex items-center gap-1.5 justify-end" title={ETAPAS.map((nome, i) => `${e[i] ? '✓' : '—'} ${nome}`).join('\n')}>
+      <div className="flex gap-0.5">{e.map((ok, i) => <span key={i} className={`w-2.5 h-1.5 rounded-sm ${ok ? 'bg-primary-500' : 'bg-ink-200'}`} />)}</div>
+      <span className="text-[10px] text-ink-500 tnum">{feitas}/{ETAPAS.length}</span>
     </div>
   )
 }

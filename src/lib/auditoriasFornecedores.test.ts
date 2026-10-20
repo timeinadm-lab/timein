@@ -1,5 +1,5 @@
 // Auditorias de fornecedores GRSA: leitura da planilha, números do topo e validade. Rodar: npm run testes
-import { lerPlanilha, numerosDoTopo, validadePadrao, avisoValidade, lerData, COLUNAS, totalOrcamento, lerPagamento, faltandoNaFicha, quantoFalta, localDaAuditoria, abasRelatorioGR, nomeRelatorioGR } from './auditoriasFornecedores'
+import { lerPlanilha, numerosDoTopo, validadePadrao, avisoValidade, lerData, COLUNAS, totalOrcamento, lerPagamento, faltandoNaFicha, quantoFalta, localDaAuditoria, abasRelatorioGR, nomeRelatorioGR, etapasDoProcesso, etapasFeitas, mesDoProcesso, nomeDoMes } from './auditoriasFornecedores'
 import type { AuditoriaFornecedor } from './auditoriasFornecedores'
 
 let falhas = 0
@@ -62,6 +62,7 @@ const cheia: AuditoriaFornecedor = {
   orcamento_enviado_em: '2026-10-01', aprovado_em: '2026-10-02', pagamento: 'Pago', pago_em: '2026-10-03', comprovante_enviado: false,
   comprovante_recebido_em: null, agendada_para: '2026-10-10', horario: '09:00', realizada_em: '2026-10-10', auditor: 'Rafa', nota: 90,
   resultado: 'Aprovado', validade: '2029-10-10', forma_pagamento: 'Pix na conta da empresa', precisa_nota: false, comprovante_url: 'auditoria-gr/x.pdf',
+  valor_auditor: 200, auditor_pagamento: 'Pago', auditor_pago_em: '2026-10-15',
 }
 ok(quantoFalta(cheia) === 0, 'tudo preenchido: completa (planta e local podem ficar vazios: local vem da cidade)', faltandoNaFicha(cheia))
 ok(faltandoNaFicha({ ...cheia, comprovante_url: null }).financeiro.join() === 'Comprovante', 'pago sem comprovante: falta o comprovante')
@@ -72,24 +73,47 @@ ok(faltandoNaFicha({ ...cheia, pagamento: 'Não se aplica', forma_pagamento: nul
 ok(faltandoNaFicha({ ...cheia, deslocamento: null, cidade: null, uf: null }).orcamento.join() === 'Deslocamento', 'deslocamento vazio falta (0 vale)')
 ok(faltandoNaFicha({ ...cheia, cidade: null, uf: null }).financeiro.join() === 'Local', 'sem cidade nem local: falta o local')
 ok(quantoFalta({ ...cheia, status: 'Cancelada', cnpj: null, nota: null }) === 0, 'cancelada não cobra nada')
+ok(faltandoNaFicha({ ...cheia, valor_auditor: null }).financeiro.join() === 'Valor do auditor', 'sem o valor do auditor: falta')
+ok(faltandoNaFicha({ ...cheia, auditor_pagamento: 'A pagar', auditor_pago_em: null }).financeiro.join() === 'Pagar o auditor', 'auditoria feita e auditor a pagar: pendente')
+ok(faltandoNaFicha({ ...cheia, realizada_em: null, auditor_pagamento: 'A pagar' }).financeiro.length === 0, 'antes da auditoria, auditor a pagar não cobra')
+ok(faltandoNaFicha({ ...cheia, auditor_pago_em: null }).financeiro.join() === 'Auditor pago em', 'auditor pago sem data')
 ok(localDaAuditoria(cheia) === 'Campinas/SP' && localDaAuditoria({ ...cheia, local_auditoria: 'Planta Sumaré' }) === 'Planta Sumaré', 'local: digitado ou cidade/UF')
 
-console.log('Relatório (3 abas)')
-const abas = abasRelatorioGR([...registros, cheia], '2026-10-20')
-ok(abas.map(a => a.nome).join() === 'Resumo,Acompanhamento,Financeiro', 'abas Resumo, Acompanhamento e Financeiro')
-const acomp = abas[1]
+console.log('Auditor, etapas e mês')
+const nn = numerosDoTopo([...registros, cheia])
+ok(nn.pagoAuditor === 200 && nn.aPagarAuditor === 0 && nn.custoAuditor === 200, 'auditor: pago 200', nn)
+ok(nn.sobra === nn.orcamentosAtivos - 200, 'sobra = orçado (ativos) − auditores', nn.sobra)
+ok(numerosDoTopo([{ ...cheia, auditor_pagamento: 'A pagar' }]).aPagarAuditor === 200, 'auditor a pagar')
+ok(etapasDoProcesso(cheia).every(Boolean) && etapasFeitas(c) === 1, 'etapas: completa 6/6; só orçamento enviado 1/6', etapasDoProcesso(c))
+ok(etapasDoProcesso({ ...cheia, pagamento: 'Não se aplica' })[2] && !etapasDoProcesso({ ...cheia, pagamento: 'Não pago' })[2], 'pagamento: pago ou não se aplica conta')
+ok(mesDoProcesso(cheia) === '2026-10' && mesDoProcesso({ ...cheia, realizada_em: null, agendada_para: '2026-11-03' }) === '2026-11', 'mês: realizada, senão agendada')
+ok(mesDoProcesso({ ...c, orcamento_enviado_em: null }) === null && mesDoProcesso({ ...c, orcamento_enviado_em: null, criado_em: '2026-09-30T10:00:00Z' }) === '2026-09', 'sem datas: mês em que a ficha foi criada')
+ok(nomeDoMes('2026-10') === 'outubro de 2026', 'nome do mês')
+
+console.log('Relatório (4 abas)')
+const abas = abasRelatorioGR([...registros, cheia], '2026-10-20', { filtro: 'outubro de 2026' })
+ok(abas.map(a => a.nome).join() === 'Resumo,Andamento,Acompanhamento,Financeiro', 'abas Resumo, Andamento, Acompanhamento e Financeiro')
+ok(String(abas[0].subtitulo).includes('outubro de 2026'), 'subtítulo diz o filtro')
+const and = abas[1]
+ok(and.linhas[5][5] === '6 de 6' && and.linhas[5][10] === '10/10/2026' && and.linhas[0][5] === '1 de 6' && and.linhas[0][7] === '—', 'andamento: etapas e datas', and.linhas[0])
+const acomp = abas[2]
 ok(acomp.colunas.length === 36 && acomp.linhas.length === 6, 'acompanhamento: 36 colunas da GR, uma linha por registro', acomp.linhas.length)
 ok(acomp.linhas[0][0] === 'GRSA-001' && acomp.linhas[5][0] === 'GRSA-100', 'ordem pelo ID (numérica)')
 const tot = acomp.linhas[0][21] as { formula: string; result: number }
 ok(tot.formula === 'T5+U5' && tot.result === 540, 'total do orçamento é fórmula (valor + deslocamento)', tot)
 ok(acomp.linhas[0][2] === 'Não informado' && acomp.linhas[0][23] === '07/10/2026', 'vazio = Não informado; data dd/mm/aaaa')
 ok(acomp.cores?.[3] === 'cinza' && acomp.cores?.[4] === 'verde' && acomp.cores?.[1] === 'azul', 'cor pelo status')
-const fin = abas[2]
+const fin = abas[3]
+ok(fin.colunas.length === 20 && fin.linhas[5][15] === 200 && fin.linhas[5][17] === 'Pago', 'financeiro: auditor (valor e situação)')
+const sobra = fin.linhas[5][19] as { formula: string; result: number }
+ok(sobra.formula === 'I10-P10' && sobra.result === 250, 'sobra = total − auditor (fórmula)', sobra)
+ok(abas[0].linhas.some(l => String(l[0]).startsWith('Sobra para a Time IN')), 'resumo tem a sobra')
+ok(fin.linhas[3][19] === '—' && (fin.total?.[19] as { result: number }).result === nn.sobra, 'cancelada sem sobra; total da sobra = resumo', fin.linhas[3][0])
 ok((fin.linhas[5][8] as { formula: string }).formula === 'G10+H10','financeiro: total = G+H')
 ok(fin.linhas[5][4] === 'Fornecedor' && fin.linhas[5][5] === 'Pix na conta da empresa' && fin.linhas[5][14] === 'Sim', 'quem paga, forma e comprovante')
 const res = abas[0].linhas
 ok(res.find(l => l[0] === 'A receber')?.[2] === 1530 && res.find(l => l[0] === 'Já recebido (pago)')?.[2] === 990, 'resumo: a receber e recebido', res)
-ok(nomeRelatorioGR('2026-10-20') === 'Auditoria_GR_20.10.26', 'nome do arquivo')
+ok(nomeRelatorioGR('2026-10-20') === 'Auditoria_GR_20.10.26' && nomeRelatorioGR('2026-10-20', '2026-10') === 'Auditoria_GR_outubro-2026', 'nome do arquivo (geral e do mês)')
 
 console.log('Validade (3 anos)')
 ok(validadePadrao('2026-09-18') === '2029-09-18', '18/09/2026 → 18/09/2029')

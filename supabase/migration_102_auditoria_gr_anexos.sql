@@ -1,11 +1,12 @@
 -- ============================================================
--- Migration 102 — Auditoria GR: anexos à vontade
+-- Migration 102 — Auditoria GR: documentos do processo (anexos)
 -- ------------------------------------------------------------
--- Pedido do Gabriel (20/10/2026): anexar quantos arquivos quiser em cada
--- ficha (comprovantes, nota fiscal, fotos, documentos), cada um com uma
--- observação embaixo, e o relatório em Excel sair com todos eles.
--- Lista em jsonb: [{ caminho, nome, tipo, obs, em }] — o arquivo fica no
--- bucket "arquivos" (auditoria-gr/<ID>/...).
+-- Pedido do Gabriel (20/10/2026): acompanhar o que vai sendo coletado em
+-- cada auditoria — orçamento, aprovação do comprador, comprovante de
+-- pagamento, nota fiscal, agendamento, relatório da auditoria e pagamento ao
+-- auditor —, com quantos arquivos quiser em cada um e uma observação embaixo.
+-- Lista em jsonb: [{ caminho, nome, tipo, obs, em }] (tipo = qual documento);
+-- o arquivo fica no bucket "arquivos" (auditoria-gr/<ID>/...).
 -- O comprovante único da 100 (comprovante_url) vira o primeiro anexo.
 -- Precisa da 100. Não apaga nada. Pode rodar mais de uma vez.
 -- ============================================================
@@ -14,7 +15,7 @@ ALTER TABLE auditorias_fornecedores ADD COLUMN IF NOT EXISTS anexos jsonb NOT NU
 
 UPDATE auditorias_fornecedores
    SET anexos = jsonb_build_array(jsonb_build_object(
-         'caminho', comprovante_url, 'nome', 'Comprovante', 'tipo', 'Comprovante', 'obs', NULL,
+         'caminho', comprovante_url, 'nome', 'Comprovante', 'tipo', 'comprovante', 'obs', NULL,
          'em', coalesce(comprovante_recebido_em::text, to_char(now(), 'YYYY-MM-DD'))))
  WHERE comprovante_url IS NOT NULL AND anexos = '[]'::jsonb;
 

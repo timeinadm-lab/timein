@@ -38,12 +38,12 @@ export function baixarBlob(blob: Blob, nome: string) {
 }
 
 // A fonte padrão do PDF só tem o alfabeto latino: troca o resto por equivalentes
-const winAnsi = (t: string) => limpo(t.normalize('NFC'))
+export const winAnsi = (t: string) => limpo(t.normalize('NFC'))
   .replace(/[“”]/g, '"').replace(/[‘’]/g, "'").replace(/…/g, '...')
   // eslint-disable-next-line no-control-regex
   .replace(/[\u0000-\u001f]/g, ' ').replace(/[^ -~ -ÿ]/g, '')
 
-async function baixar(caminho: string): Promise<Blob | null> {
+export async function baixar(caminho: string): Promise<Blob | null> {
   const onde = parseStorage(caminho, 'arquivos')
   if (!onde) return null
   const { data, error } = await supabase.storage.from(onde.bucket).download(onde.path)
@@ -51,7 +51,7 @@ async function baixar(caminho: string): Promise<Blob | null> {
 }
 
 /** Foto → JPEG (corrige PNG com transparência e fotos enormes) */
-async function paraJpeg(blob: Blob, maxLado = 1800): Promise<{ bytes: ArrayBuffer; w: number; h: number } | null> {
+export async function paraJpeg(blob: Blob, maxLado = 1800): Promise<{ bytes: ArrayBuffer; w: number; h: number } | null> {
   try {
     const bmp = await createImageBitmap(blob)
     const k = Math.min(1, maxLado / Math.max(bmp.width, bmp.height))

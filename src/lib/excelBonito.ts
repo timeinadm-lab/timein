@@ -20,22 +20,9 @@ export type AbaExcel = {
   cores?: CorLinha[]              // cor de fundo de cada linha (mesma ordem de linhas)
   total?: CelulaExcel[]
   rodape?: string
-  galeria?: { titulo: string; cartoes: CartaoGaleria[] }   // fotos/arquivos embaixo da tabela
 }
-// Imagem dentro da planilha (foto, página de PDF já virada imagem)
-export type ImagemExcel = { bytes: ArrayBuffer | Uint8Array; w: number; h: number; ext: 'jpeg' | 'png' }
-// Um anexo na galeria: faixa verde com o título, a(s) imagem(ns) e a observação embaixo
-export type CartaoGaleria = { titulo: string; detalhe?: string; obs?: string | null; imagens: ImagemExcel[]; aviso?: string }
 
 const VERDE = 'FF0F4E30'
-const LINHA_PX = 20   // linha padrão (15 pt)
-
-function base64(bytes: ArrayBuffer | Uint8Array) {
-  const u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)
-  let s = ''
-  for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode(...u8.subarray(i, i + 0x8000))
-  return btoa(s)
-}
 const FUNDO: Record<Exclude<CorLinha, null>, string> = { verde: 'FFEAF6EE', amarelo: 'FFFFF6DD', vermelho: 'FFFDECEC', cinza: 'FFF1F1EF', azul: 'FFE8F1FB' }
 
 /** Letra da coluna (1 → A, 27 → AA) para montar fórmulas */
@@ -126,43 +113,6 @@ export async function montarExcelBonito(abas: AbaExcel[]): Promise<ArrayBuffer> 
       c.font = { italic: true, size: 9, color: { argb: 'FF8A918B' } }
       c.alignment = { wrapText: true }
       ws.getRow(r).height = 30
-    }
-    if (aba.galeria?.cartoes.length) {
-      let r = ultima + (aba.rodape ? 4 : 2)
-      const faixa = (texto: string, estilo: 'secao' | 'titulo' | 'detalhe' | 'obs' | 'aviso') => {
-        ws.mergeCells(r, 1, r, n)
-        const c = ws.getCell(r, 1)
-        c.value = texto
-        c.alignment = { vertical: 'middle', wrapText: true, indent: 1 }
-        if (estilo === 'secao') { c.font = { bold: true, size: 14, color: { argb: VERDE } }; ws.getRow(r).height = 24 }
-        if (estilo === 'titulo') { c.font = { bold: true, size: 11, color: { argb: 'FFFFFFFF' } }; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: VERDE } }; ws.getRow(r).height = 22 }
-        if (estilo === 'detalhe') { c.font = { size: 9, color: { argb: 'FF41403A' } }; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEAF6EE' } }; ws.getRow(r).height = 18 }
-        if (estilo === 'obs' || estilo === 'aviso') {
-          c.font = { size: 10, italic: estilo === 'aviso', color: { argb: estilo === 'aviso' ? 'FFB42318' : 'FF1D211F' } }
-          c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF6DD' } }
-          c.border = { left: { style: 'medium', color: { argb: 'FFE0B33C' } } }
-          ws.getRow(r).height = Math.max(20, Math.ceil(texto.length / 120) * 14 + 8)
-        }
-        r++
-      }
-      faixa(aba.galeria.titulo, 'secao'); r++
-      // Largura útil = soma das colunas (1 caractere ≈ 7 px), no máximo 680 px
-      const largura = Math.min(680, aba.colunas.reduce((s, c) => s + (c.largura || 16), 0) * 7)
-      for (const cartao of aba.galeria.cartoes) {
-        faixa(cartao.titulo, 'titulo')
-        if (cartao.detalhe) faixa(cartao.detalhe, 'detalhe')
-        r++
-        for (const img of cartao.imagens) {
-          const k = Math.min(1, largura / img.w, 900 / img.h)
-          const w = Math.round(img.w * k), h = Math.round(img.h * k)
-          const id = wb.addImage({ base64: `data:image/${img.ext};base64,${base64(img.bytes)}`, extension: img.ext })
-          ws.addImage(id, { tl: { col: 0.15, row: r - 1 }, ext: { width: w, height: h }, editAs: 'oneCell' })
-          r += Math.ceil(h / LINHA_PX) + 1
-        }
-        if (cartao.aviso) faixa(cartao.aviso, 'aviso')
-        faixa(cartao.obs?.trim() ? `Obs.: ${cartao.obs.trim()}` : 'Obs.: (sem observação)', 'obs')
-        r += 2
-      }
     }
     ws.pageSetup = { orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0, paperSize: 9 }
   }

@@ -1,20 +1,22 @@
 import { useMemo, useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
-import { Plus, Upload, Download, Search, AlertTriangle, ChevronRight, Trash2, Check, Paperclip, ExternalLink, X, FileText } from 'lucide-react'
+import { Plus, Upload, Download, Search, AlertTriangle, ChevronRight, Trash2, Check, Paperclip, ExternalLink, X, FileText, FileDown } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { formatCurrency, formatDate, hojeISO } from '../../lib/utils'
 import { getSignedUrl } from '../../lib/storage'
 import { comprimirImagem, extensaoDoArquivo } from '../../lib/imagem'
 import { baixarExcelBonito } from '../../lib/excelBonito'
-import { imagensDosAnexos } from '../../lib/anexosExcel'
+import { baixar as baixarDoArmazenamento, paraJpeg, baixarBlob } from '../../lib/comprovantesPdf'
+import { gerarPdfAuditoriaGR, nomePdfAuditoriaGR } from '../../lib/auditoriaGRPdf'
+import type { ArquivoCarregado } from '../../lib/auditoriaGRPdf'
 import {
-  STATUS_FORNECEDOR, STATUS_INICIAL, PAGAMENTO_OPCOES, FORMAS_PAGAMENTO, QUEM_PAGA, ROTULO_QUEM_PAGA, RESULTADOS, ENCERRADOS, AUDITOR_PAGAMENTO, ETAPAS,
-  lerPlanilha, numerosDoTopo, totalOrcamento, validadePadrao, avisoValidade, faltandoNaFicha, quantoFalta, localDaAuditoria,
-  temComprovante, corDoStatus, corDoPagamento, abasRelatorioGR, nomeRelatorioGR, etapasDoProcesso, mesDoProcesso, nomeDoMes,
-  TIPOS_ANEXO, tipoDoAnexo, anexosDe,
+  STATUS_FORNECEDOR, STATUS_INICIAL, PAGAMENTO_OPCOES, FORMAS_PAGAMENTO, QUEM_PAGA, ROTULO_QUEM_PAGA, RESULTADOS, ENCERRADOS, AUDITOR_PAGAMENTO,
+  lerPlanilha, numerosDoTopo, totalOrcamento, validadePadrao, avisoValidade, faltandoNaFicha, localDaAuditoria,
+  temComprovante, corDoStatus, corDoPagamento, abasRelatorioGR, nomeRelatorioGR, mesDoProcesso, nomeDoMes,
+  DOCUMENTOS, tipoDoAnexo, anexosDe, andamentoDocs, documentosDoProcesso, ROTULO_ESTADO,
 } from '../../lib/auditoriasFornecedores'
-import type { AuditoriaFornecedor, BlocoFicha, AnexoGR } from '../../lib/auditoriasFornecedores'
+import type { AuditoriaFornecedor, BlocoFicha, AnexoGR, EstadoDoc } from '../../lib/auditoriasFornecedores'
 import type { CorLinha } from '../../lib/excelBonito'
 
 /**
@@ -24,8 +26,9 @@ import type { CorLinha } from '../../lib/excelBonito'
  * mês e "em que pé está" (6 etapas). O Excel (só uso interno) sai em 4 abas:
  * Resumo, Andamento, Acompanhamento igual ao da GR e Financeiro com o auditor
  * terceirizado e a sobra. Fica em Planilhas e em Auditorias.
- * Anexos à vontade (102): comprovantes, nota, fotos, cada um com observação
- * embaixo; o Excel ganha a aba Anexos com as imagens dentro.
+ * Acompanhamento (102): os 7 documentos de cada processo (orçamento →
+ * pagamento ao auditor), com os arquivos e a observação embaixo de cada um.
+ * PDF de uma auditoria (botão na ficha) e Excel do mês (Resumo, Auditorias).
  */
 
 type Registro = AuditoriaFornecedor & { id: string }
@@ -43,7 +46,7 @@ const CLASSE_COR: Record<Exclude<CorLinha, null>, string> = {
 const classe = (c: CorLinha) => CLASSE_COR[c || 'cinza']
 
 type Filtro = 'andamento' | 'aberto' | 'receber' | 'concluidas' | 'todas'
-const FILTROS: [Filtro, string][] = [['andamento', 'Em andamento'], ['aberto', 'Faltam dados'], ['receber', 'A receber'], ['concluidas', 'Concluídas'], ['todas', 'Todas']]
+const FILTROS: [Filtro, string][] = [['andamento', 'Em andamento'], ['aberto', 'Falta documento'], ['receber', 'A receber'], ['concluidas', 'Concluídas'], ['todas', 'Todas']]
 
 export default function AuditoriaGR() {
   const qc = useQueryClient()
@@ -76,7 +79,7 @@ export default function AuditoriaGR() {
 
   const contagem: Record<Filtro, number> = {
     andamento: doPeriodo.filter(a => !encerrada(a) && a.status !== 'Concluída').length,
-    aberto: doPeriodo.filter(a => quantoFalta(a) > 0).length,
+    aberto: doPeriodo.filter(a => andamentoDocs(a).faltam.length > 0).length,
     receber: n.qtdAReceber,
     concluidas: n.concluidas,
     todas: doPeriodo.length,
@@ -86,7 +89,7 @@ export default function AuditoriaGR() {
     return doPeriodo
       .filter(a => filtro === 'todas' ? true
         : filtro === 'andamento' ? !encerrada(a) && a.status !== 'Concluída'
-        : filtro === 'aberto' ? quantoFalta(a) > 0
+        : filtro === 'aberto' ? andamentoDocs(a).faltam.length > 0
         : filtro === 'receber' ? !encerrada(a) && (a.pagamento === 'Não pago' || a.pagamento === 'Aguardando comprovante')
         : a.status === 'Concluída')
       .filter(a => !t || [a.codigo, a.fornecedor, a.planta, a.cidade, a.uf, a.cnpj, a.comprador, a.categoria, a.unidade_grsa].some(v => (v || '').toLowerCase().includes(t)))
@@ -135,13 +138,8 @@ export default function AuditoriaGR() {
     setBaixando('Gerando…')
     // Baixa o que está na tela: mês, filtro e busca
     const filtroTexto = [mes ? nomeDoMes(mes) : 'todos os meses', filtro !== 'todas' ? FILTROS.find(([k]) => k === filtro)![1] : null, busca.trim() ? `busca "${busca.trim()}"` : null].filter(Boolean).join(' · ')
-    try {
-      // Os anexos entram dentro do Excel (fotos e páginas dos PDFs)
-      const caminhos = visiveis.flatMap(a => anexosDe(a).map(x => x.caminho))
-      const imagens = caminhos.length ? await imagensDosAnexos(caminhos, t => setBaixando(`Anexos: ${t}…`)) : undefined
-      setBaixando('Montando…')
-      await baixarExcelBonito(nomeRelatorioGR(hoje, mes), abasRelatorioGR(visiveis, hoje, { filtro: filtroTexto, imagens }))
-    } catch (e) { toast.error(String((e as Error)?.message || e)) }
+    try { await baixarExcelBonito(nomeRelatorioGR(hoje, mes), abasRelatorioGR(visiveis, hoje, { filtro: filtroTexto })) }
+    catch (e) { toast.error(String((e as Error)?.message || e)) }
     setBaixando(null)
   }
 
@@ -160,8 +158,8 @@ export default function AuditoriaGR() {
           <button className="btn-secondary text-sm" disabled={importar.isPending} onClick={() => arquivo.current?.click()} title="Trazer a planilha da GR (atualiza pelo ID)">
             <Upload size={15} />{importar.isPending ? 'Importando…' : 'Importar'}
           </button>
-          <button className="btn-secondary text-sm" disabled={!visiveis.length || !!baixando} onClick={baixar} title="Baixa o que está na tela (mês, filtro e busca), com os anexos dentro">
-            <Download size={15} />{baixando || 'Relatório (Excel)'}
+          <button className="btn-secondary text-sm" disabled={!visiveis.length || !!baixando} onClick={baixar} title="Resumo e em que pé está cada auditoria do que está na tela (mês, filtro e busca). O PDF de uma auditoria sai dentro da ficha.">
+            <Download size={15} />{baixando || (mes ? 'Relatório do mês (Excel)' : 'Relatório (Excel)')}
           </button>
           <button className="btn-primary text-sm" onClick={() => setAberto('novo')}><Plus size={15} />Novo</button>
         </div>
@@ -230,7 +228,7 @@ export default function AuditoriaGR() {
           ) : (
             <div className="card divide-y divide-ink-100 overflow-hidden">
               {visiveis.map(a => {
-                const falta = quantoFalta(a)
+                const d = andamentoDocs(a)
                 return (
                   <button key={a.id} onClick={() => setAberto(a)} className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-ink-50/70">
                     <span className="w-20 shrink-0 text-xs font-medium text-ink-500 tnum hidden sm:block">{a.codigo}</span>
@@ -243,14 +241,14 @@ export default function AuditoriaGR() {
                       <div className="flex gap-1.5 mt-1 flex-wrap">
                         <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded border ${classe(corDoStatus(a.status))}`}>{a.status}</span>
                         {!encerrada(a) && <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded border ${classe(corDoPagamento(a.pagamento))}`}>{a.pagamento}</span>}
-                        {encerrada(a) ? null : falta
-                          ? <span className="text-[10px] font-medium px-1.5 py-0.5 rounded border border-dashed border-amber-300 text-amber-700">Em aberto · faltam {falta}</span>
-                          : <span className="text-[10px] font-medium px-1.5 py-0.5 rounded border border-green-200 text-green-700 inline-flex items-center gap-0.5"><Check size={10} />Completa</span>}
+                        {encerrada(a) ? null : d.faltam.length
+                          ? <span className="text-[10px] font-medium px-1.5 py-0.5 rounded border border-dashed border-amber-300 text-amber-700 truncate max-w-full" title={d.faltam.join(', ')}>Falta: {d.faltam.join(', ')}</span>
+                          : <span className="text-[10px] font-medium px-1.5 py-0.5 rounded border border-green-200 text-green-700 inline-flex items-center gap-0.5"><Check size={10} />Documentos completos</span>}
                       </div>
                     </div>
                     <div className="shrink-0 text-right space-y-1">
                       <p className="text-sm font-semibold text-ink-800 tnum">{formatCurrency(totalOrcamento(a))}</p>
-                      <Etapas a={a} />
+                      {!encerrada(a) && <BarraDocs a={a} />}
                     </div>
                     <ChevronRight size={16} className="text-ink-300 shrink-0" />
                   </button>
@@ -330,7 +328,7 @@ function FichaFornecedor({ registro, lista, fechar }: { registro: Registro | nul
   const anexosRef = useRef<HTMLInputElement>(null)
   const comprovanteRef = useRef<HTMLInputElement>(null)
   const anexos = anexosDe(f)
-  const anexar = async (arqs: FileList | null, tipoFixo?: string) => {
+  const anexar = async (arqs: FileList | null, tipoFixo?: AnexoGR['tipo']) => {
     const lista = arqs ? Array.from(arqs) : []
     if (!lista.length) return
     const pasta = (f.codigo || 'sem-id').replace(/[^\w-]/g, '_')
@@ -344,10 +342,10 @@ function FichaFornecedor({ registro, lista, fechar }: { registro: Registro | nul
         const caminho = `auditoria-gr/${pasta}/anexo_${Date.now()}_${i}.${extensaoDoArquivo(file)}`
         const { error } = await supabase.storage.from('arquivos').upload(caminho, file, { upsert: false, contentType: file.type || undefined })
         if (error) throw error
-        const novo: AnexoGR = { caminho, nome: arq.name, tipo: tipoFixo || tipoDoAnexo(arq.name, ehImagem), obs: null, em: hojeISO() }
+        const novo: AnexoGR = { caminho, nome: arq.name, tipo: tipoFixo || tipoDoAnexo(arq.name), obs: null, em: hojeISO() }
         setF(x => ({
           ...x, anexos: [...anexosDe(x), novo],
-          ...(novo.tipo === 'Comprovante' ? { comprovante_enviado: true, comprovante_recebido_em: x.comprovante_recebido_em || hojeISO() } : {}),
+          ...(novo.tipo === 'comprovante' ? { comprovante_enviado: true, comprovante_recebido_em: x.comprovante_recebido_em || hojeISO() } : {}),
         }))
         ok++
       } catch (e) { toast.error(`${arq.name} não subiu: ${(e as Error).message}`) }
@@ -360,7 +358,32 @@ function FichaFornecedor({ registro, lista, fechar }: { registro: Registro | nul
   const mudarAnexo = (caminho: string, mudanca: Partial<AnexoGR>) =>
     setF(x => ({ ...x, anexos: anexosDe(x).map(a => a.caminho === caminho ? { ...a, ...mudanca } : a) }))
   const tirarAnexo = (caminho: string) => setF(x => ({ ...x, anexos: anexosDe(x).filter(a => a.caminho !== caminho) }))
-  const comprovantes = anexos.filter(a => a.tipo === 'Comprovante').length
+  const comprovantes = anexos.filter(a => a.tipo === 'comprovante').length
+  // Anexar num documento específico: guarda qual antes de abrir a escolha de arquivo
+  const [anexandoEm, setAnexandoEm] = useState<AnexoGR['tipo'] | null>(null)
+  const anexarEm = (tipo: AnexoGR['tipo']) => { setAnexandoEm(tipo); anexosRef.current?.click() }
+  const docs = documentosDoProcesso(f)
+  const progresso = andamentoDocs(f)
+
+  // PDF desta auditoria: baixa cada arquivo do armazenamento
+  const [gerandoPdf, setGerandoPdf] = useState<string | null>(null)
+  const carregar = async (caminho: string): Promise<ArquivoCarregado> => {
+    const blob = await baixarDoArmazenamento(caminho)
+    if (!blob) return null
+    const pdf = /\.pdf$/i.test(caminho) || blob.type === 'application/pdf'
+    if (pdf) return { bytes: await blob.arrayBuffer(), tipo: 'application/pdf' }
+    if (blob.type === 'image/png' || blob.type === 'image/jpeg') return { bytes: await blob.arrayBuffer(), tipo: blob.type }
+    const jpg = await paraJpeg(blob)   // outro formato de foto: vira JPEG
+    return jpg ? { bytes: jpg.bytes, tipo: 'image/jpeg' } : null
+  }
+  const gerarPdf = async () => {
+    setGerandoPdf('Gerando…')
+    try {
+      const bytes = await gerarPdfAuditoriaGR(f, { carregar, hoje: hojeISO(), aoProgredir: t => setGerandoPdf(t === 'salvando' ? 'Salvando…' : `PDF: ${t}…`) })
+      baixarBlob(new Blob([bytes as BlobPart], { type: 'application/pdf' }), nomePdfAuditoriaGR(f) + '.pdf')
+    } catch (e) { toast.error('O PDF não saiu: ' + (e as Error).message) }
+    setGerandoPdf(null)
+  }
 
   const codigoRepetido = lista.some(a => a.codigo.trim().toLowerCase() === f.codigo.trim().toLowerCase() && a.id !== registro?.id)
   const falta = !f.codigo.trim() ? 'Informe o ID.' : codigoRepetido ? 'Já existe um fornecedor com esse ID.' : !f.fornecedor.trim() ? 'Informe o nome do fornecedor.' : ''
@@ -471,10 +494,33 @@ function FichaFornecedor({ registro, lista, fechar }: { registro: Registro | nul
             </div>
             {texto('proxima_acao', 'Próxima ação', { placeholder: 'Ex.: cobrar data com o fornecedor' })}
           </div>
-          <Etapas a={f} grande />
+          {!encerrada && <BarraDocs a={f} grande />}
         </div>
 
         <div className="px-5 sm:px-6 space-y-4">
+          {/* Acompanhamento (102): os 7 documentos, cada um com os arquivos e a observação embaixo */}
+          <section className="rounded-xl border-2 border-primary-200 bg-primary-50/30 p-4 space-y-3">
+            <header className="flex items-center gap-2.5 flex-wrap">
+              <span className="w-7 h-7 rounded-lg grid place-items-center shrink-0 bg-primary-600 text-white"><Paperclip size={15} /></span>
+              <div className="flex-1 min-w-0">
+                <h4 className="font-semibold text-ink-900">Documentos do processo</h4>
+                <p className="text-[11px] text-ink-500">{encerrada ? 'Processo encerrado.' : progresso.faltam.length ? `${progresso.feitos} de ${progresso.total} ok · falta: ${progresso.faltam.join(', ')}` : 'Tudo coletado. Já dá para gerar o PDF desta auditoria.'}</p>
+              </div>
+              <input ref={anexosRef} type="file" multiple accept="image/*,application/pdf" className="hidden"
+                onChange={e => { anexar(e.target.files, anexandoEm || undefined); setAnexandoEm(null) }} />
+            </header>
+            <div className="divide-y divide-ink-100 rounded-lg border border-ink-200 bg-white">
+              {docs.map(d => (
+                <LinhaDocumento key={d.chave} nome={d.nome} dica={DOCUMENTOS.find(x => x.chave === d.chave)!.dica} estado={d.estado} detalhe={d.detalhe}
+                  anexos={d.anexos} subindo={!!subindo && anexandoEm === d.chave} anexar={() => anexarEm(d.chave)} mudar={mudarAnexo} tirar={tirarAnexo} />
+              ))}
+              <LinhaDocumento nome="Outros arquivos" dica="qualquer outro documento do processo" estado={null} detalhe=""
+                anexos={anexos.filter(a => !DOCUMENTOS.some(d => d.chave === a.tipo))} subindo={!!subindo && anexandoEm === 'outro'}
+                anexar={() => anexarEm('outro')} mudar={mudarAnexo} tirar={tirarAnexo} />
+            </div>
+            {subindo && <p className="text-xs text-primary-700">{subindo}</p>}
+          </section>
+
           {bloco('fornecedor', 1, <>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {texto('fornecedor', 'Razão social *', { largo: true, placeholder: 'Nome do fornecedor' })}
@@ -524,12 +570,12 @@ function FichaFornecedor({ registro, lista, fechar }: { registro: Registro | nul
                 {f.precisa_nota && <>{texto('nota_numero', 'Nº da nota')}{data('nota_emitida_em', 'Nota emitida em')}</>}
                 <div className="sm:col-span-2">
                   <label className="label">Comprovante</label>
-                  <input ref={comprovanteRef} type="file" multiple accept="image/*,application/pdf" className="hidden" onChange={e => anexar(e.target.files, 'Comprovante')} />
+                  <input ref={comprovanteRef} type="file" multiple accept="image/*,application/pdf" className="hidden" onChange={e => anexar(e.target.files, 'comprovante')} />
                   <div className="flex items-center gap-2 flex-wrap">
                     <button type="button" className="btn-secondary text-sm" disabled={!!subindo} onClick={() => comprovanteRef.current?.click()}>
                       <Paperclip size={14} />{subindo || 'Anexar comprovante'}
                     </button>
-                    {comprovantes > 0 && <span className="text-xs text-green-700 font-medium">{comprovantes} comprovante(s) em Anexos, lá embaixo</span>}
+                    {comprovantes > 0 && <span className="text-xs text-green-700 font-medium">{comprovantes} comprovante(s) em Documentos, lá em cima</span>}
                     {!comprovantes && temComprovante(f) && <span className="text-xs text-ink-500">marcado como enviado (planilha)</span>}
                     {f.comprovante_recebido_em && <span className="text-xs text-ink-500">recebido em {formatDate(f.comprovante_recebido_em)}</span>}
                   </div>
@@ -578,51 +624,6 @@ function FichaFornecedor({ registro, lista, fechar }: { registro: Registro | nul
             </div>
           </>)}
 
-          {/* Anexos (102): quantos quiser, cada um com a observação embaixo */}
-          <section className="rounded-xl border border-ink-200 p-4 space-y-3">
-            <header className="flex items-center gap-2.5 flex-wrap">
-              <span className="w-7 h-7 rounded-lg grid place-items-center text-sm font-bold shrink-0 bg-primary-50 text-primary-700">7</span>
-              <div className="flex-1 min-w-0">
-                <h4 className="font-semibold text-ink-900">Anexos</h4>
-                <p className="text-[11px] text-ink-500">Comprovantes, nota fiscal, fotos… quantos quiser. Vão dentro do relatório em Excel.</p>
-              </div>
-              <input ref={anexosRef} type="file" multiple accept="image/*,application/pdf" className="hidden" onChange={e => anexar(e.target.files)} />
-              <button type="button" className="btn-secondary text-sm" disabled={!!subindo} onClick={() => anexosRef.current?.click()}>
-                <Paperclip size={14} />{subindo || 'Anexar arquivos'}
-              </button>
-            </header>
-            {!anexos.length ? (
-              <button type="button" onClick={() => anexosRef.current?.click()} disabled={!!subindo}
-                className="w-full rounded-lg border border-dashed border-ink-300 py-6 text-sm text-ink-500 hover:border-primary-400 hover:text-primary-700">
-                Nenhum anexo ainda. Toque para escolher fotos ou PDFs (pode escolher vários de uma vez).
-              </button>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {anexos.map((a, i) => (
-                  <div key={a.caminho} className="rounded-lg border border-ink-200 bg-white overflow-hidden flex flex-col">
-                    <Miniatura caminho={a.caminho} />
-                    <div className="p-2.5 space-y-2 flex-1 flex flex-col">
-                      <div className="flex items-center gap-2">
-                        <span className="text-[11px] font-semibold text-ink-500 tnum">#{i + 1}</span>
-                        <p className="text-xs text-ink-700 truncate flex-1" title={a.nome}>{a.nome}</p>
-                        <button type="button" className="text-ink-400 hover:text-primary-700" title="Abrir" onClick={() => abrirArquivo(a.caminho)}><ExternalLink size={14} /></button>
-                        <button type="button" className="text-ink-400 hover:text-red-600" title="Tirar" onClick={() => tirarAnexo(a.caminho)}><Trash2 size={14} /></button>
-                      </div>
-                      <div className="flex flex-wrap gap-1">
-                        {TIPOS_ANEXO.map(t => (
-                          <button key={t} type="button" onClick={() => mudarAnexo(a.caminho, { tipo: t })}
-                            className={`text-[11px] px-2 py-0.5 rounded-md border ${a.tipo === t ? 'bg-primary-600 text-white border-primary-600 font-medium' : 'bg-white text-ink-600 border-ink-200 hover:border-ink-300'}`}>{t}</button>
-                        ))}
-                      </div>
-                      <textarea className="input text-sm mt-auto" rows={2} value={a.obs ?? ''} placeholder="Observação (vai embaixo do anexo no relatório)"
-                        onChange={e => mudarAnexo(a.caminho, { obs: e.target.value || null })} />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-
           <section className="space-y-1.5">
             <label className="label">Observações internas</label>
             <textarea className="input text-sm" rows={2} value={f.observacoes ?? ''} onChange={e => set('observacoes', e.target.value)} placeholder="Não vai para o relatório" />
@@ -636,6 +637,10 @@ function FichaFornecedor({ registro, lista, fechar }: { registro: Registro | nul
             : <button className="p-2 text-ink-400 hover:text-red-600 self-start" title="Excluir" onClick={() => setConfirmarExcluir(true)}><Trash2 size={16} /></button>)}
           {falta && <p className="text-xs text-amber-700">{falta}</p>}
           <div className="flex-1" />
+          <button className="btn-secondary" disabled={!!gerandoPdf || !!subindo || !f.fornecedor.trim()} onClick={gerarPdf}
+            title="PDF só deste fornecedor: documentos, dados, financeiro e cada arquivo com a observação embaixo">
+            <FileDown size={15} />{gerandoPdf || 'PDF desta auditoria'}
+          </button>
           <button className="btn-secondary" onClick={fechar}>Cancelar</button>
           <button className="btn-primary" disabled={salvar.isPending || !!falta || !!subindo} onClick={() => salvar.mutate()}>{salvar.isPending ? 'Salvando…' : 'Salvar'}</button>
         </div>
@@ -657,31 +662,84 @@ function Miniatura({ caminho }: { caminho: string }) {
     queryFn: () => getSignedUrl(caminho, 'arquivos', 3600),
   })
   return (
-    <button type="button" onClick={() => abrirArquivo(caminho)} className="h-36 bg-ink-50 grid place-items-center overflow-hidden border-b border-ink-100" title="Abrir">
-      {ehPdf ? <span className="flex flex-col items-center gap-1 text-ink-500"><FileText size={30} /><span className="text-[11px] font-medium">PDF</span></span>
+    <button type="button" onClick={() => abrirArquivo(caminho)} className="w-10 h-10 rounded-md bg-ink-50 grid place-items-center overflow-hidden shrink-0" title="Abrir">
+      {ehPdf ? <FileText size={18} className="text-ink-500" />
         : url ? <img src={url} alt="" className="w-full h-full object-cover" loading="lazy" />
-        : <span className="text-[11px] text-ink-400">carregando…</span>}
+        : <span className="text-[9px] text-ink-400">…</span>}
     </button>
   )
 }
 
-/** Em que pé está: 6 etapas (orçamento → resultado) */
-function Etapas({ a, grande }: { a: AuditoriaFornecedor; grande?: boolean }) {
-  const e = etapasDoProcesso(a)
-  const feitas = e.filter(Boolean).length
+const ICONE_ESTADO: Record<EstadoDoc, { cor: string; texto: string }> = {
+  ok: { cor: 'bg-green-600 text-white', texto: '✓' },
+  sem_arquivo: { cor: 'bg-amber-100 text-amber-800 border border-amber-300', texto: '!' },
+  falta: { cor: 'bg-white text-ink-400 border border-dashed border-ink-300', texto: '' },
+  nao_se_aplica: { cor: 'bg-ink-100 text-ink-400', texto: '–' },
+}
+
+/** Um documento do processo: situação, detalhe, os arquivos (com observação embaixo) e o botão de anexar */
+function LinhaDocumento({ nome, dica, estado, detalhe, anexos, subindo, anexar, mudar, tirar }: {
+  nome: string; dica: string; estado: EstadoDoc | null; detalhe: string; anexos: AnexoGR[]; subindo: boolean
+  anexar: () => void; mudar: (caminho: string, m: Partial<AnexoGR>) => void; tirar: (caminho: string) => void
+}) {
+  const icone = estado ? ICONE_ESTADO[estado] : null
+  return (
+    <div className="p-3 space-y-2">
+      <div className="flex items-start gap-2.5">
+        {icone ? <span className={`w-6 h-6 rounded-full grid place-items-center text-xs font-bold shrink-0 mt-0.5 ${icone.cor}`}>{icone.texto}</span>
+          : <span className="w-6 h-6 rounded-full grid place-items-center shrink-0 mt-0.5 bg-ink-50 text-ink-400"><Plus size={12} /></span>}
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium text-ink-900">{nome}
+            {estado && estado !== 'ok' && <span className={`ml-2 text-[11px] font-medium ${estado === 'nao_se_aplica' ? 'text-ink-400' : 'text-amber-700'}`}>{ROTULO_ESTADO[estado]}</span>}
+          </p>
+          <p className="text-[11px] text-ink-500 truncate">{detalhe || dica}</p>
+        </div>
+        {estado !== 'nao_se_aplica' && (
+          <button type="button" className="text-xs font-medium text-primary-700 hover:underline inline-flex items-center gap-1 shrink-0 mt-1" disabled={subindo} onClick={anexar}>
+            <Paperclip size={13} />{subindo ? 'Enviando…' : 'Anexar'}
+          </button>
+        )}
+      </div>
+      {anexos.length > 0 && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pl-8">
+          {anexos.map(a => (
+            <div key={a.caminho} className="rounded-lg border border-ink-200 overflow-hidden bg-white">
+              <div className="flex items-center gap-2 p-1.5 border-b border-ink-100">
+                <Miniatura caminho={a.caminho} />
+                <p className="text-xs text-ink-700 truncate flex-1" title={a.nome}>{a.nome}</p>
+                <button type="button" className="p-1 text-ink-400 hover:text-primary-700" title="Abrir" onClick={() => abrirArquivo(a.caminho)}><ExternalLink size={14} /></button>
+                <button type="button" className="p-1 text-ink-400 hover:text-red-600" title="Tirar" onClick={() => tirar(a.caminho)}><Trash2 size={14} /></button>
+              </div>
+              <textarea className="w-full text-sm px-2.5 py-2 bg-amber-50/40 focus:bg-white outline-none resize-y" rows={2} value={a.obs ?? ''}
+                placeholder="Observação (vai embaixo deste arquivo no PDF)" onChange={e => mudar(a.caminho, { obs: e.target.value || null })} />
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Em que pé está: os 7 documentos (verde ok, âmbar falta o arquivo, cinza não se aplica) */
+function BarraDocs({ a, grande }: { a: AuditoriaFornecedor; grande?: boolean }) {
+  const docs = documentosDoProcesso(a)
+  const d = andamentoDocs(a)
+  const cor = (e: EstadoDoc) => e === 'ok' ? 'bg-primary-500' : e === 'nao_se_aplica' ? 'bg-ink-300' : e === 'sem_arquivo' ? 'bg-amber-400' : 'bg-ink-200'
   if (grande) return (
     <div className="flex flex-wrap gap-1">
-      {ETAPAS.map((nome, i) => (
-        <span key={nome} className={`text-[11px] px-2 py-0.5 rounded-full border inline-flex items-center gap-1 ${e[i] ? 'bg-primary-50 border-primary-200 text-primary-800' : 'bg-white border-ink-200 text-ink-400'}`}>
-          {e[i] && <Check size={11} />}{nome}
+      {docs.map(x => (
+        <span key={x.chave} title={`${x.nome}: ${ROTULO_ESTADO[x.estado]}`}
+          className={`text-[11px] px-2 py-0.5 rounded-full border inline-flex items-center gap-1 ${x.estado === 'ok' ? 'bg-primary-50 border-primary-200 text-primary-800'
+            : x.estado === 'nao_se_aplica' ? 'bg-ink-50 border-ink-200 text-ink-400 line-through' : x.estado === 'sem_arquivo' ? 'bg-amber-50 border-amber-200 text-amber-800' : 'bg-white border-ink-200 text-ink-400'}`}>
+          {x.estado === 'ok' && <Check size={11} />}{x.nome}
         </span>
       ))}
     </div>
   )
   return (
-    <div className="flex items-center gap-1.5 justify-end" title={ETAPAS.map((nome, i) => `${e[i] ? '✓' : '—'} ${nome}`).join('\n')}>
-      <div className="flex gap-0.5">{e.map((ok, i) => <span key={i} className={`w-2.5 h-1.5 rounded-sm ${ok ? 'bg-primary-500' : 'bg-ink-200'}`} />)}</div>
-      <span className="text-[10px] text-ink-500 tnum">{feitas}/{ETAPAS.length}</span>
+    <div className="flex items-center gap-1.5 justify-end" title={docs.map(x => `${x.estado === 'ok' ? '✓' : x.estado === 'nao_se_aplica' ? '–' : '✗'} ${x.nome}`).join('\n')}>
+      <div className="flex gap-0.5">{docs.map(x => <span key={x.chave} className={`w-2.5 h-1.5 rounded-sm ${cor(x.estado)}`} />)}</div>
+      <span className="text-[10px] text-ink-500 tnum">{d.feitos}/{d.total}</span>
     </div>
   )
 }

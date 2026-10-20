@@ -128,7 +128,7 @@ export default function PlanilhasPage() {
           ['gastos', Receipt, 'Gastos do cliente', 'Airbnb, carro, material… com comprovante. Gera PDF com as fotos.'],
           ['pagamentos', Wallet, 'Pagamentos', 'Quem recebe no dia 8, 15 e 20, com valor e PIX/conta.'],
           ['correcao', Wrench, 'Correção', 'Quem não recebe nada no mês ou recebe menos de R$ 100.'],
-          ['auditoria', ClipboardCheck, 'Auditoria GR', 'Auditorias de fornecedores da GRSA: ficha de cada um, financeiro e relatório em Excel para o cliente.'],
+          ['auditoria', ClipboardCheck, 'Auditoria GR', 'Auditorias de fornecedores da GRSA: ficha de cada um, financeiro, auditor e em que pé está. Relatório do mês em Excel.'],
         ] as const).map(([k, Icone, titulo, desc]) => (
           <button key={k} onClick={() => setQual(k)}
             className={`card p-4 text-left flex items-start gap-3 transition-all ${qual === k ? 'border-primary-500 ring-2 ring-primary-100 bg-primary-50/40' : 'hover:border-ink-300'}`}>

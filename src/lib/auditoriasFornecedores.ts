@@ -1,16 +1,29 @@
 // ============================================================
-// Auditorias de fornecedores GRSA (migração 087) — pedido de 08/10/2026.
-// A planilha "Status Auditorias Fornecedores GRSA" dentro do sistema:
-// leitura da planilha, números do topo, validade (3 anos) e o Excel
-// de volta no mesmo formato para mandar ao cliente.
+// Auditoria GR — auditorias de fornecedores da GRSA (migrações 087 e 100).
+// 08/10/2026: a planilha "Status Auditorias Fornecedores GRSA" dentro do sistema.
+// 20/10/2026 (aprovado pela chefe): vira "Auditoria GR" em Planilhas, uma
+// planilha/relatório para controle operacional e financeiro e para apresentar
+// ao cliente. Ganha o bloco Financeiro (quem paga, forma, nota fiscal,
+// comprovante), a ficha "em aberto – faltam X" e o Excel bonito em 3 abas.
 // Sem React e sem banco: testado em auditoriasFornecedores.test.ts.
 // ============================================================
 
+import type { AbaExcel, CelulaExcel, CorLinha } from './excelBonito'
+import { letraDaColuna, PRIMEIRA_LINHA_EXCEL } from './excelBonito'
+
 export const STATUS_FORNECEDOR = [
-  'Aguardando aprovação', 'Aguardando retorno do fornecedor', 'Aguardando definição de laboratório',
-  'Agendada', 'Concluída', 'Cancelada', 'Encerrada – outro prestador', 'Encerrada – auditoria vigente',
+  'Em elaboração de orçamento', 'Aguardando aprovação', 'Aguardando retorno do fornecedor',
+  'Aguardando definição de laboratório', 'Aguardando pagamento', 'Aguardando comprovante',
+  'Agendada', 'Aguardando relatório', 'Concluída',
+  'Cancelada', 'Encerrada – outro prestador', 'Encerrada – auditoria vigente',
 ] as const
-export const PAGAMENTO_OPCOES = ['Não confirmado', 'Informado – comprovante enviado', 'Pago'] as const
+export const STATUS_INICIAL = 'Em elaboração de orçamento'
+export const PAGAMENTO_OPCOES = ['Não pago', 'Aguardando comprovante', 'Pago', 'Não se aplica'] as const
+export const FORMAS_PAGAMENTO = ['Pix na conta da empresa', 'Boleto', 'Transferência', 'Faturado na GR'] as const
+/** Quem paga: o valor gravado é o mesmo da planilha da GR */
+export const QUEM_PAGA = ['Unidade GRSA', 'Fornecedor'] as const
+export const ROTULO_QUEM_PAGA: Record<string, string> = { 'Unidade GRSA': 'GR (unidade)', Fornecedor: 'Fornecedor' }
+export const RESULTADOS = ['Aprovado', 'Aprovado com ressalvas', 'Reprovado'] as const
 export const ENCERRADOS = ['Cancelada', 'Encerrada – outro prestador', 'Encerrada – auditoria vigente']
 export const VALIDADE_ANOS = 3
 export const NAO_INFORMADO = 'Não informado'
@@ -27,11 +40,14 @@ export type AuditoriaFornecedor = {
   agendada_para: string | null; horario: string | null; realizada_em: string | null; auditor: string | null
   nota: number | null; resultado: string | null; validade: string | null
   auditoria_id?: string | null; observacoes?: string | null
+  // Financeiro (100) — opcionais para funcionar antes de rodar a migração
+  local_auditoria?: string | null; forma_pagamento?: string | null; precisa_nota?: boolean | null
+  nota_numero?: string | null; nota_emitida_em?: string | null; comprovante_url?: string | null; obs_financeiro?: string | null
 }
 
 type Campo = { chave: keyof AuditoriaFornecedor; titulo: string; tipo?: 'data' | 'moeda' | 'numero' | 'simnao' }
 
-/** As 36 colunas da planilha, na mesma ordem. "Total orçamento" é calculado. */
+/** As 36 colunas da planilha da GR, na mesma ordem. "Total orçamento" é calculado. */
 export const COLUNAS: (Campo | { chave: 'total'; titulo: string; tipo: 'moeda' })[] = [
   { chave: 'codigo', titulo: 'ID' },
   { chave: 'fornecedor', titulo: 'Fornecedor / razão social' },
@@ -73,10 +89,17 @@ export const COLUNAS: (Campo | { chave: 'total'; titulo: string; tipo: 'moeda' }
 
 export const totalOrcamento = (a: Pick<AuditoriaFornecedor, 'valor_auditoria' | 'deslocamento'>) =>
   Math.round(((Number(a.valor_auditoria) || 0) + (Number(a.deslocamento) || 0)) * 100) / 100
+const centavos = (v: number) => Math.round(v * 100) / 100
+const encerrada = (a: Pick<AuditoriaFornecedor, 'status'>) => ENCERRADOS.includes(a.status)
+/** Comprovante: anexado no sistema ou marcado como enviado (planilha importada) */
+export const temComprovante = (a: Pick<AuditoriaFornecedor, 'comprovante_url' | 'comprovante_enviado'>) => !!a.comprovante_url || !!a.comprovante_enviado
+/** Local da auditoria: o digitado ou, se vazio, a cidade/UF do fornecedor */
+export const localDaAuditoria = (a: Pick<AuditoriaFornecedor, 'local_auditoria' | 'cidade' | 'uf'>) =>
+  a.local_auditoria?.trim() || [a.cidade, a.uf].filter(Boolean).join('/') || null
 
 const limpar = (v: unknown): string | null => {
   const s = String(v ?? '').trim()
-  return !s || /^n[ãa]o informado$/i.test(s) || /^n[ãa]o confirmado$/i.test(s) ? null : s
+  return !s || /^n[ãa]o informado$/i.test(s) ? null : s
 }
 
 /** Data da planilha (número do Excel, dd/mm/aaaa ou ISO) → yyyy-MM-dd */
@@ -104,6 +127,15 @@ const lerNumero = (v: unknown): number | null => {
 
 const norm = (s: unknown) => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim()
 
+/** Pagamento escrito na planilha da GR → as 4 opções do sistema */
+export function lerPagamento(v: unknown): { pagamento: string; comprovante?: boolean } {
+  const s = norm(v)
+  if (s.startsWith('informado') || s.startsWith('confirmado') || s === 'pago') return { pagamento: 'Pago', comprovante: s.startsWith('informado') || undefined }
+  if (s.startsWith('aguardando')) return { pagamento: 'Aguardando comprovante' }
+  if (s.startsWith('nao aplic') || s.startsWith('nao se aplica')) return { pagamento: 'Não se aplica' }
+  return { pagamento: 'Não pago' }
+}
+
 /**
  * Lê a planilha (linhas cruas, como o sheet_to_json com header: 1 devolve).
  * Acha o cabeçalho pela coluna "ID" + "Fornecedor"; "Não informado" vira vazio.
@@ -129,28 +161,73 @@ export function lerPlanilha(linhas: unknown[][]): { registros: AuditoriaForneced
         : limpar(bruto)
     }
     const status = STATUS_FORNECEDOR.find(s => norm(s) === norm(r.status))
-    r.status = status || 'Aguardando aprovação'
-    const pag = PAGAMENTO_OPCOES.find(p => norm(p) === norm(v('pagamento')))
-    r.pagamento = pag || 'Não confirmado'
+    r.status = status || STATUS_INICIAL
+    const pag = lerPagamento(v('pagamento'))
+    r.pagamento = pag.pagamento
+    if (pag.comprovante) r.comprovante_enviado = true
     r.tipo = norm(r.tipo).startsWith('renov') ? 'Renovação' : r.tipo ? 'Inicial' : null
+    const quem = QUEM_PAGA.find(q => norm(q) === norm(r.responsavel_pagamento))
+    r.responsavel_pagamento = quem || null
     registros.push(r as AuditoriaFornecedor)
   }
   return { registros }
 }
 
-/** Os 6 números do topo da planilha */
+/** Números do topo: operação e dinheiro */
 export function numerosDoTopo(lista: AuditoriaFornecedor[]) {
   const fornecedores = new Set(lista.map(a => (a.cnpj || '').replace(/\D/g, '') || norm(a.fornecedor))).size
-  const ativos = lista.filter(a => !ENCERRADOS.includes(a.status))
+  const ativos = lista.filter(a => !encerrada(a))
+  const soma = (l: AuditoriaFornecedor[]) => centavos(l.reduce((s, a) => s + totalOrcamento(a), 0))
+  const pagos = lista.filter(a => a.pagamento === 'Pago')
+  const aReceber = ativos.filter(a => a.pagamento === 'Não pago' || a.pagamento === 'Aguardando comprovante')
   return {
     fornecedores,
     registros: lista.length,
+    emAndamento: ativos.filter(a => a.status !== 'Concluída').length,
     concluidas: lista.filter(a => a.status === 'Concluída').length,
     agendadas: lista.filter(a => a.status === 'Agendada').length,
-    orcamentosAtivos: Math.round(ativos.reduce((s, a) => s + totalOrcamento(a), 0) * 100) / 100,
-    pagamentoInformado: Math.round(lista.filter(a => a.pagamento !== 'Não confirmado').reduce((s, a) => s + totalOrcamento(a), 0) * 100) / 100,
+    encerradas: lista.length - ativos.length,
+    orcamentosAtivos: soma(ativos),
+    recebido: soma(pagos), qtdRecebido: pagos.length,
+    aReceber: soma(aReceber), qtdAReceber: aReceber.length,
   }
 }
+
+// ── Ficha "em aberto": o que falta em cada bloco ───────────────────────────
+
+export type BlocoFicha = 'fornecedor' | 'pedido' | 'orcamento' | 'financeiro' | 'agenda' | 'resultado'
+export const BLOCOS_FICHA: BlocoFicha[] = ['fornecedor', 'pedido', 'orcamento', 'financeiro', 'agenda', 'resultado']
+
+/**
+ * Campos que ainda faltam, por bloco. Cancelada/encerrada não cobra nada.
+ * Financeiro: com "Não se aplica" só pede o local; nota fiscal só se precisar;
+ * pago pede a data e o comprovante; não pago ainda conta como pendente.
+ */
+export function faltandoNaFicha(a: AuditoriaFornecedor): Record<BlocoFicha, string[]> {
+  const f: Record<BlocoFicha, string[]> = { fornecedor: [], pedido: [], orcamento: [], financeiro: [], agenda: [], resultado: [] }
+  if (encerrada(a)) return f
+  const vazio = (v: unknown) => v === null || v === undefined || (typeof v === 'string' && !v.trim())
+  const exige = (b: BlocoFicha, pares: [unknown, string][]) => { for (const [v, nome] of pares) if (vazio(v)) f[b].push(nome) }
+  exige('fornecedor', [[a.fornecedor, 'Razão social'], [a.cnpj, 'CNPJ'], [a.categoria, 'Categoria'], [a.produtos, 'Produtos'],
+    [a.cidade, 'Cidade'], [a.uf, 'UF'], [a.endereco, 'Endereço'], [a.contato, 'Contato'], [a.email, 'E-mail'], [a.telefone, 'Telefone']])
+  exige('pedido', [[a.comprador, 'Comprador'], [a.unidade_grsa, 'Unidade GRSA'], [a.cr, 'CR'], [a.tipo, 'Tipo']])
+  exige('orcamento', [[a.valor_auditoria, 'Valor'], [a.deslocamento, 'Deslocamento'], [a.cidade_polo, 'Cidade polo'],
+    [a.orcamento_enviado_em, 'Enviado em'], [a.aprovado_em, 'Aprovado em']])
+  exige('financeiro', [[localDaAuditoria(a), 'Local']])
+  if (a.pagamento !== 'Não se aplica') {
+    exige('financeiro', [[a.responsavel_pagamento, 'Quem paga'], [a.forma_pagamento, 'Forma de pagamento']])
+    if (a.precisa_nota === null || a.precisa_nota === undefined) f.financeiro.push('Nota fiscal?')
+    else if (a.precisa_nota) exige('financeiro', [[a.nota_numero, 'Nº da nota'], [a.nota_emitida_em, 'Nota emitida em']])
+    if (a.pagamento === 'Pago') {
+      exige('financeiro', [[a.pago_em, 'Pago em']])
+      if (!temComprovante(a)) f.financeiro.push('Comprovante')
+    } else f.financeiro.push('Pagamento')
+  }
+  exige('agenda', [[a.agendada_para, 'Data'], [a.horario, 'Horário'], [a.auditor, 'Auditor'], [a.realizada_em, 'Realizada em']])
+  exige('resultado', [[a.nota, 'Nota'], [a.resultado, 'Resultado'], [a.validade, 'Validade']])
+  return f
+}
+export const quantoFalta = (a: AuditoriaFornecedor) => Object.values(faltandoNaFicha(a)).reduce((s, l) => s + l.length, 0)
 
 /** Validade da próxima auditoria: 3 anos depois da realizada */
 export function validadePadrao(realizadaEm: string | null): string | null {
@@ -170,50 +247,130 @@ export function avisoValidade(validade: string | null, hoje: string): { tipo: 'v
   return null
 }
 
-/** Excel no mesmo formato da planilha que vai para o cliente */
-export async function exportarPlanilhaGRSA(lista: AuditoriaFornecedor[], hoje: string) {
-  const XLSX = await import('xlsx')
+// ── Relatório em Excel (3 abas: Resumo, Acompanhamento, Financeiro) ─────────
+
+const br = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`
+const ordenar = (lista: AuditoriaFornecedor[]) => [...lista].sort((a, b) => a.codigo.localeCompare(b.codigo, 'pt-BR', { numeric: true }))
+
+export const corDoStatus = (s: string): CorLinha =>
+  s === 'Concluída' ? 'verde'
+    : s === 'Agendada' || s === 'Aguardando relatório' ? 'azul'
+    : ENCERRADOS.includes(s) ? 'cinza'
+    : 'amarelo'
+export const corDoPagamento = (p: string): CorLinha =>
+  p === 'Pago' ? 'verde' : p === 'Não se aplica' ? 'cinza' : p === 'Aguardando comprovante' ? 'azul' : 'amarelo'
+
+export function abasRelatorioGR(lista: AuditoriaFornecedor[], hoje: string): AbaExcel[] {
+  const ord = ordenar(lista)
   const n = numerosDoTopo(lista)
-  const br = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`
-  const serial = (iso: string) => Date.UTC(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10)) / 86400000 + 25569
-  const linhas: unknown[][] = [
-    [],
-    ['GRSA – Auditorias de fornecedores'],
-    [`Consolidado em ${br(hoje)}`],
-    [],
-    ['Fornecedores consolidados', 'Registros / plantas', 'Concluídas', 'Plantas agendadas', 'Orçamentos ativos (R$)', 'Pagamento informado (R$)'],
-    [n.fornecedores, n.registros, n.concluidas, n.agendadas, n.orcamentosAtivos, n.pagamentoInformado],
-    [],
-    ['Filtros no cabeçalho. “Não informado” indica ausência de evidência. Data de pagamento não é a data de envio do comprovante.'],
-    COLUNAS.map(c => c.titulo),
+  const consolidado = `Consolidado em ${br(hoje)} · ${n.fornecedores} fornecedor(es), ${n.registros} registro(s)`
+  const ativos = lista.filter(a => !encerrada(a))
+  const soma = (l: AuditoriaFornecedor[]) => centavos(l.reduce((s, a) => s + totalOrcamento(a), 0))
+  const daGR = ativos.filter(a => a.responsavel_pagamento === 'Unidade GRSA')
+  const doForn = ativos.filter(a => a.responsavel_pagamento === 'Fornecedor')
+  const notas = ativos.filter(a => a.precisa_nota && !a.nota_numero?.trim())
+
+  // Resumo
+  const resumo: CelulaExcel[][] = [
+    ['Fornecedores', n.fornecedores, null],
+    ['Registros / plantas', n.registros, null],
+    ['Em andamento', n.emAndamento, null],
+    ['Agendadas', n.agendadas, null],
+    ['Concluídas', n.concluidas, null],
+    ['Canceladas / encerradas', n.encerradas, null],
+    ['Total orçado (sem canceladas e encerradas)', ativos.length, n.orcamentosAtivos],
+    ['Já recebido (pago)', n.qtdRecebido, n.recebido],
+    ['A receber', n.qtdAReceber, n.aReceber],
+    ['Quem paga: GR (unidade)', daGR.length, soma(daGR)],
+    ['Quem paga: fornecedor', doForn.length, soma(doForn)],
+    ['Notas fiscais a emitir', notas.length, soma(notas)],
+    ['Por status', null, null],
   ]
-  const ordenada = [...lista].sort((a, b) => a.codigo.localeCompare(b.codigo, 'pt-BR', { numeric: true }))
-  for (const a of ordenada) {
-    linhas.push(COLUNAS.map(c => {
-      if (c.chave === 'total') return totalOrcamento(a)
-      const v = a[c.chave]
-      if (c.chave === 'pagamento') return v || 'Não confirmado'
-      if (c.tipo === 'simnao') return v ? 'Sim' : NAO_INFORMADO
-      if (v === null || v === undefined || v === '') return NAO_INFORMADO
-      if (c.tipo === 'data') return serial(String(v))
-      if (c.tipo === 'moeda' || c.tipo === 'numero') return Number(v)
-      return v
-    }))
+  const coresResumo: CorLinha[] = [null, null, null, null, null, null, null, 'verde', 'amarelo', null, null, notas.length ? 'vermelho' : null, 'cinza']
+  for (const s of STATUS_FORNECEDOR) {
+    const doStatus = lista.filter(a => a.status === s)
+    if (!doStatus.length) continue
+    resumo.push([s, doStatus.length, soma(doStatus)])
+    coresResumo.push(corDoStatus(s))
   }
-  const ws = XLSX.utils.aoa_to_sheet(linhas)
-  const MOEDA = '"R$" #,##0.00'
-  // Formatos: moeda no topo e nas colunas de valor; data dd/mm/aaaa
-  for (const c of [4, 5]) { const ref = XLSX.utils.encode_cell({ r: 5, c }); if (ws[ref]) ws[ref].z = MOEDA }
-  COLUNAS.forEach((col, c) => {
-    if (col.tipo !== 'moeda' && col.tipo !== 'data') return
-    for (let r = 9; r < linhas.length; r++) {
-      const cel = ws[XLSX.utils.encode_cell({ r, c })]
-      if (cel && cel.t === 'n') cel.z = col.tipo === 'moeda' ? MOEDA : 'dd/mm/yyyy'
-    }
+
+  // Acompanhamento: as 36 colunas da GR
+  const iValor = COLUNAS.findIndex(c => c.chave === 'valor_auditoria') + 1
+  const iDesl = COLUNAS.findIndex(c => c.chave === 'deslocamento') + 1
+  const L = PRIMEIRA_LINHA_EXCEL
+  const acomp = ord.map((a, i): CelulaExcel[] => COLUNAS.map(c => {
+    if (c.chave === 'total') return { formula: `${letraDaColuna(iValor)}${L + i}+${letraDaColuna(iDesl)}${L + i}`, result: totalOrcamento(a) }
+    const v = a[c.chave]
+    if (c.chave === 'responsavel_pagamento') return v ? String(v) : NAO_INFORMADO
+    if (c.tipo === 'simnao') return temComprovante(a) ? 'Sim' : 'Não'
+    if (v === null || v === undefined || v === '') return c.tipo === 'moeda' ? 0 : NAO_INFORMADO
+    if (c.tipo === 'data') return br(String(v))
+    if (c.tipo === 'moeda' || c.tipo === 'numero') return Number(v)
+    return v as string
+  }))
+  const largura: Record<string, number> = { codigo: 11, fornecedor: 34, planta: 16, status: 26, proxima_acao: 34, cnpj: 20, produtos: 30, endereco: 40, email: 28, responsavel_pagamento: 18 }
+  const fimAcomp = L + ord.length - 1
+  const somaCol = (col: number): CelulaExcel => ord.length ? { formula: `SUM(${letraDaColuna(col)}${L}:${letraDaColuna(col)}${fimAcomp})`, result: 0 } : 0
+  const iTotal = COLUNAS.findIndex(c => c.chave === 'total') + 1
+  const totalAcomp: CelulaExcel[] = COLUNAS.map((c, i) => i === 0 ? 'Total' : i + 1 === iValor || i + 1 === iDesl || i + 1 === iTotal ? somaCol(i + 1) : null)
+  // result das somas (para quem abre sem recalcular)
+  ;[iValor, iDesl, iTotal].forEach(col => {
+    const cel = totalAcomp[col - 1]
+    if (cel && typeof cel === 'object' && 'formula' in cel) cel.result = col === iTotal ? soma(ord) : centavos(ord.reduce((s, a) => s + (Number(col === iValor ? a.valor_auditoria : a.deslocamento) || 0), 0))
   })
-  ws['!cols'] = COLUNAS.map((c, i) => ({ wch: [12, 42, 25, 30, 44, 22, 18, 35, 18, 18, 18, 54, 18, 37, 18, 28, 24][i] ?? 18 }))
-  ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 8, c: 0 }, e: { r: Math.max(8, linhas.length - 1), c: COLUNAS.length - 1 } }) }
-  const wb = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(wb, ws, 'Acompanhamento')
-  XLSX.writeFile(wb, `Status_Auditorias_Fornecedores_GRSA_${br(hoje).replace(/\//g, '.').replace(/\.(\d{2})(\d{2})$/, '.$2')}.xlsx`)
+
+  // Financeiro
+  const fin = ord.map((a, i): CelulaExcel[] => [
+    a.codigo, a.fornecedor, a.planta || '—', localDaAuditoria(a) || NAO_INFORMADO,
+    a.responsavel_pagamento ? ROTULO_QUEM_PAGA[a.responsavel_pagamento] || a.responsavel_pagamento : NAO_INFORMADO,
+    a.forma_pagamento || NAO_INFORMADO,
+    Number(a.valor_auditoria) || 0, Number(a.deslocamento) || 0,
+    { formula: `G${L + i}+H${L + i}`, result: totalOrcamento(a) },
+    a.pagamento, a.pago_em ? br(a.pago_em) : '—',
+    a.precisa_nota === true ? 'Sim' : a.precisa_nota === false ? 'Não' : NAO_INFORMADO,
+    a.nota_numero || '—', a.nota_emitida_em ? br(a.nota_emitida_em) : '—',
+    temComprovante(a) ? 'Sim' : 'Não',
+  ])
+  const fimFin = L + ord.length - 1
+  const somaFin = (col: string, v: number): CelulaExcel => ord.length ? { formula: `SUM(${col}${L}:${col}${fimFin})`, result: v } : 0
+
+  return [
+    {
+      nome: 'Resumo', titulo: 'Auditoria GR — Resumo', subtitulo: consolidado,
+      colunas: [{ titulo: 'Indicador', largura: 44 }, { titulo: 'Quantidade', largura: 13, tipo: 'numero' }, { titulo: 'Valor (R$)', largura: 18, tipo: 'dinheiro' }],
+      linhas: resumo, cores: coresResumo,
+      rodape: 'A receber = auditorias em andamento ou concluídas com pagamento "Não pago" ou "Aguardando comprovante". Valor = auditoria + deslocamento.',
+    },
+    {
+      nome: 'Acompanhamento', titulo: 'GRSA – Auditorias de fornecedores', subtitulo: consolidado,
+      colunas: COLUNAS.map(c => ({
+        titulo: c.titulo, largura: largura[c.chave] ?? (c.tipo === 'data' ? 14 : c.tipo === 'moeda' ? 15 : 17),
+        tipo: c.tipo === 'moeda' ? 'dinheiro' as const : c.tipo === 'numero' ? 'numero' as const : c.tipo === 'data' || c.tipo === 'simnao' || c.chave === 'uf' ? 'centro' as const : 'texto' as const,
+      })),
+      linhas: acomp, cores: ord.map(a => corDoStatus(a.status)), total: totalAcomp,
+      rodape: 'Filtros no cabeçalho. “Não informado” indica ausência de evidência. Data de pagamento não é a data de envio do comprovante.',
+    },
+    {
+      nome: 'Financeiro', titulo: 'Auditoria GR — Financeiro', subtitulo: consolidado,
+      colunas: [
+        { titulo: 'ID', largura: 11 }, { titulo: 'Fornecedor', largura: 34 }, { titulo: 'Planta', largura: 14 }, { titulo: 'Local da auditoria', largura: 22 },
+        { titulo: 'Quem paga', largura: 15, tipo: 'centro' }, { titulo: 'Forma de pagamento', largura: 22 },
+        { titulo: 'Valor auditoria', largura: 15, tipo: 'dinheiro' }, { titulo: 'Deslocamento', largura: 14, tipo: 'dinheiro' }, { titulo: 'Total', largura: 15, tipo: 'dinheiro' },
+        { titulo: 'Situação', largura: 22, tipo: 'centro' }, { titulo: 'Pago em', largura: 12, tipo: 'data' },
+        { titulo: 'Nota fiscal?', largura: 12, tipo: 'centro' }, { titulo: 'Nº da nota', largura: 13, tipo: 'centro' }, { titulo: 'Nota emitida em', largura: 14, tipo: 'data' },
+        { titulo: 'Comprovante', largura: 13, tipo: 'centro' },
+      ],
+      linhas: fin, cores: ord.map(a => encerrada(a) ? 'cinza' : corDoPagamento(a.pagamento)),
+      total: ['Total', null, null, null, null, null,
+        somaFin('G', centavos(ord.reduce((s, a) => s + (Number(a.valor_auditoria) || 0), 0))),
+        somaFin('H', centavos(ord.reduce((s, a) => s + (Number(a.deslocamento) || 0), 0))),
+        somaFin('I', soma(ord)), null, null, null, null, null, null],
+      rodape: `Já recebido: ${moeda(n.recebido)} · A receber: ${moeda(n.aReceber)}. Verde: pago · Azul: aguardando comprovante · Amarelo: não pago · Cinza: não se aplica, cancelada ou encerrada.`,
+    },
+  ]
 }
+
+const moeda = (v: number) => 'R$ ' + v.toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.')
+
+/** Nome do arquivo: Auditoria_GR_20.10.26 */
+export const nomeRelatorioGR = (hoje: string) => `Auditoria_GR_${hoje.slice(8, 10)}.${hoje.slice(5, 7)}.${hoje.slice(2, 4)}`

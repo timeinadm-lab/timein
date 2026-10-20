@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { format, addMonths, subMonths } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
-import { Sheet, Sparkles, ClipboardList, Receipt, Wrench, Wallet, SlidersHorizontal, ChevronLeft, ChevronRight, ChevronDown, Download, Check, CheckCheck, X, Search, Undo2, AlertTriangle } from 'lucide-react'
+import { Sheet, Sparkles, ClipboardList, ClipboardCheck, Receipt, Wrench, Wallet, SlidersHorizontal,ChevronLeft, ChevronRight, ChevronDown, Download, Check, CheckCheck, X, Search, Undo2, AlertTriangle } from 'lucide-react'
 import { supabase, fetchAll } from '../../lib/supabase'
 import { formatCurrency, formatDate, tipoDoVinculo, getInitials, corDoAvatar, hojeISO, pagaPorDiaria } from '../../lib/utils'
 import { resumoDoVinculo } from '../../lib/jornadaPessoa'
@@ -16,6 +16,7 @@ import { baixarExcelBonito } from '../../lib/excelBonito'
 import GastosCliente from './GastosCliente'
 import { PlanilhaCorrecao, PlanilhaPagamentos } from './PlanilhasPagamento'
 import PlanilhaCompleta from './PlanilhaCompleta'
+import AuditoriaGR from './AuditoriaGR'
 import type { CorLinha } from '../../lib/excelBonito'
 
 /**
@@ -27,7 +28,7 @@ import type { CorLinha } from '../../lib/excelBonito'
  *    com o resumo do mês e o dia em que recebe.
  * As duas viram Excel apresentável.
  */
-type Qual = 'completa' | 'extras' | 'ponto' | 'gastos' | 'correcao' | 'pagamentos'
+type Qual = 'completa' | 'extras' | 'ponto' | 'gastos' | 'correcao' | 'pagamentos' | 'auditoria'
 type Vinculo = VinculoPg & VinculoPerfil & {
   id: string; employee_id: string; client_id: string; start_date?: string | null; contract_end_date?: string | null
   work_schedule_type?: string | null
@@ -71,7 +72,7 @@ const contratoTexto = (l: Vinculo | null) => {
 export default function PlanilhasPage() {
   const navigate = useNavigate()
   const qc = useQueryClient()
-  const [qual, setQual] = useState<Qual>(() => { const q = new URLSearchParams(window.location.search).get('planilha'); return q === 'extras' || q === 'ponto' || q === 'gastos' || q === 'correcao' || q === 'pagamentos' ? q : 'completa' })
+  const [qual, setQual] = useState<Qual>(() => { const q = new URLSearchParams(window.location.search).get('planilha'); return q === 'extras' || q === 'ponto' || q === 'gastos' || q === 'correcao' || q === 'pagamentos' || q === 'auditoria' ? q : 'completa' })
   const [cursor, setCursor] = useState(() => { const m = new URLSearchParams(window.location.search).get('mes'); return m && /^\d{4}-\d{2}$/.test(m) ? new Date(m + '-15T12:00:00') : new Date() })
   const mes = format(cursor, 'yyyy-MM')
   const ini = `${mes}-01`, fim = format(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0), 'yyyy-MM-dd')
@@ -111,7 +112,7 @@ export default function PlanilhasPage() {
           <h1 className="page-title flex items-center gap-2"><Sheet size={26} className="text-primary-600" />Planilhas</h1>
           <p className="text-sm text-ink-500 mt-1">Escolha a planilha, confira na tela e baixe em Excel.</p>
         </div>
-        <div className="flex items-center gap-1.5">
+        <div className={`flex items-center gap-1.5 ${qual === 'auditoria' ? 'hidden' : ''}`}>
           <button onClick={() => setCursor(c => subMonths(c, 1))} className="btn-secondary p-2" aria-label="Mês anterior"><ChevronLeft size={16} /></button>
           <span className="font-semibold text-ink-900 min-w-[150px] text-center first-letter:uppercase">{nomeMes}</span>
           <button onClick={() => setCursor(c => addMonths(c, 1))} className="btn-secondary p-2" aria-label="Próximo mês"><ChevronRight size={16} /></button>
@@ -127,6 +128,7 @@ export default function PlanilhasPage() {
           ['gastos', Receipt, 'Gastos do cliente', 'Airbnb, carro, material… com comprovante. Gera PDF com as fotos.'],
           ['pagamentos', Wallet, 'Pagamentos', 'Quem recebe no dia 8, 15 e 20, com valor e PIX/conta.'],
           ['correcao', Wrench, 'Correção', 'Quem não recebe nada no mês ou recebe menos de R$ 100.'],
+          ['auditoria', ClipboardCheck, 'Auditoria GR', 'Auditorias de fornecedores da GRSA: ficha de cada um, financeiro e relatório em Excel para o cliente.'],
         ] as const).map(([k, Icone, titulo, desc]) => (
           <button key={k} onClick={() => setQual(k)}
             className={`card p-4 text-left flex items-start gap-3 transition-all ${qual === k ? 'border-primary-500 ring-2 ring-primary-100 bg-primary-50/40' : 'hover:border-ink-300'}`}>
@@ -139,7 +141,8 @@ export default function PlanilhasPage() {
         ))}
       </div>
 
-      {qual === 'completa' ? <PlanilhaCompleta mes={mes} nomeMes={nomeMes} />
+      {qual === 'auditoria' ? <AuditoriaGR />
+        : qual === 'completa' ? <PlanilhaCompleta mes={mes} nomeMes={nomeMes} />
         : qual === 'gastos' ? <GastosCliente mes={mes} nomeMes={nomeMes} />
         : qual === 'correcao' ? <PlanilhaCorrecao mes={mes} nomeMes={nomeMes} />
         : qual === 'pagamentos' ? <PlanilhaPagamentos mes={mes} nomeMes={nomeMes} />

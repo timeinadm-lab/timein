@@ -7,7 +7,7 @@
 
 export type TipoColuna = 'texto' | 'dinheiro' | 'numero' | 'data' | 'centro'
 export type ColunaExcel = { titulo: string; largura?: number; tipo?: TipoColuna }
-export type CorLinha = 'verde' | 'amarelo' | 'vermelho' | 'cinza' | null
+export type CorLinha = 'verde' | 'amarelo' | 'vermelho' | 'cinza' | 'azul' | null
 // Fórmula: o Excel recalcula quando a planilha é editada (ex.: Total = soma das colunas).
 // Link: abre o arquivo/endereço (ex.: comprovante dentro do zip).
 export type CelulaExcel = string | number | null | { formula: string; result?: number } | { text: string; hyperlink: string }
@@ -23,7 +23,7 @@ export type AbaExcel = {
 }
 
 const VERDE = 'FF0F4E30'
-const FUNDO: Record<Exclude<CorLinha, null>, string> = { verde: 'FFEAF6EE', amarelo: 'FFFFF6DD', vermelho: 'FFFDECEC', cinza: 'FFF1F1EF' }
+const FUNDO: Record<Exclude<CorLinha, null>, string> = { verde: 'FFEAF6EE', amarelo: 'FFFFF6DD', vermelho: 'FFFDECEC', cinza: 'FFF1F1EF', azul: 'FFE8F1FB' }
 
 /** Letra da coluna (1 → A, 27 → AA) para montar fórmulas */
 export const letraDaColuna = (n: number): string => (n > 26 ? letraDaColuna(Math.floor((n - 1) / 26)) : '') + String.fromCharCode(65 + ((n - 1) % 26))

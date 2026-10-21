@@ -75,6 +75,7 @@ type Ponto = { peso: number; codigo: string; t: string; valor?: number; dias?: n
 const JUNTOS: Record<number, (p: Ponto[]) => string> = {
   1: p => `${p.length} auditorias feitas e o pagamento não entrou (${brl(soma(p))})`,
   2: p => `${p.length} auditorias passaram da data agendada: marcar se foram feitas`,
+  2.5: p => `${p.length} marcadas como pagas sem a data do pagamento`,
   3: p => `${p.length} notas fiscais a emitir (${brl(soma(p))})`,
   4: p => `${p.length} auditores a pagar (${brl(soma(p))})`,
   5: p => `${p.length} relatórios de auditoria a anexar`,
@@ -93,6 +94,8 @@ export function pontosDeAtencao(lista: AuditoriaFornecedor[], hoje: string): str
       add(1, `auditoria feita em ${dm(a.realizada_em)} e o pagamento (${brl(totalOrcamento(a))}) ainda não entrou`, { valor: totalOrcamento(a) })
     if (a.agendada_para && a.agendada_para < hoje && !a.realizada_em)
       add(2, `estava agendada para ${dm(a.agendada_para)}: marcar se foi feita`)
+    if (a.pagamento === 'Pago' && !a.pago_em)
+      add(2.5, 'marcada como paga, falta a data em que o pagamento entrou')
     if (a.pagamento === 'Pago' && a.precisa_nota && !a.nota_numero?.trim())
       add(3, `emitir a nota fiscal (${brl(totalOrcamento(a))})`, { valor: totalOrcamento(a) })
     if (a.realizada_em && a.auditor_pagamento !== 'Pago' && Number(a.valor_auditor) > 0)
@@ -233,7 +236,7 @@ export async function gerarResumoGR(lista: AuditoriaFornecedor[], opts: { hoje: 
     { t: 'Documentos', w: 28 }, { t: 'Próximo passo', w: 26 }, { t: 'Valor', w: 18, dir: true },
   ]
   const xs = cols.reduce<number[]>((acc, c, i) => [...acc, i ? acc[i - 1] + cols[i - 1].w : L], [])
-  const ALTURA = 8.6, BAIXA = 5.6, LIMITE = 284
+  const ALTURA = 8, BAIXA = 5.2, LIMITE = 285
   const cabTabela = (cont = false) => {
     titulo(cont ? 'Auditorias por fase (continuação)' : `Auditorias por fase (${lista.length})`, L, st.y, W)
     st.y += 5.5
@@ -266,7 +269,7 @@ export async function gerarResumoGR(lista: AuditoriaFornecedor[], opts: { hoje: 
     doGrupo.forEach(a => {
       const alt = fechada ? BAIXA : ALTURA
       if (st.y + alt > LIMITE) { novaPagina(); cabTabela(true) }
-      const y = st.y, l1 = y + 2.4, l2 = y + 5.6
+      const y = st.y, l1 = y + 2.3, l2 = y + 5.3
       texto(a.codigo, xs[0] + 1.5, l1, { tam: 7.5, negrito: true, cor: fechada ? CINZA : TINTA })
       texto(cabe(a.fornecedor + (a.planta ? ` · ${a.planta}` : ''), cols[1].w - 3, 7.8), xs[1] + 1.5, l1, { tam: 7.8, cor: fechada ? CINZA : TINTA })
       if (fechada) {
@@ -316,28 +319,29 @@ export async function gerarResumoGR(lista: AuditoriaFornecedor[], opts: { hoje: 
     st.y += 1.5
   }
 
-  // Legenda
-  if (st.y + 12 > LIMITE) novaPagina()
-  st.y += 1.5
-  let xl = L
-  const leg = (desenha: (x: number) => number, t: string) => {
-    const w = desenha(xl)
-    texto(t, xl + w + 1.2, st.y, { tam: 6.2, cor: CINZA })
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(6.2)
-    xl += w + 1.2 + doc.getTextWidth(t) + 4.5
-  }
-  texto('Etapas:', xl, st.y, { tam: 6.2, negrito: true, cor: CINZA }); xl += 9
-  leg(x => { doc.setFillColor(...FORTE.verde); doc.circle(x + 1.1, st.y - 0.9, 1.1, 'F'); return 2.2 }, 'feita')
-  leg(x => { doc.setFillColor(...FORTE.amarelo); doc.circle(x + 1.1, st.y - 0.9, 1.2, 'F'); return 2.4 }, 'onde está')
-  leg(x => { doc.setFillColor(255, 255, 255); doc.setDrawColor(170, 170, 170); doc.setLineWidth(0.25); doc.circle(x + 1.1, st.y - 0.9, 1, 'FD'); return 2.2 }, 'falta')
-  texto('(orçamento, aprovação, pagamento, agendada, realizada, resultado)', xl, st.y, { tam: 6.2, cor: CINZA })
-  st.y += 3.6; xl = L
-  texto('Documentos:', xl, st.y, { tam: 6.2, negrito: true, cor: CINZA }); xl += 14
-  const lq = (e: EstadoDoc, t: string) => leg(x => { quadrado(x, st.y - 2.1, 2.2, e); return 2.2 }, t)
-  lq('ok', 'ok'); lq('sem_arquivo', 'feito, falta o arquivo'); lq('falta', 'falta'); lq('nao_se_aplica', 'não se aplica')
-  texto('(orçamento, aprovação, comprovante, nota, agendamento, relatório, pgto. auditor)', xl, st.y, { tam: 6.2, cor: CINZA })
-  st.y += 3.6
-  texto('Parada há: dias desde a última data do processo (verde até 7, amarelo até 20, vermelho acima).', L, st.y, { tam: 6.2, cor: CINZA })
+  // Legenda: só se couber na mesma folha (não abre página só para ela)
+  if (st.y + 11 <= 289) {
+    st.y += 1.5
+    let xl = L
+    const leg = (desenha: (x: number) => number, t: string) => {
+      const w = desenha(xl)
+      texto(t, xl + w + 1.2, st.y, { tam: 6.2, cor: CINZA })
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(6.2)
+      xl += w + 1.2 + doc.getTextWidth(t) + 4.5
+    }
+    texto('Etapas:', xl, st.y, { tam: 6.2, negrito: true, cor: CINZA }); xl += 9
+    leg(x => { doc.setFillColor(...FORTE.verde); doc.circle(x + 1.1, st.y - 0.9, 1.1, 'F'); return 2.2 }, 'feita')
+    leg(x => { doc.setFillColor(...FORTE.amarelo); doc.circle(x + 1.1, st.y - 0.9, 1.2, 'F'); return 2.4 }, 'onde está')
+    leg(x => { doc.setFillColor(255, 255, 255); doc.setDrawColor(170, 170, 170); doc.setLineWidth(0.25); doc.circle(x + 1.1, st.y - 0.9, 1, 'FD'); return 2.2 }, 'falta')
+    texto('(orçamento, aprovação, pagamento, agendada, realizada, resultado)', xl, st.y, { tam: 6.2, cor: CINZA })
+    st.y += 3.6; xl = L
+    texto('Documentos:', xl, st.y, { tam: 6.2, negrito: true, cor: CINZA }); xl += 14
+    const lq = (e: EstadoDoc, t: string) => leg(x => { quadrado(x, st.y - 2.1, 2.2, e); return 2.2 }, t)
+    lq('ok', 'ok'); lq('sem_arquivo', 'feito, falta o arquivo'); lq('falta', 'falta'); lq('nao_se_aplica', 'não se aplica')
+    texto('(orçamento, aprovação, comprovante, nota, agendamento, relatório, pgto. auditor)', xl, st.y, { tam: 6.2, cor: CINZA })
+    st.y += 3.6
+    texto('Parada há: dias desde a última data do processo (verde até 7, amarelo até 20, vermelho acima).', L, st.y, { tam: 6.2, cor: CINZA })
+    }
 
   numerar(`Auditoria GR · resumo · ${periodo}`)
   return new Uint8Array(doc.output('arraybuffer'))

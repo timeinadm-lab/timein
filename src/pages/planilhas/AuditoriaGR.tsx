@@ -14,7 +14,7 @@ import type { ArquivoCarregado } from '../../lib/auditoriaGRPdf'
 import {
   STATUS_FORNECEDOR, STATUS_INICIAL, PAGAMENTO_OPCOES, FORMAS_PAGAMENTO, QUEM_PAGA, ROTULO_QUEM_PAGA, RESULTADOS, ENCERRADOS, AUDITOR_PAGAMENTO,
   lerPlanilha, numerosDoTopo, totalOrcamento, validadePadrao, avisoValidade, faltandoNaFicha, localDaAuditoria,
-  temComprovante, corDoStatus, corDoPagamento, abasRelatorioGR, nomeRelatorioGR, mesDoProcesso, nomeDoMes, FASES, faseDe,
+  temComprovante, corDoStatus, corDoPagamento, abasRelatorioGR, nomeRelatorioGR, mesDoProcesso, noMes, nomeDoMes, FASES, faseDe,
   DOCUMENTOS, tipoDoAnexo, anexosDe, andamentoDocs, documentosDoProcesso, ROTULO_ESTADO,
 } from '../../lib/auditoriasFornecedores'
 import type { FaseChave, AuditoriaFornecedor, BlocoFicha, AnexoGR, EstadoDoc } from '../../lib/auditoriasFornecedores'
@@ -76,7 +76,7 @@ export default function AuditoriaGR() {
     s.add(hojeISO().slice(0, 7))
     return [...s].sort().reverse()
   }, [lista])
-  const doPeriodo = useMemo(() => mes ? lista.filter(a => mesDoProcesso(a) === mes) : lista, [lista, mes])
+  const doPeriodo = useMemo(() => mes ? lista.filter(a => noMes(a, mes, hoje)) : lista, [lista, mes, hoje])
   const n = numerosDoTopo(doPeriodo)
 
   const contagem: Record<Filtro, number> = {
@@ -191,7 +191,7 @@ export default function AuditoriaGR() {
               <option value="">Todos os meses</option>
               {meses.map(m => <option key={m} value={m}>{nomeDoMes(m).replace(/^./, c => c.toUpperCase())}</option>)}
             </select>
-            {mes && <span className="text-[11px] text-ink-400">pela data da auditoria (realizada ou agendada); sem data, pelo orçamento</span>}
+            {mes && <span className="text-[11px] text-ink-400">as do mês (pela data da auditoria ou do orçamento) e as que estavam em aberto nele</span>}
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
@@ -331,9 +331,7 @@ function FichaFornecedor({ registro, lista, fechar }: { registro: Registro | nul
     const novo = { ...x, [k]: v }
     // Realizada mudou: a validade acompanha (3 anos), se não foi digitada à mão
     if (k === 'realizada_em' && (!x.validade || x.validade === validadePadrao(x.realizada_em))) novo.validade = validadePadrao(v as string | null)
-    // Marcou pago: a data de hoje entra sozinha (dá para trocar)
-    if (k === 'pagamento' && v === 'Pago' && !x.pago_em) novo.pago_em = hojeISO()
-    if (k === 'auditor_pagamento' && v === 'Pago' && !x.auditor_pago_em) novo.auditor_pago_em = hojeISO()
+    // Marcou pago: a data NÃO entra sozinha — a pessoa informa quando foi (21/10/2026)
     return novo
   })
   const faltando = faltandoNaFicha(f)
@@ -461,10 +459,24 @@ function FichaFornecedor({ registro, lista, fechar }: { registro: Registro | nul
       <input className="input" value={(f[k] as string) ?? ''} onChange={e => set(k, e.target.value as never)} placeholder={extra?.placeholder || 'Não informado'} />
     </div>
   )
-  const data = (k: keyof AuditoriaFornecedor, rotulo: string) => (
-    <div key={k}><label className="label">{rotulo}</label>
-      <input className="input" type="date" value={(f[k] as string) ?? ''} onChange={e => set(k, (e.target.value || null) as never)} /></div>
-  )
+  // Datas que o passo já pede (o status ou o pagamento chegou lá) e estão vazias: em destaque
+  const passou = (...st: string[]) => st.includes(f.status)
+  const pedeData: Partial<Record<keyof AuditoriaFornecedor, boolean>> = {
+    orcamento_enviado_em: f.status !== 'Em elaboração de orçamento' && !ENCERRADOS.includes(f.status),
+    aprovado_em: ['acerto', 'agendada', 'relatorio', 'concluida'].includes(faseDe(f)) || f.pagamento === 'Pago',
+    pago_em: f.pagamento === 'Pago',
+    auditor_pago_em: f.auditor_pagamento === 'Pago',
+    agendada_para: passou('Agendada', 'Aguardando relatório', 'Concluída'),
+    realizada_em: passou('Aguardando relatório', 'Concluída'),
+    nota_emitida_em: !!f.nota_numero?.trim(),
+  }
+  const data = (k: keyof AuditoriaFornecedor, rotulo: string) => {
+    const pede = pedeData[k] && !f[k]
+    return (
+      <div key={k}><label className="label">{rotulo}{pede && <span className="text-amber-700 font-medium"> · qual foi a data?</span>}</label>
+        <input className={`input ${pede ? 'border-amber-400 bg-amber-50' : ''}`} type="date" value={(f[k] as string) ?? ''} onChange={e => set(k, (e.target.value || null) as never)} /></div>
+    )
+  }
   const numero = (k: keyof AuditoriaFornecedor, rotulo: string, moeda = true) => (
     <div key={k}><label className="label">{rotulo}</label>
       <input className="input tnum" type="number" inputMode="decimal" step={moeda ? '0.01' : '0.1'} min="0" max={moeda ? undefined : 100}

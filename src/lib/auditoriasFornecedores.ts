@@ -382,16 +382,20 @@ export const FASES: { chave: FaseChave; nome: string; status: readonly string[] 
 export const faseDe = (a: Pick<AuditoriaFornecedor, 'status'>): FaseChave => FASES.find(f => f.status.includes(a.status))?.chave ?? 'orcamento'
 
 /**
- * Última vez que o processo andou: a data mais recente (até hoje) entre
- * orçamento, aprovação, pagamento, comprovante, agenda, realização, nota,
- * pagamento do auditor e anexos. Agenda no futuro volta em "proxima".
+ * Última vez que o processo andou: a data mais recente (até hoje) entre as
+ * datas que a pessoa informa na ficha — orçamento enviado, aprovação,
+ * pagamento, agenda, realização, nota emitida e pagamento do auditor.
+ * Não conta quando a ficha foi mexida, importada ou o arquivo anexado (21/10:
+ * "a pessoa coloca a data"); a criação só vale se não tiver nenhuma data.
+ * Agenda no futuro volta em "proxima".
  */
 export function ultimoMovimento(a: AuditoriaFornecedor, hoje: string): { data: string | null; dias: number | null; proxima: string | null } {
-  const datas = [a.orcamento_enviado_em, a.aprovado_em, a.pago_em, a.comprovante_recebido_em, a.agendada_para, a.realizada_em,
-    a.nota_emitida_em, a.auditor_pago_em, a.criado_em?.slice(0, 10), ...anexosDe(a).map(x => x.em)]
-    .filter((d): d is string => !!d && /^\d{4}-\d{2}-\d{2}/.test(d)).map(d => d.slice(0, 10))
+  const valida = (d: string | null | undefined): d is string => !!d && /^\d{4}-\d{2}-\d{2}/.test(d)
+  const datas = [a.orcamento_enviado_em, a.aprovado_em, a.pago_em, a.agendada_para, a.realizada_em, a.nota_emitida_em, a.auditor_pago_em]
+    .filter(valida).map(d => d.slice(0, 10))
   const passadas = datas.filter(d => d <= hoje).sort()
-  const data = passadas.length ? passadas[passadas.length - 1] : null
+  const criada = valida(a.criado_em) && a.criado_em.slice(0, 10) <= hoje ? a.criado_em.slice(0, 10) : null
+  const data = passadas.length ? passadas[passadas.length - 1] : datas.length ? null : criada
   const dias = data ? Math.round((Date.parse(hoje + 'T00:00:00Z') - Date.parse(data + 'T00:00:00Z')) / 86400000) : null
   const proxima = a.agendada_para && a.agendada_para > hoje && !a.realizada_em ? a.agendada_para : null
   return { data, dias, proxima }
@@ -405,6 +409,18 @@ export function ultimoMovimento(a: AuditoriaFornecedor, hoje: string): { data: s
 export function mesDoProcesso(a: AuditoriaFornecedor): string | null {
   const d = a.realizada_em || a.agendada_para || a.orcamento_enviado_em || a.aprovado_em || a.criado_em || null
   return d ? d.slice(0, 7) : null
+}
+
+/**
+ * Entra no mês? Pelo mês da auditoria (acima) e, se ainda está em aberto
+ * (nem concluída nem encerrada), em todo mês desde que começou até hoje
+ * (21/10/2026: orçamento de setembro ainda parado tem que aparecer em outubro).
+ */
+export function noMes(a: AuditoriaFornecedor, mes: string, hoje: string): boolean {
+  if (mesDoProcesso(a) === mes) return true
+  if (encerrada(a) || a.status === 'Concluída') return false
+  const inicio = [a.orcamento_enviado_em, a.aprovado_em, a.agendada_para, a.criado_em].filter(Boolean).map(d => d!.slice(0, 7)).sort()[0]
+  return !!inicio && inicio <= mes && mes <= hoje.slice(0, 7)
 }
 
 // ── Relatório em Excel (uso interno, 20/10/2026: "não vai para o cliente") ──

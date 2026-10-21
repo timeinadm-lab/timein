@@ -2,7 +2,7 @@
 import { lerPlanilha, numerosDoTopo, validadePadrao, avisoValidade, lerData, COLUNAS, totalOrcamento, lerPagamento, faltandoNaFicha, quantoFalta, localDaAuditoria, abasRelatorioGR, nomeRelatorioGR, tipoDoAnexo, temComprovante, documentosDoProcesso, andamentoDocs, etapasDoProcesso, etapasFeitas, mesDoProcesso, nomeDoMes } from './auditoriasFornecedores'
 import type { AuditoriaFornecedor } from './auditoriasFornecedores'
 import { pontosDeAtencao, statusCurto, nomeResumoGR, proximoPasso } from './auditoriaGRResumoPdf'
-import { faseDe, ultimoMovimento } from './auditoriasFornecedores'
+import { faseDe, ultimoMovimento, noMes } from './auditoriasFornecedores'
 
 let falhas = 0
 const ok = (cond: boolean, nome: string, info?: unknown) => {
@@ -148,7 +148,7 @@ console.log('Resumo para a chefe (PDF)')
   const at = pontosDeAtencao([feita], '2026-10-21')
   ok(at[0]?.includes('pagamento') && at[0].includes('ainda não entrou') && at.some(t => t.includes('auditor pendente (Ana')), 'feita e não paga vem primeiro; auditor a pagar', at)
   ok(pontosDeAtencao([{ ...feita, status: 'Cancelada' }], '2026-10-21').length === 0, 'cancelada não entra na atenção')
-  const semResposta = { ...cheia, codigo: 'X-2', orcamento_enviado_em: '2026-10-01', aprovado_em: null, pagamento: 'Não pago', pago_em: null, comprovante_recebido_em: null, agendada_para: null, realizada_em: null, nota_emitida_em: null, auditor_pago_em: null, criado_em: null, anexos: [] }
+  const semResposta = { ...cheia, codigo: 'X-2', status: 'Aguardando aprovação', orcamento_enviado_em: '2026-10-01', aprovado_em: null, pagamento: 'Não pago', pago_em: null, comprovante_recebido_em: null, agendada_para: null, realizada_em: null, nota_emitida_em: null, auditor_pago_em: null, criado_em: null, anexos: [] }
   ok(pontosDeAtencao([semResposta], '2026-10-21').some(t => t.includes('há 20 dias sem aprovação')), 'orçamento sem resposta há mais de 7 dias')
   ok(pontosDeAtencao([{ ...semResposta, orcamento_enviado_em: '2026-10-18' }], '2026-10-21').every(t => !t.includes('sem aprovação')), 'orçamento recente não avisa')
   ok(statusCurto('Aguardando definição de laboratório') === 'Aguard. laboratório' && statusCurto('Agendada') === 'Agendada', 'status curto')
@@ -162,6 +162,12 @@ console.log('Resumo para a chefe (PDF)')
   ok(mv.data === '2026-10-01' && mv.dias === 20 && mv.proxima === null, 'parada há 20 dias desde o orçamento', mv)
   const futura = ultimoMovimento({ ...cheia, agendada_para: '2026-10-25', realizada_em: null }, '2026-10-21')
   ok(futura.proxima === '2026-10-25', 'agenda no futuro vira "auditoria dd/mm"', futura)
+  const importada = ultimoMovimento({ ...semResposta, criado_em: '2026-10-21T12:00:00Z', anexos: [{ caminho: 'x', nome: 'x', tipo: 'orcamento', obs: null, em: '2026-10-21' }] }, '2026-10-21')
+  ok(importada.data === '2026-10-01' && importada.dias === 20, 'importar ou anexar hoje não zera o "parada há"', importada)
+  ok(ultimoMovimento({ ...semResposta, orcamento_enviado_em: null, criado_em: '2026-10-11T10:00:00Z' }, '2026-10-21').dias === 10, 'sem nenhuma data: conta da criação')
+  ok(noMes(semResposta, '2026-10', '2026-10-21') && noMes({ ...semResposta, orcamento_enviado_em: '2026-09-24' }, '2026-10', '2026-10-21'), 'em aberto desde setembro aparece em outubro')
+  ok(!noMes({ ...semResposta, orcamento_enviado_em: '2026-09-24' }, '2026-11', '2026-10-21') && !noMes({ ...semResposta, orcamento_enviado_em: '2026-09-24', status: 'Cancelada' }, '2026-10', '2026-10-21'), 'mês futuro e cancelada antiga não entram')
+  ok(pontosDeAtencao([{ ...semResposta, pagamento: 'Pago', pago_em: null }], '2026-10-21').some(t => t.includes('falta a data em que o pagamento entrou')), 'pago sem data vira atenção')
   ok(proximoPasso(semResposta) === 'Aguardar aprovação' && proximoPasso({ ...semResposta, status: 'Cancelada' }) === null, 'próximo passo pela etapa do processo')
 }
 

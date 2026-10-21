@@ -9,6 +9,7 @@ import { comprimirImagem, extensaoDoArquivo } from '../../lib/imagem'
 import { baixarExcelBonito } from '../../lib/excelBonito'
 import { baixar as baixarDoArmazenamento, paraJpeg, baixarBlob } from '../../lib/comprovantesPdf'
 import { gerarPdfAuditoriaGR, nomePdfAuditoriaGR } from '../../lib/auditoriaGRPdf'
+import { gerarResumoGR, nomeResumoGR } from '../../lib/auditoriaGRResumoPdf'
 import type { ArquivoCarregado } from '../../lib/auditoriaGRPdf'
 import {
   STATUS_FORNECEDOR, STATUS_INICIAL, PAGAMENTO_OPCOES, FORMAS_PAGAMENTO, QUEM_PAGA, ROTULO_QUEM_PAGA, RESULTADOS, ENCERRADOS, AUDITOR_PAGAMENTO,
@@ -142,6 +143,16 @@ export default function AuditoriaGR() {
     catch (e) { toast.error(String((e as Error)?.message || e)) }
     setBaixando(null)
   }
+  // Resumo em PDF para a chefe (21/10/2026): uma folha com o mês inteiro, sem o filtro da lista
+  const [gerandoResumo, setGerandoResumo] = useState(false)
+  const baixarResumo = async () => {
+    setGerandoResumo(true)
+    try {
+      const bytes = await gerarResumoGR(doPeriodo, { hoje, mes })
+      baixarBlob(new Blob([bytes as BlobPart], { type: 'application/pdf' }), nomeResumoGR(hoje, mes) + '.pdf')
+    } catch (e) { toast.error(String((e as Error)?.message || e)) }
+    setGerandoResumo(false)
+  }
 
   if (faltaTabela) return <div className="card p-4 border-amber-200 bg-amber-50 text-sm text-amber-800">Para usar a Auditoria GR, rode a migração 087 no Supabase.</div>
   if (error) return <div className="card p-4 border-red-200 bg-red-50 text-sm text-red-700">Não carregou: {(error as Error).message}</div>
@@ -157,6 +168,9 @@ export default function AuditoriaGR() {
           <input ref={arquivo} type="file" accept=".xlsx,.xls" className="hidden" onChange={e => e.target.files?.[0] && importar.mutate(e.target.files[0])} />
           <button className="btn-secondary text-sm" disabled={importar.isPending} onClick={() => arquivo.current?.click()} title="Trazer a planilha da GR (atualiza pelo ID)">
             <Upload size={15} />{importar.isPending ? 'Importando…' : 'Importar'}
+          </button>
+          <button className="btn-secondary text-sm" disabled={!doPeriodo.length || gerandoResumo} onClick={baixarResumo} title="Uma folha para a chefe: números, dinheiro, o que precisa de atenção e uma linha por auditoria (o mês inteiro, sem o filtro da lista)">
+            <FileText size={15} />{gerandoResumo ? 'Gerando…' : mes ? 'Resumo do mês (PDF)' : 'Resumo (PDF)'}
           </button>
           <button className="btn-secondary text-sm" disabled={!visiveis.length || !!baixando} onClick={baixar} title="Resumo e em que pé está cada auditoria do que está na tela (mês, filtro e busca). O PDF de uma auditoria sai dentro da ficha.">
             <Download size={15} />{baixando || (mes ? 'Relatório do mês (Excel)' : 'Relatório (Excel)')}

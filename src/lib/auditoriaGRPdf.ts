@@ -2,8 +2,8 @@
 // PDF de UMA auditoria da Auditoria GR (pedido de 20/10/2026: "na hora que
 // completa tudo, eu posso gerar um PDF daquilo em específico").
 // Página 1: os 7 documentos (ok / falta) e os dados do processo — fornecedor,
-// pedido, financeiro (com auditor e sobra) e a auditoria. Depois, cada
-// arquivo anexado numa página, com faixa verde dizendo de qual documento é e
+// pedido, financeiro (com auditor e sobra) e a auditoria. Depois, os
+// arquivos anexados, dois por página, com faixa verde dizendo de qual documento é e
 // a observação EMBAIXO do arquivo. Foto entra ajustada; PDF entra página a
 // página. Não depende do navegador para ler os arquivos: quem chama passa o
 // "carregar" (no sistema, baixa do armazenamento).
@@ -95,24 +95,26 @@ export async function gerarPdfAuditoriaGR(a: AuditoriaFornecedor, opts: {
   ])
   if (anexos.length) {
     st.y += 2
-    texto(`Em seguida: ${anexos.length} arquivo(s) anexado(s), um por página, com a observação embaixo.`, L, st.y, { tam: 8, cor: [120, 120, 120] })
+    texto(`Em seguida: ${anexos.length} arquivo(s) anexado(s), dois por página, com a observação embaixo de cada um.`, L, st.y, { tam: 8, cor: [120, 120, 120] })
   }
 
-  // 2. Um arquivo por página: faixa verde em cima, arquivo, observação embaixo
+  // 2. Anexos, dois por página lado a lado (21/10/2026: "sem um milhão de páginas"):
+  // em cima de cada um, de qual documento é; embaixo, a observação. Foto entra
+  // ajustada; PDF entra página a página (cada página ocupa uma metade).
   const { PDFDocument, StandardFonts, rgb } = await import('pdf-lib')
   const final = await PDFDocument.load(doc.output('arraybuffer'))
   const negrito = await final.embedFont(StandardFonts.HelveticaBold)
   const normal = await final.embedFont(StandardFonts.Helvetica)
   const A4: [number, number] = [595.28, 841.89]
   const VERDE = rgb(0.06, 0.31, 0.19), CLARO = rgb(0.75, 0.86, 0.79)
-  const MARGEM = 28, FAIXA = 48, RODAPE = 26
+  const MARGEM = 28, FAIXA = 40, RODAPE = 24, ENTRE = 14
   const cabe = (t: string, fonte: typeof normal, tam: number, larg: number) => {
     let s = winAnsi(t)
     if (fonte.widthOfTextAtSize(s, tam) <= larg) return s
     while (s.length > 1 && fonte.widthOfTextAtSize(s + '...', tam) > larg) s = s.slice(0, -1)
     return s + '...'
   }
-  const quebrar = (t: string, tam: number, larg: number, max = 5) => {
+  const quebrar = (t: string, tam: number, larg: number, max = 6) => {
     const linhas: string[] = []
     let atual = ''
     for (const p of winAnsi(t).split(/\s+/)) {
@@ -123,56 +125,72 @@ export async function gerarPdfAuditoriaGR(a: AuditoriaFornecedor, opts: {
     return linhas.length > max ? [...linhas.slice(0, max - 1), cabe(linhas.slice(max - 1).join(' '), normal, tam, larg)] : linhas
   }
   const larguraUtil = A4[0] - 2 * MARGEM
+  const larguraCel = (larguraUtil - ENTRE) / 2
+  const topoCel = A4[1] - FAIXA - 12
 
+  // Cada pedaço ocupa uma metade: uma foto, uma página de PDF ou um aviso
+  type Pedaco = { anexo: AnexoGR; n: number; parte?: string } & (
+    { tipo: 'img'; img: Awaited<ReturnType<typeof final.embedPng>> } | { tipo: 'pdf'; pg: Awaited<ReturnType<typeof final.embedPdf>>[number] } | { tipo: 'aviso'; msg: string })
+  const pedacos: Pedaco[] = []
   for (let k = 0; k < anexos.length; k++) {
     const x = anexos[k]
     aoProgredir?.(`anexo ${k + 1} de ${anexos.length}`)
-    const obsLinhas = quebrar(x.obs?.trim() ? `Obs.: ${x.obs.trim()}` : 'Obs.: (sem observação)', 10, larguraUtil - 20)
-    const OBS = 18 + obsLinhas.length * 13
-    const pagina = (parte?: string) => {
-      const pg = final.addPage(A4)
-      const [w, h] = A4
-      pg.drawRectangle({ x: 0, y: h - FAIXA, width: w, height: FAIXA, color: VERDE })
-      pg.drawText(cabe(`Anexo ${k + 1} de ${anexos.length} · ${nomeDoTipo(x.tipo)}${parte ? ' · ' + parte : ''}`, negrito, 13, larguraUtil), { x: MARGEM, y: h - 22, size: 13, font: negrito, color: rgb(1, 1, 1) })
-      pg.drawText(cabe(`${a.codigo} · ${a.fornecedor} · ${x.nome} · anexado em ${dataBr(x.em)}`, normal, 8.5, larguraUtil), { x: MARGEM, y: h - 38, size: 8.5, font: normal, color: CLARO })
-      // Observação embaixo do arquivo
-      pg.drawRectangle({ x: MARGEM, y: RODAPE, width: larguraUtil, height: OBS, color: rgb(1, 0.965, 0.867) })
-      pg.drawRectangle({ x: MARGEM, y: RODAPE, width: 3, height: OBS, color: rgb(0.88, 0.7, 0.24) })
-      obsLinhas.forEach((l, i) => pg.drawText(l, { x: MARGEM + 12, y: RODAPE + OBS - 16 - i * 13, size: 10, font: i === 0 ? negrito : normal, color: rgb(0.2, 0.18, 0.1) }))
-      return pg
-    }
-    // Área livre entre a faixa e a observação
-    const encaixar = (w: number, h: number) => {
-      const area = { x: MARGEM, y: RODAPE + OBS + 12, w: larguraUtil, h: A4[1] - FAIXA - 14 - (RODAPE + OBS + 12) }
-      const e = Math.min(area.w / w, area.h / h, 1)
-      return { w: w * e, h: h * e, x: area.x + (area.w - w * e) / 2, y: area.y + area.h - h * e }
-    }
-    const aviso = (msg: string) => {
-      const pg = pagina()
-      pg.drawText(winAnsi(msg), { x: MARGEM, y: A4[1] - FAIXA - 40, size: 11, font: negrito, color: rgb(0.78, 0.15, 0.15) })
-      pg.drawText('Abra o arquivo pela ficha no sistema.', { x: MARGEM, y: A4[1] - FAIXA - 58, size: 10, font: normal, color: rgb(0.4, 0.4, 0.4) })
-    }
     const arq = await carregar(x.caminho).catch(() => null)
-    if (!arq) { aviso('Não foi possível baixar este arquivo.'); continue }
+    if (!arq) { pedacos.push({ anexo: x, n: k + 1, tipo: 'aviso', msg: 'Não foi possível baixar este arquivo.' }); continue }
     const bytes = arq.bytes instanceof Uint8Array ? arq.bytes : new Uint8Array(arq.bytes)
-    const borda = (pg: ReturnType<typeof pagina>, r: { x: number; y: number; w: number; h: number }) =>
-      pg.drawRectangle({ x: r.x - 0.5, y: r.y - 0.5, width: r.w + 1, height: r.h + 1, borderColor: rgb(0.85, 0.86, 0.84), borderWidth: 0.6 })
     try {
       if (arq.tipo === 'application/pdf' || /\.pdf$/i.test(x.caminho)) {
         const origem = await PDFDocument.load(bytes, { ignoreEncryption: true })
         const paginas = await final.embedPdf(origem, origem.getPageIndices())
-        paginas.forEach((ep, n) => {
-          const pg = pagina(paginas.length > 1 ? `página ${n + 1} de ${paginas.length}` : undefined)
-          const r = encaixar(ep.width, ep.height)
-          borda(pg, r); pg.drawPage(ep, { x: r.x, y: r.y, width: r.w, height: r.h })
-        })
+        paginas.forEach((pg, i) => pedacos.push({ anexo: x, n: k + 1, tipo: 'pdf', pg, parte: paginas.length > 1 ? `pág. ${i + 1} de ${paginas.length}` : undefined }))
       } else if (arq.tipo === 'image/png' || arq.tipo === 'image/jpeg') {
-        const img = arq.tipo === 'image/png' ? await final.embedPng(bytes) : await final.embedJpg(bytes)
-        const pg = pagina()
-        const r = encaixar(img.width, img.height)
-        borda(pg, r); pg.drawImage(img, { x: r.x, y: r.y, width: r.w, height: r.h })
-      } else aviso('Formato de arquivo que não dá para mostrar no PDF.')
-    } catch { aviso('Este arquivo está protegido ou com defeito.') }
+        pedacos.push({ anexo: x, n: k + 1, tipo: 'img', img: arq.tipo === 'image/png' ? await final.embedPng(bytes) : await final.embedJpg(bytes) })
+      } else pedacos.push({ anexo: x, n: k + 1, tipo: 'aviso', msg: 'Formato que não dá para mostrar no PDF.' })
+    } catch { pedacos.push({ anexo: x, n: k + 1, tipo: 'aviso', msg: 'Arquivo protegido ou com defeito.' }) }
+  }
+
+  const totalPgsAnexo = Math.ceil(pedacos.length / 2)
+  for (let p = 0; p < totalPgsAnexo; p++) {
+    const pg = final.addPage(A4)
+    const [w, h] = A4
+    pg.drawRectangle({ x: 0, y: h - FAIXA, width: w, height: FAIXA, color: VERDE })
+    pg.drawText(cabe(`Anexos · ${a.codigo} · ${a.fornecedor}`, negrito, 12, larguraUtil - 70), { x: MARGEM, y: h - 19, size: 12, font: negrito, color: rgb(1, 1, 1) })
+    pg.drawText(`${p + 1} de ${totalPgsAnexo}`, { x: w - MARGEM - normal.widthOfTextAtSize(`${p + 1} de ${totalPgsAnexo}`, 9), y: h - 19, size: 9, font: normal, color: CLARO })
+    pg.drawText(cabe(`${anexos.length} arquivo(s) · dois por página · a observação fica embaixo de cada um`, normal, 8, larguraUtil), { x: MARGEM, y: h - 32, size: 8, font: normal, color: CLARO })
+
+    pedacos.slice(p * 2, p * 2 + 2).forEach((c, i) => {
+      const x0 = MARGEM + i * (larguraCel + ENTRE)
+      // Cabeçalho da metade: documento e arquivo
+      pg.drawText(cabe(`Anexo ${c.n} · ${nomeDoTipo(c.anexo.tipo)}${c.parte ? ' · ' + c.parte : ''}`, negrito, 10.5, larguraCel), { x: x0, y: topoCel - 10, size: 10.5, font: negrito, color: VERDE })
+      pg.drawText(cabe(`${c.anexo.nome} · anexado em ${dataBr(c.anexo.em)}`, normal, 7.5, larguraCel), { x: x0, y: topoCel - 21, size: 7.5, font: normal, color: rgb(0.45, 0.45, 0.45) })
+      // Observação embaixo
+      const obs = quebrar(c.anexo.obs?.trim() ? `Obs.: ${c.anexo.obs.trim()}` : 'Obs.: (sem observação)', 9, larguraCel - 16)
+      const OBS = 14 + obs.length * 11.5
+      // a caixa vai logo abaixo do arquivo (yTopo = onde o arquivo terminou)
+      const caixaObs = (yTopo: number) => {
+        const y = yTopo - 8 - OBS
+        pg.drawRectangle({ x: x0, y, width: larguraCel, height: OBS, color: rgb(1, 0.965, 0.867) })
+        pg.drawRectangle({ x: x0, y, width: 3, height: OBS, color: rgb(0.88, 0.7, 0.24) })
+        obs.forEach((l, j) => pg.drawText(l, { x: x0 + 9, y: y + OBS - 13 - j * 11.5, size: 9, font: j === 0 && c.anexo.obs?.trim() ? negrito : normal, color: rgb(0.2, 0.18, 0.1) }))
+      }
+      // Arquivo no meio, ajustado
+      const area = { x: x0, y: RODAPE + OBS + 10, w: larguraCel, h: topoCel - 30 - (RODAPE + OBS + 10) }
+      if (c.tipo === 'aviso') {
+        pg.drawText(winAnsi(c.msg), { x: x0, y: area.y + area.h - 14, size: 10, font: negrito, color: rgb(0.78, 0.15, 0.15) })
+        pg.drawText('Abra o arquivo pela ficha no sistema.', { x: x0, y: area.y + area.h - 28, size: 9, font: normal, color: rgb(0.4, 0.4, 0.4) })
+        caixaObs(area.y + area.h - 36)
+        return
+      }
+      const [ow, oh] = c.tipo === 'img' ? [c.img.width, c.img.height] : [c.pg.width, c.pg.height]
+      const e = Math.min(area.w / ow, area.h / oh, 1)
+      const r = { w: ow * e, h: oh * e, x: area.x + (area.w - ow * e) / 2, y: area.y + area.h - oh * e }
+      pg.drawRectangle({ x: r.x - 0.5, y: r.y - 0.5, width: r.w + 1, height: r.h + 1, borderColor: rgb(0.85, 0.86, 0.84), borderWidth: 0.6 })
+      if (c.tipo === 'img') pg.drawImage(c.img, { x: r.x, y: r.y, width: r.w, height: r.h })
+      else pg.drawPage(c.pg, { x: r.x, y: r.y, width: r.w, height: r.h })
+      caixaObs(r.y)
+    })
+    // Linha entre as metades
+    if (pedacos.length > p * 2 + 1) pg.drawLine({ start: { x: MARGEM + larguraCel + ENTRE / 2, y: RODAPE }, end: { x: MARGEM + larguraCel + ENTRE / 2, y: topoCel }, thickness: 0.5, color: rgb(0.88, 0.88, 0.86) })
   }
 
   // Página X de Y em todas

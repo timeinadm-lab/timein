@@ -1,6 +1,7 @@
 // Auditorias de fornecedores GRSA: leitura da planilha, números do topo e validade. Rodar: npm run testes
 import { lerPlanilha, numerosDoTopo, validadePadrao, avisoValidade, lerData, COLUNAS, totalOrcamento, lerPagamento, faltandoNaFicha, quantoFalta, localDaAuditoria, abasRelatorioGR, nomeRelatorioGR, tipoDoAnexo, temComprovante, documentosDoProcesso, andamentoDocs, etapasDoProcesso, etapasFeitas, mesDoProcesso, nomeDoMes } from './auditoriasFornecedores'
 import type { AuditoriaFornecedor } from './auditoriasFornecedores'
+import { pontosDeAtencao, statusCurto, nomeResumoGR } from './auditoriaGRResumoPdf'
 
 let falhas = 0
 const ok = (cond: boolean, nome: string, info?: unknown) => {
@@ -139,6 +140,19 @@ ok(avisoValidade('2026-10-01', '2026-10-08')?.tipo === 'vencida', 'vencida')
 ok(avisoValidade('2026-11-30', '2026-10-08')?.tipo === 'vencendo', 'vence em até 60 dias')
 ok(avisoValidade('2027-06-01', '2026-10-08') === null, 'longe: sem aviso')
 ok(lerData('18/09/2026') === '2026-09-18' && lerData('Não informado') === null, 'data em texto')
+
+console.log('Resumo para a chefe (PDF)')
+{
+  const feita = { ...cheia, codigo: 'X-1', realizada_em: '2026-10-09', pagamento: 'Não pago', pago_em: null, auditor_pagamento: 'A pagar', valor_auditor: 200, auditor: 'Ana' }
+  const at = pontosDeAtencao([feita], '2026-10-21')
+  ok(at[0]?.includes('pagamento') && at[0].includes('ainda não entrou') && at.some(t => t.includes('auditor pendente (Ana')), 'feita e não paga vem primeiro; auditor a pagar', at)
+  ok(pontosDeAtencao([{ ...feita, status: 'Cancelada' }], '2026-10-21').length === 0, 'cancelada não entra na atenção')
+  const semResposta = { ...cheia, codigo: 'X-2', orcamento_enviado_em: '2026-10-01', aprovado_em: null, realizada_em: null }
+  ok(pontosDeAtencao([semResposta], '2026-10-21').some(t => t.includes('há 20 dias sem aprovação')), 'orçamento sem resposta há mais de 7 dias')
+  ok(pontosDeAtencao([{ ...semResposta, orcamento_enviado_em: '2026-10-18' }], '2026-10-21').every(t => !t.includes('sem aprovação')), 'orçamento recente não avisa')
+  ok(statusCurto('Aguardando definição de laboratório') === 'Aguard. laboratório' && statusCurto('Agendada') === 'Agendada', 'status curto')
+  ok(nomeResumoGR('2026-10-21', '2026-10') === 'Resumo_Auditoria_GR_outubro-2026', 'nome do resumo')
+}
 
 console.log(falhas ? `\n${falhas} FALHA(S)` : '\nTodos os testes passaram')
 if (falhas) throw new Error(`${falhas} teste(s) de auditorias de fornecedores falharam`)

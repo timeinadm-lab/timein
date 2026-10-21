@@ -1,7 +1,8 @@
 // Auditorias de fornecedores GRSA: leitura da planilha, números do topo e validade. Rodar: npm run testes
 import { lerPlanilha, numerosDoTopo, validadePadrao, avisoValidade, lerData, COLUNAS, totalOrcamento, lerPagamento, faltandoNaFicha, quantoFalta, localDaAuditoria, abasRelatorioGR, nomeRelatorioGR, tipoDoAnexo, temComprovante, documentosDoProcesso, andamentoDocs, etapasDoProcesso, etapasFeitas, mesDoProcesso, nomeDoMes } from './auditoriasFornecedores'
 import type { AuditoriaFornecedor } from './auditoriasFornecedores'
-import { pontosDeAtencao, statusCurto, nomeResumoGR } from './auditoriaGRResumoPdf'
+import { pontosDeAtencao, statusCurto, nomeResumoGR, proximoPasso } from './auditoriaGRResumoPdf'
+import { faseDe, ultimoMovimento } from './auditoriasFornecedores'
 
 let falhas = 0
 const ok = (cond: boolean, nome: string, info?: unknown) => {
@@ -147,11 +148,21 @@ console.log('Resumo para a chefe (PDF)')
   const at = pontosDeAtencao([feita], '2026-10-21')
   ok(at[0]?.includes('pagamento') && at[0].includes('ainda não entrou') && at.some(t => t.includes('auditor pendente (Ana')), 'feita e não paga vem primeiro; auditor a pagar', at)
   ok(pontosDeAtencao([{ ...feita, status: 'Cancelada' }], '2026-10-21').length === 0, 'cancelada não entra na atenção')
-  const semResposta = { ...cheia, codigo: 'X-2', orcamento_enviado_em: '2026-10-01', aprovado_em: null, realizada_em: null }
+  const semResposta = { ...cheia, codigo: 'X-2', orcamento_enviado_em: '2026-10-01', aprovado_em: null, pagamento: 'Não pago', pago_em: null, comprovante_recebido_em: null, agendada_para: null, realizada_em: null, nota_emitida_em: null, auditor_pago_em: null, criado_em: null, anexos: [] }
   ok(pontosDeAtencao([semResposta], '2026-10-21').some(t => t.includes('há 20 dias sem aprovação')), 'orçamento sem resposta há mais de 7 dias')
   ok(pontosDeAtencao([{ ...semResposta, orcamento_enviado_em: '2026-10-18' }], '2026-10-21').every(t => !t.includes('sem aprovação')), 'orçamento recente não avisa')
   ok(statusCurto('Aguardando definição de laboratório') === 'Aguard. laboratório' && statusCurto('Agendada') === 'Agendada', 'status curto')
   ok(nomeResumoGR('2026-10-21', '2026-10') === 'Resumo_Auditoria_GR_outubro-2026', 'nome do resumo')
+  const varios = ['A', 'B', 'C'].map(c => ({ ...semResposta, codigo: 'X-' + c }))
+  const junto = pontosDeAtencao(varios, '2026-10-21')
+  ok(junto.length === 1 && junto[0].startsWith('3 orçamentos sem aprovação') && junto[0].includes('X-A, X-B, X-C'), '3 ou mais do mesmo tipo viram uma linha', junto)
+  ok(pontosDeAtencao([{ ...cheia, agendada_para: '2026-10-09', realizada_em: null }], '2026-10-21').some(t => t.includes('estava agendada para 09/10')), 'agenda que passou sem marcar')
+  ok(faseDe({ status: 'Aguardando aprovação' }) === 'orcamento' && faseDe({ status: 'Aguardando retorno do fornecedor' }) === 'acerto' && faseDe({ status: 'Cancelada' }) === 'encerrada' && faseDe({ status: 'Concluída' }) === 'concluida', 'fases pelo status')
+  const mv = ultimoMovimento({ ...semResposta, criado_em: null, anexos: [] }, '2026-10-21')
+  ok(mv.data === '2026-10-01' && mv.dias === 20 && mv.proxima === null, 'parada há 20 dias desde o orçamento', mv)
+  const futura = ultimoMovimento({ ...cheia, agendada_para: '2026-10-25', realizada_em: null }, '2026-10-21')
+  ok(futura.proxima === '2026-10-25', 'agenda no futuro vira "auditoria dd/mm"', futura)
+  ok(proximoPasso(semResposta) === 'Aguardar aprovação' && proximoPasso({ ...semResposta, status: 'Cancelada' }) === null, 'próximo passo pela etapa do processo')
 }
 
 console.log(falhas ? `\n${falhas} FALHA(S)` : '\nTodos os testes passaram')

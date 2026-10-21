@@ -368,6 +368,35 @@ export function etapasDoProcesso(a: AuditoriaFornecedor): boolean[] {
 }
 export const etapasFeitas = (a: AuditoriaFornecedor) => etapasDoProcesso(a).filter(Boolean).length
 
+// ── Fases (21/10/2026: "ter noção do pé que cada uma está") ─────────────────
+// Agrupam os status em 5 passos do fluxo + as que saíram dele.
+export type FaseChave = 'orcamento' | 'acerto' | 'agendada' | 'relatorio' | 'concluida' | 'encerrada'
+export const FASES: { chave: FaseChave; nome: string; status: readonly string[] }[] = [
+  { chave: 'orcamento', nome: 'Orçamento e aprovação', status: ['Em elaboração de orçamento', 'Aguardando aprovação', 'Aguardando definição de laboratório'] },
+  { chave: 'acerto', nome: 'Acertando data e pagamento', status: ['Aguardando retorno do fornecedor', 'Aguardando pagamento', 'Aguardando comprovante'] },
+  { chave: 'agendada', nome: 'Agendada', status: ['Agendada'] },
+  { chave: 'relatorio', nome: 'Aguardando relatório', status: ['Aguardando relatório'] },
+  { chave: 'concluida', nome: 'Concluída', status: ['Concluída'] },
+  { chave: 'encerrada', nome: 'Encerradas e canceladas', status: ENCERRADOS },
+]
+export const faseDe = (a: Pick<AuditoriaFornecedor, 'status'>): FaseChave => FASES.find(f => f.status.includes(a.status))?.chave ?? 'orcamento'
+
+/**
+ * Última vez que o processo andou: a data mais recente (até hoje) entre
+ * orçamento, aprovação, pagamento, comprovante, agenda, realização, nota,
+ * pagamento do auditor e anexos. Agenda no futuro volta em "proxima".
+ */
+export function ultimoMovimento(a: AuditoriaFornecedor, hoje: string): { data: string | null; dias: number | null; proxima: string | null } {
+  const datas = [a.orcamento_enviado_em, a.aprovado_em, a.pago_em, a.comprovante_recebido_em, a.agendada_para, a.realizada_em,
+    a.nota_emitida_em, a.auditor_pago_em, a.criado_em?.slice(0, 10), ...anexosDe(a).map(x => x.em)]
+    .filter((d): d is string => !!d && /^\d{4}-\d{2}-\d{2}/.test(d)).map(d => d.slice(0, 10))
+  const passadas = datas.filter(d => d <= hoje).sort()
+  const data = passadas.length ? passadas[passadas.length - 1] : null
+  const dias = data ? Math.round((Date.parse(hoje + 'T00:00:00Z') - Date.parse(data + 'T00:00:00Z')) / 86400000) : null
+  const proxima = a.agendada_para && a.agendada_para > hoje && !a.realizada_em ? a.agendada_para : null
+  return { data, dias, proxima }
+}
+
 /**
  * Mês da auditoria, para o filtro "auditorias do mês": a data em que foi
  * realizada; se ainda não foi, a agendada; sem agenda, a do orçamento

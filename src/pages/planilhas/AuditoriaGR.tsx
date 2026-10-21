@@ -14,10 +14,10 @@ import type { ArquivoCarregado } from '../../lib/auditoriaGRPdf'
 import {
   STATUS_FORNECEDOR, STATUS_INICIAL, PAGAMENTO_OPCOES, FORMAS_PAGAMENTO, QUEM_PAGA, ROTULO_QUEM_PAGA, RESULTADOS, ENCERRADOS, AUDITOR_PAGAMENTO,
   lerPlanilha, numerosDoTopo, totalOrcamento, validadePadrao, avisoValidade, faltandoNaFicha, localDaAuditoria,
-  temComprovante, corDoStatus, corDoPagamento, abasRelatorioGR, nomeRelatorioGR, mesDoProcesso, nomeDoMes,
+  temComprovante, corDoStatus, corDoPagamento, abasRelatorioGR, nomeRelatorioGR, mesDoProcesso, nomeDoMes, FASES, faseDe,
   DOCUMENTOS, tipoDoAnexo, anexosDe, andamentoDocs, documentosDoProcesso, ROTULO_ESTADO,
 } from '../../lib/auditoriasFornecedores'
-import type { AuditoriaFornecedor, BlocoFicha, AnexoGR, EstadoDoc } from '../../lib/auditoriasFornecedores'
+import type { FaseChave, AuditoriaFornecedor, BlocoFicha, AnexoGR, EstadoDoc } from '../../lib/auditoriasFornecedores'
 import type { CorLinha } from '../../lib/excelBonito'
 
 /**
@@ -55,6 +55,7 @@ export default function AuditoriaGR() {
   const [busca, setBusca] = useState('')
   const [filtro, setFiltro] = useState<Filtro>('andamento')
   const [mes, setMes] = useState<string | null>(null)        // null = todos os meses
+  const [fase, setFase] = useState<FaseChave | null>(null)   // null = todas as fases
   const [aberto, setAberto] = useState<Registro | 'novo' | null>(null)
   const arquivo = useRef<HTMLInputElement>(null)
 
@@ -88,6 +89,7 @@ export default function AuditoriaGR() {
   const visiveis = useMemo(() => {
     const t = busca.trim().toLowerCase()
     return doPeriodo
+      .filter(a => !fase || faseDe(a) === fase)
       .filter(a => filtro === 'todas' ? true
         : filtro === 'andamento' ? !encerrada(a) && a.status !== 'Concluída'
         : filtro === 'aberto' ? andamentoDocs(a).faltam.length > 0
@@ -95,7 +97,7 @@ export default function AuditoriaGR() {
         : a.status === 'Concluída')
       .filter(a => !t || [a.codigo, a.fornecedor, a.planta, a.cidade, a.uf, a.cnpj, a.comprador, a.categoria, a.unidade_grsa].some(v => (v || '').toLowerCase().includes(t)))
       .sort((a, b) => a.codigo.localeCompare(b.codigo, 'pt-BR', { numeric: true }))
-  }, [doPeriodo, busca, filtro])
+  }, [doPeriodo, busca, filtro, fase])
 
   // Renovações vencidas ou vencendo: aparecem em cima, em destaque
   const avisos = lista.map(a => ({ a, aviso: avisoValidade(a.validade, hoje) })).filter(x => x.aviso && !encerrada(x.a))
@@ -138,17 +140,18 @@ export default function AuditoriaGR() {
   const baixar = async () => {
     setBaixando('Gerando…')
     // Baixa o que está na tela: mês, filtro e busca
-    const filtroTexto = [mes ? nomeDoMes(mes) : 'todos os meses', filtro !== 'todas' ? FILTROS.find(([k]) => k === filtro)![1] : null, busca.trim() ? `busca "${busca.trim()}"` : null].filter(Boolean).join(' · ')
+    const filtroTexto = [mes ? nomeDoMes(mes) : 'todos os meses', fase ? FASES.find(f => f.chave === fase)!.nome : null, filtro !== 'todas' ? FILTROS.find(([k]) => k === filtro)![1] : null, busca.trim() ? `busca "${busca.trim()}"` : null].filter(Boolean).join(' · ')
     try { await baixarExcelBonito(nomeRelatorioGR(hoje, mes), abasRelatorioGR(visiveis, hoje, { filtro: filtroTexto })) }
     catch (e) { toast.error(String((e as Error)?.message || e)) }
     setBaixando(null)
   }
-  // Resumo em PDF para a chefe (21/10/2026): uma folha com o mês inteiro, sem o filtro da lista
+  // Resumo em PDF para a chefe (21/10/2026): sai do que está na tela (mês, fase, filtro e busca)
   const [gerandoResumo, setGerandoResumo] = useState(false)
   const baixarResumo = async () => {
     setGerandoResumo(true)
+    const filtroTexto = [fase ? FASES.find(f => f.chave === fase)!.nome : null, filtro !== 'todas' ? FILTROS.find(([k]) => k === filtro)![1] : null, busca.trim() ? `busca "${busca.trim()}"` : null].filter(Boolean).join(' · ')
     try {
-      const bytes = await gerarResumoGR(doPeriodo, { hoje, mes })
+      const bytes = await gerarResumoGR(visiveis, { hoje, mes, filtro: filtroTexto || undefined })
       baixarBlob(new Blob([bytes as BlobPart], { type: 'application/pdf' }), nomeResumoGR(hoje, mes) + '.pdf')
     } catch (e) { toast.error(String((e as Error)?.message || e)) }
     setGerandoResumo(false)
@@ -169,7 +172,7 @@ export default function AuditoriaGR() {
           <button className="btn-secondary text-sm" disabled={importar.isPending} onClick={() => arquivo.current?.click()} title="Trazer a planilha da GR (atualiza pelo ID)">
             <Upload size={15} />{importar.isPending ? 'Importando…' : 'Importar'}
           </button>
-          <button className="btn-secondary text-sm" disabled={!doPeriodo.length || gerandoResumo} onClick={baixarResumo} title="Uma folha para a chefe: números, dinheiro, o que precisa de atenção e uma linha por auditoria (o mês inteiro, sem o filtro da lista)">
+          <button className="btn-secondary text-sm" disabled={!visiveis.length || gerandoResumo} onClick={baixarResumo} title="Para a chefe: em que pé estão, dinheiro, o que precisa de atenção e as auditorias por fase. Sai do que está na tela (mês, fase, filtro e busca).">
             <FileText size={15} />{gerandoResumo ? 'Gerando…' : mes ? 'Resumo do mês (PDF)' : 'Resumo (PDF)'}
           </button>
           <button className="btn-secondary text-sm" disabled={!visiveis.length || !!baixando} onClick={baixar} title="Resumo e em que pé está cada auditoria do que está na tela (mês, filtro e busca). O PDF de uma auditoria sai dentro da ficha.">
@@ -219,6 +222,26 @@ export default function AuditoriaGR() {
               ))}
             </div>
           )}
+
+          {/* Em que pé estão: clicar numa fase filtra a lista (e o resumo) */}
+          <div className="flex items-stretch gap-1 overflow-x-auto pb-1">
+            {FASES.map((f, i) => {
+              const q = doPeriodo.filter(a => faseDe(a) === f.chave).length
+              const ativo = fase === f.chave
+              return (
+                <div key={f.chave} className="flex items-center gap-1 shrink-0">
+                  {i > 0 && f.chave !== 'encerrada' && <ChevronRight size={14} className="text-ink-300" />}
+                  {f.chave === 'encerrada' && <span className="w-2" />}
+                  <button onClick={() => { setFase(ativo ? null : f.chave); if (!ativo) setFiltro('todas') }}
+                    title={ativo ? 'Mostrar todas as fases' : `Só ${f.nome.toLowerCase()}`}
+                    className={`text-left rounded-lg border px-2.5 py-1.5 ${ativo ? 'bg-primary-600 border-primary-600 text-white' : q ? 'bg-white border-ink-200 hover:border-ink-300 text-ink-800' : 'bg-ink-50 border-ink-100 text-ink-400'}`}>
+                    <span className="block text-base font-semibold leading-tight tnum">{q}</span>
+                    <span className={`block text-[11px] leading-tight ${ativo ? 'text-primary-100' : 'text-ink-500'}`}>{f.nome}</span>
+                  </button>
+                </div>
+              )
+            })}
+          </div>
 
           <div className="flex gap-2 flex-wrap items-center">
             <div className="flex gap-1 flex-wrap">

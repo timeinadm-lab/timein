@@ -341,7 +341,7 @@ export async function gerarResumoGR(lista: AuditoriaFornecedor[], opts: { hoje: 
     texto('(orçamento, aprovação, comprovante, nota, agendamento, relatório, pgto. auditor)', xl, st.y, { tam: 6.2, cor: CINZA })
     st.y += 3.6
     texto('Parada há: dias desde a última data do processo (verde até 7, amarelo até 20, vermelho acima).', L, st.y, { tam: 6.2, cor: CINZA })
-    }
+  }
 
   numerar(`Auditoria GR · resumo · ${periodo}`)
   return new Uint8Array(doc.output('arraybuffer'))

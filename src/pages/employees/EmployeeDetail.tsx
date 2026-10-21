@@ -2640,9 +2640,23 @@ export default function EmployeeDetail() {
                             </div>
                             <div className={`mt-3 grid grid-cols-2 ${noFixo ? '' : 'lg:grid-cols-4'} gap-2 ${encerrado ? 'opacity-60' : ''}`}>
                               {!noFixo && (
-                                <InfoVinculo rotulo={porVisita ? 'Valor' : 'Salário'}
-                                  valor={role !== 'chefe' ? '—' : porVisita ? 'Por visita' : l.monthly_amount ? `${formatCurrency(l.monthly_amount)}/mês` : 'Não informado'}
-                                  sub={porVisita ? (l.monthly_amount && role === 'chefe' ? `~${formatCurrency(l.monthly_amount)}/mês estimado` : 'pelas visitas e horas') : x.pay_full_salary ? 'salário inteiro (sem proporcional)' : undefined} />
+                                (() => {
+                                  // Datas combinadas: o que vale é o total das datas. O monthly_amount aqui é só o
+                                  // mensal equivalente (total ÷ duração), base de falta e dia extra — mostrar como
+                                  // "salário" confundia (21/10: R$ 6.500 em 15/09–15/10 aparecia R$ 6.290,53/mês).
+                                  const datas = !porVisita ? ordenarParcelas((l as { parcelas?: Parcela[] | null }).parcelas) : []
+                                  const totalDatas = datas.reduce((t, p) => t + (Number(p.valor) || 0), 0)
+                                  if (totalDatas > 0) return (
+                                    <InfoVinculo rotulo="Total do contrato"
+                                      valor={role !== 'chefe' ? '—' : formatCurrency(totalDatas)}
+                                      sub={role === 'chefe' && l.monthly_amount ? `base de falta: ${formatCurrency(l.monthly_amount)}/mês` : undefined} />
+                                  )
+                                  return (
+                                    <InfoVinculo rotulo={porVisita ? 'Valor' : 'Salário'}
+                                      valor={role !== 'chefe' ? '—' : porVisita ? 'Por visita' : l.monthly_amount ? `${formatCurrency(l.monthly_amount)}/mês` : 'Não informado'}
+                                      sub={porVisita ? (l.monthly_amount && role === 'chefe' ? `~${formatCurrency(l.monthly_amount)}/mês estimado` : 'pelas visitas e horas') : x.pay_full_salary ? 'salário inteiro (sem proporcional)' : undefined} />
+                                  )
+                                })()
                               )}
                               {!noFixo && !(ehConsult && x.pay_mode === 'salario_fixo' && grupoFixo.length > 0) && (
                                 <InfoVinculo rotulo="Ajuda de custo" destaque={ajuda > 0}

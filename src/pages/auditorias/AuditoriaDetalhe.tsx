@@ -78,9 +78,8 @@ export default function AuditoriaDetalhe() {
   })
 
   const finalizar = async () => {
-    if (resumo.pendentes > 0) { toast.error(`Faltam ${resumo.pendentes} pergunta(s) sem resposta.`); setFiltro('pendentes'); return }
     if (semFoto > 0) { toast.error(`Falta foto em ${semFoto} pergunta(s) com foto obrigatória.`); setFiltro('pendentes'); return }
-    if (!(await confirmar({ titulo: 'Finalizar a auditoria?', texto: `Nota ${resumo.nota}% · ${resumo.classificacao?.rotulo}. Dá para reabrir depois, se precisar corrigir.`, confirmar: 'Finalizar' }))) return
+    if (!(await confirmar({ titulo: 'Finalizar a auditoria?', texto: `${resumo.pendentes ? `${resumo.pendentes} pergunta(s) sem resposta vão contar como não conformes. ` : ''}Nota ${resumo.nota}% · ${resumo.classificacao?.rotulo}. Dá para reabrir depois, se precisar corrigir.`, confirmar: 'Finalizar' }))) return
     const agora = new Date()
     await salvarAud({
       status: 'finalizada', nota: resumo.notaExata == null ? null : Math.round(resumo.notaExata * 10) / 10,
@@ -172,7 +171,7 @@ export default function AuditoriaDetalhe() {
             <div key={g.grupo} className="rounded-xl border border-ink-100 px-3 py-2">
               <p className="text-[11px] text-ink-500 truncate">{g.grupo}{g.peso != null ? ` · peso ${String(g.peso).replace('.', ',')}` : ''}</p>
               <p className="text-2xl font-semibold tnum text-red-600">{g.ncPct == null ? '–' : `${Math.round(g.ncPct)}%`}</p>
-              <p className="text-[11px] text-ink-500">não conforme · {g.naoConformes} de {g.conformes + g.naoConformes}</p>
+              <p className="text-[11px] text-ink-500">não conforme · {g.erros} de {g.contam}{g.pendentes ? ` (${g.pendentes} sem resposta)` : ''}</p>
             </div>
           ))}
         </div>

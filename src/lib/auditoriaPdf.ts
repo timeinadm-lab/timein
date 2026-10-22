@@ -118,13 +118,13 @@ export async function gerarPdfAuditoria(d: DadosAuditoriaPdf): Promise<Blob> {
   y += 11
   // Como a nota é calculada (para ninguém comparar com % de perguntas)
   const pesos = r.grupos.filter(g => g.peso != null).map(g => `${g.grupo} peso ${pesoTxt(g.peso!)}`).join(' · ')
-  const expl = quebra(`A nota considera o peso de cada pergunta${pesos ? ` (${pesos})` : ''}: pontos das perguntas conformes ÷ pontos das perguntas avaliadas. Perguntas N/A não entram na conta. ${r.conformes} conformes, ${r.naoConformes} não conformes${r.na ? `, ${r.na} N/A` : ''}${r.pendentes ? `, ${r.pendentes} sem resposta` : ''}.`, W - 4, 8)
+  const expl = quebra(`A nota considera o peso de cada pergunta${pesos ? ` (${pesos})` : ''}: pontos das perguntas conformes ÷ pontos de todas as perguntas. Pergunta sem resposta conta como não conforme; N/A não entra na conta. ${r.conformes} conformes, ${r.naoConformes} não conformes${r.pendentes ? `, ${r.pendentes} sem resposta (contam como não conformes)` : ''}${r.na ? `, ${r.na} N/A` : ''}.`, W - 4, 8)
   y += 4.5
   expl.forEach(l => { t(l, L + 2, y, { tam: 8, cor: [100, 100, 100] }); y += 3.6 })
 
   // ── Gráfico de barras: não conformidade por grupo ──
   y += 4
-  const gruposG = r.grupos.filter(g => g.conformes + g.naoConformes > 0)
+  const gruposG = r.grupos.filter(g => g.contam > 0)
   const altG = 10 + gruposG.length * 10 + 4
   doc.setFillColor(...CINZA_CAB); doc.rect(L, y, W, 7.5, 'F')
   t('Não conformidade por grupo', 105, y + 5.2, { tam: 10.5, centro: true })
@@ -143,7 +143,7 @@ export async function gerarPdfAuditoria(d: DadosAuditoriaPdf): Promise<Blob> {
     t(g.grupo, xBar - 3, y + 2.6, { tam: 9, direita: true, cor: [70, 70, 70] })
     doc.setFillColor(239, 68, 68); doc.rect(xBar, y - 1.8, Math.max(0.6, (wBar * pct) / 100), 6, 'F')
     t(`${Math.round(pct)}%`, xBar + (wBar * pct) / 100 + 2, y + 2.6, { tam: 9, negrito: true, cor: [200, 38, 38] })
-    t(`${g.naoConformes} de ${g.conformes + g.naoConformes}${g.peso != null ? ` · peso ${pesoTxt(g.peso)}` : ''}`, R - 2, y + 2.6, { tam: 7.5, direita: true, cor: [120, 120, 120] })
+    t(`${g.erros} de ${g.contam}${g.peso != null ? ` · peso ${pesoTxt(g.peso)}` : ''}`, R - 2, y + 2.6, { tam: 7.5, direita: true, cor: [120, 120, 120] })
     y += 10
   }
   y += 6
@@ -186,7 +186,7 @@ export async function gerarPdfAuditoria(d: DadosAuditoriaPdf): Promise<Blob> {
     const altTexto = Math.max(6.5, linhas.length * 4 + 2.5) + (obs.length ? obs.length * 3.6 + 1.5 : 0)
     // página nova (pela pergunta ou pelas fotos da anterior): repete o cabeçalho da tabela
     if (garantir(altTexto) || paginaDoCabecalho !== doc.getNumberOfPages()) cabTabela(nomeSecao)
-    const nc = it.resposta === 'NC'
+    const nc = it.resposta === 'NC' || !it.resposta   // sem resposta conta como não conforme
     if (nc) { doc.setFillColor(254, 242, 242); doc.rect(L, y, W, altTexto, 'F') }
     doc.setDrawColor(215, 217, 213); doc.setLineWidth(0.2)
     doc.rect(L, y, W, altTexto)
@@ -205,6 +205,7 @@ export async function gerarPdfAuditoria(d: DadosAuditoriaPdf): Promise<Blob> {
     obs.forEach(l => { t(l, L + 2, yy + 0.3, { tam: 8, cor: [150, 60, 20] }); yy += 3.6 })
     const col = it.resposta === 'C' ? xC : it.resposta === 'NC' ? xNC : it.resposta === 'NA' ? xNA : null
     if (col != null) t('X', col + wCol / 2, y + altTexto / 2 + 1.6, { tam: 11, centro: true, cor: it.resposta === 'C' ? [22, 150, 90] : it.resposta === 'NC' ? [220, 38, 38] : [110, 110, 110] })
+    else t('sem resp.', xNC + wCol / 2, y + altTexto / 2 + 1.2, { tam: 6.5, centro: true, negrito: true, cor: [220, 38, 38] })
     y += altTexto
     // Fotos da pergunta (3 por linha)
     if (it.fotos.length) {

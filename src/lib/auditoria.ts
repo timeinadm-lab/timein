@@ -2,8 +2,10 @@
 // Auditoria por checklist (migração 079) — contas puras, testadas em
 // auditoria.test.ts.
 //
-// Nota com peso: soma dos pesos das perguntas CONFORMES ÷ soma dos pesos das
-// perguntas avaliadas (conformes + não conformes). N/A não entra na conta.
+// Nota com peso: soma dos pesos das perguntas CONFORMES ÷ soma dos pesos de
+// TODAS as perguntas do checklist, menos as N/A. Pergunta sem resposta conta
+// como erro (22/10/2026: "se não responde, conta como erro"; a porcentagem é
+// proporcional à quantidade de perguntas que tem).
 // Ex. MELI: Estrutura peso 1, Boas Práticas peso 2 — uma não conformidade de
 // Boas Práticas tira o dobro de pontos de uma de Estrutura.
 // ============================================================
@@ -20,7 +22,9 @@ export const FAIXAS_PADRAO: Faixa[] = [
 export type ResumoGrupo = {
   grupo: string; total: number; conformes: number; naoConformes: number; na: number; pendentes: number
   peso: number | null            // peso das perguntas do grupo (null se misturado)
-  ncPct: number | null           // % de não conformidade entre as avaliadas do grupo
+  ncPct: number | null           // % de erro do grupo: (não conformes + sem resposta) ÷ perguntas que contam
+  erros: number                  // não conformes + sem resposta
+  contam: number                 // perguntas que entram na conta (tudo menos N/A)
 }
 export type ResumoAuditoria = {
   nota: number | null            // 0–100, arredondada para inteiro (é o que aparece e classifica)
@@ -43,17 +47,17 @@ export function resumoAuditoria(itens: ItemAuditoria[], faixas: Faixa[] = FAIXAS
   let pontosObtidos = 0, pontosPossiveis = 0
   const grupos = new Map<string, ResumoGrupo & { pesos: Set<number> }>()
   for (const it of itens) {
-    const g = grupos.get(it.grupo) || { grupo: it.grupo, total: 0, conformes: 0, naoConformes: 0, na: 0, pendentes: 0, peso: null, ncPct: null, pesos: new Set<number>() }
+    const g = grupos.get(it.grupo) || { grupo: it.grupo, total: 0, conformes: 0, naoConformes: 0, na: 0, pendentes: 0, peso: null, ncPct: null, erros: 0, contam: 0, pesos: new Set<number>() }
     g.total++; g.pesos.add(num(it.peso))
     if (it.resposta === 'C') { g.conformes++; pontosObtidos += num(it.peso); pontosPossiveis += num(it.peso) }
     else if (it.resposta === 'NC') { g.naoConformes++; pontosPossiveis += num(it.peso) }
     else if (it.resposta === 'NA') g.na++
-    else g.pendentes++
+    else { g.pendentes++; pontosPossiveis += num(it.peso) }   // sem resposta = erro
     grupos.set(it.grupo, g)
   }
   const lista: ResumoGrupo[] = [...grupos.values()].map(({ pesos, ...g }) => {
-    const avaliadas = g.conformes + g.naoConformes
-    return { ...g, peso: pesos.size === 1 ? [...pesos][0] : null, ncPct: avaliadas ? (100 * g.naoConformes) / avaliadas : null }
+    const contam = g.conformes + g.naoConformes + g.pendentes, erros = g.naoConformes + g.pendentes
+    return { ...g, erros, contam, peso: pesos.size === 1 ? [...pesos][0] : null, ncPct: contam ? (100 * erros) / contam : null }
   })
   const notaExata = pontosPossiveis > 0 ? (100 * pontosObtidos) / pontosPossiveis : null
   const nota = notaExata == null ? null : Math.round(notaExata)

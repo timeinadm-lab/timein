@@ -31,11 +31,26 @@ console.log('Nota com peso')
   ok(r2.nota === 33, 'C de peso 1 e NC de peso 2 → 33%', r2.nota)
 }
 {
-  const r = resumoAuditoria(itens('Estrutura', 1, [null, 'NA']))
-  ok(r.nota === null && r.classificacao === null && r.pendentes === 1, 'sem nada avaliado não tem nota')
-  ok(r.grupos[0].ncPct === null, 'grupo sem avaliadas não tem %')
+  const r = resumoAuditoria(itens('Estrutura', 1, ['NA', 'NA']))
+  ok(r.nota === null && r.classificacao === null, 'só N/A não tem nota')
+  ok(r.grupos[0].ncPct === null, 'grupo só com N/A não tem %')
   const todas = resumoAuditoria(itens('X', 1, ['C', 'C']))
   ok(todas.nota === 100 && todas.classificacao?.rotulo === 'Excelente', '100% = Excelente')
+}
+
+console.log('Sem resposta conta como erro (22/10/2026)')
+{
+  const r = resumoAuditoria(itens('X', 1, ['C', 'C', null]))
+  ok(r.nota === 67 && r.pendentes === 1 && r.pontosPossiveis === 3, '2 certas e 1 sem resposta = 2 de 3 = 67%', r)
+  const g = r.grupos[0]
+  ok(Math.round(g.ncPct!) === 33 && g.erros === 1 && g.contam === 3, 'grupo: 1 erro (a sem resposta) de 3', g)
+  // Com peso: Estrutura (1) C + sem resposta · BP (2) C → (1 + 2) ÷ (1 + 1 + 2) = 75%
+  const p = resumoAuditoria([...itens('Estrutura', 1, ['C', null]), ...itens('Boas Práticas', 2, ['C'])])
+  ok(p.nota === 75, 'sem resposta pesa como não conforme do mesmo peso', p.nota)
+  // N/A continua fora: 1 C + 1 N/A + 1 sem resposta = 1 de 2 = 50%
+  ok(resumoAuditoria(itens('X', 1, ['C', 'NA', null])).nota === 50, 'N/A fora da conta, sem resposta dentro')
+  const nada = resumoAuditoria(itens('X', 1, [null, null]))
+  ok(nada.nota === 0 && nada.classificacao?.rotulo === 'Crítico', 'nada respondido = 0% (Crítico)', nada.nota)
 }
 
 console.log('Classificação')

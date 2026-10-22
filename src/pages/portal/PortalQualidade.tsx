@@ -216,9 +216,8 @@ function Preencher({ id, token, rpc, voltar }: { id: string; token: string; rpc:
   const sair = () => { qc.invalidateQueries({ queryKey: ['portal-qualidade'] }); voltar() }
 
   const finalizar = async () => {
-    if (resumo.pendentes > 0) { toast.error(`Faltam ${resumo.pendentes} pergunta(s) sem resposta.`); setFiltro('pendentes'); window.scrollTo({ top: 0 }); return }
     if (semFoto > 0) { toast.error(`Falta foto em ${semFoto} pergunta(s).`); setFiltro('pendentes'); window.scrollTo({ top: 0 }); return }
-    if (!(await confirmar({ titulo: 'Finalizar o checklist?', texto: `Nota ${resumo.nota}% · ${resumo.classificacao?.rotulo}. Depois de finalizar não dá para mudar.`, confirmar: 'Finalizar' }))) return
+    if (!(await confirmar({ titulo: 'Finalizar o checklist?', texto: `${resumo.pendentes ? `${resumo.pendentes} pergunta(s) sem resposta vão contar como não conformes. ` : ''}Nota ${resumo.nota}% · ${resumo.classificacao?.rotulo}. Depois de finalizar não dá para mudar.`, confirmar: 'Finalizar' }))) return
     setFinalizando(true)
     try {
       const nota = await rpc<number | null>('portal_auditoria_finalizar', { p_token: token, p_id: id })

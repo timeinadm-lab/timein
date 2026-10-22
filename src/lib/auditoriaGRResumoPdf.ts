@@ -29,6 +29,7 @@ const TOM_FASE: Record<FaseChave, Tom> = { orcamento: 'amarelo', acerto: 'amarel
 const brl = (n: number) => 'R$ ' + n.toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.')
 const reais = (n: number) => n.toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.')
 const dm = (d?: string | null) => d ? `${d.slice(8, 10)}/${d.slice(5, 7)}` : ''
+const dataCurta = (d: string) => `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(2, 4)}`
 const dataBr = (d: string) => `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}`
 const encerrada = (a: AuditoriaFornecedor) => ENCERRADOS.includes(a.status)
 const diasEntre = (de: string, ate: string) => Math.round((Date.parse(ate + 'T00:00:00Z') - Date.parse(de + 'T00:00:00Z')) / 86400000)
@@ -167,7 +168,10 @@ export async function gerarResumoGR(lista: AuditoriaFornecedor[], opts: { hoje: 
   // 1. Em que pé estão: as 5 fases do fluxo (setas) + as que saíram dele
   const porFase = (f: FaseChave) => lista.filter(a => faseDe(a) === f)
   st.y = 33
-  titulo('Em que pé estão', L, st.y, W, `${ativos.length} ativa(s)`)
+  titulo('Em que pé estão', L, st.y, W)
+  // "quantas auditorias tem, quantas são concluídas, quantas estão em andamento" (cliente, 22/10)
+  const macro = `${n.registros} auditoria${n.registros === 1 ? '' : 's'}  ·  ${n.emAndamento} em andamento  ·  ${n.concluidas} concluída${n.concluidas === 1 ? '' : 's'}${n.encerradas ? `  ·  ${n.encerradas} encerrada(s) ou cancelada(s)` : ''}`
+  texto(macro, R, st.y, { tam: 8.5, negrito: true, cor: TINTA, alinhar: 'right' })
   const fluxo = FASES.filter(f => f.chave !== 'encerrada')
   const seta = 5, bw = (W - seta * (fluxo.length - 1)) / fluxo.length, bh = 21, by = st.y + 4
   fluxo.forEach((f, i) => {
@@ -245,10 +249,10 @@ export async function gerarResumoGR(lista: AuditoriaFornecedor[], opts: { hoje: 
 
   // 4. As auditorias, por fase (as mais paradas primeiro)
   const cols: { t: string; w: number; dir?: boolean; grupo?: string }[] = [
-    { t: 'Fornecedor', w: 52 }, { t: 'Situação', w: 30 }, { t: 'Quem paga', w: 22 },
+    { t: 'Fornecedor', w: 49 }, { t: 'Situação', w: 29 }, { t: 'Quem paga', w: 22 },
     { t: 'Auditoria', w: 17, dir: true, grupo: 'Valor (R$)' }, { t: 'Desloc.', w: 15, dir: true, grupo: 'Valor (R$)' }, { t: 'Total', w: 19, dir: true, grupo: 'Valor (R$)' },
-    { t: 'Enviado', w: 22, grupo: 'Orçamento' }, { t: 'Cobranças', w: 17 }, { t: 'Auditor', w: 22 },
-    { t: 'Resultado', w: 22, grupo: 'Resultado' }, { t: 'Enviado', w: 14, grupo: 'Resultado' }, { t: 'Próxima', w: 17, grupo: 'Resultado' },
+    { t: 'Enviado', w: 15, grupo: 'Orçamento' }, { t: 'Resposta', w: 15, grupo: 'Orçamento' }, { t: 'Cobranças', w: 16 }, { t: 'Auditor', w: 21 },
+    { t: 'Resultado', w: 22, grupo: 'Resultado' }, { t: 'Enviado', w: 13, grupo: 'Resultado' }, { t: 'Próxima', w: 16, grupo: 'Resultado' },
   ]
   const xs = cols.reduce<number[]>((acc, c, i) => [...acc, i ? acc[i - 1] + cols[i - 1].w : L], [])
   const ALTURA = 8.2, BAIXA = 5.4
@@ -289,7 +293,7 @@ export async function gerarResumoGR(lista: AuditoriaFornecedor[], opts: { hoje: 
       em(0, a.fornecedor + (a.planta ? ` · ${a.planta}` : ''), l1, { tam: 7.6, cor: fechada ? CINZA : TINTA })
       if (fechada) {
         em(1, statusCurto(a.status), l1, { tam: 7, cor: CINZA })
-        if (a.proxima_acao) texto(cabe(a.proxima_acao, xs[8] - xs[2] - 3, 6.5), xs[2] + 1.5, l1, { tam: 6.5, cor: CINZA })
+        if (a.cnpj) texto(cabe([localDaAuditoria(a), a.cnpj].filter(Boolean).join(' · '), xs[6] - xs[2] - 3, 6.5), xs[2] + 1.5, l1, { tam: 6.5, cor: CINZA })
       } else {
         em(0, [localDaAuditoria(a), a.cnpj].filter(Boolean).join(' · ') || 'local e CNPJ não informados', l2, { tam: 6, cor: CINZA })
         // Situação: status + parada há / data marcada
@@ -310,26 +314,29 @@ export async function gerarResumoGR(lista: AuditoriaFornecedor[], opts: { hoje: 
         em(4, a.deslocamento != null ? reais(Number(a.deslocamento)) : '-', l1)
         em(5, reais(totalOrcamento(a)), l1, { negrito: true })
         // Orçamento: enviado e resposta
-        em(6, a.orcamento_enviado_em ? dataBr(a.orcamento_enviado_em) : 'não enviado', l1, { cor: a.orcamento_enviado_em ? TINTA : CINZA })
-        if (a.orcamento_enviado_em) em(6, a.aprovado_em ? `resposta ${dm(a.aprovado_em)}` : 'sem resposta', l2, { tam: 6, negrito: !a.aprovado_em, cor: a.aprovado_em ? CINZA : FORTE.amarelo })
+        em(6, a.orcamento_enviado_em ? dataCurta(a.orcamento_enviado_em) : 'não enviado', l1, { tam: a.orcamento_enviado_em ? 7.3 : 6.3, cor: a.orcamento_enviado_em ? TINTA : CINZA })
+        if (a.aprovado_em) em(7, dataCurta(a.aprovado_em), l1)
+        else if (a.orcamento_enviado_em) em(7, 'aguardando', l1, { tam: 6.3, negrito: true, cor: FORTE.amarelo })
         // Cobranças
         const cob = cobrancasDe(a)
         if (cob.length) {
-          em(7, `${cob.length}x`, l1, { negrito: true })
-          em(7, `última ${dm(cob[cob.length - 1].data)}`, l2, { tam: 6, cor: CINZA })
-        } else em(7, '-', l1, { cor: CINZA })
+          em(8, `${cob.length}x`, l1, { negrito: true })
+          em(8, `última ${dm(cob[cob.length - 1].data)}`, l2, { tam: 6, cor: CINZA })
+        } else em(8, '-', l1, { cor: CINZA })
         // Auditor
-        em(8, a.auditor || 'a definir', l1, { cor: a.auditor ? TINTA : CINZA })
-        if (a.realizada_em) em(8, `feita ${dm(a.realizada_em)}`, l2, { tam: 6, cor: CINZA })
-        else if (a.agendada_para) em(8, `agendada ${dm(a.agendada_para)}`, l2, { tam: 6, cor: CINZA })
+        em(9, a.auditor || 'a definir', l1, { cor: a.auditor ? TINTA : CINZA })
+        if (a.realizada_em) em(9, `feita ${dm(a.realizada_em)}`, l2, { tam: 6, cor: CINZA })
+        else if (a.agendada_para) em(9, `agendada ${dm(a.agendada_para)}`, l2, { tam: 6, cor: CINZA })
         // Resultado, quando foi enviado, próxima auditoria
         if (a.resultado) {
           const tr: Tom = /reprov/i.test(a.resultado) ? 'vermelho' : comRessalvas(a.resultado) ? 'amarelo' : /aprov/i.test(a.resultado) ? 'verde' : 'cinza'
-          em(9, a.resultado.replace(/^aprovado com /i, 'Com '), l1, { negrito: true, cor: FORTE[tr] })
-          if (a.nota != null) em(9, `nota ${String(a.nota).replace('.', ',')}`, l2, { tam: 6, cor: CINZA })
-          em(10, a.resultado_enviado_em ? dm(a.resultado_enviado_em) : 'não env.', l1, { tam: a.resultado_enviado_em ? 7.3 : 6.3, negrito: !a.resultado_enviado_em, cor: a.resultado_enviado_em ? TINTA : FORTE.amarelo })
-        } else em(9, '-', l1, { cor: CINZA })
-        if (a.validade) em(11, dataBr(a.validade), l1)
+          const curto = comRessalvas(a.resultado) ? (/restri/i.test(a.resultado) ? 'Com restrições' : 'Com ressalvas') : a.resultado
+          em(10, curto, l1, { negrito: true, cor: FORTE[tr] })
+          const detalhe = [a.nota != null ? `nota ${String(a.nota).replace('.', ',')}` : null, curto !== a.resultado ? a.resultado.replace(/^aprovado com /i, '').toLowerCase() : null].filter(Boolean).join(' · ')
+          if (detalhe) em(10, detalhe, l2, { tam: 6, cor: CINZA })
+          em(11, a.resultado_enviado_em ? dataCurta(a.resultado_enviado_em) : 'não env.', l1, { tam: a.resultado_enviado_em ? 7.3 : 6.3, negrito: !a.resultado_enviado_em, cor: a.resultado_enviado_em ? TINTA : FORTE.amarelo })
+        } else em(10, '-', l1, { cor: CINZA })
+        if (a.validade) em(12, dataBr(a.validade), l1, { tam: 7 })
       }
       st.y += alt
       doc.setDrawColor(232, 232, 228); doc.setLineWidth(0.1); doc.line(L, st.y - 1.2, R, st.y - 1.2)

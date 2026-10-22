@@ -64,7 +64,7 @@ const cheia: AuditoriaFornecedor = {
   orcamento_enviado_em: '2026-10-01', aprovado_em: '2026-10-02', pagamento: 'Pago', pago_em: '2026-10-03', comprovante_enviado: false,
   comprovante_recebido_em: null, agendada_para: '2026-10-10', horario: '09:00', realizada_em: '2026-10-10', auditor: 'Rafa', nota: 90,
   resultado: 'Aprovado', validade: '2029-10-10', forma_pagamento: 'Pix na conta da empresa', precisa_nota: false, comprovante_url: 'auditoria-gr/x.pdf',
-  valor_auditor: 200, auditor_pagamento: 'Pago', auditor_pago_em: '2026-10-15',
+  valor_auditor: 200, auditor_pagamento: 'Pago', auditor_pago_em: '2026-10-15', resultado_enviado_em: '2026-10-12',
 }
 ok(quantoFalta(cheia) === 0, 'tudo preenchido: completa (planta e local podem ficar vazios: local vem da cidade)', faltandoNaFicha(cheia))
 ok(faltandoNaFicha({ ...cheia, comprovante_url: null }).financeiro.join() === 'Comprovante', 'pago sem comprovante: falta o comprovante')
@@ -134,9 +134,12 @@ ok(tot.formula === 'T5+U5' && tot.result === 540, 'total do orçamento é fórmu
 ok(acomp.linhas[0][2] === 'Não informado' && acomp.linhas[0][23] === '07/10/2026', 'vazio = Não informado; data dd/mm/aaaa')
 ok(nomeRelatorioGR('2026-10-20') === 'Auditoria_GR_20.10.26' && nomeRelatorioGR('2026-10-20', '2026-10') === 'Auditoria_GR_outubro-2026', 'nome do arquivo (geral e do mês)')
 
-console.log('Validade (3 anos)')
-ok(validadePadrao('2026-09-18') === '2029-09-18', '18/09/2026 → 18/09/2029')
-ok(validadePadrao('2028-02-29') === '2031-02-28', '29/02 → 28/02')
+console.log('Próxima auditoria pelo resultado (22/10/2026)')
+ok(validadePadrao('2026-09-18') === '2028-09-18' && validadePadrao('2026-09-18', 'Aprovado') === '2028-09-18', 'aprovado (ou sem resultado): 2 anos')
+ok(validadePadrao('2026-09-18', 'Aprovado com ressalvas') === '2027-03-18', 'com ressalvas: 6 meses')
+ok(validadePadrao('2026-09-18', 'Reprovado') === null, 'reprovado: em branco (combinar com a GR)')
+ok(validadePadrao('2028-02-29') === '2030-02-28' && validadePadrao('2026-08-31', 'Aprovado com ressalvas') === '2027-02-28', 'dia que não existe vai para o último do mês')
+ok(faltandoNaFicha({ ...cheia, resultado_enviado_em: null }).resultado.join() === 'Resultado enviado em', 'com resultado, pede quando foi enviado')
 ok(avisoValidade('2026-10-01', '2026-10-08')?.tipo === 'vencida', 'vencida')
 ok(avisoValidade('2026-11-30', '2026-10-08')?.tipo === 'vencendo', 'vence em até 60 dias')
 ok(avisoValidade('2027-06-01', '2026-10-08') === null, 'longe: sem aviso')
@@ -148,14 +151,16 @@ console.log('Resumo para a chefe (PDF)')
   const at = pontosDeAtencao([feita], '2026-10-21')
   ok(at[0]?.includes('pagamento') && at[0].includes('ainda não entrou') && at.some(t => t.includes('auditor pendente (Ana')), 'feita e não paga vem primeiro; auditor a pagar', at)
   ok(pontosDeAtencao([{ ...feita, status: 'Cancelada' }], '2026-10-21').length === 0, 'cancelada não entra na atenção')
-  const semResposta = { ...cheia, codigo: 'X-2', status: 'Aguardando aprovação', orcamento_enviado_em: '2026-10-01', aprovado_em: null, pagamento: 'Não pago', pago_em: null, comprovante_recebido_em: null, agendada_para: null, realizada_em: null, nota_emitida_em: null, auditor_pago_em: null, criado_em: null, anexos: [] }
-  ok(pontosDeAtencao([semResposta], '2026-10-21').some(t => t.includes('há 20 dias sem aprovação')), 'orçamento sem resposta há mais de 7 dias')
+  const semResposta = { ...cheia, codigo: 'X-2', status: 'Aguardando aprovação', orcamento_enviado_em: '2026-10-01', aprovado_em: null, resultado: null, resultado_enviado_em: null, pagamento: 'Não pago', pago_em: null, comprovante_recebido_em: null, agendada_para: null, realizada_em: null, nota_emitida_em: null, auditor_pago_em: null, criado_em: null, anexos: [] }
+  ok(pontosDeAtencao([semResposta], '2026-10-21').some(t => t.includes('há 20 dias sem resposta (ainda não cobrado)')), 'orçamento sem resposta há mais de 7 dias')
+  ok(pontosDeAtencao([{ ...semResposta, cobrancas: [{ data: '2026-10-15', obs: 'e-mail' }, { data: '2026-10-08', obs: null }] }], '2026-10-21').some(t => t.includes('(cobrado 2x, última 15/10)')), 'mostra as cobranças, a última pela data')
+  ok(pontosDeAtencao([{ ...cheia, resultado_enviado_em: null }], '2026-10-21').some(t => t.includes('ainda não enviado à GR')), 'resultado não enviado vira atenção')
   ok(pontosDeAtencao([{ ...semResposta, orcamento_enviado_em: '2026-10-18' }], '2026-10-21').every(t => !t.includes('sem aprovação')), 'orçamento recente não avisa')
   ok(statusCurto('Aguardando definição de laboratório') === 'Aguard. laboratório' && statusCurto('Agendada') === 'Agendada', 'status curto')
   ok(nomeResumoGR('2026-10-21', '2026-10') === 'Resumo_Auditoria_GR_outubro-2026', 'nome do resumo')
-  const varios = ['A', 'B', 'C'].map(c => ({ ...semResposta, codigo: 'X-' + c }))
+  const varios = ['A', 'B', 'C'].map(c => ({ ...semResposta, codigo: 'X-' + c, fornecedor: 'Forn ' + c + ' Ltda.' }))
   const junto = pontosDeAtencao(varios, '2026-10-21')
-  ok(junto.length === 1 && junto[0].startsWith('3 orçamentos sem aprovação') && junto[0].includes('X-A, X-B, X-C'), '3 ou mais do mesmo tipo viram uma linha', junto)
+  ok(junto.length === 1 && junto[0].startsWith('3 orçamentos sem resposta') && junto[0].includes('Forn A, Forn B, Forn C'), '3 ou mais do mesmo tipo viram uma linha', junto)
   ok(pontosDeAtencao([{ ...cheia, agendada_para: '2026-10-09', realizada_em: null }], '2026-10-21').some(t => t.includes('estava agendada para 09/10')), 'agenda que passou sem marcar')
   ok(faseDe({ status: 'Aguardando aprovação' }) === 'orcamento' && faseDe({ status: 'Aguardando retorno do fornecedor' }) === 'acerto' && faseDe({ status: 'Cancelada' }) === 'encerrada' && faseDe({ status: 'Concluída' }) === 'concluida', 'fases pelo status')
   const mv = ultimoMovimento({ ...semResposta, criado_em: null, anexos: [] }, '2026-10-21')

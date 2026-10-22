@@ -31,7 +31,11 @@ export const ROTULO_QUEM_PAGA: Record<string, string> = { 'Unidade GRSA': 'GR (u
 export const RESULTADOS = ['Aprovado', 'Aprovado com ressalvas', 'Reprovado'] as const
 export const AUDITOR_PAGAMENTO = ['A pagar', 'Pago'] as const
 export const ENCERRADOS = ['Cancelada', 'Encerrada – outro prestador', 'Encerrada – auditoria vigente']
-export const VALIDADE_ANOS = 3
+// Próxima auditoria pelo resultado (22/10/2026, a cliente: "aprovado, é só daqui
+// dois anos, dependendo da categoria; aprovado com restrições, daqui seis meses").
+// É só a sugestão: a data continua editável na ficha.
+export const VALIDADE_ANOS = 2
+export const MESES_COM_RESSALVAS = 6
 export const NAO_INFORMADO = 'Não informado'
 
 export type AuditoriaFornecedor = {
@@ -53,6 +57,9 @@ export type AuditoriaFornecedor = {
   valor_auditor?: number | null; auditor_pix?: string | null; auditor_pagamento?: string | null; auditor_pago_em?: string | null
   // Anexos (102): quantos quiser, cada um com observação
   anexos?: AnexoGR[] | null
+  // Cobranças e envio do resultado (104)
+  cobrancas?: Cobranca[] | null
+  resultado_enviado_em?: string | null
   criado_em?: string | null
 }
 
@@ -69,6 +76,10 @@ export const DOCUMENTOS: { chave: DocChave; nome: string; dica: string }[] = [
   { chave: 'auditor', nome: 'Pagamento ao auditor', dica: 'comprovante do que pagamos ao auditor' },
 ]
 /** Arquivo anexado: de qual documento é (ou "outro") e a observação que vai embaixo */
+/** Cobrança de retorno (104): quando e, se quiser, como foi ("e-mail", "WhatsApp") */
+export type Cobranca = { data: string; obs: string | null }
+export const cobrancasDe = (a: Pick<AuditoriaFornecedor, 'cobrancas'>): Cobranca[] =>
+  (Array.isArray(a.cobrancas) ? a.cobrancas : []).filter(c => c && c.data).sort((x, y) => x.data.localeCompare(y.data))
 export type AnexoGR = { caminho: string; nome: string; tipo: DocChave | 'outro'; obs: string | null; em: string }
 export const nomeDoTipo = (t: string) => DOCUMENTOS.find(d => d.chave === t)?.nome || 'Outro'
 export const anexosDe = (a: Pick<AuditoriaFornecedor, 'anexos'>): AnexoGR[] => Array.isArray(a.anexos) ? a.anexos : []
@@ -328,16 +339,23 @@ export function faltandoNaFicha(a: AuditoriaFornecedor): Record<BlocoFicha, stri
   if (a.auditor_pagamento === 'Pago') exige('financeiro', [[a.auditor_pago_em, 'Auditor pago em']])
   else if (a.realizada_em) f.financeiro.push('Pagar o auditor')
   exige('agenda', [[a.agendada_para, 'Data'], [a.horario, 'Horário'], [a.auditor, 'Auditor'], [a.realizada_em, 'Realizada em']])
-  exige('resultado', [[a.nota, 'Nota'], [a.resultado, 'Resultado'], [a.validade, 'Validade']])
+  exige('resultado', [[a.nota, 'Nota'], [a.resultado, 'Resultado'], [a.validade, 'Próxima auditoria']])
+  if (a.resultado) exige('resultado', [[a.resultado_enviado_em, 'Resultado enviado em']])
   return f
 }
 export const quantoFalta = (a: AuditoriaFornecedor) => Object.values(faltandoNaFicha(a)).reduce((s, l) => s + l.length, 0)
 
-/** Validade da próxima auditoria: 3 anos depois da realizada */
-export function validadePadrao(realizadaEm: string | null): string | null {
+/**
+ * Próxima auditoria sugerida: aprovado (ou sem resultado ainda) 2 anos depois
+ * da realizada; aprovado com ressalvas, 6 meses; reprovado fica em branco
+ * (combinar com a GR).
+ */
+export function validadePadrao(realizadaEm: string | null, resultado?: string | null): string | null {
   if (!realizadaEm || !/^\d{4}-\d{2}-\d{2}$/.test(realizadaEm)) return null
+  if (resultado === 'Reprovado') return null
   const [a, m, d] = realizadaEm.split('-').map(Number)
-  const dt = new Date(Date.UTC(a + VALIDADE_ANOS, m - 1, d))
+  const ressalvas = resultado === 'Aprovado com ressalvas'
+  const dt = new Date(Date.UTC(a + (ressalvas ? 0 : VALIDADE_ANOS), m - 1 + (ressalvas ? MESES_COM_RESSALVAS : 0), d))
   if (dt.getUTCDate() !== d) dt.setUTCDate(0)        // 29/02 → 28/02
   return dt.toISOString().slice(0, 10)
 }
@@ -391,7 +409,7 @@ export const faseDe = (a: Pick<AuditoriaFornecedor, 'status'>): FaseChave => FAS
  */
 export function ultimoMovimento(a: AuditoriaFornecedor, hoje: string): { data: string | null; dias: number | null; proxima: string | null } {
   const valida = (d: string | null | undefined): d is string => !!d && /^\d{4}-\d{2}-\d{2}/.test(d)
-  const datas = [a.orcamento_enviado_em, a.aprovado_em, a.pago_em, a.agendada_para, a.realizada_em, a.nota_emitida_em, a.auditor_pago_em]
+  const datas = [a.orcamento_enviado_em, a.aprovado_em, a.pago_em, a.agendada_para, a.realizada_em, a.nota_emitida_em, a.auditor_pago_em, a.resultado_enviado_em]
     .filter(valida).map(d => d.slice(0, 10))
   const passadas = datas.filter(d => d <= hoje).sort()
   const criada = valida(a.criado_em) && a.criado_em.slice(0, 10) <= hoje ? a.criado_em.slice(0, 10) : null

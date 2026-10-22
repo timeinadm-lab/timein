@@ -14,10 +14,10 @@ import type { ArquivoCarregado } from '../../lib/auditoriaGRPdf'
 import {
   STATUS_FORNECEDOR, STATUS_INICIAL, PAGAMENTO_OPCOES, FORMAS_PAGAMENTO, QUEM_PAGA, ROTULO_QUEM_PAGA, RESULTADOS, ENCERRADOS, AUDITOR_PAGAMENTO,
   lerPlanilha, numerosDoTopo, totalOrcamento, validadePadrao, avisoValidade, faltandoNaFicha, localDaAuditoria,
-  temComprovante, corDoStatus, corDoPagamento, abasRelatorioGR, nomeRelatorioGR, mesDoProcesso, noMes, nomeDoMes, FASES, faseDe,
+  temComprovante, corDoStatus, corDoPagamento, abasRelatorioGR, nomeRelatorioGR, mesDoProcesso, noMes, nomeDoMes, FASES, faseDe, cobrancasDe,
   DOCUMENTOS, tipoDoAnexo, anexosDe, andamentoDocs, documentosDoProcesso, ROTULO_ESTADO,
 } from '../../lib/auditoriasFornecedores'
-import type { FaseChave, AuditoriaFornecedor, BlocoFicha, AnexoGR, EstadoDoc } from '../../lib/auditoriasFornecedores'
+import type { Cobranca, FaseChave, AuditoriaFornecedor, BlocoFicha, AnexoGR, EstadoDoc } from '../../lib/auditoriasFornecedores'
 import type { CorLinha } from '../../lib/excelBonito'
 
 /**
@@ -37,7 +37,8 @@ const semTabela = (m: string) => /auditorias_fornecedores/.test(m) && /does not 
 const semMigracao100 = (m: string) => /aud_forn_|local_auditoria|forma_pagamento|precisa_nota|nota_numero|nota_emitida_em|comprovante_url|obs_financeiro/i.test(m)
 const semMigracao101 = (m: string) => /valor_auditor|auditor_pix|auditor_pagamento|auditor_pago_em/i.test(m)
 const semMigracao102 = (m: string) => /anexos/i.test(m)
-const erroAmigavel = (m: string) => semMigracao102(m) ? 'Falta rodar a migração 102 no Supabase (anexos da Auditoria GR).' : semMigracao101(m) ? 'Falta rodar a migração 101 no Supabase (valor do auditor).'
+const semMigracao104 = (m: string) => /cobrancas|resultado_enviado_em/i.test(m)
+const erroAmigavel = (m: string) => semMigracao104(m) ? 'Falta rodar a migração 104 no Supabase (cobranças e envio do resultado).' : semMigracao102(m) ? 'Falta rodar a migração 102 no Supabase (anexos da Auditoria GR).' : semMigracao101(m) ? 'Falta rodar a migração 101 no Supabase (valor do auditor).'
   : semMigracao100(m) ? 'Falta rodar a migração 100 no Supabase (financeiro da Auditoria GR).' : m
 
 const CLASSE_COR: Record<Exclude<CorLinha, null>, string> = {
@@ -311,6 +312,7 @@ const VAZIO: Omit<AuditoriaFornecedor, 'codigo'> = {
   realizada_em: null, auditor: null, nota: null, resultado: null, validade: null, auditoria_id: null, observacoes: null,
   local_auditoria: null, forma_pagamento: null, precisa_nota: null, nota_numero: null, nota_emitida_em: null, comprovante_url: null, obs_financeiro: null,
   valor_auditor: null, auditor_pix: null, auditor_pagamento: 'A pagar', auditor_pago_em: null, anexos: [],
+  cobrancas: [], resultado_enviado_em: null,
 }
 
 function proximoCodigo(lista: AuditoriaFornecedor[]) {
@@ -330,7 +332,9 @@ function FichaFornecedor({ registro, lista, fechar }: { registro: Registro | nul
   const set = <K extends keyof AuditoriaFornecedor>(k: K, v: AuditoriaFornecedor[K]) => setF(x => {
     const novo = { ...x, [k]: v }
     // Realizada mudou: a validade acompanha (3 anos), se não foi digitada à mão
-    if (k === 'realizada_em' && (!x.validade || x.validade === validadePadrao(x.realizada_em))) novo.validade = validadePadrao(v as string | null)
+    // Realizada ou resultado mudou: a próxima auditoria acompanha (aprovado 2 anos, com ressalvas 6 meses), se não foi digitada à mão
+    if ((k === 'realizada_em' || k === 'resultado') && (!x.validade || x.validade === validadePadrao(x.realizada_em, x.resultado)))
+      novo.validade = validadePadrao(novo.realizada_em, novo.resultado)
     // Marcou pago: a data NÃO entra sozinha — a pessoa informa quando foi (21/10/2026)
     return novo
   })
@@ -354,7 +358,7 @@ function FichaFornecedor({ registro, lista, fechar }: { registro: Registro | nul
     setF(x => ({
       ...x, auditoria_id: a.id, realizada_em: a.data, auditor: a.auditor_nome || x.auditor,
       nota: a.nota != null ? Math.round(Number(a.nota) * 10) / 10 : x.nota,
-      validade: validadePadrao(a.data), status: ENCERRADOS.includes(x.status) ? x.status : 'Concluída',
+      validade: validadePadrao(a.data, x.resultado), status: ENCERRADOS.includes(x.status) ? x.status : 'Concluída',
     }))
   }
 
@@ -431,6 +435,9 @@ function FichaFornecedor({ registro, lista, fechar }: { registro: Registro | nul
         .map(([k, v]) => [k, typeof v === 'string' && !v.trim() ? null : v]))
       // Antes da migração 102 a coluna não existe: sem anexo, a ficha salva do mesmo jeito
       if (!anexos.length && registro && !('anexos' in registro)) delete linha.anexos
+      // Antes da 104: sem cobrança nem envio do resultado, salva do mesmo jeito
+      if (!cobrancasDe(f).length && !(registro && 'cobrancas' in registro)) delete linha.cobrancas
+      if (!f.resultado_enviado_em && !(registro && 'resultado_enviado_em' in registro)) delete linha.resultado_enviado_em
       const { error } = registro
         ? await supabase.from('auditorias_fornecedores').update({ ...linha, atualizado_em: new Date().toISOString() }).eq('id', registro.id)
         : await supabase.from('auditorias_fornecedores').insert(linha)
@@ -469,6 +476,7 @@ function FichaFornecedor({ registro, lista, fechar }: { registro: Registro | nul
     agendada_para: passou('Agendada', 'Aguardando relatório', 'Concluída'),
     realizada_em: passou('Aguardando relatório', 'Concluída'),
     nota_emitida_em: !!f.nota_numero?.trim(),
+    resultado_enviado_em: !!f.resultado,
   }
   const data = (k: keyof AuditoriaFornecedor, rotulo: string) => {
     const pede = pedeData[k] && !f[k]
@@ -597,8 +605,9 @@ function FichaFornecedor({ registro, lista, fechar }: { registro: Registro | nul
               </div>
               {texto('cidade_polo', 'Cidade polo')}
               <div className="hidden sm:block" />
-              {data('orcamento_enviado_em', 'Orçamento enviado em')}{data('aprovado_em', 'Aprovado em')}
+              {data('orcamento_enviado_em', 'Orçamento enviado em')}{data('aprovado_em', 'Resposta / aprovado em')}
             </div>
+            <Cobrancas lista={cobrancasDe(f)} mudar={l => set('cobrancas', l)} />
           </>)}
 
           {bloco('financeiro', 4, <>
@@ -664,12 +673,13 @@ function FichaFornecedor({ registro, lista, fechar }: { registro: Registro | nul
                 <option value="">— nenhuma (preencher à mão) —</option>
                 {feitas.map(a => <option key={a.id} value={a.id}>{formatDate(a.data)} · {[a.client?.name, a.unidade, a.titulo].filter(Boolean).join(' · ')}{a.nota != null ? ` · ${Math.round(Number(a.nota))}%` : ''}</option>)}
               </select>
-              <p className="text-[11px] text-ink-500 mt-1">Escolhendo, a data, o auditor, a nota e a validade (3 anos) entram sozinhos.</p>
+              <p className="text-[11px] text-ink-500 mt-1">Escolhendo, a data, o auditor, a nota e a próxima auditoria entram sozinhos.</p>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {numero('nota', 'Nota (0–100)', false)}{data('validade', 'Validade (3 anos, automática)')}
-              {escolha('resultado', 'Resultado', RESULTADOS, { largo: true })}
+              {escolha('resultado', 'Resultado', RESULTADOS)}{numero('nota', 'Nota (0–100)', false)}
+              {data('resultado_enviado_em', 'Resultado enviado em')}{data('validade', 'Próxima auditoria')}
             </div>
+            <p className="text-[11px] text-ink-500">Próxima auditoria sugerida pelo resultado: aprovado, 2 anos; com ressalvas, 6 meses; reprovado, combinar com a GR. Dá para trocar se a categoria pedir outro prazo.</p>
           </>)}
 
           <section className="space-y-1.5">
@@ -726,6 +736,33 @@ const ICONE_ESTADO: Record<EstadoDoc, { cor: string; texto: string }> = {
 }
 
 /** Um documento do processo: situação, detalhe, os arquivos (com observação embaixo) e o botão de anexar */
+/**
+ * Cobranças de retorno (104, pedido da cliente em 22/10/2026: "eles demoram pra
+ * responder, eu acabo cobrando... um chequezinho, constar a data"). Quantas
+ * quiser; cada uma com a data (a pessoa confirma qual foi) e como foi.
+ */
+function Cobrancas({ lista, mudar }: { lista: Cobranca[]; mudar: (l: Cobranca[]) => void }) {
+  const trocar = (i: number, c: Partial<Cobranca>) => mudar(lista.map((x, j) => j === i ? { ...x, ...c } : x))
+  return (
+    <div className="mt-3 rounded-lg border border-ink-100 bg-white/70 p-3 space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-sm font-semibold text-ink-900">Cobranças de retorno{lista.length ? <span className="font-normal text-ink-500"> · {lista.length}x</span> : null}</p>
+        <button type="button" className="btn-secondary text-xs" onClick={() => mudar([...lista, { data: hojeISO(), obs: null }])}>
+          <Check size={13} />Cobrei
+        </button>
+      </div>
+      {!lista.length && <p className="text-[11px] text-ink-500">Quando cobrar o retorno do fornecedor ou do comprador, toque em <b>Cobrei</b> e confira a data.</p>}
+      {lista.map((c, i) => (
+        <div key={i} className="flex items-center gap-2">
+          <input className="input w-40 shrink-0" type="date" value={c.data} onChange={e => e.target.value && trocar(i, { data: e.target.value })} />
+          <input className="input flex-1 min-w-0" value={c.obs ?? ''} onChange={e => trocar(i, { obs: e.target.value || null })} placeholder="Como? (e-mail, WhatsApp, ligação…)" />
+          <button type="button" className="p-2 text-ink-400 hover:text-red-600 shrink-0" title="Tirar esta cobrança" onClick={() => mudar(lista.filter((_, j) => j !== i))}><X size={15} /></button>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function LinhaDocumento({ nome, dica, estado, detalhe, anexos, subindo, anexar, mudar, tirar }: {
   nome: string; dica: string; estado: EstadoDoc | null; detalhe: string; anexos: AnexoGR[]; subindo: boolean
   anexar: () => void; mudar: (caminho: string, m: Partial<AnexoGR>) => void; tirar: (caminho: string) => void

@@ -216,9 +216,11 @@ export function lerData(v: unknown): string | null {
     return new Date((serial - 25569) * 86400000).toISOString().slice(0, 10)
   }
   const br = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/)
-  if (br) return `${br[3]}-${br[2].padStart(2, '0')}-${br[1].padStart(2, '0')}`
+  // Ano fora de 2000–2099 é erro de digitação (planilha de 22/10/2026: "19/10/0206"): fica vazio, não vira o ano 206
+  const anoOk = (a: string) => Number(a) >= 2000 && Number(a) <= 2099
+  if (br) return anoOk(br[3]) ? `${br[3]}-${br[2].padStart(2, '0')}-${br[1].padStart(2, '0')}` : null
   const iso = s.match(/^\d{4}-\d{2}-\d{2}/)
-  return iso ? iso[0] : null
+  return iso && anoOk(iso[0].slice(0, 4)) ? iso[0] : null
 }
 
 const lerNumero = (v: unknown): number | null => {
@@ -350,11 +352,13 @@ export const quantoFalta = (a: AuditoriaFornecedor) => Object.values(faltandoNaF
  * da realizada; aprovado com ressalvas, 6 meses; reprovado fica em branco
  * (combinar com a GR).
  */
+/** "Aprovado com ressalvas" ou como a planilha da GR escreve ("Aprovado com restrições documentais") */
+export const comRessalvas = (resultado?: string | null) => /ressalva|restri/i.test(resultado || '')
 export function validadePadrao(realizadaEm: string | null, resultado?: string | null): string | null {
   if (!realizadaEm || !/^\d{4}-\d{2}-\d{2}$/.test(realizadaEm)) return null
-  if (resultado === 'Reprovado') return null
+  if (/reprov/i.test(resultado || '')) return null
   const [a, m, d] = realizadaEm.split('-').map(Number)
-  const ressalvas = resultado === 'Aprovado com ressalvas'
+  const ressalvas = comRessalvas(resultado)
   const dt = new Date(Date.UTC(a + (ressalvas ? 0 : VALIDADE_ANOS), m - 1 + (ressalvas ? MESES_COM_RESSALVAS : 0), d))
   if (dt.getUTCDate() !== d) dt.setUTCDate(0)        // 29/02 → 28/02
   return dt.toISOString().slice(0, 10)

@@ -144,6 +144,8 @@ ok(avisoValidade('2026-10-01', '2026-10-08')?.tipo === 'vencida', 'vencida')
 ok(avisoValidade('2026-11-30', '2026-10-08')?.tipo === 'vencendo', 'vence em até 60 dias')
 ok(avisoValidade('2027-06-01', '2026-10-08') === null, 'longe: sem aviso')
 ok(lerData('18/09/2026') === '2026-09-18' && lerData('Não informado') === null, 'data em texto')
+ok(lerData('19/10/0206') === null && lerData('0206-10-19') === null, 'ano digitado errado (0206) fica vazio')
+ok(validadePadrao('2026-10-09', 'Aprovado com restrições documentais') === '2027-04-09', 'restrições = ressalvas: 6 meses (como a planilha da GR)')
 
 console.log('Resumo para a chefe (PDF)')
 {

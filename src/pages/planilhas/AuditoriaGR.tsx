@@ -493,7 +493,8 @@ function FichaFornecedor({ registro, lista, fechar }: { registro: Registro | nul
   const escolha = (k: keyof AuditoriaFornecedor, rotulo: string, opcoes: readonly string[], cfg?: { rotulos?: Record<string, string>; obrigatorio?: boolean; largo?: boolean }) => (
     <div key={k} className={cfg?.largo ? 'sm:col-span-2' : ''}>
       <label className="label">{rotulo}</label>
-      <Chips opcoes={opcoes} valor={(f[k] as string) ?? null} rotulos={cfg?.rotulos}
+      {/* Valor que veio da planilha e não está na lista (ex.: "Aprovado com restrições documentais") aparece como opção */}
+      <Chips opcoes={f[k] && typeof f[k] === 'string' && !opcoes.includes(f[k] as string) ? [...opcoes, f[k] as string] : opcoes} valor={(f[k] as string) ?? null} rotulos={cfg?.rotulos}
         mudar={v => set(k, (v ?? (cfg?.obrigatorio ? f[k] : null)) as never)} />
     </div>
   )

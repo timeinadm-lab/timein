@@ -15,7 +15,7 @@
 import { criarPdf } from './pdfBase'
 import {
   numerosDoTopo, andamentoDocs, totalOrcamento, localDaAuditoria, avisoValidade, nomeDoMes, nomeRelatorioGR,
-  etapasDoProcesso, ultimoMovimento, faseDe, cobrancasDe, FASES, ENCERRADOS, ROTULO_QUEM_PAGA,
+  etapasDoProcesso, ultimoMovimento, faseDe, cobrancasDe, comRessalvas, FASES, ENCERRADOS, ROTULO_QUEM_PAGA,
 } from './auditoriasFornecedores'
 import type { AuditoriaFornecedor, DocChave, FaseChave } from './auditoriasFornecedores'
 
@@ -269,7 +269,6 @@ export async function gerarResumoGR(lista: AuditoriaFornecedor[], opts: { hoje: 
   }
   if (st.y + 26 > LIMITE) novaPagina()
   cabTabela()
-  const TOM_RES: Record<string, Tom> = { Aprovado: 'verde', 'Aprovado com ressalvas': 'amarelo', Reprovado: 'vermelho' }
   for (const f of FASES) {
     const doGrupo = porFase(f.chave).sort((x, y) => (ultimoMovimento(y, hoje).dias ?? -1) - (ultimoMovimento(x, hoje).dias ?? -1) || x.fornecedor.localeCompare(y.fornecedor, 'pt-BR'))
     if (!doGrupo.length) continue
@@ -325,8 +324,8 @@ export async function gerarResumoGR(lista: AuditoriaFornecedor[], opts: { hoje: 
         else if (a.agendada_para) em(8, `agendada ${dm(a.agendada_para)}`, l2, { tam: 6, cor: CINZA })
         // Resultado, quando foi enviado, próxima auditoria
         if (a.resultado) {
-          const tr = TOM_RES[a.resultado] || 'cinza'
-          em(9, a.resultado === 'Aprovado com ressalvas' ? 'Com ressalvas' : a.resultado, l1, { negrito: true, cor: FORTE[tr] })
+          const tr: Tom = /reprov/i.test(a.resultado) ? 'vermelho' : comRessalvas(a.resultado) ? 'amarelo' : /aprov/i.test(a.resultado) ? 'verde' : 'cinza'
+          em(9, a.resultado.replace(/^aprovado com /i, 'Com '), l1, { negrito: true, cor: FORTE[tr] })
           if (a.nota != null) em(9, `nota ${String(a.nota).replace('.', ',')}`, l2, { tam: 6, cor: CINZA })
           em(10, a.resultado_enviado_em ? dm(a.resultado_enviado_em) : 'não env.', l1, { tam: a.resultado_enviado_em ? 7.3 : 6.3, negrito: !a.resultado_enviado_em, cor: a.resultado_enviado_em ? TINTA : FORTE.amarelo })
         } else em(9, '-', l1, { cor: CINZA })

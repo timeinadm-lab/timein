@@ -30,3 +30,8 @@ dist-ssr
 
 .vercel
 .env*
+
+# Combinado Claude + Codex (local, não vai pro GitHub, que é público)
+AGENTS.md
+CLAUDE.md
+.ia/

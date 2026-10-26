@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
-import { Check, X, Paperclip, ArrowRightLeft, Download, CheckCircle2, Clock, Wallet, CalendarClock, Ban } from 'lucide-react'
+import { Check, X, Paperclip, ArrowRightLeft, Download, CheckCircle2, Clock, Wallet, CalendarClock, Ban, Search } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { formatCurrency, formatDate, hojeISO } from '../../lib/utils'
 import { SignedLink } from '../../components/ui/SignedFile'
@@ -19,7 +19,7 @@ import { baixarPlanilhaComAnexos } from '../../lib/planilhaComComprovantes'
 type Gasto = {
   id: string; employee_id: string; client_id?: string | null; description: string; amount: number; category?: string | null
   notes?: string | null; obs_rh?: string | null; receipt_url?: string | null; status: 'pendente' | 'aprovado' | 'negado'
-  created_at?: string; reviewed_at?: string | null; pagar_na_semana?: boolean | null
+  created_at?: string; reviewed_at?: string | null; pagar_na_semana?: boolean | null; reference_month?: string
   employee?: { full_name: string } | null; client?: { name: string } | null
 }
 type Ajuda = { id: string; expense_id: string; inicio: string; status: 'Pendente' | 'Pago'; pago_em: string | null; valor: number; comprovante_url: string | null }
@@ -40,6 +40,7 @@ export default function Reembolsos({ mes }: { mes: string }) {
   const [filtro, setFiltro] = useState<Filtro>('todos')
   const [mexendo, setMexendo] = useState<string | null>(null)
   const [baixando, setBaixando] = useState<string | null>(null)
+  const [busca, setBusca] = useState('')
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['reembolsos-mes', mes],
@@ -50,7 +51,12 @@ export default function Reembolsos({ mes }: { mes: string }) {
       let { data: gastos, error } = await sel(true)
       if (error && /client/.test(error.message)) ({ data: gastos, error } = await sel(false))
       if (error) throw new Error(error.message)
-      const lista = (gastos || []) as unknown as Gasto[]
+      // Pedido esperando decisão em OUTRO mês também aparece aqui (26/10/2026:
+      // um pedido do portal não aparecia porque estava em outro mês da tela)
+      const { data: outros } = await supabase.from('employee_expenses')
+        .select('*, employee:employees(full_name)').eq('status', 'pendente').neq('reference_month', mes)
+        .order('created_at', { ascending: false })
+      const lista = [...((outros || []) as unknown as Gasto[]), ...((gastos || []) as unknown as Gasto[])]
       const ids = lista.map(g => g.id)
       const pessoas = [...new Set(lista.map(g => g.employee_id))]
       const [aj, pg] = await Promise.all([
@@ -79,7 +85,15 @@ export default function Reembolsos({ mes }: { mes: string }) {
     return { ...g, onde: 'salario', pago, pagoTexto: pago ? `Pago com o salário${quando ? ' em ' + formatDate(quando) : ''}` : 'A pagar', reembolso }
   }), [data])
 
-  const visiveis = linhas.filter(l => filtro === 'todos' || l.onde === filtro)
+  const sem = (t: string) => t.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase()
+  const termo = sem(busca.trim())
+  const ordem = { analisar: 0, salario: 1, segunda: 1, negado: 2 } as const
+  const visiveis = linhas
+    .filter(l => filtro === 'todos' || l.onde === filtro)
+    .filter(l => !termo || sem([l.employee?.full_name, l.description, l.client?.name, l.notes].filter(Boolean).join(' ')).includes(termo))
+    .sort((a, b) => ordem[a.onde] - ordem[b.onde])
+  const outroMes = (l: Linha) => !!l.reference_month && l.reference_month !== mes
+  const nomeDoMes = (m: string) => new Date(m + '-15T12:00:00').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
   const soma = (xs: Linha[]) => xs.reduce((t, l) => t + Number(l.amount), 0)
   const resumo = {
     analisar: linhas.filter(l => l.onde === 'analisar'),
@@ -130,7 +144,7 @@ export default function Reembolsos({ mes }: { mes: string }) {
   // Só a planilha (.xlsx) e, à parte, os comprovantes num PDF (19/10/2026: o zip
   // não subia). Mesma ordem nos dois: o "Anexo N" da planilha é a página no PDF.
   const nomeMes = new Date(mes + '-15T12:00:00').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
-  const emOrdem = () => [...linhas].sort((a, b) => (a.employee?.full_name || '').localeCompare(b.employee?.full_name || '', 'pt-BR')
+  const emOrdem = () => linhas.filter(l => !outroMes(l)).sort((a, b) => (a.employee?.full_name || '').localeCompare(b.employee?.full_name || '', 'pt-BR')
     || String(a.created_at || '').localeCompare(String(b.created_at || '')))
   const comprovanteDe = (l: Linha) => l.receipt_url || l.ajuda?.comprovante_url || null
   const situacaoTexto = (l: Linha) => l.status === 'pendente' ? 'Para analisar' : l.status === 'negado' ? 'Negado' : 'Aprovado'
@@ -200,7 +214,11 @@ export default function Reembolsos({ mes }: { mes: string }) {
       </div>
 
       <div className="flex items-center gap-2 flex-wrap">
-        <p className="text-xs text-ink-500 flex-1 min-w-[14rem]">
+        <label className="relative flex-1 min-w-[14rem] max-w-sm">
+          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-400" />
+          <input className="input text-sm !py-1.5 !pl-8" placeholder="Procurar pessoa ou o quê (ex.: Hellen, Uber)" value={busca} onChange={e => setBusca(e.target.value)} />
+        </label>
+        <p className="text-xs text-ink-500 flex-1 min-w-[10rem]">
           <CheckCircle2 size={12} className="inline -mt-0.5 text-green-700" /> Já pago: <b className="text-ink-800">{formatCurrency(soma(resumo.pago))}</b>
           {filtro !== 'todos' && <> · <button className="text-primary-700 underline" onClick={() => setFiltro('todos')}>ver todos</button></>}
         </p>
@@ -214,7 +232,7 @@ export default function Reembolsos({ mes }: { mes: string }) {
       </div>
 
       {visiveis.length === 0 ? (
-        <div className="card p-8 text-center text-sm text-ink-500">{linhas.length ? 'Nada neste filtro.' : 'Nenhum reembolso neste mês.'}</div>
+        <div className="card p-8 text-center text-sm text-ink-500">{termo ? `Nada com "${busca.trim()}" neste mês. Troque o mês no topo para procurar em outro.` : linhas.length ? 'Nada neste filtro.' : 'Nenhum reembolso neste mês.'}</div>
       ) : (
         <div className="card overflow-hidden divide-y divide-ink-100">
           {visiveis.map(l => (
@@ -225,7 +243,8 @@ export default function Reembolsos({ mes }: { mes: string }) {
                     {l.client?.name && <span className="font-normal text-ink-500"> · {l.client.name}</span>}</p>
                   <p className="text-sm text-ink-700">{l.description}
                     {l.category && l.category !== 'Reembolso' && <span className="badge bg-ink-100 text-ink-600 text-[10px] ml-1.5">{l.category}</span>}</p>
-                  <p className="text-[11px] text-ink-500">Pedido em {l.created_at ? formatDate(l.created_at.slice(0, 10)) : '—'}{l.notes ? ` · "${l.notes}"` : ''}</p>
+                  <p className="text-[11px] text-ink-500">Pedido em {l.created_at ? formatDate(l.created_at.slice(0, 10)) : '—'}{l.notes ? ` · "${l.notes}"` : ''}
+                    {outroMes(l) && <span className="ml-1.5 badge bg-amber-100 text-amber-800 text-[10px]">pedido de {nomeDoMes(l.reference_month!)}</span>}</p>
                 </div>
                 <div className="text-right shrink-0">
                   <p className={`text-base font-semibold tnum ${l.onde === 'negado' ? 'text-ink-400 line-through' : 'text-ink-900'}`}>{formatCurrency(Number(l.amount))}</p>

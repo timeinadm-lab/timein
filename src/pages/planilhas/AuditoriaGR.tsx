@@ -38,7 +38,8 @@ const semMigracao100 = (m: string) => /aud_forn_|local_auditoria|forma_pagamento
 const semMigracao101 = (m: string) => /valor_auditor|auditor_pix|auditor_pagamento|auditor_pago_em/i.test(m)
 const semMigracao102 = (m: string) => /anexos/i.test(m)
 const semMigracao104 = (m: string) => /cobrancas|resultado_enviado_em/i.test(m)
-const erroAmigavel = (m: string) => semMigracao104(m) ? 'Falta rodar a migração 104 no Supabase (cobranças e envio do resultado).' : semMigracao102(m) ? 'Falta rodar a migração 102 no Supabase (anexos da Auditoria GR).' : semMigracao101(m) ? 'Falta rodar a migração 101 no Supabase (valor do auditor).'
+const semMigracao105 = (m: string) => /auditor_id/i.test(m)
+const erroAmigavel = (m: string) => semMigracao105(m) ? 'Falta rodar a migração 105 no Supabase (auditor da equipe no calendário).' : semMigracao104(m) ? 'Falta rodar a migração 104 no Supabase (cobranças e envio do resultado).' : semMigracao102(m) ? 'Falta rodar a migração 102 no Supabase (anexos da Auditoria GR).' : semMigracao101(m) ? 'Falta rodar a migração 101 no Supabase (valor do auditor).'
   : semMigracao100(m) ? 'Falta rodar a migração 100 no Supabase (financeiro da Auditoria GR).' : m
 
 const CLASSE_COR: Record<Exclude<CorLinha, null>, string> = {
@@ -312,7 +313,7 @@ const VAZIO: Omit<AuditoriaFornecedor, 'codigo'> = {
   realizada_em: null, auditor: null, nota: null, resultado: null, validade: null, auditoria_id: null, observacoes: null,
   local_auditoria: null, forma_pagamento: null, precisa_nota: null, nota_numero: null, nota_emitida_em: null, comprovante_url: null, obs_financeiro: null,
   valor_auditor: null, auditor_pix: null, auditor_pagamento: 'A pagar', auditor_pago_em: null, anexos: [],
-  cobrancas: [], resultado_enviado_em: null,
+  cobrancas: [], resultado_enviado_em: null, auditor_id: null,
 }
 
 function proximoCodigo(lista: AuditoriaFornecedor[]) {
@@ -438,6 +439,8 @@ function FichaFornecedor({ registro, lista, fechar }: { registro: Registro | nul
       // Antes da 104: sem cobrança nem envio do resultado, salva do mesmo jeito
       if (!cobrancasDe(f).length && !(registro && 'cobrancas' in registro)) delete linha.cobrancas
       if (!f.resultado_enviado_em && !(registro && 'resultado_enviado_em' in registro)) delete linha.resultado_enviado_em
+      // Antes da 105: sem auditor da equipe escolhido, salva do mesmo jeito
+      if (!f.auditor_id && !(registro && 'auditor_id' in registro)) delete linha.auditor_id
       const { error } = registro
         ? await supabase.from('auditorias_fornecedores').update({ ...linha, atualizado_em: new Date().toISOString() }).eq('id', registro.id)
         : await supabase.from('auditorias_fornecedores').insert(linha)
@@ -663,7 +666,7 @@ function FichaFornecedor({ registro, lista, fechar }: { registro: Registro | nul
           {bloco('agenda', 5, <>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {data('agendada_para', 'Data agendada')}{texto('horario', 'Horário', { placeholder: '09:00' })}
-              {texto('auditor', 'Auditor')}{data('realizada_em', 'Realizada em')}
+              <EscolhaAuditor f={f} setF={setF} />{data('realizada_em', 'Realizada em')}
             </div>
           </>)}
 
@@ -737,6 +740,47 @@ const ICONE_ESTADO: Record<EstadoDoc, { cor: string; texto: string }> = {
 }
 
 /** Um documento do processo: situação, detalhe, os arquivos (com observação embaixo) e o botão de anexar */
+/**
+ * Auditor (105, pedido de 26/10/2026): escolhe alguém da equipe e a auditoria
+ * aparece no calendário dela (escritório e portal), lendo direto da ficha —
+ * mudou data, horário ou auditor aqui, muda lá. Quem é de fora: digita o nome.
+ */
+function EscolhaAuditor({ f, setF }: { f: AuditoriaFornecedor; setF: React.Dispatch<React.SetStateAction<AuditoriaFornecedor>> }) {
+  const { data: equipe = [] } = useQuery({
+    queryKey: ['gr-colaboradores'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('employees').select('id, full_name').neq('status', 'Inativo').order('full_name')
+      if (error) throw error
+      return (data || []) as { id: string; full_name: string }[]
+    },
+    staleTime: 5 * 60_000,
+  })
+  const [deFora, setDeFora] = useState(!f.auditor_id && !!f.auditor?.trim())
+  const valor = f.auditor_id || (deFora ? 'fora' : '')
+  const escolher = (v: string) => {
+    if (v === '') { setDeFora(false); setF(x => ({ ...x, auditor_id: null, auditor: null })); return }
+    if (v === 'fora') { setDeFora(true); setF(x => ({ ...x, auditor_id: null })); return }
+    const c = equipe.find(e => e.id === v)
+    setDeFora(false)
+    // Mantém o nome curto que já estava (ex.: "Tatiane") se for a mesma pessoa
+    setF(x => ({ ...x, auditor_id: v, auditor: x.auditor?.trim() && c?.full_name.toLowerCase().startsWith(x.auditor.trim().toLowerCase()) ? x.auditor : c?.full_name || x.auditor }))
+  }
+  return (
+    <div>
+      <label className="label">Auditor</label>
+      <select className="input" value={valor} onChange={e => escolher(e.target.value)}>
+        <option value="">— escolher —</option>
+        {equipe.map(e => <option key={e.id} value={e.id}>{e.full_name}</option>)}
+        <option value="fora">Outra pessoa (de fora da equipe)</option>
+      </select>
+      {deFora && !f.auditor_id && (
+        <input className="input mt-1.5" value={f.auditor ?? ''} onChange={e => setF(x => ({ ...x, auditor: e.target.value }))} placeholder="Nome do auditor" />
+      )}
+      <p className="text-[11px] text-ink-500 mt-1">{f.auditor_id ? 'Aparece no calendário dela no dia agendado (sistema e portal).' : 'Escolhendo alguém da equipe, a auditoria vai para o calendário dela.'}</p>
+    </div>
+  )
+}
+
 /**
  * Cobranças de retorno (104, pedido da cliente em 22/10/2026: "eles demoram pra
  * responder, eu acabo cobrando... um chequezinho, constar a data"). Quantas

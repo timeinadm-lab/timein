@@ -12,7 +12,7 @@ import { SignedLink } from '../../components/ui/SignedFile'
 import { aniversariantesDoMes } from '../../lib/aniversario'
 import { ROTULO_TIPO_VISITA, tipoDaVisita, ehPaga, minutosDaVisita } from '../../lib/equipe'
 
-type EventKind = 'realizada' | 'planejada' | 'alterada' | 'ausencia' | 'troca' | 'supervisao' | 'equipe' | 'reuniao' | 'compromisso' | 'aniversario'
+type EventKind = 'realizada' | 'planejada' | 'alterada' | 'ausencia' | 'troca' | 'supervisao' | 'equipe' | 'auditoria' | 'reuniao' | 'compromisso' | 'aniversario'
 type Ev = {
   kind: EventKind
   date: string
@@ -46,6 +46,9 @@ const KIND_META: Record<EventKind, { label: string; dot: string; chip: string }>
   // Visita, supervisão ou vistoria que alguém do administrativo registrou em
   // "Meu trabalho" (migração 076/099). Cada um vê as suas; a contabilidade, todas.
   equipe:       { label: 'Visita da equipe', dot: 'bg-indigo-500',   chip: 'bg-indigo-50 text-indigo-800 border-indigo-200' },
+  // Auditoria GR agendada (105): lida direto da ficha, então muda junto com ela.
+  // Não é visita da agenda: não entra em pagamento nem em cobrança de registro.
+  auditoria:    { label: 'Auditoria GR',     dot: 'bg-violet-600',   chip: 'bg-violet-50 text-violet-800 border-violet-200' },
   reuniao:      { label: 'Reunião',          dot: 'bg-blue-400',     chip: 'bg-blue-50 text-blue-700 border-blue-200' },
   // Compromisso NAO e reuniao: e qualquer coisa que a equipe precisa saber que
   // vai acontecer (viagem, consulta medica, visita a um cliente sem ser vistoria).
@@ -141,6 +144,17 @@ export default function CalendarPage() {
       const { data, error } = await supabase.from('equipe_visitas')
         .select('*').gte('data', mStart).lte('data', mEnd)
       if (error) { console.warn('equipe_visitas:', error.message); return [] }
+      return data || []
+    },
+  })
+
+  // Auditorias GR agendadas no mês (direto da ficha da Auditoria GR)
+  const { data: auditoriasGR } = useQuery({
+    queryKey: ['cal-auditorias-gr', monthKey],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('auditorias_fornecedores')
+        .select('*').gte('agendada_para', mStart).lte('agendada_para', mEnd)
+      if (error) { console.warn('auditorias_fornecedores:', error.message); return [] }
       return data || []
     },
   })
@@ -592,6 +606,21 @@ export default function CalendarPage() {
         isRh: true,
       })
     }
+    for (const a of (auditoriasGR || []) as { fornecedor: string; planta?: string | null; agendada_para: string; horario?: string | null; realizada_em?: string | null; status: string; auditor?: string | null; auditor_id?: string | null; cidade?: string | null; uf?: string | null; local_auditoria?: string | null }[]) {
+      if (['Cancelada', 'Encerrada – outro prestador', 'Encerrada – auditoria vigente'].includes(a.status)) continue
+      const h = (a.horario || '').match(/(\d{1,2})\s*[:h]\s*(\d{2})?/i)
+      out.push({
+        kind: 'auditoria',
+        date: a.agendada_para,
+        employee: a.auditor?.trim() || 'Auditor a definir',
+        employeeId: a.auditor_id || undefined,
+        client: a.fornecedor + (a.planta ? ` · ${a.planta}` : ''),
+        unit: a.local_auditoria || [a.cidade, a.uf].filter(Boolean).join('/') || undefined,
+        time: h ? `${h[1].padStart(2, '0')}:${h[2] || '00'}` : null,
+        note: `Auditoria GR · ${a.realizada_em ? 'realizada' : a.status === 'Agendada' ? 'agendada' : a.status.toLowerCase()}`,
+        isRh: true,
+      })
+    }
     for (const ap of appointments || []) {
       const ini = (ap.scheduled_at || '').slice(0, 10)
       const fim = ap.end_date && ap.end_date.slice(0, 10) > ini ? ap.end_date.slice(0, 10) : ini
@@ -626,7 +655,7 @@ export default function CalendarPage() {
       out.push({ kind: 'aniversario', date: a.data, employee: a.full_name, note: a.idade ? `Faz ${a.idade} anos` : 'Aniversário', employeeId: a.id, isRh: true })
     }
     return out
-  }, [visits, agenda, notices, appointments, supervisoes, visitasEquipe, rhUsers, allClients, allEmployees, mStart, mEnd, periodosVinculo, comNascimento, monthKey])
+  }, [visits, agenda, notices, appointments, supervisoes, visitasEquipe, auditoriasGR, rhUsers, allClients, allEmployees, mStart, mEnd, periodosVinculo, comNascimento, monthKey])
 
   const filtered = events.filter(e =>
     !ocultos.has(e.kind) &&

@@ -60,6 +60,8 @@ export type AuditoriaFornecedor = {
   // Cobranças e envio do resultado (104)
   cobrancas?: Cobranca[] | null
   resultado_enviado_em?: string | null
+  // Auditor da equipe (105): a auditoria aparece no calendário dele (escritório e portal)
+  auditor_id?: string | null
   criado_em?: string | null
 }
 

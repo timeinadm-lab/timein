@@ -139,6 +139,20 @@ export default function PortalHome() {
     },
     enabled: !!token,
   })
+  // Auditorias GR em que ela é a auditora (migração 105). Ficam FORA da agenda
+  // de visitas de propósito: não entram na folha, na previsão nem em "dia sem
+  // registro". Lidas direto da ficha: mudou lá, muda aqui. Sem a 105, nada.
+  type AuditoriaGRPortal = { id: string; fornecedor: string; planta?: string | null; data: string; horario?: string | null; realizada_em?: string | null
+    endereco?: string | null; cidade?: string | null; uf?: string | null; local?: string | null; contato?: string | null; telefone?: string | null; produtos?: string | null }
+  const { data: auditoriasGR } = useQuery({
+    queryKey: ['portal-auditorias-gr', employeeId, agendaMonth],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc('portal_auditorias_gr', { p_token: token, p_month: agendaMonth })
+      if (error) { console.warn('portal_auditorias_gr:', error.message); return [] }
+      return (data || []) as AuditoriaGRPortal[]
+    },
+    enabled: !!token,
+  })
   // Agenda do mês que está na FOLHA (pode ser outro mês que o da aba Agenda):
   // o fixo de consultoria vê "consultorias realizadas × programadas"
   const { data: agendaDaFolha } = useQuery({
@@ -1741,14 +1755,17 @@ export default function PortalHome() {
                   {Array.from({ length: daysInMonth }).map((_, i) => {
                     const ds = `${agendaMonth}-${String(i + 1).padStart(2, '0')}`
                     const itens = itensDoDia(ds)
+                    const auds = (auditoriasGR || []).filter(a => a.data === ds)
+                    const tem = itens.length + auds.length > 0
                     const ehHoje = ds === hojeStr
                     return (
                       <button key={ds} onClick={() => setDiaAgenda(ds)}
-                        className={`aspect-square rounded-lg border flex flex-col items-center justify-center gap-1 active:scale-95 transition-all ${ehHoje ? 'border-primary-600 bg-primary-50' : itens.length ? 'border-ink-200 bg-white' : 'border-ink-100 bg-ink-50/40'}`}>
-                        <span className={`text-xs ${ehHoje ? 'font-bold text-primary-700' : itens.length ? 'font-semibold text-ink-800' : 'text-ink-400'}`}>{i + 1}</span>
-                        {itens.length > 0 && (
+                        className={`aspect-square rounded-lg border flex flex-col items-center justify-center gap-1 active:scale-95 transition-all ${ehHoje ? 'border-primary-600 bg-primary-50' : tem ? 'border-ink-200 bg-white' : 'border-ink-100 bg-ink-50/40'}`}>
+                        <span className={`text-xs ${ehHoje ? 'font-bold text-primary-700' : tem ? 'font-semibold text-ink-800' : 'text-ink-400'}`}>{i + 1}</span>
+                        {tem && (
                           <span className="flex gap-0.5">
-                            {itens.slice(0, 3).map((it, k) => <span key={k} className={`w-1.5 h-1.5 rounded-full ${corDoItem(it)}`} />)}
+                            {auds.slice(0, 2).map((_, k) => <span key={`a${k}`} className="w-1.5 h-1.5 rounded-full bg-violet-600" />)}
+                            {itens.slice(0, 3 - Math.min(auds.length, 2)).map((it, k) => <span key={k} className={`w-1.5 h-1.5 rounded-full ${corDoItem(it)}`} />)}
                           </span>
                         )}
                       </button>
@@ -1757,6 +1774,7 @@ export default function PortalHome() {
                 </div>
                 <div className="flex flex-wrap gap-x-3 gap-y-1 mt-3 text-[11px] text-ink-500">
                   <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-500" />Visita marcada</span>
+                  {(auditoriasGR || []).length > 0 && <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-violet-600" />Auditoria</span>}
                   <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-600" />Feita</span>
                   <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-pink-500" />Trocada</span>
                   <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-sky-500" />Dia de escala</span>
@@ -1794,7 +1812,20 @@ export default function PortalHome() {
                         </h3>
                         <button onClick={() => setDiaAgenda(null)} className="p-1.5 rounded-lg text-ink-400" aria-label="Fechar"><X size={18} /></button>
                       </div>
-                      {itens.length === 0 && <p className="text-sm text-ink-400">Nada neste dia.</p>}
+                      {itens.length === 0 && !(auditoriasGR || []).some(a => a.data === ds) && <p className="text-sm text-ink-400">Nada neste dia.</p>}
+                      {(auditoriasGR || []).filter(a => a.data === ds).map(a => (
+                        <div key={a.id} className="rounded-xl border border-violet-200 bg-violet-50/60 p-3 flex items-start gap-2">
+                          <span className="mt-1.5 w-2 h-2 rounded-full shrink-0 bg-violet-600" />
+                          <div className="flex-1 min-w-0 space-y-0.5">
+                            <p className="text-[11px] font-semibold uppercase tracking-wide text-violet-700">Auditoria{a.realizada_em ? ' · realizada' : ''}</p>
+                            <p className="text-sm font-semibold text-ink-900">{a.fornecedor}{a.planta ? ` · ${a.planta}` : ''}</p>
+                            <p className="text-xs text-ink-600">{[a.horario ? `às ${a.horario}` : 'Horário a confirmar', a.local || [a.cidade, a.uf].filter(Boolean).join('/')].filter(Boolean).join(' · ')}</p>
+                            {a.endereco && <p className="text-xs text-ink-500">{a.endereco}</p>}
+                            {(a.contato || a.telefone) && <p className="text-xs text-ink-500">Contato: {[a.contato, a.telefone].filter(Boolean).join(' · ')}</p>}
+                            {a.produtos && <p className="text-xs text-ink-500">Produtos: {a.produtos}</p>}
+                          </div>
+                        </div>
+                      ))}
                       <div className="space-y-2">
                         {itens.map((it, k) => {
                           const nome = nomeDoCliente(it.clientId)

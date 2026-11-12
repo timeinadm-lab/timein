@@ -3,6 +3,7 @@
 // e a folha de ponto dos últimos 3 meses, dia a dia.
 import { supabase, fetchAll } from './supabase'
 import { formatDate, hojeISO, tipoDoVinculo } from './utils'
+import { vinculoEncerrado } from './vinculo'
 import { minutosLiquidos } from './jornada'
 import { salarioDoLink, diasDoLink } from './colaboradoresExcel'
 import { criarPdf } from './pdfBase'
@@ -84,9 +85,9 @@ export async function baixarFichaColaborador(employeeId: string, geradoPor?: str
         : txt(l.work_schedule_type) === 'horas' ? `${txt(l.horas_semana) || '?'}h por semana` : txt(l.work_schedule_type)
       const fim = txt(l.contract_end_date)
       return [l.client?.name || 'Cliente', tipoDoVinculo(l as never), escala, salarioDoLink(l as never).texto, diasDoLink(l as never),
-        `${formatDate(txt(l.start_date) || null)} a ${fim ? formatDate(fim) : 'sem fim'}${fim && fim < hoje ? ' (encerrado)' : ''}`]
+        `${formatDate(txt(l.start_date) || null)} a ${fim ? formatDate(fim) : 'sem fim'}${vinculoEncerrado(l, hoje) ? ' (encerrado)' : ''}`]
     }),
-    i => (txt(ordenados[i].contract_end_date) && txt(ordenados[i].contract_end_date) < hoje ? [245, 245, 245] : null),
+    i => (vinculoEncerrado(ordenados[i], hoje) ? [245, 245, 245] : null),
   )
 
   // ── Documentos ──

@@ -4,6 +4,7 @@
 // salário → dias de pagamento → dados pessoais. Segunda aba: um vínculo por linha.
 import { supabase } from './supabase'
 import { formatDate, hojeISO, tipoDoVinculo, pagaPorDiaria, salarioConsultoria } from './utils'
+import { vinculoAtivo } from './vinculo'
 
 type Pessoa = Record<string, unknown> & { id: string; full_name: string }
 type Link = Record<string, unknown> & {
@@ -70,7 +71,7 @@ export async function exportColaboradoresExcel(ids: string[], ufDoCep: (cep?: st
   const hoje = hojeISO()
   const ordem = new Map(ids.map((id, i) => [id, i]))
   const escolhidas = pessoas.filter(p => ordem.has(p.id)).sort((a, b) => ordem.get(a.id)! - ordem.get(b.id)!)
-  const ativos = (empId: string) => links.filter(l => l.employee_id === empId && (!l.contract_end_date || l.contract_end_date >= hoje))
+  const ativos = (empId: string) => links.filter(l => l.employee_id === empId && vinculoAtivo(l, hoje))
     .sort((a, b) => nomeCliente(a).localeCompare(nomeCliente(b)))
   // Contrato solto na aba Documentos (sem ser de um vínculo)
   const contratosNosDocs = (empId: string) => docs.filter(d => d.employee_id === empId && !!d.file_url && /contrato/i.test(d.name)).length

@@ -1,9 +1,13 @@
 import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Edit, Plus } from 'lucide-react'
+import { ArrowLeft, Edit, Plus, FileDown } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { formatDate } from '../../lib/utils'
+import { nomeArquivoContrato } from '../../lib/contratoDocumento'
+import { baixarBlob, blobDoContrato } from '../../lib/contratoPdf'
+import { anexarNoVinculo, enviarPdfContrato } from '../../lib/anexarContrato'
+import { SignedLink } from '../../components/ui/SignedFile'
 import { SkeletonDetail } from '../../components/ui/Skeleton'
 import toast from 'react-hot-toast'
 
@@ -12,12 +16,15 @@ export default function ContractDetail() {
   const navigate = useNavigate()
   const qc = useQueryClient()
   const [showVisitForm, setShowVisitForm] = useState(false)
+  const [gerando, setGerando] = useState(false)
   const [visit, setVisit] = useState({ visit_date: '', supervisor_id: '', supervisor_name: '', observations: '' })
 
   const { data: contract } = useQuery({
     queryKey: ['contract', id],
     queryFn: async () => {
-      const { data, error } = await supabase.from('contracts').select('*,supervisor:user_profiles(full_name)').eq('id', id).single()
+      const { data, error } = await supabase.from('contracts')
+        .select('*,supervisor:user_profiles(full_name),employee:employees(id,full_name),client:clients(id,name)')
+        .eq('id', id).single()
       if (error) throw error
       return data
     },
@@ -61,6 +68,45 @@ export default function ContractDetail() {
     onError: (e: Error) => toast.error(e.message),
   })
 
+  const pessoa = (Array.isArray(contract?.employee) ? contract?.employee[0] : contract?.employee) as { id?: string; full_name?: string } | null
+  const cliente = (Array.isArray(contract?.client) ? contract?.client[0] : contract?.client) as { id?: string; name?: string } | null
+
+  const gerarPdf = async (anexar: boolean) => {
+    if (!contract?.content) { toast.error('Este contrato não tem texto para gerar o PDF.'); return }
+    if (!contract.employee_id) { toast.error('Ligue o contrato a um colaborador antes de gerar o PDF.'); return }
+    setGerando(true)
+    try {
+      const nomePessoa = pessoa?.full_name || ''
+      const nomeCliente = contract.client_name || cliente?.name || ''
+      const blob = await blobDoContrato({
+        titulo: 'Contrato de prestação de serviços',
+        linha: [nomePessoa, nomeCliente].filter(Boolean).join(' · '),
+        corpo: contract.content,
+      })
+      const path = await enviarPdfContrato(contract.employee_id, blob, contract.link_id)
+      const { error } = await supabase.from('contracts').update({ file_url: path }).eq('id', id)
+      if (error) throw error
+      if (anexar && contract.link_id) {
+        await anexarNoVinculo({
+          employeeId: contract.employee_id,
+          linkId: contract.link_id,
+          path,
+          clientName: nomeCliente,
+        })
+      }
+      baixarBlob(blob, nomeArquivoContrato(nomePessoa, nomeCliente))
+      toast.success(anexar && contract.link_id ? 'PDF gerado e anexado ao vínculo.' : 'PDF gerado.')
+      qc.invalidateQueries({ queryKey: ['contract', id] })
+      qc.invalidateQueries({ queryKey: ['contracts'] })
+      qc.invalidateQueries({ queryKey: ['avisos-sino'] })
+      qc.invalidateQueries({ queryKey: ['employee-links'] })
+    } catch (e) {
+      toast.error((e as Error).message)
+    } finally {
+      setGerando(false)
+    }
+  }
+
   if (!contract) return <SkeletonDetail />
 
   return (
@@ -71,7 +117,17 @@ export default function ContractDetail() {
         <button onClick={() => navigate(`/contratos/${id}/editar`)} className="btn-secondary flex items-center gap-2"><Edit size={14} />Editar</button>
       </div>
 
-      <div className="card p-5 grid grid-cols-2 gap-4">
+      <div className="card p-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div><p className="text-xs text-gray-400">Colaborador</p>
+          {pessoa?.id
+            ? <button className="text-sm font-medium text-primary-700 hover:underline" onClick={() => navigate(`/colaboradores/${pessoa.id}`)}>{pessoa.full_name}</button>
+            : <p className="text-sm">—</p>}
+        </div>
+        <div><p className="text-xs text-gray-400">Cliente</p>
+          {cliente?.id
+            ? <button className="text-sm font-medium text-primary-700 hover:underline" onClick={() => navigate(`/clientes/${cliente.id}`)}>{contract.client_name || cliente.name}</button>
+            : <p className="text-sm">{contract.client_name || '—'}</p>}
+        </div>
         <div><p className="text-xs text-gray-400">Tipo</p><p className="text-sm">{contract.type}</p></div>
         <div><p className="text-xs text-gray-400">Início</p><p className="text-sm">{formatDate(contract.start_date)}</p></div>
         <div><p className="text-xs text-gray-400">Fim</p><p className="text-sm">{formatDate(contract.end_date)}</p></div>
@@ -82,7 +138,31 @@ export default function ContractDetail() {
         </div>
         <div><p className="text-xs text-gray-400">Responsável</p><p className="text-sm">{contract.employee_responsible || '-'}</p></div>
         <div><p className="text-xs text-gray-400">Supervisor</p><p className="text-sm">{(contract as { supervisor?: { full_name: string } }).supervisor?.full_name || '-'}</p></div>
-        {contract.observations && <div className="col-span-2"><p className="text-xs text-gray-400">Observações</p><p className="text-sm">{contract.observations}</p></div>}
+        {contract.observations && <div className="sm:col-span-2"><p className="text-xs text-gray-400">Observações</p><p className="text-sm whitespace-pre-wrap">{contract.observations}</p></div>}
+      </div>
+
+      <div className="card p-5 space-y-3">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <h3 className="font-medium">Texto do contrato</h3>
+          <div className="flex flex-wrap gap-2">
+            {contract.file_url && (
+              <SignedLink value={contract.file_url} bucket="arquivos" className="btn-secondary text-xs">
+                Abrir PDF salvo
+              </SignedLink>
+            )}
+            <button className="btn-secondary text-xs" disabled={gerando || !contract.content} onClick={() => gerarPdf(false)}>
+              <FileDown size={13} /> {gerando ? 'Gerando…' : 'Gerar PDF'}
+            </button>
+            {contract.link_id && (
+              <button className="btn-primary text-xs" disabled={gerando || !contract.content} onClick={() => gerarPdf(true)}>
+                {gerando ? 'Gerando…' : 'Gerar e anexar ao vínculo'}
+              </button>
+            )}
+          </div>
+        </div>
+        {contract.content
+          ? <pre className="text-sm text-ink-800 whitespace-pre-wrap font-sans leading-relaxed max-h-[28rem] overflow-auto bg-ink-50 rounded-lg p-3">{contract.content}</pre>
+          : <p className="text-sm text-ink-400">Este registro não tem texto. Edite e escolha um modelo para preencher.</p>}
       </div>
 
       {/* Visits */}

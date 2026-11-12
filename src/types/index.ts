@@ -83,6 +83,10 @@ export interface EmployeeClientLink {
   so_acesso?: boolean | null
   employee_id: string
   client_id: string
+  contract_end_date?: string | null
+  ended_at?: string | null
+  contract_file_url?: string | null
+  contract_required?: boolean | null
   service_type: 'Fixo' | 'Consultoria' | 'PJ'
   monthly_amount?: number
   weekly_hours_quota?: number
@@ -121,6 +125,12 @@ export interface EmployeeHistory {
 export interface Contract {
   id: string
   client_name?: string
+  /** Migração 106: colaborador, cliente e vínculo de verdade (antes só existia client_name). */
+  employee_id?: string | null
+  client_id?: string | null
+  link_id?: string | null
+  content?: string | null
+  file_url?: string | null
   type: 'Manual' | 'Padrão'
   start_date?: string
   end_date?: string
@@ -135,6 +145,8 @@ export interface Contract {
   created_at: string
   updated_at: string
   supervisor?: UserProfile
+  employee?: { full_name?: string } | null
+  client?: { name?: string } | null
 }
 
 export interface SupervisionVisit {

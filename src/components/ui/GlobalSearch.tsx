@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { supabase } from '../../lib/supabase'
 import { hojeISO, semAcento } from '../../lib/utils'
+import { vinculoEncerrado } from '../../lib/vinculo'
 
 interface Result {
   id: string
@@ -68,12 +69,12 @@ export default function GlobalSearch({ open, onClose }: Props) {
       const hoje = hojeISO()
       const [emp, links, cli] = await Promise.all([
         supabase.from('employees').select('id,full_name,role,status,cpf,whatsapp,phone,email'),
-        supabase.from('employee_client_links').select('employee_id,contract_end_date,client:clients(name)'),
+        supabase.from('employee_client_links').select('employee_id,contract_end_date,ended_at,client:clients(name)'),
         supabase.from('clients').select('id,name,contact_email'),
       ])
       const clientesDe = new Map<string, string[]>()
-      for (const l of (links.data || []) as { employee_id: string; contract_end_date?: string | null; client?: { name?: string } | { name?: string }[] }[]) {
-        if (l.contract_end_date && l.contract_end_date < hoje) continue
+      for (const l of (links.data || []) as { employee_id: string; contract_end_date?: string | null; ended_at?: string | null; client?: { name?: string } | { name?: string }[] }[]) {
+        if (vinculoEncerrado(l, hoje)) continue
         const c = Array.isArray(l.client) ? l.client[0] : l.client
         if (!c?.name) continue
         clientesDe.set(l.employee_id, [...(clientesDe.get(l.employee_id) || []), c.name])

@@ -9,6 +9,7 @@ import toast from 'react-hot-toast'
 import { supabase, fetchAll } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { formatDate, formatCurrency, formatLocalTime, parseLocal, isMeetingLink, mapsUrl, hojeISO, tipoDoVinculo, pagaPorDiaria, ehTemporario, precisaContrato, compromissoNoDia, pendenciasDoVinculo, salarioConsultoria } from '../lib/utils'
+import { vinculoAtivo, pendenciaDeContrato } from '../lib/vinculo'
 import type { VinculoCadastro } from '../lib/utils'
 import { buscarForaDaJornada, horaMin, TOLERANCIA_MIN } from '../lib/jornada'
 import MedidorEspaco, { useUsoDoSistema, porcento, tamanho, LIMITE_ARQUIVOS, LIMITE_BANCO } from '../components/ui/MedidorEspaco'
@@ -364,12 +365,11 @@ export default function Dashboard() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('employee_client_links')
-        .select('id,created_at,contract_required,service_type,employee_id,employee:employees(id,full_name,status),client:clients(name)')
+        .select('id,created_at,contract_required,service_type,contract_end_date,ended_at,contract_file_url,employee_id,employee:employees(id,full_name,status),client:clients(name)')
         .in('service_type', ['Fixo', 'Consultoria'])
         .is('contract_file_url', null)
-      // Vínculo marcado "não exige contrato" não é pendência
-      return (data || []).filter((l: { employee?: { status?: string }; contract_required?: boolean; created_at?: string }) =>
-        l.employee?.status === 'Ativo' && precisaContrato(l))
+      // Vínculo marcado "não exige contrato" não é pendência; encerrado também não
+      return (data || []).filter(l => pendenciaDeContrato(l))
     },
   })
 
@@ -381,7 +381,18 @@ export default function Dashboard() {
       const { data, error } = await supabase
         .from('employee_client_links')
         .select('*,employee:employees(status)')
-      return (data || []).filter((l: { employee?: { status?: string } }) => l.employee?.status === 'Ativo' && !ehTemporario(l) && precisaContrato(l))
+      return (data || []).filter((l: {
+        employee?: { status?: string }
+        contract_end_date?: string | null
+        ended_at?: string | null
+        contract_required?: boolean | null
+        created_at?: string | null
+        service_type?: string | null
+        coverage_type?: string | null
+        pay_mode?: string | null
+        is_temporary?: boolean | null
+        so_acesso?: boolean | null
+      }) => l.employee?.status === 'Ativo' && !ehTemporario(l) && precisaContrato(l) && vinculoAtivo(l))
     },
   })
 
@@ -586,7 +597,8 @@ export default function Dashboard() {
       const { data, error } = await supabase
         .from('employee_client_links')
         .select('*,employee:employees(status)')
-      return (data || []).filter((l: { employee?: { status?: string } }) => l.employee?.status === 'Ativo')
+      return (data || []).filter((l: { employee?: { status?: string }; contract_end_date?: string | null; ended_at?: string | null }) =>
+        l.employee?.status === 'Ativo' && vinculoAtivo(l))
     },
     enabled: role === 'chefe',
   })
@@ -665,11 +677,11 @@ export default function Dashboard() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('employee_client_links')
-        .select('id,contract_deadline,employee:employees(id,full_name,status),client:clients(name)')
+        .select('id,contract_deadline,contract_required,contract_file_url,contract_end_date,ended_at,created_at,service_type,employee:employees(id,full_name,status),client:clients(name)')
         .eq('contract_required', true)
         .is('contract_file_url', null)
       if (error) throw error
-      return (data || []).filter(l => (l as { employee?: { status?: string } }).employee?.status === 'Ativo')
+      return (data || []).filter(l => pendenciaDeContrato(l))
     },
   })
 
@@ -785,7 +797,7 @@ export default function Dashboard() {
         employee?: { id: string; full_name: string; status?: string } | null
         client?: { name?: string; client_units?: { visit_rate?: number | null }[] } | null }
       const ativos = ((data || []) as unknown as L[])
-        .filter(l => l.employee?.status === 'Ativo' && !(l.contract_end_date && l.contract_end_date < hoje))
+        .filter(l => l.employee?.status === 'Ativo' && vinculoAtivo(l, hoje))
       // Fixo de consultoria: o salário é um só, em qualquer um dos vínculos dela
       const comSalario = new Set(ativos.filter(l => salarioConsultoria(l) && Number(l.monthly_amount) > 0).map(l => l.employee_id))
       const porPessoa = new Map<string, { id: string; nome: string; vinculos: number; itens: Set<string> }>()
@@ -947,10 +959,9 @@ export default function Dashboard() {
   ].filter(d => d.value > 0)
 
   // Freelas: atuando (com link ativo) vs. favoritos disponíveis
-  const today = now.toISOString().slice(0, 10)
   const freelaAtuandoIds = new Set(
     (volanteLinks || [])
-      .filter(l => !l.contract_end_date || l.contract_end_date >= today)
+      .filter(l => vinculoAtivo(l))
       .map(l => l.employee_id)
   )
   const freelaAtuando = freelaAtuandoIds.size

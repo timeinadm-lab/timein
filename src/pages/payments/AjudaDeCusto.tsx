@@ -5,6 +5,7 @@ import { Plus, Download, X, Paperclip, CheckCircle2, Trash2, Home, Car, Fuel, Ut
 import { format, addDays, startOfWeek, endOfMonth, parseISO } from 'date-fns'
 import { supabase } from '../../lib/supabase'
 import { formatCurrency, formatDate, hojeISO } from '../../lib/utils'
+import { vinculoAtivo } from '../../lib/vinculo'
 import { getSignedUrl } from '../../lib/storage'
 import { confirmar } from '../../components/ui/ConfirmDialog'
 import { extensaoDoArquivo, comprimirImagem } from '../../lib/imagem'
@@ -104,7 +105,7 @@ export async function limparSemanasForaDoContrato(linkId: string, inicio: string
   if (erros.length) throw new Error(erros[0]!.message)
 }
 
-type Vinculo = { employee_id: string; client_id: string; start_date: string | null; contract_end_date: string | null }
+type Vinculo = { employee_id: string; client_id: string; start_date: string | null; contract_end_date: string | null; ended_at?: string | null }
 /**
  * Último dia em que a pessoa tem vínculo no cliente: null = sem fim (segue),
  * '' = nenhum vínculo. Mesma regra do banco (092, ultimo_dia_do_vinculo).
@@ -127,7 +128,7 @@ export default function AjudaDeCusto({ mes }: { mes: string }) {
         supabase.from('ajudas_custo').select('*').lte('inicio', fimMes).gte('fim', ini).order('inicio'),
         supabase.from('employees').select('id, full_name, status, dismissal_date, pix').order('full_name'),
         supabase.from('clients').select('id, name').order('name'),
-        supabase.from('employee_client_links').select('employee_id, client_id, start_date, contract_end_date'),
+        supabase.from('employee_client_links').select('employee_id, client_id, start_date, contract_end_date, ended_at'),
       ])
       if (a.error) throw new Error(a.error.message)
       return {
@@ -385,7 +386,7 @@ function FormAjuda({ inicial, pessoas, clientes, vinculos, fimMes, fechar, salvo
 
   // Clientes da pessoa primeiro
   // Só cliente com vínculo valendo (o banco recusa o resto, 092)
-  const daPessoa = new Set(vinculos.filter(v => v.employee_id === f.employee_id && (!v.contract_end_date || v.contract_end_date >= hojeISO())).map(v => v.client_id))
+  const daPessoa = new Set(vinculos.filter(v => v.employee_id === f.employee_id && vinculoAtivo(v)).map(v => v.client_id))
   const clientesOrdem = [...clientes.filter(c => daPessoa.has(c.id)), ...clientes.filter(c => !daPessoa.has(c.id))]
   const valor = Number(valorTxt.replace(/\./g, '').replace(',', '.'))
   const periodoDe = f.periodo === 'mes' ? `${(f.inicio || fimMes).slice(0, 7)}-01` : segunda(f.inicio || hojeISO())

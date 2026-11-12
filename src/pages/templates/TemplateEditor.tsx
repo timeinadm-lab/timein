@@ -3,12 +3,8 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Copy } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
+import { ROTULO_VARIAVEL, VARIAVEIS_CONTRATO, tokenVariavel } from '../../lib/contratoDocumento'
 import toast from 'react-hot-toast'
-
-const VARIABLES = [
-  '{{NOME_COLABORADOR}}', '{{CPF}}', '{{CLIENTE}}',
-  '{{DATA_INICIO}}', '{{DATA_FIM}}', '{{VALOR_MENSAL}}', '{{CARGO}}',
-]
 
 export default function TemplateEditor() {
   const { id } = useParams()
@@ -62,8 +58,8 @@ export default function TemplateEditor() {
         <h1 className="page-title-sm">{isEdit ? 'Editar Template' : 'Novo Template'}</h1>
       </div>
 
-      <form onSubmit={handleSubmit} className="flex gap-4">
-        <div className="flex-1 space-y-4">
+      <form onSubmit={handleSubmit} className="flex flex-col lg:flex-row gap-4">
+        <div className="flex-1 min-w-0 space-y-4">
           <div className="card p-5">
             <label className="label">Nome do Template *</label>
             <input className="input" required value={name} onChange={e => setName(e.target.value)} />
@@ -84,21 +80,24 @@ export default function TemplateEditor() {
           </div>
         </div>
 
-        {/* Variables panel */}
-        <div className="w-48 flex-shrink-0">
-          <div className="card p-4 sticky top-4">
-            <h3 className="text-sm font-medium mb-3">Variáveis</h3>
-            <p className="text-xs text-gray-400 mb-3">Clique para copiar:</p>
-            <div className="space-y-1">
-              {VARIABLES.map(v => (
+        {/* Variáveis: no celular ficam acima do texto, em grade; no desktop, na lateral */}
+        <div className="lg:w-56 lg:flex-shrink-0 order-first lg:order-none">
+          <div className="card p-4 lg:sticky lg:top-4">
+            <h3 className="text-sm font-medium mb-1">Variáveis</h3>
+            <p className="text-xs text-gray-400 mb-3">Clique para copiar. Na hora de gerar o contrato, cada uma vira o dado real.</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-1">
+              {VARIAVEIS_CONTRATO.map(k => (
                 <button
-                  key={v}
+                  key={k}
                   type="button"
-                  onClick={() => copyVariable(v)}
-                  className="w-full text-left text-xs px-2 py-1.5 rounded hover:bg-primary-50 hover:text-primary-700 font-mono flex items-center gap-1"
+                  onClick={() => copyVariable(tokenVariavel(k))}
+                  className="text-left text-xs px-2 py-1.5 rounded hover:bg-primary-50 hover:text-primary-700 flex items-start gap-1"
                 >
-                  <Copy size={10} />
-                  {v}
+                  <Copy size={10} className="mt-0.5 shrink-0" />
+                  <span>
+                    <span className="font-mono block">{tokenVariavel(k)}</span>
+                    <span className="text-ink-400">{ROTULO_VARIAVEL[k]}</span>
+                  </span>
                 </button>
               ))}
             </div>

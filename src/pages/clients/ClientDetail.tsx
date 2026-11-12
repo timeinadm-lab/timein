@@ -7,6 +7,7 @@ import { SignedLink } from '../../components/ui/SignedFile'
 import DeletePinModal from '../../components/ui/DeletePinModal'
 import { SkeletonDetail } from '../../components/ui/Skeleton'
 import { formatDate, formatCurrency, serviceTypeLabel, hojeISO } from '../../lib/utils'
+import { vinculoEncerrado, diasAteFim } from '../../lib/vinculo'
 import { differenceInDays, parseISO } from 'date-fns'
 import toast from 'react-hot-toast'
 import { confirmar } from '../../components/ui/ConfirmDialog'
@@ -121,7 +122,7 @@ export default function ClientDetail() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('employee_client_links')
-        .select('id, contract_file_url, service_type, contract_end_date, employee:employees(id, full_name)')
+        .select('id, contract_file_url, service_type, contract_end_date, ended_at, employee:employees(id, full_name)')
         .eq('client_id', id)
         .not('contract_file_url', 'is', null)
       if (error) throw error
@@ -426,7 +427,7 @@ export default function ClientDetail() {
               <div className="space-y-1.5">
                 {contratosVinculos!.map(l => {
                   const emp = (l as { employee?: { id: string; full_name: string } }).employee
-                  const encerrado = l.contract_end_date && l.contract_end_date < hojeISO()
+                  const encerrado = vinculoEncerrado(l, hojeISO())
                   return (
                     <div key={l.id} className="flex items-center justify-between gap-3 px-3 py-2 bg-ink-50 rounded-lg">
                       <div className="min-w-0">
@@ -873,23 +874,17 @@ export default function ClientDetail() {
             <p className="text-sm text-gray-400">Nenhum colaborador vinculado</p>
           ) : (
             <div className="space-y-3">
-              {[...(links || [])].sort((a, b) => {
-                const fimA = (a as { contract_end_date?: string }).contract_end_date
-                const fimB = (b as { contract_end_date?: string }).contract_end_date
-                const encA = fimA && fimA < hojeISO() ? 1 : 0
-                const encB = fimB && fimB < hojeISO() ? 1 : 0
-                return encA - encB
-              }).map(l => {
+              {[...(links || [])].sort((a, b) => (vinculoEncerrado(a) ? 1 : 0) - (vinculoEncerrado(b) ? 1 : 0)).map(l => {
                 const emp = (l as { employee?: { id: string; full_name: string; role?: string } }).employee
                 // Encerrado = último dia já passou. Fica listado como histórico,
                 // com o registro do encerramento (quem, motivo, multa, distrato).
                 const fimVinc = (l as { contract_end_date?: string }).contract_end_date
-                const encerrado = !!fimVinc && fimVinc < hojeISO()
+                const encerrado = vinculoEncerrado(l)
                 const enc = l as { ended_at?: string; end_initiated_by?: string; end_reason?: string; end_fine_amount?: number; end_fine_description?: string; end_document_url?: string }
                 const isFixo = l.service_type !== 'Consultoria'
                 const payDates = ((l as { payment_dates?: { day_of_month: number; amount: number }[] }).payment_dates || []).sort((a, b) => a.day_of_month - b.day_of_month)
                 const contractEnd = (l as { contract_end_date?: string }).contract_end_date
-                const daysToEnd = contractEnd ? Math.round((new Date(contractEnd).getTime() - Date.now()) / 86400000) : null
+                const daysToEnd = diasAteFim(contractEnd, hojeISO())
                 const WEEKDAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
                 const daysOff = ((l as { days_off?: number[] }).days_off || []).map((d: number) => WEEKDAYS[d]).join(', ')
 
@@ -898,7 +893,7 @@ export default function ClientDetail() {
                     {encerrado && (
                       <div className="rounded-lg bg-white border border-ink-200 px-3 py-2 space-y-0.5">
                         <p className="text-xs text-ink-800">
-                          <strong>Contrato encerrado em {formatDate(fimVinc!)}</strong>
+                          <strong>{fimVinc ? `Contrato encerrado em ${formatDate(fimVinc)}` : 'Contrato encerrado'}</strong>
                           {enc.end_initiated_by && <> · {({ cliente: 'Cliente rompeu', nutricionista: 'Nutricionista pediu para sair', tin: 'TIN desligou', acordo: 'Acordo entre as partes' } as Record<string, string>)[enc.end_initiated_by] || enc.end_initiated_by}</>}
                         </p>
                         {enc.end_reason && <p className="text-xs text-ink-600">Motivo: {enc.end_reason}</p>}

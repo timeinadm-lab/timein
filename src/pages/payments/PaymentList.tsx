@@ -5,6 +5,7 @@ import { Plus, Download, Check, RefreshCw, AlertTriangle, ChevronDown, ChevronUp
 import { supabase, fetchAll } from '../../lib/supabase'
 import { parcelasDoVinculo, parcelaDoMes, proximaParcela } from '../../lib/contrato'
 import { formatDate, formatCurrency, hojeISO, semAcento, tipoDoVinculo, pagaPorDiaria, ehTemporario, salarioConsultoria } from '../../lib/utils'
+import { vinculoAtivo } from '../../lib/vinculo'
 import { jornadaDoVinculo, desvioDoDia, TOLERANCIA_MIN } from '../../lib/jornada'
 import type { VinculoJornada } from '../../lib/jornada'
 import { exportToCSV } from '../../lib/exportUtils'
@@ -306,10 +307,10 @@ export default function PaymentList() {
   const { data: comAjudaSemanal } = useQuery({
     queryKey: ['links-ajuda-semanal'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('employee_client_links').select('employee_id, contract_end_date')
+      const { data, error } = await supabase.from('employee_client_links').select('employee_id, contract_end_date, ended_at')
         .eq('cost_assistance_periodo', 'semana').gt('cost_assistance', 0)
       if (error) return new Set<string>()
-      return new Set((data || []).filter(l => !l.contract_end_date || l.contract_end_date >= hojeISO()).map(l => l.employee_id as string))
+      return new Set((data || []).filter(l => vinculoAtivo(l)).map(l => l.employee_id as string))
     },
   })
   const proximaSegunda = (() => { const d = new Date(hojeISO() + 'T12:00:00'); d.setDate(d.getDate() + ((8 - (d.getDay() || 7)) % 7)); return format(d, 'dd/MM') })()

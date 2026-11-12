@@ -5,7 +5,9 @@ import { Bell, Receipt, Clock3, FileWarning, FileSignature, MessageSquare, Alert
 import type { LucideIcon } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
-import { hojeISO, precisaContrato } from '../../lib/utils'
+import { hojeISO } from '../../lib/utils'
+import { contaVinculosSemContrato } from '../../lib/vinculo'
+import type { AvisoContrato } from '../../lib/vinculo'
 import { buscarForaDaJornada } from '../../lib/jornada'
 import { porcento, LIMITE_ARQUIVOS, LIMITE_BANCO } from '../ui/MedidorEspaco'
 import type { UsoDoSistema } from '../ui/MedidorEspaco'
@@ -37,15 +39,13 @@ export default function AvisosSino() {
         chefe ? conta(supabase.from('payments').select('id', { count: 'exact', head: true }).eq('status', 'Pendente').lt('due_date', hojeISO())) : 0,
         chefe ? conta(supabase.from('employee_documents').select('id', { count: 'exact', head: true }).eq('status', 'Pendente').is('file_url', null)) : 0,
         conta(supabase.from('employee_questions').select('id', { count: 'exact', head: true }).is('answer', null)),
-        // Contrato faltando só conta para quem está ativo
+        // Contrato faltando só conta para quem está ativo e cujo vínculo não acabou
         (async () => {
           const { data } = await supabase.from('employee_client_links')
-            .select('id, contract_required, created_at, employee:employees(status)')
+            .select('id, contract_required, created_at, contract_end_date, ended_at, contract_file_url, service_type, employee:employees(status)')
             .in('service_type', ['Fixo', 'Consultoria'])
             .is('contract_file_url', null)
-          // Vínculo marcado "não exige contrato" não é pendência
-          return ((data || []) as { contract_required?: boolean; created_at?: string; employee?: { status?: string } | { status?: string }[] }[])
-            .filter(l => precisaContrato(l) && (Array.isArray(l.employee) ? l.employee[0] : l.employee)?.status === 'Ativo').length
+          return contaVinculosSemContrato((data || []) as AvisoContrato[])
         })(),
         // Supervisão agendada cujo dia passou sem check-in (migração 059)
         conta(supabase.from('supervision_visits').select('id', { count: 'exact', head: true }).eq('status', 'agendada').lt('visit_date', hojeISO())),

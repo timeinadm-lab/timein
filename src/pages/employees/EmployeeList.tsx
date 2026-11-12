@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { Plus, Search, Download, AlertCircle, ChevronRight, Star, X, MessageCircle } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { formatDate, getInitials, hojeISO, semAcento, formatWhatsApp, corDoAvatar } from '../../lib/utils'
+import { vinculoEncerrado } from '../../lib/vinculo'
 import { SignedImage } from '../../components/ui/SignedFile'
 import { exportColaboradoresExcel } from '../../lib/colaboradoresExcel'
 import toast from 'react-hot-toast'
@@ -67,11 +68,11 @@ export default function EmployeeList() {
     queryKey: ['employee-active-link-counts'],
     queryFn: async () => {
       const today = hojeISO()
-      const { data, error } = await supabase.from('employee_client_links').select('employee_id, contract_end_date, client:clients(name)')
+      const { data, error } = await supabase.from('employee_client_links').select('employee_id, contract_end_date, ended_at, client:clients(name)')
       if (error) throw error
       const map = new Map<string, string[]>()
-      for (const l of (data || []) as { employee_id: string; contract_end_date?: string | null; client?: { name?: string } | { name?: string }[] }[]) {
-        if (l.contract_end_date && l.contract_end_date < today) continue
+      for (const l of (data || []) as { employee_id: string; contract_end_date?: string | null; ended_at?: string | null; client?: { name?: string } | { name?: string }[] }[]) {
+        if (vinculoEncerrado(l, today)) continue
         const c = Array.isArray(l.client) ? l.client[0] : l.client
         map.set(l.employee_id, [...(map.get(l.employee_id) || []), c?.name || 'Cliente'])
       }

@@ -5,6 +5,7 @@ import { ArrowLeft, Edit, MessageCircle, ChevronDown, ChevronUp, FileText, Check
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { formatDate, formatWhatsApp, formatCurrency, BRAZIL_STATES, DEFAULT_DOCUMENTS, serviceTypeLabel, hojeISO, ehTemporario } from '../../lib/utils'
+import { vinculoAtivo } from '../../lib/vinculo'
 import { getCityRegion } from '../../lib/geoRegions'
 import { SignedLink } from '../../components/ui/SignedFile'
 import { SkeletonDetail } from '../../components/ui/Skeleton'
@@ -324,8 +325,8 @@ export default function VacancyDetail() {
       const hoje = hojeISO()
       const { data: todosLinks } = await supabase
         .from('employee_client_links')
-        .select('employee_id, client_id, contract_end_date')
-      const ativos = (todosLinks || []).filter(l => !l.contract_end_date || l.contract_end_date >= hoje)
+        .select('employee_id, client_id, contract_end_date, ended_at')
+      const ativos = (todosLinks || []).filter(l => vinculoAtivo(l, hoje))
       const carga: Record<string, number> = {}
       const jaNesteCliente = new Set<string>()
       for (const l of ativos) {
@@ -571,7 +572,7 @@ export default function VacancyDetail() {
         // Sobrou algum vínculo ainda em vigor? Se não, a pessoa fica inativa.
         const { data: otherLinks } = await supabase.from('employee_client_links')
           .select('id,contract_end_date').eq('employee_id', empId)
-        const aindaAtivos = (otherLinks || []).filter(l => !l.contract_end_date || l.contract_end_date >= hojeStr)
+        const aindaAtivos = (otherLinks || []).filter(l => vinculoAtivo(l, hojeStr))
         if (!aindaAtivos.length) {
           await supabase.from('employees').update({ status: 'Inativo', dismissal_date: hojeISO() }).eq('id', empId)
         }

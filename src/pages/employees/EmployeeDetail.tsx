@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Edit, Plus, Trash2, CheckCircle, Clock, XCircle, Download, Upload, ExternalLink, AlertTriangle, Star, X, FileText, Timer } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { formatDate, formatCurrency, getInitials, serviceTypeLabel, hojeISO, corDoAvatar, pagaPorDiaria, ehTemporario, rotuloDoVinculo, pendenciasDoVinculo, salarioConsultoria } from '../../lib/utils'
+import { vinculoEncerrado, vinculoAtivo, diasAteFim } from '../../lib/vinculo'
 import type { VinculoCadastro } from '../../lib/utils'
 import { minutosLiquidos } from '../../lib/jornada'
 import { sugerirParcelas, problemasDasParcelas, parcelasDoVinculo, ordenarParcelas, mensalDasParcelas } from '../../lib/contrato'
@@ -556,8 +557,7 @@ export default function EmployeeDetail() {
       const novoEhPermanente = coverageForm.vinculo_tipo === 'permanente'
       const conflito = (links || []).find(l => {
         if (l.client_id !== coverageForm.client_id) return false
-        const fim = (l as { contract_end_date?: string }).contract_end_date
-        if (fim && fim < hoje) return false            // já encerrado, não conflita
+        if (vinculoEncerrado(l, hoje)) return false // já encerrado, não conflita
         const existenteEhPermanente = !ehTemporario(l)
         return novoEhPermanente && existenteEhPermanente
       })
@@ -971,8 +971,7 @@ export default function EmployeeDetail() {
   // por cliente (o portal e a folha dependem disso), mas na ficha é um vínculo
   // só, com os clientes dentro. A folha já junta esses registros numa linha e
   // soma o salário — por isso o salário fica num registro só.
-  const grupoFixo = (links || []).filter(l => salarioConsultoria(l as VinculoCadastro) && !ehTemporario(l)
-    && !((l as { contract_end_date?: string }).contract_end_date && (l as { contract_end_date?: string }).contract_end_date! <= hojeStr))
+  const grupoFixo = (links || []).filter(l => salarioConsultoria(l as VinculoCadastro) && !ehTemporario(l) && vinculoAtivo(l, hojeStr))
   const salarioDoFixo = grupoFixo.reduce((s, l) => s + (Number(l.monthly_amount) || 0), 0)
   const principalDoFixo = [...grupoFixo].sort((a, b) => (Number(b.monthly_amount) || 0) - (Number(a.monthly_amount) || 0))[0]
 
@@ -2345,8 +2344,7 @@ export default function EmployeeDetail() {
                 const consultSalario = coverageForm.coverage_type === 'Consultoria' && coverageForm.consult_salario
                 // Fixo de consultoria: o salário é um só para todos os clientes dela.
                 // Se já está em outro vínculo, aqui fica em branco (a folha soma tudo).
-                const jaTemSalario = (links || []).some(o => salarioConsultoria(o as VinculoCadastro) && Number(o.monthly_amount) > 0
-                  && !((o as { contract_end_date?: string | null }).contract_end_date && (o as { contract_end_date?: string }).contract_end_date! < hojeStr))
+                const jaTemSalario = (links || []).some(o => salarioConsultoria(o as VinculoCadastro) && Number(o.monthly_amount) > 0 && vinculoAtivo(o, hojeStr))
                 const faltaValor = (coverageForm.coverage_type === 'Fixo' || (consultSalario && !jaTemSalario)) && !coverageForm.monthly_amount && !coverageForm.parcelas
                 // Datas combinadas + ajuda MENSAL diriam duas coisas: a ajuda mensal iria junto de qual data?
                 const ajudaMensalComDatas = !!coverageForm.parcelas && coverageForm.ajuda_periodo === 'mes' && Number(coverageForm.ajuda_valor) > 0
@@ -2452,8 +2450,7 @@ export default function EmployeeDetail() {
               const contratoArquivo = (l as { contract_file_url?: string }).contract_file_url
               const linkUnits = (l as { link_units?: { unit_id: string; unit_name: string }[] }).link_units || []
               const isExtending = extendLinkId === l.id
-              const daysLeft = endDate ? differenceInDays(new Date(endDate + 'T12:00:00'), new Date()) : null
-              const expired = daysLeft !== null && daysLeft < 0
+              const expired = vinculoEncerrado(l, hojeStr)
               return (
                 <div key={l.id} className={`border rounded-xl p-4 space-y-2 ${expired ? 'border-red-200 bg-red-50' : 'border-orange-200 bg-orange-50'}`}>
                   <div className="flex items-start justify-between gap-2">
@@ -2557,11 +2554,9 @@ export default function EmployeeDetail() {
                 : null
               const contractYellow = contractPendingHours !== null && contractPendingHours >= 24 && contractPendingHours < 48
               const contractRed = contractPendingHours !== null && contractPendingHours >= 48
-              const daysLeft = contractEnd ? differenceInDays(new Date(contractEnd + 'T12:00:00'), new Date()) : null
-              // Encerrado = a data de fim já chegou. É diferente de "contrato
-              // vencendo": aqui o vínculo acabou, e o card precisa dizer isso em
-              // vez de piscar um alerta de prazo que não cabe mais.
-              const encerrado = !!contractEnd && contractEnd <= hojeStr
+              const daysLeft = diasAteFim(contractEnd, hojeStr)
+              // Último dia ainda é dia de trabalho. Encerrado só no dia seguinte.
+              const encerrado = vinculoEncerrado(l, hojeStr)
               const expiringSoon = !encerrado && daysLeft !== null && daysLeft >= 0 && daysLeft <= 40
               const expired = !encerrado && daysLeft !== null && daysLeft < 0
               // Sai da folha no mês seguinte ao encerramento — no mês em que
@@ -2583,8 +2578,7 @@ export default function EmployeeDetail() {
               const pendCadastro = encerrado ? [] : pendenciasDoVinculo(l as VinculoCadastro, {
                 unidadesComValor: (((l.client as { client_units?: { visit_rate?: number | null }[] } | undefined)?.client_units) || []).some(u => Number(u.visit_rate) > 0),
                 // Fixo de consultoria: o salário vale para todos os clientes dela
-                salarioNoGrupo: (links || []).some(o => salarioConsultoria(o as VinculoCadastro) && Number(o.monthly_amount) > 0
-                  && !((o as { contract_end_date?: string | null }).contract_end_date && (o as { contract_end_date?: string }).contract_end_date! < hojeStr)),
+                salarioNoGrupo: (links || []).some(o => salarioConsultoria(o as VinculoCadastro) && Number(o.monthly_amount) > 0 && vinculoAtivo(o, hojeStr)),
               })
               return (
                 <div key={l.id} className={`border rounded-lg p-4 ${noFixo ? 'bg-white ' : ''}${encerrado ? 'border-ink-200 bg-ink-50/60' : contractRed ? 'border-red-300 bg-red-50 ring-1 ring-red-200' : contractYellow ? 'border-amber-300 bg-amber-50 ring-1 ring-amber-200' : expired ? 'border-red-200 bg-red-50' : expiringSoon ? 'border-amber-200 bg-amber-50' : 'border-gray-100'}`}>
@@ -2615,8 +2609,8 @@ export default function EmployeeDetail() {
                             : x.work_schedule_type === 'cliente'
                               ? ['Escala do cliente · salário inteiro', horario].filter(Boolean).join(' · ')
                               : [x.work_schedule_type, horario].filter(Boolean).join(' · ')
-                        const statusContrato = encerrado ? { t: `Encerrado em ${formatDate(contractEnd!)}`, c: 'bg-ink-200 text-ink-700' }
-                          : daysLeft !== null ? { t: expired ? `Vencido há ${Math.abs(daysLeft)}d` : `Vence em ${daysLeft}d`, c: expired ? 'bg-red-100 text-red-700' : expiringSoon ? 'bg-amber-100 text-amber-700' : 'bg-green-50 text-green-700' }
+                        const statusContrato = encerrado ? { t: contractEnd ? `Encerrado em ${formatDate(contractEnd)}` : 'Encerrado', c: 'bg-ink-200 text-ink-700' }
+                          : daysLeft !== null ? { t: daysLeft < 0 ? `Vencido há ${Math.abs(daysLeft)}d` : daysLeft === 0 ? 'Vence hoje' : `Vence em ${daysLeft}d`, c: daysLeft < 0 ? 'bg-red-100 text-red-700' : expiringSoon ? 'bg-amber-100 text-amber-700' : 'bg-green-50 text-green-700' }
                           : !noFixo && (l.service_type === 'Fixo' || l.service_type === 'Consultoria') ? { t: 'Sem data de fim', c: 'bg-ink-100 text-ink-500' } : null
                         return (
                           <>
@@ -2682,7 +2676,7 @@ export default function EmployeeDetail() {
                         return (
                           <div className="mt-3 rounded-lg bg-white border border-ink-200 px-3 py-2.5 space-y-1">
                             <p className="text-xs text-ink-700">
-                              <strong>Contrato encerrado em {formatDate(contractEnd!)}</strong>
+                              <strong>{contractEnd ? `Contrato encerrado em ${formatDate(contractEnd)}` : 'Contrato encerrado'}</strong>
                               {enc.end_initiated_by && <> · {QUEM_ENCERROU[enc.end_initiated_by] || enc.end_initiated_by}</>}
                             </p>
                             {enc.end_reason && <p className="text-xs text-ink-600">Motivo: {enc.end_reason}</p>}
@@ -2711,6 +2705,11 @@ export default function EmployeeDetail() {
                           duas vezes (etiqueta + quadro grande), o vencimento também, e o
                           encerrado ainda pedia "contrato urgente". */}
                       <div className="flex gap-x-3 gap-y-2 mt-3 pt-3 border-t border-ink-100 flex-wrap items-center text-xs">
+                        {!noFixo && !encerrado && (l.service_type === 'Fixo' || l.service_type === 'Consultoria') && (
+                          <button type="button" className="text-primary-700 hover:underline font-medium" onClick={() => navigate(`/contratos/novo?vinculo=${l.id}`)}>
+                            Gerar contrato
+                          </button>
+                        )}
                         {!noFixo && !encerrado && (l.service_type === 'Fixo' || l.service_type === 'Consultoria') && (contractFile ? (
                           <span className="inline-flex items-center gap-1.5 text-green-700 font-medium">
                             <CheckCircle size={13} /> Contrato assinado
@@ -3170,9 +3169,8 @@ export default function EmployeeDetail() {
               }
               // Encerrado vai pro fim da lista: quem está ativo é o que importa
               const lista = (links || []).filter(l => !ehTemporario(l)).slice().sort((a, b) => {
-                const fim = (x: typeof a) => (x as { contract_end_date?: string }).contract_end_date || ''
-                const encA = fim(a) && fim(a) <= hojeStr ? 1 : 0
-                const encB = fim(b) && fim(b) <= hojeStr ? 1 : 0
+                const encA = vinculoEncerrado(a, hojeStr) ? 1 : 0
+                const encB = vinculoEncerrado(b, hojeStr) ? 1 : 0
                 return encA - encB
               })
               const idsFixo = new Set(grupoFixo.map(l => l.id))
@@ -3649,7 +3647,7 @@ export default function EmployeeDetail() {
                     // Vínculo encerrado não entra: não se marca dia onde ela já saiu.
                     const clientesAgenda = Array.from(new Map(
                       (links || [])
-                        .filter(l => { const fim = (l as { contract_end_date?: string | null }).contract_end_date; return !fim || fim >= hojeISO() })
+                        .filter(l => vinculoAtivo(l))
                         .map(l => l.client as { id: string; name: string })
                         .filter(c => c?.id)
                         .map(c => [c.id, c] as const)
@@ -4272,7 +4270,7 @@ function VisaoGeral({
 }) {
   const { role } = useAuth()
   const hojeResumo = hojeISO()
-  const ativosHoje = links.filter(l => { const fim = (l as { contract_end_date?: string | null }).contract_end_date; return !fim || fim > hojeResumo })
+  const ativosHoje = links.filter(l => vinculoAtivo(l, hojeResumo))
   const [selectedMonth, setSelectedMonth] = useState(format(new Date(), 'yyyy-MM'))
   const [dayDetail, setDayDetail] = useState<number | null>(null)
   // Intervalo do contrato do cliente (mesma regra do portal)
@@ -4921,7 +4919,7 @@ function PortalTab({ employeeId, employee }: { employeeId: string; employee: Rec
     queryFn: async () => {
       const { data, error } = await supabase
         .from('employee_client_links')
-        .select('id,contract_required,contract_file_url,contract_end_date,client:clients(name)')
+        .select('id,contract_required,contract_file_url,contract_end_date,ended_at,client:clients(name)')
         .eq('employee_id', employeeId)
       if (error) throw error
       return data || []
@@ -5021,8 +5019,7 @@ function PortalTab({ employeeId, employee }: { employeeId: string; employee: Rec
   const inativo = (employee as { status?: string })?.status !== 'Ativo'
   const semCpf = !(employee as { cpf?: string })?.cpf
   const contratosPendentes = (portalLinks || []).filter(l =>
-    l.contract_required && !l.contract_file_url
-    && (!l.contract_end_date || l.contract_end_date >= hojeISO()))
+    l.contract_required && !l.contract_file_url && vinculoAtivo(l))
   const impedimentos: string[] = [
     inativo && 'O colaborador está inativo — o login só funciona com status Ativo.',
     semCpf && 'Sem CPF cadastrado — o CPF é o usuário do login.',

@@ -5,6 +5,7 @@ import toast from 'react-hot-toast'
 import { Download, Search, Columns3, X, RotateCcw } from 'lucide-react'
 import { supabase, fetchAll } from '../../lib/supabase'
 import { formatCurrency, formatDate, tipoDoVinculo, salarioConsultoria, pagaPorDiaria, hojeISO } from '../../lib/utils'
+import { vinculoAtivo } from '../../lib/vinculo'
 import { resumoDoVinculo } from '../../lib/jornadaPessoa'
 import type { VinculoPerfil, RegistroPerfil, AgendaPerfil, AvisoPerfil } from '../../lib/jornadaPessoa'
 import { resumoDoPonto, pagamentoDoMes, textoPagamento, textoDia, horasTexto, diasDoVinculo } from '../../lib/planilhas'
@@ -142,7 +143,7 @@ export default function PlanilhaCompleta({ mes, nomeMes }: { mes: string; nomeMe
         : l.work_schedule_type === 'cliente' ? 'Escala do cliente' : l.work_schedule_type === 'horas' ? `${l.horas_semana || '?'}h/semana` : l.work_schedule_type || ''
       out.push({
         id: l.id, empId: l.employee_id, pessoa: p.full_name, cpf: p.cpf || '', cliente: l.client?.name || '—', formato, escala,
-        ativo: !l.contract_end_date || l.contract_end_date >= hoje, inicio: l.start_date || null, fim: l.contract_end_date || null,
+        ativo: vinculoAtivo(l, hoje), inicio: l.start_date || null, fim: l.contract_end_date || null,
         diasPgto: dias, datasPgto: datas, valorBase,
         registros: rs.length, dias: rp.diasTrabalhados, faltas: rp.faltas, folgas: rp.folgas, extras: rp.extras, minutos: rp.minutos, semRelatorio: rp.semRelatorio,
         semRegistro, previstos: jornada.previstos, ultimo: rp.ultimo, folha,

@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { Plus, Search, Building2, Trash2 } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { formatDate, daysUntil, hojeISO } from '../../lib/utils'
+import { vinculoEncerrado } from '../../lib/vinculo'
 import Pagination from '../../components/ui/Pagination'
 import DeletePinModal from '../../components/ui/DeletePinModal'
 import { SkeletonCards, EmptyState } from '../../components/ui/Skeleton'
@@ -39,12 +40,12 @@ export default function ClientList() {
       const hoje = hojeISO()
       const { data, error } = await supabase
         .from('employee_client_links')
-        .select('client_id, contract_end_date, employee:employees(status)')
+        .select('client_id, contract_end_date, ended_at, employee:employees(status)')
       if (error) throw error
       const mapa: Record<string, number> = {}
       for (const l of data || []) {
         if ((l as { employee?: { status?: string } }).employee?.status !== 'Ativo') continue
-        if (l.contract_end_date && l.contract_end_date < hoje) continue
+        if (vinculoEncerrado(l, hoje)) continue
         if (!l.client_id) continue
         mapa[l.client_id] = (mapa[l.client_id] || 0) + 1
       }

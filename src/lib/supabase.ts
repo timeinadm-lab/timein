@@ -1,8 +1,14 @@
 import { createClient } from '@supabase/supabase-js'
 
+// Consulta que não responde em 20 s é cortada (a tela tenta de novo sozinha).
+// Arquivo (storage) tem 2 min: com 15 s para tudo, foto/PDF grande em internet
+// lenta era cortado no meio do envio (18/11/2026).
 const fetchWithTimeout = (input: RequestInfo | URL, init?: RequestInit) => {
+  const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), 15000)
+  const timer = setTimeout(() => controller.abort(), url.includes('/storage/v1/') ? 120_000 : 20_000)
+  const deFora = init?.signal
+  if (deFora) { if (deFora.aborted) controller.abort(); else deFora.addEventListener('abort', () => controller.abort(), { once: true }) }
   return fetch(input, { ...init, signal: controller.signal })
     .finally(() => clearTimeout(timer))
 }

@@ -104,6 +104,14 @@ export default function CandidateDetail() {
         </div>
       </div>
 
+      {/* Resposta aberta do formulário (18/11/2026): pode ser um texto longo */}
+      {candidate.sobre && (
+        <div className="card p-5 space-y-2">
+          <h3 className="font-medium text-gray-900">Sobre a pessoa e a experiência em UAN</h3>
+          <p className="text-sm text-ink-700 whitespace-pre-wrap break-words leading-relaxed max-h-96 overflow-y-auto">{candidate.sobre}</p>
+        </div>
+      )}
+
       {/* Vacancy history */}
       {vacancyHistory && vacancyHistory.length > 0 && (
         <div className="card p-5 space-y-3">

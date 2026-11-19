@@ -62,7 +62,10 @@ const VisitsDashboard = lazy(() => import('./pages/visits/VisitsDashboard'))
 const JornadaPage = lazy(() => import('./pages/visits/JornadaPage'))
 
 const queryClient = new QueryClient({
-  defaultOptions: { queries: { retry: 0, staleTime: 30_000 } },
+  // 18/11/2026: antes era retry 0 — qualquer oscilação da internet deixava a tela
+  // com erro até recarregar ("parece que cai"). Agora tenta mais 2 vezes sozinho.
+  // Só leitura: gravação (mutation) nunca repete, para não salvar duas vezes.
+  defaultOptions: { queries: { retry: 2, retryDelay: n => Math.min(800 * 2 ** n, 4000), staleTime: 30_000 } },
 })
 
 export default function App() {

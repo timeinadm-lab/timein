@@ -4,6 +4,7 @@ import { Menu, Search } from 'lucide-react'
 import Sidebar from './Sidebar'
 import GlobalSearch from '../ui/GlobalSearch'
 import AvisosSino from './AvisosSino'
+import { TelaComErro } from '../TelaComErro'
 
 export default function Layout() {
   const [collapsed, setCollapsed] = useState(false)
@@ -84,7 +85,7 @@ export default function Layout() {
         <main className="flex-1 md:overflow-y-auto overflow-x-hidden p-4 md:p-6 md:pb-6"
           style={{ paddingBottom: 'max(1.5rem, env(safe-area-inset-bottom))' }}>
           <div className="min-w-0 w-full max-w-7xl mx-auto animate-fade-in">
-            <Outlet />
+            <TelaComErro chave={location.pathname}><Outlet /></TelaComErro>
           </div>
         </main>
       </div>

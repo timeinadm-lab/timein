@@ -206,6 +206,7 @@ export interface Candidate {
   postgrad_options?: string[]
   experience_area?: string
   experience_time?: string
+  sobre?: string | null
   segments?: string[]
   uan_areas?: string[]
   max_meals_volume?: number

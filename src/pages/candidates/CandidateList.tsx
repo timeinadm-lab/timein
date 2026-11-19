@@ -51,6 +51,7 @@ const FIELD_OPTIONS = [
   { value: 'work_hours', label: 'Escala de Trabalho' },
   { value: 'contract_types', label: 'Tipo de Vínculo' },
   { value: 'tools', label: 'Ferramentas' },
+  { value: 'sobre', label: 'Sobre você e sua experiência (texto)' },
   { value: 'pipeline_stage', label: 'Estágio Pipeline' },
 ]
 
@@ -183,6 +184,8 @@ export default function CandidateList() {
         'disponibilidade para escala de trabalho': 'work_hours',
         'tipo de vínculo desejado': 'contract_types',
         'possui experiência com quais ferramentas': 'tools',
+        // Pergunta aberta nova do formulário (18/11/2026): texto livre, pode ser longo
+        'conte um pouco sobre você': 'sobre',
       }
       const autoMap: Record<string, string> = {}
       result.headers.forEach(h => {
@@ -217,21 +220,23 @@ export default function CandidateList() {
     }
 
     // 1) Quem já existe: chave (WhatsApp, e-mail, nome + cidade) → id e data da resposta
-    type Existe = { id: string; resp: string | null }
+    type Existe = { id: string; resp: string | null; semSobre?: boolean }
     const porWa = new Map<string, Existe>(), porEmail = new Map<string, Existe>(), porNomeCidade = new Map<string, Existe>()
     let temData = true   // sem a migração 086 não há coluna respondido_em
+    // Sem a migração 107 não há a coluna "sobre": importa o resto e avisa no fim
+    const temSobre = !(await supabase.from('candidates').select('sobre').limit(1)).error
     {
       let from = 0
       const pageSize = 1000
       while (true) {
         const buscar = (cols: string) => supabase.from('candidates').select(cols).order('id').range(from, from + pageSize - 1)
-        let r = await buscar('id,full_name,city,email,whatsapp' + (temData ? ',respondido_em' : ''))
-        if (r.error && temData && /respondido_em/.test(r.error.message)) { temData = false; r = await buscar('id,full_name,city,email,whatsapp') }
+        let r = await buscar('id,full_name,city,email,whatsapp' + (temSobre ? ',sobre' : '') + (temData ? ',respondido_em' : ''))
+        if (r.error && temData && /respondido_em/.test(r.error.message)) { temData = false; r = await buscar('id,full_name,city,email,whatsapp' + (temSobre ? ',sobre' : '')) }
         if (r.error) { toast.error('Erro ao ler base: ' + r.error.message); setImporting(false); return }
-        const data = (r.data || []) as unknown as { id: string; full_name?: string; city?: string; email?: string; whatsapp?: string; respondido_em?: string | null }[]
+        const data = (r.data || []) as unknown as { id: string; full_name?: string; city?: string; email?: string; whatsapp?: string; sobre?: string | null; respondido_em?: string | null }[]
         if (!data.length) break
         for (const c of data) {
-          const ex = { id: c.id, resp: c.respondido_em || null }
+          const ex: Existe = { id: c.id, resp: c.respondido_em || null, semSobre: !c.sobre }
           const wa = normWa(c.whatsapp || ''); if (wa.length >= 10) porWa.set(wa, ex)
           const em = normEmail(c.email || ''); if (em) porEmail.set(em, ex)
           const nm = normText(c.full_name || ''); const ct = normText(c.city || '')
@@ -290,6 +295,7 @@ export default function CandidateList() {
           work_hours: obj.work_hours || null,
           contract_types: splitField(obj.contract_types),
           tools: splitField(obj.tools),
+          ...(temSobre ? { sobre: obj.sobre?.trim() || null } : {}),
           pipeline_stage: obj.pipeline_stage || 'Banco',
         },
       })
@@ -302,11 +308,20 @@ export default function CandidateList() {
 
     // 4) Grava. Já existe no banco → atualiza com a resposta nova (sobe para os
     //    recentes); estágio e notas não mudam. Resposta mais velha que a do banco: deixa.
-    let atualizados = 0
+    let atualizados = 0, completados = 0
     for (const l of finais) {
       const ex = (l.ch.wa && porWa.get(l.ch.wa)) || (l.ch.email && porEmail.get(l.ch.email)) || (l.ch.nomeCidade && porNomeCidade.get(l.ch.nomeCidade)) || null
       if (ex) {
-        if (!temData || !l.quando || (ex.resp && l.quando <= ex.resp)) { dup++; continue }
+        if (!temData || !l.quando || (ex.resp && l.quando <= ex.resp)) {
+          // Já estava em dia, mas ainda sem o texto novo: completa só ele (não
+          // mexe em mais nada) — é o que traz a resposta de quem já estava no banco
+          if (temSobre && ex.semSobre && l.rec.sobre && !(ex.resp && l.quando && l.quando < ex.resp)) {
+            const { error: sErr } = await supabase.from('candidates').update({ sobre: l.rec.sobre }).eq('id', ex.id)
+            if (sErr) err++; else { completados++; ex.semSobre = false }
+            continue
+          }
+          dup++; continue
+        }
         const { error: upErr } = await supabase.from('candidates').update({ ...camposParaAtualizar(l.rec), respondido_em: l.quando }).eq('id', ex.id)
         if (upErr) { console.error('Update fail:', l.rec.full_name, upErr.message); err++ }
         else { atualizados++; ex.resp = l.quando }
@@ -322,12 +337,15 @@ export default function CandidateList() {
     setImportModal(false)
     if (ok > 0 || atualizados > 0) mudarOrdem('recentes')   // quem acabou de entrar aparece primeiro
     qc.invalidateQueries({ queryKey: ['candidates'] })
+    qc.invalidateQueries({ queryKey: ['candidate'] })
     const parts = [`${ok} novo(s)`]
     if (atualizados) parts.push(`${atualizados} atualizado(s) (refizeram o formulário)`)
+    if (completados) parts.push(`${completados} com o texto "sobre você" preenchido`)
     if (dup) parts.push(`${dup} já estavam em dia`)
     if (repetidas) parts.push(`${repetidas} resposta(s) repetida(s) na planilha — ficou a mais nova`)
     if (err) parts.push(`${err} erro(s)`)
     toast.success(parts.join(' · '), { duration: 6000 })
+    if (!temSobre && Object.values(colMap).includes('sobre')) toast.error('O texto "Conte um pouco sobre você" não foi salvo: rode a migração 107 no Supabase e importe de novo.', { duration: 9000 })
   }
 
   return (

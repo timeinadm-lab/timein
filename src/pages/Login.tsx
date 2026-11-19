@@ -28,16 +28,16 @@ export default function Login() {
   return (
     // Duas metades: a marca (verde, liso) e o formulário no fundo papel.
     // Antes: degradê com brilhos desfocados — a cara de template.
-    <div className="min-h-screen grid md:grid-cols-2 bg-[#f7f6f2]">
+    <div className="min-h-screen grid md:grid-cols-2 bg-[#f4f5f4]">
       <div className="bg-primary-900 text-white px-6 pt-10 pb-8 md:p-12 flex flex-col justify-between"
         style={{ paddingTop: 'max(2.5rem, env(safe-area-inset-top))' }}>
         <div className="flex items-center gap-2.5">
           <img src="/logo.svg" alt="TIN" className="w-9 h-9 rounded-lg" />
-          <span className="font-serif text-2xl leading-none">TIN</span>
+          <span className="text-xl font-semibold tracking-tight leading-none">TIN</span>
         </div>
         <div className="mt-8 md:mt-0">
-          <h1 className="font-serif text-4xl md:text-6xl leading-[1.05] tracking-tight text-white">
-            Gestão de pessoas<br /><em className="text-primary-300">para nutrição.</em>
+          <h1 className="text-3xl md:text-5xl font-semibold leading-[1.1] tracking-tight text-white">
+            Gestão de pessoas<br />para nutrição.
           </h1>
           <p className="hidden md:block text-primary-200/80 mt-4 max-w-sm text-sm leading-relaxed">
             Colaboradores, candidatos, visitas e pagamentos da consultoria num lugar só.

@@ -1171,7 +1171,7 @@ export default function Dashboard() {
     const name = (l as { employee?: { full_name: string } }).employee?.full_name || 'Colaborador'
     const client = (l as { client?: { name: string } }).client?.name || ''
     const path = empId ? `/colaboradores/${empId}?tab=vinculos` : '/colaboradores'
-    const label = `Contrato pendente: ${name}${client ? ' – ' + client : ''} — anexar contrato assinado${hours > 0 ? ` (há ${hours}h)` : ''}`
+    const label = `Contrato pendente: ${name}${client ? ' – ' + client : ''} — anexar contrato assinado${hours >= 48 ? ` (há ${Math.round(hours / 24)} dias)` : hours > 0 ? ` (há ${hours}h)` : ''}`
     if (hours >= 48) redAlerts.push({ text: label, path })
     else amberAlerts.push({ text: label, path })
   })
@@ -1413,7 +1413,7 @@ export default function Dashboard() {
       <div className="flex items-end justify-between flex-wrap gap-3">
         <div className="min-w-0">
           <p className="text-xs text-ink-400 first-letter:uppercase">{now.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}</p>
-          <h1 className="page-title mt-1">{greeting}{firstName ? <>, <em className="text-primary-700">{firstName}</em></> : ''}</h1>
+          <h1 className="page-title mt-1">{greeting}{firstName ? `, ${firstName}` : ''}</h1>
         </div>
         <div className="flex items-center gap-2">
           {role === 'chefe' && (

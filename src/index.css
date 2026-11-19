@@ -13,15 +13,14 @@
     font-feature-settings: 'cv11', 'ss01';
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    /* Fundo "papel": branco levemente quente, liso. Os cartões brancos
-       ficam por cima. (Antes: brilhos verdes em degradê — cara de template.) */
-    background-color: #f7f6f2;
+    /* Fundo neutro e liso; os cartões brancos ficam por cima. (19/11/2026: o
+       creme "papel" + serifa era a cara de tela feita por IA.) */
+    background-color: #f4f5f4;
   }
   * {
     box-sizing: border-box;
   }
-  /* Uma fonte só na interface (Inter). A serifa entra só nos títulos de
-     página e saudações, via .page-title — é o "tempero" da marca. */
+  /* Uma fonte só na interface (Inter), inclusive nos títulos. */
   h1, h2, h3, h4 {
     @apply tracking-tight text-ink-900;
   }
@@ -67,16 +66,17 @@
   .section-title {
     @apply text-sm font-semibold text-ink-900 flex items-center gap-2;
   }
-  /* Rótulo pequeno acima do título (antes: verde, MAIÚSCULO — cara de template) */
+  /* Rótulo miúdo acima do título: repetia o grupo do menu e não informava nada.
+     Some de todas as telas de uma vez (a classe continua nos arquivos). */
   .eyebrow {
-    @apply text-xs font-medium text-ink-400;
+    @apply hidden;
   }
-  /* Título de página: a serifa da marca */
+  /* Título de página: direto, na fonte da interface */
   .page-title {
-    @apply font-serif text-3xl md:text-4xl font-normal text-ink-900 leading-tight tracking-tight;
+    @apply text-2xl md:text-[1.75rem] font-semibold text-ink-900 leading-tight tracking-tight;
   }
   .page-title-sm {
-    @apply font-serif text-2xl md:text-3xl font-normal text-ink-900 leading-tight tracking-tight;
+    @apply text-xl md:text-2xl font-semibold text-ink-900 leading-tight tracking-tight;
   }
   /* Janela (modal) padrão: fundo escurecido igual em todo o sistema; no
      celular sobe de baixo, onde o polegar alcança */

@@ -45,7 +45,7 @@ export default function Layout() {
       />
       <div className="flex-1 flex flex-col min-w-0 md:overflow-hidden">
         {/* Topo no celular: menu, busca sempre à vista e o sino */}
-        <div className="flex md:hidden items-center gap-2 px-3 py-2.5 bg-[#f7f6f2]/90 backdrop-blur border-b border-ink-200/70 flex-shrink-0 sticky top-0 z-20"
+        <div className="flex md:hidden items-center gap-2 px-3 py-2.5 bg-[#f4f5f4]/90 backdrop-blur border-b border-ink-200/70 flex-shrink-0 sticky top-0 z-20"
           style={{ paddingTop: 'max(0.625rem, env(safe-area-inset-top))' }}>
           <button onClick={() => setMobileOpen(true)}
             className="p-2 rounded-lg bg-primary-900 text-white active:scale-95 transition-all shrink-0"
@@ -66,7 +66,7 @@ export default function Layout() {
         </div>
 
         {/* Topo no computador: busca + sino */}
-        <div className="hidden md:flex items-center gap-3 px-6 py-3 bg-[#f7f6f2]/90 backdrop-blur border-b border-ink-200/70 flex-shrink-0 sticky top-0 z-20">
+        <div className="hidden md:flex items-center gap-3 px-6 py-3 bg-[#f4f5f4]/90 backdrop-blur border-b border-ink-200/70 flex-shrink-0 sticky top-0 z-20">
           <button
             onClick={() => setSearchOpen(true)}
             className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white border border-ink-200 text-sm text-ink-400 hover:border-ink-300 transition-colors w-80"
@@ -84,7 +84,7 @@ export default function Layout() {
             segura do iPhone (a faixa de gestos), sem roubar espaço da tela. */}
         <main className="flex-1 md:overflow-y-auto overflow-x-hidden p-4 md:p-6 md:pb-6"
           style={{ paddingBottom: 'max(1.5rem, env(safe-area-inset-bottom))' }}>
-          <div className="min-w-0 w-full max-w-7xl mx-auto animate-fade-in">
+          <div className="min-w-0 w-full max-w-7xl mx-auto">
             <TelaComErro chave={location.pathname}><Outlet /></TelaComErro>
           </div>
         </main>

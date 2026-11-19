@@ -945,7 +945,7 @@ export default function PortalHome() {
               <p className="text-xs text-white/60 first-letter:uppercase">
                 {new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}
               </p>
-              <h1 className="font-serif text-[1.75rem] leading-tight truncate !text-white">
+              <h1 className="text-2xl font-semibold tracking-tight leading-tight truncate !text-white">
                 {saudacao()}, <span className="italic">{employeeName.split(' ')[0] || ''}</span>
               </h1>
             </div>
@@ -1097,7 +1097,7 @@ export default function PortalHome() {
         {tab === 'folha' && (
           <>
             <div className="space-y-3">
-              <h2 className="font-serif text-[1.75rem] leading-tight text-ink-900">Folha de ponto</h2>
+              <h2 className="text-2xl font-semibold tracking-tight leading-tight text-ink-900">Folha de ponto</h2>
               <div className="flex items-center gap-2">
                 <MesSeletor value={folhaMonth} onChange={setFolhaMonth} />
                 <button onClick={downloadFolha} className="btn-secondary text-sm px-3 shrink-0" aria-label="Baixar PDF">
@@ -1492,7 +1492,7 @@ export default function PortalHome() {
           <>
             <div className="space-y-3">
               <div>
-                <h2 className="font-serif text-[1.75rem] leading-tight text-ink-900">Gastos e reembolsos</h2>
+                <h2 className="text-2xl font-semibold tracking-tight leading-tight text-ink-900">Gastos e reembolsos</h2>
                 <p className="text-sm text-ink-500 mt-0.5">Peça o reembolso do que você pagou e anexe o comprovante.</p>
               </div>
               <MesSeletor value={folhaMonth} onChange={setFolhaMonth} />
@@ -1594,7 +1594,7 @@ export default function PortalHome() {
         {tab === 'duvidas' && (
           <>
             <div>
-              <h2 className="font-serif text-[1.75rem] leading-tight text-ink-900">Chat com o RH</h2>
+              <h2 className="text-2xl font-semibold tracking-tight leading-tight text-ink-900">Chat com o RH</h2>
               <p className="text-sm text-ink-500 mt-0.5">As respostas aparecem aqui.</p>
             </div>
 
@@ -1725,7 +1725,7 @@ export default function PortalHome() {
             <>
               <div className="flex items-end justify-between gap-3">
                 <div>
-                  <h2 className="font-serif text-[1.75rem] leading-tight text-ink-900">Minha agenda</h2>
+                  <h2 className="text-2xl font-semibold tracking-tight leading-tight text-ink-900">Minha agenda</h2>
                   <p className="text-sm text-ink-500 mt-0.5">Toque num dia para registrar ou trocar.</p>
                 </div>
                 {podeAgendar && (
@@ -2218,7 +2218,7 @@ export default function PortalHome() {
             <div className="flex items-start justify-between gap-3 px-5 pt-4 pb-3 border-b border-ink-100">
               <div className="min-w-0">
                 <p className="text-xs text-ink-400">{editingPontoId ? 'Editar registro' : 'Registrar'}</p>
-                <h3 className="font-serif text-[1.6rem] leading-tight text-ink-900 first-letter:uppercase truncate">
+                <h3 className="text-2xl font-semibold tracking-tight leading-tight text-ink-900 first-letter:uppercase truncate">
                   {new Date(pontoForm.visit_date + 'T12:00:00').toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}
                 </h3>
               </div>

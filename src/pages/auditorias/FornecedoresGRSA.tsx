@@ -12,7 +12,7 @@ export default function FornecedoresGRSA() {
   return (
     <div className="space-y-5">
       <div>
-        <button onClick={() => navigate('/auditorias')} className="eyebrow mb-1 inline-flex items-center gap-1 hover:text-ink-700"><ArrowLeft size={13} />Auditorias</button>
+        <button onClick={() => navigate('/auditorias')} className="text-xs font-medium text-ink-500 hover:text-ink-800 mb-1 inline-flex items-center gap-1 hover:text-ink-700"><ArrowLeft size={13} />Auditorias</button>
         <h1 className="page-title">Auditoria GR</h1>
         <p className="text-sm text-ink-500 mt-1">Fornecedores da GRSA: do orçamento à validade da próxima auditoria, com o financeiro. Uso interno.</p>
       </div>

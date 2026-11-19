@@ -56,7 +56,7 @@ export default function PortalQualidade({ token, rpc, clientes }: { token: strin
   return (
     <div className="space-y-4">
       <div>
-        <h2 className="font-serif text-2xl text-ink-900">Qualidade</h2>
+        <h2 className="text-2xl font-semibold tracking-tight text-ink-900">Qualidade</h2>
         <p className="text-sm text-ink-500">Checklists com fotos, direto do celular.</p>
       </div>
 

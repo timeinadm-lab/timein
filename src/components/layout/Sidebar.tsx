@@ -21,23 +21,24 @@ const MENU: Grupo[] = [
       { icon: LayoutDashboard, label: 'Início', path: '/' },
       // Pessoal: calendário, atividades, reuniões, visitas e relatório de quem tem login (19/10/2026: antes "Equipe")
       { icon: CircleUser, label: 'Meu trabalho', path: '/equipe', contabilidade: { label: 'Equipe', icon: Users } },
+      { icon: CalendarDays, label: 'Calendário', path: '/calendario' },
+    ],
+  },
+  {
+    titulo: 'Pessoas',
+    itens: [
+      { icon: UserCheck, label: 'Colaboradores', path: '/colaboradores' },
+      { icon: UserPlus, label: 'Candidatos', path: '/candidatos' },
+      { icon: Building2, label: 'Clientes', path: '/clientes' },
     ],
   },
   {
     titulo: 'Operação',
     itens: [
-      { icon: UserCheck, label: 'Colaboradores', path: '/colaboradores' },
-      { icon: Building2, label: 'Clientes', path: '/clientes' },
       { icon: ClipboardCheck, label: 'Visitas', path: '/visitas' },
       { icon: Timer, label: 'Jornada', path: '/jornada' },
       { icon: ShieldCheck, label: 'Supervisão', path: '/supervisao' },
       { icon: FileCheck2, label: 'Auditorias', path: '/auditorias' },
-    ],
-  },
-  {
-    titulo: 'Recrutamento',
-    itens: [
-      { icon: UserPlus, label: 'Candidatos', path: '/candidatos' },
     ],
   },
   {
@@ -49,19 +50,18 @@ const MENU: Grupo[] = [
     ],
   },
   {
-    titulo: 'Agenda',
+    titulo: 'Equipe do escritório',
     itens: [
-      { icon: CalendarDays, label: 'Calendário', path: '/calendario' },
-      { icon: Cake, label: 'Aniversariantes', path: '/aniversariantes' },
       { icon: Calendar, label: 'Reuniões', path: '/agenda' },
       { icon: ListChecks, label: 'Atividades', path: '/atividades' },
       { icon: MessageSquare, label: 'Chat', path: '/chat' },
+      { icon: Cake, label: 'Aniversariantes', path: '/aniversariantes' },
     ],
   },
   {
     titulo: 'Configurações',
     itens: [
-      { icon: FileText, label: 'Templates', path: '/templates' },
+      { icon: FileText, label: 'Modelos de contrato', path: '/templates' },
       { icon: Settings, label: 'Usuários', path: '/usuarios', so: 'chefe' },
     ],
   },
@@ -92,7 +92,7 @@ export default function Sidebar({ collapsed, onCollapse, mobileOpen, onMobileClo
         <img src="/logo.svg" alt="TIN" className="w-8 h-8 rounded-lg flex-shrink-0" />
         {!collapsed && (
           <div className="leading-none">
-            <span className="font-serif text-2xl text-white block leading-none">TIN</span>
+            <span className="text-xl font-semibold tracking-tight text-white block leading-none">TIN</span>
             <span className="text-[10px] text-primary-300">Time IN</span>
           </div>
         )}

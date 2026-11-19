@@ -28,11 +28,11 @@ export default function ClientDetail() {
 
   const deleteClient = useMutation({
     mutationFn: async () => {
-      // Trava de segurança: não apaga cliente com vínculo ou vaga ativos
+      // Trava de segurança: não apaga cliente com vínculo
       const { data: linksData } = await supabase.from('employee_client_links').select('id').eq('client_id', id).limit(1)
       if (linksData?.length) throw new Error('Este cliente tem colaboradores vinculados. Desligue-os antes de excluir.')
-      const { data: vagasData } = await supabase.from('vacancies').select('id').eq('client_id', id).limit(1)
-      if (vagasData?.length) throw new Error('Este cliente tem vagas. Apague as vagas antes de excluir o cliente.')
+      // 19/11/2026: a aba Vagas saiu (pedido do Gabriel: "a gente não tá usando"): vaga antiga não trava mais; só solta a unidade dela
+      await supabase.from('vacancies').update({ unit_id: null }).eq('client_id', id)
       // Compromissos da agenda continuam existindo, só perdem o vínculo com o cliente
       await supabase.from('interviews').update({ client_id: null }).eq('client_id', id)
 
@@ -395,7 +395,7 @@ export default function ClientDetail() {
       <DeletePinModal
         open={confirmDeleteClient}
         title="Excluir cliente?"
-        description={`Remove ${client.name} e seus dados (unidades, contratos, documentos). Só é possível se não houver colaboradores nem vagas.`}
+        description={`Remove ${client.name} e seus dados (unidades, contratos, documentos). Só é possível se não houver colaboradores vinculados.`}
         confirmLabel="Excluir cliente"
         onConfirmed={() => deleteClient.mutateAsync()}
         onClose={() => setConfirmDeleteClient(false)}
@@ -411,7 +411,7 @@ export default function ClientDetail() {
         ))}
       </div>
 
-      {/* DOCUMENTOS — banco compartilhado: anexados aqui ou vindos das vagas */}
+      {/* DOCUMENTOS do cliente */}
       {tab === 'documentos' && (
         <div className="space-y-4">
           {/* Contratos que estão na ficha dos colaboradores — mesmos arquivos,
@@ -454,7 +454,7 @@ export default function ClientDetail() {
           <div className="card p-4 space-y-3">
             <div>
               <h3 className="font-semibold text-sm">Anexar documento</h3>
-              <p className="text-xs text-gray-400">Crie o tópico na hora (ex: Colaboradores, Contratos, Fotos 3x4). Documentos anexados nas vagas deste cliente também aparecem aqui.</p>
+              <p className="text-xs text-gray-400">Crie o tópico na hora (ex: Colaboradores, Contratos, Fotos 3x4). Documentos antigos anexados em vagas deste cliente também aparecem aqui.</p>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>

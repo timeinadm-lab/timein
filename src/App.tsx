@@ -22,10 +22,6 @@ const EmployeeList = lazy(() => import('./pages/employees/EmployeeList'))
 const EmployeeForm = lazy(() => import('./pages/employees/EmployeeForm'))
 const EmployeeDetail = lazy(() => import('./pages/employees/EmployeeDetail'))
 
-const VacancyList = lazy(() => import('./pages/vacancies/VacancyList'))
-const VacancyForm = lazy(() => import('./pages/vacancies/VacancyForm'))
-const VacancyDetail = lazy(() => import('./pages/vacancies/VacancyDetail'))
-
 const CandidateList = lazy(() => import('./pages/candidates/CandidateList'))
 const CandidateForm = lazy(() => import('./pages/candidates/CandidateForm'))
 const CandidateDetail = lazy(() => import('./pages/candidates/CandidateDetail'))
@@ -112,11 +108,8 @@ export default function App() {
               <Route path="colaboradores/:id" element={<EmployeeDetail />} />
               <Route path="colaboradores/:id/editar" element={<EmployeeForm />} />
 
-              {/* Vacancies */}
-              <Route path="vagas" element={<VacancyList />} />
-              <Route path="vagas/nova" element={<VacancyForm />} />
-              <Route path="vagas/:id" element={<VacancyDetail />} />
-              <Route path="vagas/:id/editar" element={<VacancyForm />} />
+              {/* 19/11/2026: a aba Vagas saiu (pedido do Gabriel: "a gente não tá usando"). Link antigo cai nos candidatos. */}
+              <Route path="vagas/*" element={<Navigate to="/candidatos" replace />} />
 
               {/* Candidates */}
               <Route path="candidatos" element={<CandidateList />} />

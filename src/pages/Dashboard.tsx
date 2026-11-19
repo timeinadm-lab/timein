@@ -203,45 +203,26 @@ export default function Dashboard() {
     },
   })
 
-  const { data: vacancies } = useQuery({
-    queryKey: ['dashboard-vacancies'],
+  // 19/11/2026: a aba Vagas saiu (pedido do Gabriel: "a gente não tá usando"). No lugar do cartão "Vagas abertas": o banco de talentos.
+  const { data: bancoTalentos } = useQuery({
+    queryKey: ['dashboard-banco-talentos'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('vacancies').select('id,status,hired_count,positions_count,title')
-      if (error) throw error
-      return data || []
+      const total = await supabase.from('candidates').select('id', { count: 'exact', head: true }).neq('pipeline_stage', 'Inativo')
+      const novos = await supabase.from('candidates').select('id', { count: 'exact', head: true }).gte('created_at', `${currentMonthStr}-01`)
+      if (total.error) throw total.error
+      return { total: total.count ?? 0, novos: novos.count ?? 0 }
     },
   })
 
   const { data: candidates } = useQuery({
     queryKey: ['dashboard-candidates'],
     queryFn: async () => {
-      // Só conta candidatos vinculados a vagas abertas ou em andamento
-      const { data: activeVacs } = await supabase
-        .from('vacancies').select('id').in('status', ['Aberta', 'Atuando'])
-      if (!activeVacs?.length) return []
-
-      const { data: interests } = await supabase
-        .from('vacancy_interests').select('candidate_id').in('vacancy_id', activeVacs.map(v => v.id))
-      if (!interests?.length) return []
-
-      const ids = [...new Set(interests.map((i: { candidate_id: string }) => i.candidate_id))]
+      // Quem está em andamento no funil (sem vaga no meio: antes só contava quem
+      // estava ligado a uma vaga aberta). "Banco" fica de fora: é o estoque.
       const { data, error } = await supabase
         .from('candidates').select('id,pipeline_stage,updated_at,full_name')
-        .in('id', ids)
-        .not('pipeline_stage', 'in', '("Contratado","Inativo")')
+        .not('pipeline_stage', 'in', '("Banco","Contratado","Inativo")')
         .limit(2000)
-      if (error) throw error
-      return data || []
-    },
-  })
-
-  const { data: vacanciesExpiring } = useQuery({
-    queryKey: ['dashboard-vacancies-expiring'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('vacancies')
-        .select('id,title,deadline,hired_count,positions_count')
-        .eq('status', 'Aberta')
       if (error) throw error
       return data || []
     },
@@ -254,18 +235,6 @@ export default function Dashboard() {
         .from('clients').select('id,name,contract_end')
         .not('contract_end', 'is', null)
         .lte('contract_end', in40.toISOString().slice(0, 10))
-      if (error) throw error
-      return data || []
-    },
-  })
-
-  const { data: pendingContractInterests } = useQuery({
-    queryKey: ['dashboard-pending-contract-interests'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('vacancy_interests')
-        .select('id,deadline,vacancy_id,candidate:candidates(full_name),vacancy:vacancies(title)')
-        .eq('status', 'Em contrato').not('deadline', 'is', null)
       if (error) throw error
       return data || []
     },
@@ -872,10 +841,6 @@ export default function Dashboard() {
     c.end_date && isAfter(parseISO(c.end_date), now) && isBefore(parseISO(c.end_date), in15)
   ).length ?? 0
 
-  const openVacancies = vacancies?.filter(v => v.status === 'Aberta').length ?? 0
-  const filledVacancies = vacancies?.filter(v => v.status === 'Preenchida').length ?? 0
-  const totalVacancies = (vacancies?.length ?? 0) || 1
-
   // 'Novo' e 'Em contato' não existem no sistema — os nomes são 'Em Avaliação' e
   // 'Contato Feito'. O contador vinha ignorando essas duas etapas há tempo.
   const inProcess = candidates?.filter(c =>
@@ -884,8 +849,6 @@ export default function Dashboard() {
 
   // Enriquecimento dos KPIs
   const linksThisMonth = hiringTimeline?.filter(h => h.created_at?.slice(0, 7) === currentMonthStr).length ?? 0
-  const openPositions = (vacanciesExpiring || []).reduce((s, v) =>
-    s + Math.max(0, ((v as { positions_count?: number }).positions_count ?? 1) - ((v as { hired_count?: number }).hired_count ?? 0)), 0)
 
   // Pagamentos atrasados — usados só nos alertas (detalhes financeiros ficam na aba Pagamentos)
   const overdue = payments?.filter(p => p.status === 'Pendente' && p.due_date < now.toISOString().slice(0, 10)) ?? []
@@ -897,14 +860,6 @@ export default function Dashboard() {
   const pendExtras = pendingExtras?.length ?? 0
   const pendComprovantes = pendingExpenses?.length ?? 0
   const pendenciasCount = pendDocs + pendContratos + pendChat + pendExtras + pendComprovantes
-
-  // Vagas: distribuição por status
-  const vagasPie = [
-    { name: 'Abertas', value: vacancies?.filter(v => v.status === 'Aberta').length ?? 0, color: '#f59e0b' },
-    { name: 'Atuando', value: vacancies?.filter(v => v.status === 'Atuando').length ?? 0, color: '#22c55e' },
-    { name: 'Preenchidas', value: vacancies?.filter(v => v.status === 'Preenchida').length ?? 0, color: '#22c55e' },
-  ].filter(d => d.value > 0)
-  const vagasTotal = vagasPie.reduce((s, d) => s + d.value, 0)
 
   // Contratos: anexados vs pendentes — 1 contrato por vínculo (exceto Volante)
   // Ex: 20 vinculados, 17 com contrato anexado → 17 anexados, 3 pendentes
@@ -1146,53 +1101,6 @@ export default function Dashboard() {
   overdue.forEach(p =>
     redAlerts.push({ text: `Pagamento atrasado: ${p.description} — ${formatCurrency(p.amount)}`, path: '/pagamentos' })
   )
-  // Candidato escolhido numa vaga, contrato enviado e ainda não assinado.
-  // Não é o contrato de trabalho vencendo — é o PRAZO DE ASSINATURA.
-  pendingContractInterests?.forEach(pc => {
-    const deadline = pc.deadline ? new Date(pc.deadline) : null
-    const hoursLeft = deadline ? Math.round((deadline.getTime() - Date.now()) / 3600000) : null
-    const candidateName = (pc as { candidate?: { full_name: string } }).candidate?.full_name || 'Candidato'
-    const vagaTitle = (pc as { vacancy?: { title: string } }).vacancy?.title
-    const vagaId = (pc as { vacancy_id?: string }).vacancy_id
-    // "venceu há 169h" não diz nada — acima de 2 dias a pessoa pensa em dias
-    const humanize = (h: number) => {
-      const a = Math.abs(h)
-      return a >= 48 ? `${Math.round(a / 24)} dias` : `${a}h`
-    }
-    // Leva direto pra vaga; sem isso caía na lista de 13 vagas sem dizer qual
-    const path = vagaId ? `/vagas/${vagaId}` : '/vagas'
-    const ondeVaga = vagaTitle ? ` na vaga "${vagaTitle}"` : ''
-    // key permite marcar como resolvido/dispensar. Sem isso o alerta ficava preso
-    // pra sempre quando a contratação acontecia por fora do fluxo da vaga.
-    const key = `contract-${pc.id}`
-    const isOverdue = hoursLeft !== null && hoursLeft < 0
-    if (isOverdue)
-      redAlerts.push({
-        text: `${candidateName} não devolveu o contrato assinado${ondeVaga} — prazo venceu há ${humanize(hoursLeft!)}`,
-        path, key,
-      })
-    else
-      amberAlerts.push({
-        text: `Aguardando ${candidateName} assinar o contrato${ondeVaga} — faltam ${humanize(hoursLeft!)}`,
-        path, key,
-      })
-  })
-  vacanciesExpiring?.forEach(v => {
-    const hired = (v as { hired_count?: number }).hired_count ?? 0
-    const total = (v as { positions_count?: number }).positions_count ?? 1
-    const unfilled = total - hired
-    if (unfilled <= 0) return
-    const vagaPath = `/vagas/${v.id}`
-    if (!v.deadline) {
-      amberAlerts.push({ text: `Vaga "${v.title}" — ${unfilled} posição(ões) em aberto — sem prazo definido`, path: vagaPath })
-      return
-    }
-    const days = differenceInDays(parseISO(v.deadline), now)
-    const when = days < 0 ? `prazo vencido há ${Math.abs(days)}d` : days === 0 ? 'prazo vence hoje!' : `faltam ${days}d`
-    const msg = `Vaga "${v.title}" — ${unfilled} posição(ões) em aberto — ${when}`
-    if (days <= 7) redAlerts.push({ text: msg, path: vagaPath })
-    else amberAlerts.push({ text: msg, path: vagaPath })
-  })
   clientContractsExpiring?.forEach(c => {
     const dateStr = (c as { contract_end?: string }).contract_end
     if (!dateStr) return
@@ -1216,7 +1124,7 @@ export default function Dashboard() {
   if ((approvedCount ?? 0) > 0)
     amberAlerts.push({ text: `${approvedCount} candidato${approvedCount! > 1 ? 's' : ''} aprovado${approvedCount! > 1 ? 's' : ''} aguardando alocação`, path: '/candidatos' })
   const staleCount = candidates?.filter(c =>
-    ['Novo', 'Em contato'].includes(c.pipeline_stage) &&
+    ['Em Avaliação', 'Contato Feito'].includes(c.pipeline_stage) &&
     c.updated_at && isBefore(parseISO(c.updated_at), addDays(now, -7))
   ).length ?? 0
   if (staleCount > 0)
@@ -1470,20 +1378,17 @@ export default function Dashboard() {
 
   // Panorama em barras de uma linha (antes: 5 gráficos de rosca lado a lado)
   const pct = (a: number, b: number) => (b > 0 ? Math.round((a / b) * 100) : 0)
-  const vagasPreenchidas = (vacancies || []).filter(v => v.status === 'Preenchida' || v.status === 'Atuando').length
   const visitasRealizadas = visitasPie.find(p => p.name === 'Realizadas')?.value ?? 0
   const visitasPlanejadas = visitasPie.find(p => p.name === 'Planejadas')?.value ?? 0
   const panorama = [
     { rotulo: 'Contratos anexados', valor: `${contratosAnexados}/${contratosAnexados + contratosPendentes}`, p: pct(contratosAnexados, contratosAnexados + contratosPendentes), caminho: '/colaboradores' },
     ...(role === 'chefe' ? [{ rotulo: 'Documentos entregues', valor: `${pct(deliveredDocsCount ?? 0, (deliveredDocsCount ?? 0) + (pendingDocs?.length ?? 0))}%`, p: pct(deliveredDocsCount ?? 0, (deliveredDocsCount ?? 0) + (pendingDocs?.length ?? 0)), caminho: '/colaboradores' }] : []),
-    { rotulo: 'Vagas preenchidas', valor: `${vagasPreenchidas}/${vacancies?.length ?? 0}`, p: pct(vagasPreenchidas, vacancies?.length ?? 0), caminho: '/vagas' },
     ...(role === 'chefe' ? [{ rotulo: 'Visitas do mês', valor: `${visitasRealizadas} de ${Math.max(visitasRealizadas, visitasPlanejadas)}`, p: pct(visitasRealizadas, Math.max(visitasRealizadas, visitasPlanejadas)), caminho: '/visitas' }] : []),
   ]
   const maxContratacoes = Math.max(1, ...hiringBarData.map(h => h.contratacoes))
 
   const ATALHOS = [
     { label: 'Colaborador', path: '/colaboradores/novo', icon: UserCheck },
-    { label: 'Vaga', path: '/vagas/nova', icon: Briefcase },
     { label: 'Candidato', path: '/candidatos/novo', icon: UserPlus },
     { label: 'Compromisso', path: '/agenda/nova', icon: Calendar },
     { label: 'Contrato', path: '/contratos/novo', icon: FileText },
@@ -1600,9 +1505,9 @@ export default function Dashboard() {
               })}
             </svg>
           } />
-        <Kpi rotulo="Vagas abertas" valor={openVacancies}
-          sub={openPositions > 0 ? `${openPositions} posição${openPositions > 1 ? 'ões' : ''} a preencher` : `${filledVacancies} preenchidas`}
-          onClick={() => navigate('/vagas')} />
+        <Kpi rotulo="Banco de talentos" valor={bancoTalentos?.total ?? 0}
+          sub={(bancoTalentos?.novos ?? 0) > 0 ? `${bancoTalentos!.novos} novo${bancoTalentos!.novos > 1 ? 's' : ''} este mês` : 'candidatos'}
+          onClick={() => navigate('/candidatos')} />
         <Kpi rotulo="Em processo" valor={inProcess}
           sub={(approvedCount ?? 0) > 0 ? `${approvedCount} aprovado${approvedCount! > 1 ? 's' : ''} para alocar` : 'candidatos'}
           subCor={(approvedCount ?? 0) > 0 ? 'text-primary-700' : undefined}

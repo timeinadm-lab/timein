@@ -153,7 +153,9 @@ export default function EmployeeDetail() {
   // onde valores, escala e dias de pagamento são combinados.
   const vincularClientId = searchParams.get('vincular') || ''
   const vincularVagaId = searchParams.get('vaga') || ''
-  const initialTab = (searchParams.get('tab') as Tab) || (vincularClientId ? 'vinculos' : 'visao')
+  // ?abrir=vinculo — veio do "Contratar" na ficha do candidato (19/11/2026, sem vaga)
+  const abrirVinculo = searchParams.get('abrir') === 'vinculo'
+  const initialTab = (searchParams.get('tab') as Tab) || (vincularClientId || abrirVinculo ? 'vinculos' : 'visao')
   const [tab, setTab] = useState<Tab>(initialTab)
   // Pagamentos separados em partes (pedido de 05/10/2026)
   const [subPag, setSubPag] = useState<'mes' | 'reembolsos' | 'ajuda' | 'lancamentos'>('mes')
@@ -198,14 +200,14 @@ export default function EmployeeDetail() {
   const [statusMenuOpen, setStatusMenuOpen] = useState(false)
   const [editVisitId, setEditVisitId] = useState<string | null>(null)
   const [editVisitForm, setEditVisitForm] = useState({ check_in: '', check_out: '', observations: '' })
-  const [showCoverageForm, setShowCoverageForm] = useState(!!vincularClientId)
+  const [showCoverageForm, setShowCoverageForm] = useState(!!vincularClientId || abrirVinculo)
   // Estado inicial vem do MESMO objeto usado no reset (EMPTY_COVERAGE, no topo do
   // arquivo). Antes havia duas definições e a daqui estava desatualizada: faltavam
   // pay_days/vinculo_tipo, então pay_days era undefined no primeiro render e o
   // .includes() derrubava a tela ao abrir "+ Vincular".
   const [coverageForm, setCoverageForm] = useState(
     // Veio da contratação: já entra com o cliente da vaga e como vínculo que fica
-    vincularClientId
+    vincularClientId || abrirVinculo
       ? { ...EMPTY_COVERAGE, client_id: vincularClientId, vinculo_tipo: 'permanente' as const }
       : EMPTY_COVERAGE
   )
@@ -1897,7 +1899,7 @@ export default function EmployeeDetail() {
           <div className="flex items-center justify-between">
             <div>
               <h3 className="font-medium">Vincular a um cliente</h3>
-              <p className="text-xs text-ink-400">Sem passar por vaga — para quem já é da casa.</p>
+              <p className="text-xs text-ink-400">Escolha o cliente e combine valores, escala e dias de pagamento.</p>
             </div>
             <button className="btn-primary text-sm" onClick={() => setShowCoverageForm(v => !v)}>+ Vincular</button>
           </div>
@@ -1908,10 +1910,10 @@ export default function EmployeeDetail() {
                 {coverageForm.coverage_type === 'Consultoria' && coverageForm.consult_salario && grupoFixo.length > 0
                   ? 'Adicionar cliente ao consultor fixo' : 'Novo vínculo'}
               </p>
-              {vincularVagaId && (
+              {(vincularVagaId || abrirVinculo) && (
                 <p className="text-xs text-orange-700 bg-orange-100 rounded-lg px-3 py-2 leading-snug">
-                  Contratação concluída — falta o combinado de trabalho. O cliente da vaga já está
-                  selecionado; defina aqui os valores, a escala e os dias de pagamento.
+                  Contratação concluída — falta o combinado de trabalho. Escolha o cliente e defina
+                  aqui os valores, a escala e os dias de pagamento.
                   <strong> Enquanto não salvar, a pessoa não aparece na folha.</strong>
                 </p>
               )}

@@ -190,7 +190,7 @@ export default function ClientForm() {
         <div className="card p-5 space-y-3">
           <div>
             <h3 className="font-semibold text-gray-900">Unidades</h3>
-            <p className="text-xs text-gray-400 mt-0.5">Locais onde o cliente opera. Pode adicionar depois — mas é necessário ter ao menos uma unidade para abrir vagas.</p>
+            <p className="text-xs text-gray-400 mt-0.5">Locais onde o cliente opera. Pode adicionar depois — mas é necessário ter ao menos uma unidade para vincular colaboradores.</p>
           </div>
 
           {units.length > 0 && (

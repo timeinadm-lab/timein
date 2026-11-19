@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
-import { ArrowLeft, Edit, MessageCircle } from 'lucide-react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import toast from 'react-hot-toast'
+import { ArrowLeft, Edit, MessageCircle, UserCheck } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
-import { formatWhatsApp, getInitials, PIPELINE_COLORS } from '../../lib/utils'
+import { formatWhatsApp, getInitials, PIPELINE_COLORS, hojeISO } from '../../lib/utils'
 import { SkeletonDetail } from '../../components/ui/Skeleton'
 import NotasCandidato from './NotasCandidato'
 
@@ -35,6 +36,77 @@ export default function CandidateDetail() {
     },
   })
 
+  // ── Contratar: o candidato vira colaborador aqui mesmo (19/11/2026) ─────────
+  // A aba Vagas saiu ("a gente não tá usando") e era só por ela que alguém virava
+  // colaborador. Agora é um botão na ficha: cria a PESSOA com os dados do
+  // formulário e abre a ficha dela já no "+ Vincular" — valores, escala e dias de
+  // pagamento continuam sendo combinados só lá, como antes.
+  const qc = useQueryClient()
+  const [contratando, setContratando] = useState(false)
+  const [contrato, setContrato] = useState({ cpf: '', admissao: hojeISO() })
+  const soNumeros = (s?: string | null) => String(s || '').replace(/\D/g, '')
+
+  // Colaborador que já veio deste candidato (para não cadastrar duas vezes)
+  const { data: jaColaborador } = useQuery({
+    queryKey: ['candidate-employee', id],
+    enabled: !!candidate,
+    queryFn: async () => {
+      const porOrigem = await supabase.from('employees').select('id,full_name,status').eq('candidate_id', id!).limit(1).maybeSingle()
+      if (porOrigem.data) return porOrigem.data as { id: string; full_name: string; status: string }
+      // Contratado antes desta mudança (pela vaga): acha pelo interesse contratado
+      const { data: vi } = await supabase.from('vacancy_interests').select('employee_id').eq('candidate_id', id!).not('employee_id', 'is', null).limit(1).maybeSingle()
+      const empId = (vi as { employee_id?: string } | null)?.employee_id
+      if (!empId) return null
+      const { data } = await supabase.from('employees').select('id,full_name,status').eq('id', empId).maybeSingle()
+      return (data || null) as { id: string; full_name: string; status: string } | null
+    },
+  })
+
+  const contratar = useMutation({
+    mutationFn: async () => {
+      const cpf = soNumeros(contrato.cpf)
+      if (cpf && cpf.length !== 11) throw new Error('O CPF precisa ter 11 números (ou deixe em branco para preencher depois).')
+      if (cpf) {
+        const { data: mesmoCpf } = await supabase.from('employees').select('id,full_name').eq('cpf', cpf).limit(1).maybeSingle()
+        if (mesmoCpf) throw new Error(`Já existe colaborador com este CPF: ${mesmoCpf.full_name}. Abra a ficha dele em Colaboradores.`)
+      }
+      const base = {
+        full_name: candidate.full_name, cpf: cpf || null,
+        whatsapp: candidate.whatsapp || null, phone: candidate.whatsapp || null, email: candidate.email || null,
+        crn_number: candidate.crn_number || null, crn_region: candidate.crn_region || null,
+        role: candidate.formation || null, address_city: candidate.city || null,
+        status: 'Ativo', admission_date: contrato.admissao || hojeISO(),
+      }
+      // candidate_id é da migração 110: sem ela, cadastra do mesmo jeito
+      let r = await supabase.from('employees').insert({ ...base, candidate_id: id }).select('id').single()
+      if (r.error && /candidate_id/.test(r.error.message)) r = await supabase.from('employees').insert(base).select('id').single()
+      if (r.error) throw new Error(r.error.message)
+      const empId = r.data.id as string
+      // Senha do portal: a padrão, quando existe (054); senão uma própria, mostrada uma vez
+      let senha: string | null = null
+      const { data: tipoSenha } = await supabase.rpc('portal_tipo_senha', { p_employee: empId })
+      if (tipoSenha !== 'padrao') {
+        const letras = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+        const nova = Array.from(crypto.getRandomValues(new Uint32Array(8)), n => letras[n % letras.length]).join('')
+        const { error: pinErr } = await supabase.rpc('portal_set_pin', { p_employee: empId, p_pin: nova })
+        senha = pinErr ? null : nova
+      }
+      await supabase.from('candidates').update({ pipeline_stage: 'Contratado' }).eq('id', id!)
+      return { empId, senha, semCpf: !cpf }
+    },
+    onSuccess: ({ empId, senha, semCpf }) => {
+      toast.success(senha ? `Colaborador criado. Portal: CPF + senha ${senha}` : 'Colaborador criado. Portal: CPF + senha padrão.', { duration: 9000 })
+      if (semCpf) toast('Sem CPF ela não entra no portal: preencha na ficha.', { duration: 8000 })
+      qc.invalidateQueries({ queryKey: ['candidate', id] })
+      qc.invalidateQueries({ queryKey: ['candidate-employee', id] })
+      qc.invalidateQueries({ queryKey: ['candidates'] })
+      qc.invalidateQueries({ queryKey: ['employees'] })
+      setContratando(false)
+      navigate(`/colaboradores/${empId}?abrir=vinculo`)
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
   if (!candidate) return <SkeletonDetail />
 
   return (
@@ -56,13 +128,18 @@ export default function CandidateDetail() {
               </div>
             </div>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             {candidate.whatsapp && (
               <button onClick={() => { setWAMessage(''); setShowWAModal(true) }} className="btn-secondary text-sm">
                 <MessageCircle size={16} className="text-green-600" /> <span className="hidden sm:inline">WhatsApp</span>
               </button>
             )}
             <button onClick={() => navigate(`/candidatos/${id}/editar`)} className="btn-secondary text-sm"><Edit size={16} /><span className="hidden sm:inline">Editar</span></button>
+            {jaColaborador ? (
+              <button onClick={() => navigate(`/colaboradores/${jaColaborador.id}`)} className="btn-secondary text-sm"><UserCheck size={16} />Ver ficha de colaborador</button>
+            ) : candidate.pipeline_stage !== 'Inativo' && (
+              <button onClick={() => { setContrato({ cpf: '', admissao: hojeISO() }); setContratando(true) }} className="btn-primary text-sm"><UserCheck size={16} />Contratar</button>
+            )}
           </div>
         </div>
       </div>
@@ -117,12 +194,12 @@ export default function CandidateDetail() {
       {/* Vacancy history */}
       {vacancyHistory && vacancyHistory.length > 0 && (
         <div className="card p-5 space-y-3">
-          <h3 className="font-medium">Processos Seletivos</h3>
+          <h3 className="font-medium">Processos seletivos antigos <span className="text-xs font-normal text-ink-400">(da época das vagas)</span></h3>
           <div className="space-y-2">
             {vacancyHistory.map(vi => (
               <div key={vi.id} className="flex items-center justify-between p-3 rounded-lg border border-gray-100">
                 <div>
-                  <p className="text-sm font-medium cursor-pointer hover:text-primary-600" onClick={() => navigate(`/vagas/${(vi as { vacancy?: { id: string } }).vacancy?.id}`)}>
+                  <p className="text-sm font-medium">
                     {(vi as { vacancy?: { title: string } }).vacancy?.title || 'Vaga removida'}
                   </p>
                   <p className="text-xs text-gray-400">
@@ -144,6 +221,33 @@ export default function CandidateDetail() {
       )}
 
       <NotasCandidato candidateId={id!} />
+
+      {/* Contratar: vira colaborador e segue para o vínculo */}
+      {contratando && (
+        <div className="modal-overlay">
+          <div className="modal-box max-w-md space-y-4">
+            <div>
+              <h3 className="font-semibold text-ink-900">Contratar {candidate.full_name}</h3>
+              <p className="text-sm text-ink-500 mt-1">Vira colaborador com os dados do formulário (nome, WhatsApp, e-mail, CRN, cidade). Em seguida abre a ficha para você vincular ao cliente e combinar valores.</p>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="label">CPF</label>
+                <input className="input" inputMode="numeric" placeholder="Só números" value={contrato.cpf} onChange={e => setContrato(p => ({ ...p, cpf: e.target.value }))} autoFocus />
+                <p className="text-[11px] text-ink-400 mt-1">É o login no portal. Pode preencher depois.</p>
+              </div>
+              <div>
+                <label className="label">Data de início</label>
+                <input className="input" type="date" value={contrato.admissao} onChange={e => setContrato(p => ({ ...p, admissao: e.target.value }))} />
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <button className="btn-primary flex-1" disabled={contratar.isPending} onClick={() => contratar.mutate()}>{contratar.isPending ? 'Criando…' : 'Contratar e vincular'}</button>
+              <button className="btn-secondary" disabled={contratar.isPending} onClick={() => setContratando(false)}>Cancelar</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* WhatsApp modal */}
       {showWAModal && (

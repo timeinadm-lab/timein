@@ -225,18 +225,6 @@ export default function CalendarPage() {
   })
 
   // ── Dados de apoio pra adicionar no dia ──
-  const { data: vagas } = useQuery({
-    queryKey: ['cal-vagas'],
-    queryFn: async () => {
-      const { data, error } = await supabase.from('vacancies')
-        .select('id, title, client_id, weekly_hours, status, client:clients(name)')
-        .neq('status', 'Fechada').order('title')
-      if (error) throw error
-      return data || []
-    },
-    // Também dá nome aos vários colaboradores de uma reunião (migração 066)
-  })
-
   // Vínculos por vaga — pra saber quais nutricionistas estão naquela vaga
   const { data: vagaLinks } = useQuery({
     queryKey: ['cal-vaga-links'],

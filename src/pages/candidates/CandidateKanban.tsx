@@ -55,15 +55,6 @@ export default function CandidateKanban() {
     },
   })
 
-  const { data: vacancies } = useQuery({
-    queryKey: ['vacancies-select'],
-    queryFn: async () => {
-      const { data, error } = await supabase.from('vacancies').select('id,title').eq('status', 'Aberta')
-      if (error) throw error
-      return data || []
-    },
-  })
-
   const updateStage = useMutation({
     mutationFn: async ({ id, stage, reason, inactivation_reason }: { id: string; stage: string; reason?: string; inactivation_reason?: string }) => {
       const updates: Record<string, unknown> = { pipeline_stage: stage }
@@ -219,13 +210,6 @@ export default function CandidateKanban() {
                 </select>
               </div>
               <div className="col-span-2"><label className="label">Link / Endereço</label><input className="input" value={interviewForm.link_or_address} onChange={e => setInterviewForm(p => ({ ...p, link_or_address: e.target.value }))} /></div>
-              <div>
-                <label className="label">Vaga</label>
-                <select className="input" value={interviewForm.vacancy_id} onChange={e => setInterviewForm(p => ({ ...p, vacancy_id: e.target.value }))}>
-                  <option value="">Nenhuma</option>
-                  {vacancies?.map(v => <option key={v.id} value={v.id}>{v.title}</option>)}
-                </select>
-              </div>
             </div>
             <div className="flex gap-3">
               <button className="btn-primary flex-1" disabled={!interviewForm.scheduled_at || createInterview.isPending} onClick={() => createInterview.mutate(interviewModal.id)}>

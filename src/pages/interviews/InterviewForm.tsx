@@ -63,15 +63,6 @@ export default function InterviewForm() {
     },
   })
 
-  const { data: vacancies } = useQuery({
-    queryKey: ['vacancies-select'],
-    queryFn: async () => {
-      const { data, error } = await supabase.from('vacancies').select('id,title').eq('status', 'Aberta')
-      if (error) throw error
-      return data || []
-    },
-  })
-
   const { data: recruiters } = useQuery({
     queryKey: ['user-profiles'],
     queryFn: async () => {
@@ -219,7 +210,7 @@ export default function InterviewForm() {
     })
   }
 
-  const hasLinks = !!(employeeIds.length || form.candidate_id || form.vacancy_id)
+  const hasLinks = !!(employeeIds.length || form.candidate_id)
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">
@@ -421,7 +412,7 @@ export default function InterviewForm() {
         {/* Vínculos opcionais — recolhidos para manter o formulário simples */}
         <details className="border-t border-ink-100 pt-3" open={hasLinks}>
           <summary className="text-sm text-primary-600 font-medium cursor-pointer hover:underline select-none">
-            Vincular a colaborador, candidato ou vaga (opcional)
+            Vincular a colaborador ou candidato (opcional)
           </summary>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-3">
             {/* No compromisso o colaborador já é escolhido em "Quem?" acima */}
@@ -450,13 +441,6 @@ export default function InterviewForm() {
               <select className="input" value={form.candidate_id} onChange={e => set('candidate_id', e.target.value)}>
                 <option value="">Nenhum</option>
                 {candidates?.map(c => <option key={c.id} value={c.id}>{c.full_name}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="label">Vaga</label>
-              <select className="input" value={form.vacancy_id} onChange={e => set('vacancy_id', e.target.value)}>
-                <option value="">Nenhuma</option>
-                {vacancies?.map(v => <option key={v.id} value={v.id}>{v.title}</option>)}
               </select>
             </div>
           </div>

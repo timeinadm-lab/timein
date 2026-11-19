@@ -40,7 +40,7 @@ export default function Login() {
             Gestão de pessoas<br /><em className="text-primary-300">para nutrição.</em>
           </h1>
           <p className="hidden md:block text-primary-200/80 mt-4 max-w-sm text-sm leading-relaxed">
-            Colaboradores, vagas, visitas e pagamentos da consultoria num lugar só.
+            Colaboradores, candidatos, visitas e pagamentos da consultoria num lugar só.
           </p>
         </div>
         <p className="hidden md:block text-xs text-primary-300/70">Time IN</p>

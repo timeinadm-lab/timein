@@ -106,7 +106,7 @@ export default function UserManagement() {
               <p className="text-xs text-ink-400">
                 {hasDeletePin
                   ? 'Um PIN já está configurado. Defina abaixo para trocá-lo.'
-                  : 'Nenhum PIN definido ainda. Apagar vaga, colaborador ou cliente exige este PIN.'}
+                  : 'Nenhum PIN definido ainda. Apagar colaborador ou cliente exige este PIN.'}
               </p>
             </div>
             {hasDeletePin && <span className="badge bg-primary-100 text-primary-700 ml-auto">Ativo</span>}

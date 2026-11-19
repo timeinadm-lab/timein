@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, useRef } from 'react'
-import { Search, X, UserCheck, UserPlus, Building2, Briefcase, CreditCard, ClipboardList, Clock, ChevronRight } from 'lucide-react'
+import { Search, X, UserCheck, UserPlus, Building2, CreditCard, ClipboardList, Clock, ChevronRight } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { supabase } from '../../lib/supabase'
@@ -10,7 +10,7 @@ interface Result {
   id: string
   label: string
   sub?: string
-  type: 'Colaborador' | 'Candidato' | 'Cliente' | 'Vaga'
+  type: 'Colaborador' | 'Candidato' | 'Cliente'
   path: string
 }
 
@@ -32,12 +32,11 @@ const guardarRecente = (r: Result) => {
   } catch { /* navegador sem armazenamento: só não lembra */ }
 }
 
-const ICONES = { Colaborador: UserCheck, Candidato: UserPlus, Cliente: Building2, Vaga: Briefcase }
+const ICONES = { Colaborador: UserCheck, Candidato: UserPlus, Cliente: Building2 }
 const CORES: Record<Result['type'], string> = {
   Colaborador: 'bg-primary-50 text-primary-700',
   Candidato: 'bg-purple-50 text-purple-700',
   Cliente: 'bg-blue-50 text-blue-700',
-  Vaga: 'bg-amber-50 text-amber-700',
 }
 
 const ATALHOS = [
@@ -46,7 +45,6 @@ const ATALHOS = [
   { label: 'Visitas', path: '/visitas', icon: ClipboardList },
   { label: 'Clientes', path: '/clientes', icon: Building2 },
   { label: 'Candidatos', path: '/candidatos', icon: UserPlus },
-  { label: 'Vagas', path: '/vagas', icon: Briefcase },
 ]
 
 export default function GlobalSearch({ open, onClose }: Props) {
@@ -123,21 +121,15 @@ export default function GlobalSearch({ open, onClose }: Props) {
     return [...pessoas, ...clientes]
   }, [query, equipe])
 
-  // Candidatos e vagas são muitos: continuam buscando no servidor
+  // Candidatos são muitos: continuam buscando no servidor
   useEffect(() => {
     if (!query.trim() || query.trim().length < 2) { setRemotos([]); return }
     const timer = setTimeout(async () => {
       setLoading(true)
       try {
         const q = `%${query.trim()}%`
-        const [can, vac] = await Promise.all([
-          supabase.from('candidates').select('id,full_name,city').ilike('full_name', q).limit(5),
-          supabase.from('vacancies').select('id,title,city').ilike('title', q).limit(5),
-        ])
-        setRemotos([
-          ...(can.data || []).map(c => ({ id: c.id, label: c.full_name, sub: c.city || '', type: 'Candidato' as const, path: `/candidatos/${c.id}` })),
-          ...(vac.data || []).map(v => ({ id: v.id, label: v.title, sub: v.city || '', type: 'Vaga' as const, path: `/vagas/${v.id}` })),
-        ])
+        const can = await supabase.from('candidates').select('id,full_name,city').ilike('full_name', q).limit(8)
+        setRemotos((can.data || []).map(c => ({ id: c.id, label: c.full_name, sub: c.city || '', type: 'Candidato' as const, path: `/candidatos/${c.id}` })))
       } finally {
         setLoading(false)
       }
@@ -233,7 +225,7 @@ export default function GlobalSearch({ open, onClose }: Props) {
           ) : (
             <>
               {results.map((r, i) => <Linha key={`${r.type}-${r.id}`} r={r} i={i} />)}
-              {loading && <div className="px-4 py-3 text-sm text-ink-400">Buscando candidatos e vagas…</div>}
+              {loading && <div className="px-4 py-3 text-sm text-ink-400">Buscando candidatos…</div>}
               {!loading && results.length === 0 && (
                 <div className="p-8 text-center">
                   <p className="text-sm font-semibold text-ink-700">Nada encontrado</p>

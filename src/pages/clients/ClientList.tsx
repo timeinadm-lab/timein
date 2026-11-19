@@ -55,11 +55,10 @@ export default function ClientList() {
 
   const deleteClient = useMutation({
     mutationFn: async (clientId: string) => {
-      // Trava: não apaga cliente com vínculo ou vaga
+      // Trava: não apaga cliente com vínculo
       const { data: linksData } = await supabase.from('employee_client_links').select('id').eq('client_id', clientId).limit(1)
       if (linksData?.length) throw new Error('Este cliente tem colaboradores vinculados. Desligue-os antes de excluir.')
-      const { data: vagasData } = await supabase.from('vacancies').select('id').eq('client_id', clientId).limit(1)
-      if (vagasData?.length) throw new Error('Este cliente tem vagas. Apague as vagas antes de excluir o cliente.')
+      await supabase.from('vacancies').update({ unit_id: null }).eq('client_id', clientId)
       await supabase.from('client_units').delete().eq('client_id', clientId)
       await supabase.from('client_locations').delete().eq('client_id', clientId)
       await supabase.from('client_contracts').delete().eq('client_id', clientId)
@@ -112,7 +111,7 @@ export default function ClientList() {
         <EmptyState
           icon={Building2}
           title="Nenhum cliente encontrado"
-          hint={search ? 'Tente buscar por outro nome.' : 'Cadastre seu primeiro cliente para começar a abrir vagas.'}
+          hint={search ? 'Tente buscar por outro nome.' : 'Cadastre seu primeiro cliente para começar a vincular colaboradores.'}
           actionLabel={canManageClient && !search ? '+ Novo Cliente' : undefined}
           onAction={canManageClient && !search ? () => navigate('/clientes/novo') : undefined}
         />
@@ -194,7 +193,7 @@ export default function ClientList() {
       <DeletePinModal
         open={!!confirmDelete}
         title="Excluir cliente?"
-        description={confirmDelete ? `Remove ${confirmDelete.name} e seus dados (unidades, contratos, documentos). Só é possível se não houver colaboradores nem vagas vinculados.` : ''}
+        description={confirmDelete ? `Remove ${confirmDelete.name} e seus dados (unidades, contratos, documentos). Só é possível se não houver colaboradores vinculados.` : ''}
         confirmLabel="Excluir cliente"
         onConfirmed={async () => { if (confirmDelete) await deleteClient.mutateAsync(confirmDelete.id) }}
         onClose={() => setConfirmDelete(null)}

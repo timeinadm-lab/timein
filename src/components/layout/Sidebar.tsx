@@ -2,7 +2,7 @@ import { NavLink, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Building2, FileText, ShieldCheck, UserCheck,
   Wallet, Calendar, MessageSquare, Settings, LogOut,
-  ChevronLeft, ChevronRight, Briefcase, UserPlus, X, ClipboardCheck, ListChecks, CalendarDays, Landmark, Timer, Users, FileCheck2, Cake, Sheet, CircleUser,
+  ChevronLeft, ChevronRight, UserPlus, X, ClipboardCheck, ListChecks, CalendarDays, Landmark, Timer, Users, FileCheck2, Cake, Sheet, CircleUser,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
@@ -37,7 +37,6 @@ const MENU: Grupo[] = [
   {
     titulo: 'Recrutamento',
     itens: [
-      { icon: Briefcase, label: 'Vagas', path: '/vagas' },
       { icon: UserPlus, label: 'Candidatos', path: '/candidatos' },
     ],
   },

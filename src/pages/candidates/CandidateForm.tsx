@@ -214,7 +214,10 @@ export default function CandidateForm() {
         {tab === 'disponibilidade' && (
           <div className="card p-6 space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div><label className="label">Início Disponível</label><input className="input" type="date" value={form.available_start} onChange={e => set('available_start', e.target.value)} /></div>
+              <div><label className="label">Início Disponível</label><select className="input" value={form.available_start} onChange={e => set('available_start', e.target.value)}>
+                  <option value="">Selecionar</option>
+                  {['Imediato', 'Até 15 dias', '30 dias ou mais', ...(form.available_start && !['Imediato', 'Até 15 dias', '30 dias ou mais'].includes(form.available_start) ? [form.available_start] : [])].map(o => <option key={o}>{o}</option>)}
+                </select></div>
               <div>
                 <label className="label">Turno</label>
                 <select className="input" value={form.work_shift} onChange={e => set('work_shift', e.target.value)}>

@@ -78,6 +78,8 @@ export default function CandidateDetail() {
             <div><span className="text-xs text-gray-400">Veículo</span><p>{candidate.has_vehicle ? 'Sim' : 'Não'}</p></div>
             <div><span className="text-xs text-gray-400">Viagens</span><p>{candidate.requires_travel ? 'Aceita' : 'Não'}</p></div>
             <div><span className="text-xs text-gray-400">Mudança</span><p>{candidate.requires_relocation ? 'Aceita' : 'Não'}</p></div>
+            <div><span className="text-xs text-gray-400">Idade</span><p>{candidate.idade || '-'}</p></div>
+            <div><span className="text-xs text-gray-400">Pode começar</span><p>{candidate.available_start || '-'}</p></div>
           </div>
         </div>
 
@@ -87,7 +89,7 @@ export default function CandidateDetail() {
             <div><span className="text-xs text-gray-400">Formação</span><p>{candidate.formation || '-'}</p></div>
             <div><span className="text-xs text-gray-400">Experiência</span><p>{candidate.experience_time || '-'}</p></div>
             <div><span className="text-xs text-gray-400">Instituição</span><p>{candidate.institution || '-'}</p></div>
-            <div><span className="text-xs text-gray-400">Vol. Máx.</span><p>{candidate.max_meals_volume || '-'}</p></div>
+            <div><span className="text-xs text-gray-400">Maior volume de refeições</span><p>{candidate.volume_refeicoes || (candidate.max_meals_volume ? `a partir de ${Number(candidate.max_meals_volume).toLocaleString('pt-BR')}` : '-')}</p></div>
           </div>
           {candidate.postgrad_options?.length > 0 && (
             <div>

@@ -73,3 +73,20 @@ export function camposParaAtualizar(novo: Record<string, unknown>): Record<strin
   }
   return out
 }
+
+/**
+ * "Qual foi o maior volume de refeições…" vem como faixa de texto ("1.000 a
+ * 5.000", "Acima de 5.000", "Não possuo experiência ainda"). Antes ia direto
+ * num parseInt: "1.000 a 5.000" virava 1 e "Acima de 5.000" ficava vazio
+ * (achado em 18/11/2026: 414 candidatos com volume 1). Agora guarda a faixa
+ * como veio e o MÍNIMO dela em número (para filtrar "a partir de X").
+ */
+export function lerVolumeRefeicoes(v: unknown): { minimo: number | null; faixa: string | null } {
+  const faixa = String(v ?? '').trim().replace(/\s+/g, ' ')
+  if (!faixa) return { minimo: null, faixa: null }
+  if (/n[aã]o poss/i.test(faixa)) return { minimo: 0, faixa }
+  const numeros = (faixa.match(/\d[\d.]*/g) || []).map(n => Number(n.replace(/\./g, ''))).filter(n => Number.isFinite(n))
+  if (!numeros.length) return { minimo: null, faixa }
+  // "Até 100" não tem piso: o mínimo é 0. Nos outros casos vale o menor número.
+  return { minimo: /^at[eé]\s/i.test(faixa) ? 0 : Math.min(...numeros), faixa }
+}

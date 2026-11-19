@@ -1,5 +1,5 @@
 // Importação de candidatos: data da resposta e "fica só a última resposta". Rodar: npm run testes
-import { lerCarimbo, ultimaRespostaDeCada, camposParaAtualizar } from './candidatosImport'
+import { lerCarimbo, ultimaRespostaDeCada, camposParaAtualizar, lerVolumeRefeicoes } from './candidatosImport'
 
 let falhas = 0
 const ok = (cond: boolean, nome: string, info?: unknown) => {
@@ -38,6 +38,15 @@ ok(semData.length === 1 && semData[0].nome === 'c2', 'sem data: vale a linha de 
 console.log('Atualizar quem refez o formulário')
 const up = camposParaAtualizar({ city: 'Curitiba', email: '', tools: [], pipeline_stage: 'Banco', experience_time: '2 anos', whatsapp: null })
 ok(JSON.stringify(up) === JSON.stringify({ city: 'Curitiba', experience_time: '2 anos' }), 'vazio não apaga; estágio não muda', up)
+
+console.log('Volume de refeições (faixa do formulário)')
+ok(lerVolumeRefeicoes('1.000 a 5.000').minimo === 1000, '"1.000 a 5.000" é 1000, não 1')
+ok(lerVolumeRefeicoes('Acima de 5.000').minimo === 5000, '"Acima de 5.000" é 5000')
+ok(lerVolumeRefeicoes('500 a 1.000').minimo === 500 && lerVolumeRefeicoes('100 a 200').minimo === 100, 'faixas menores')
+ok(lerVolumeRefeicoes('Não possuo experiência ainda').minimo === 0, 'sem experiência é 0')
+ok(lerVolumeRefeicoes('').minimo === null && lerVolumeRefeicoes('').faixa === null, 'vazio fica vazio')
+ok(lerVolumeRefeicoes(' 200 a 500 ').faixa === '200 a 500', 'guarda a faixa como veio')
+ok(lerVolumeRefeicoes('Até 100').minimo === 0, '"Até 100" não tem piso')
 
 console.log(falhas ? `\n${falhas} FALHA(S)` : '\nTodos os testes passaram')
 if (falhas) throw new Error(`${falhas} teste(s) de importação de candidatos falharam`)

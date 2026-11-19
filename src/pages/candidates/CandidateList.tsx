@@ -5,7 +5,7 @@ import { Plus, Search, MessageCircle, Trash2, LayoutGrid, Download, Upload, X, C
 import { supabase } from '../../lib/supabase'
 import { formatWhatsApp, PIPELINE_COLORS, PIPELINE_STAGES, BRAZIL_STATES, AREA_INTEREST_OPTIONS, TOOLS_OPTIONS, EXPERIENCE_TIME_OPTIONS } from '../../lib/utils'
 import { format } from 'date-fns'
-import { lerCarimbo, ultimaRespostaDeCada } from '../../lib/candidatosImport'
+import { lerCarimbo, ultimaRespostaDeCada, lerVolumeRefeicoes } from '../../lib/candidatosImport'
 import type { Chaves } from '../../lib/candidatosImport'
 import { camposParaAtualizar } from '../../lib/candidatosImport'
 import { exportToCSV } from '../../lib/exportUtils'
@@ -27,6 +27,7 @@ const FIELD_OPTIONS = [
   { value: '', label: '-- Ignorar --' },
   { value: 'full_name', label: 'Nome *' },
   { value: 'respondido_em', label: 'Data da resposta (carimbo)' },
+  { value: 'idade', label: 'Idade (faixa)' },
   { value: 'state', label: 'Estado' },
   { value: 'city', label: 'Cidade' },
   { value: 'sp_region', label: 'Região SP' },
@@ -160,6 +161,7 @@ export default function CandidateList() {
       const FORMS_MAP: Record<string, string> = {
         'carimbo de data/hora': 'respondido_em',
         'nome completo': 'full_name',
+        'idade': 'idade',
         'estado que reside': 'state',
         'cidade que reside': 'city',
         'caso resida na cidade de são paulo': 'sp_region',
@@ -225,6 +227,8 @@ export default function CandidateList() {
     let temData = true   // sem a migração 086 não há coluna respondido_em
     // Sem a migração 107 não há a coluna "sobre": importa o resto e avisa no fim
     const temSobre = !(await supabase.from('candidates').select('sobre').limit(1)).error
+    // Idade e faixa do volume de refeições: colunas da migração 109
+    const tem109 = !(await supabase.from('candidates').select('idade,volume_refeicoes').limit(1)).error
     {
       let from = 0
       const pageSize = 1000
@@ -289,7 +293,10 @@ export default function CandidateList() {
           experience_time: obj.experience_time || null,
           segments: splitField(obj.segments),
           uan_areas: splitField(obj.uan_areas),
-          max_meals_volume: safeInt(obj.max_meals_volume || ''),
+          max_meals_volume: lerVolumeRefeicoes(obj.max_meals_volume).minimo,
+          ...(tem109 ? { volume_refeicoes: lerVolumeRefeicoes(obj.max_meals_volume).faixa, idade: obj.idade?.trim() || null } : {}),
+          // Antes a coluna era lida mas não era gravada (18/11/2026)
+          available_start: obj.available_start?.trim() || null,
           available_weekends: obj.available_weekends ? toBool(obj.available_weekends) : false,
           work_shift: obj.work_shift || null,
           work_hours: obj.work_hours || null,
@@ -345,6 +352,7 @@ export default function CandidateList() {
     if (repetidas) parts.push(`${repetidas} resposta(s) repetida(s) na planilha — ficou a mais nova`)
     if (err) parts.push(`${err} erro(s)`)
     toast.success(parts.join(' · '), { duration: 6000 })
+    if (!tem109 && Object.values(colMap).includes('idade')) toast.error('A idade e a faixa de refeições não foram salvas: rode a migração 109 no Supabase e importe de novo.', { duration: 9000 })
     if (!temSobre && Object.values(colMap).includes('sobre')) toast.error('O texto "Conte um pouco sobre você" não foi salvo: rode a migração 107 no Supabase e importe de novo.', { duration: 9000 })
   }
 

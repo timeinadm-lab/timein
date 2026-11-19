@@ -207,6 +207,8 @@ export interface Candidate {
   experience_area?: string
   experience_time?: string
   sobre?: string | null
+  idade?: string | null
+  volume_refeicoes?: string | null
   segments?: string[]
   uan_areas?: string[]
   max_meals_volume?: number

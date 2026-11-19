@@ -1654,7 +1654,7 @@ export default function EmployeeDetail() {
                   <>
                     <div className="fixed inset-0 z-20" onClick={() => setStatusMenuOpen(false)} />
                     <div className="absolute z-30 mt-1 left-0 bg-white rounded-xl shadow-lift border border-ink-100 p-1 w-44">
-                      {([['Ativo', '🟢 Ativo', 'Trabalha na empresa'], ['Ocioso', '🟡 Ocioso', 'Ativo, sem vínculo agora'], ['Inativo', '⚪ Inativo', 'Desligado']] as const).map(([s, label, hint]) => (
+                      {([['Ativo', 'Ativo', 'Trabalha na empresa'], ['Ocioso', 'Ocioso', 'Ativo, sem vínculo agora'], ['Inativo', 'Inativo', 'Desligado']] as const).map(([s, label, hint]) => (
                         <button key={s} disabled={updateStatus.isPending}
                           onClick={() => updateStatus.mutate(s)}
                           className={`w-full text-left px-3 py-2 rounded-lg hover:bg-ink-50 transition-colors ${employee.status === s ? 'bg-ink-50' : ''}`}>
@@ -1666,9 +1666,9 @@ export default function EmployeeDetail() {
                   </>
                 )}
               </div>
-              {employee.crn_number && <span className="badge bg-blue-50 text-blue-700">CRN {[employee.crn_number, employee.crn_region].filter(Boolean).join('/')}</span>}
+              {employee.crn_number && <span className="badge bg-ink-100 text-ink-700">CRN {[employee.crn_number, employee.crn_region].filter(Boolean).join('/')}</span>}
               {[...new Set((links || []).map(l => rotuloDoVinculo(l)))].map(st => (
-                <span key={st} className={`badge ${st === 'Consultoria' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'}`}>{st}</span>
+                <span key={st} className="badge bg-ink-100 text-ink-700">{st}</span>
               ))}
             </div>
           </div>
@@ -1686,13 +1686,13 @@ export default function EmployeeDetail() {
           <button onClick={() => navigate(`/colaboradores/${id}/editar`)} className="btn-secondary text-sm min-w-0 px-0 md:px-4 md:flex-none"><Edit size={16} /><span className="hidden sm:inline">Editar</span></button>
           <button
             onClick={() => toggleFavorite.mutate(!(employee as { is_favorite?: boolean }).is_favorite)}
-            className={`btn-secondary text-sm min-w-0 px-0 md:px-4 md:flex-none ${(employee as { is_favorite?: boolean }).is_favorite ? 'text-amber-500 border-amber-300 bg-amber-50 hover:bg-amber-100' : ''}`}
+            className={`btn-ghost text-sm min-w-0 px-0 md:px-3 md:flex-none md:ml-auto ${(employee as { is_favorite?: boolean }).is_favorite ? 'text-amber-500' : 'text-ink-400'}`}
+            aria-label={(employee as { is_favorite?: boolean }).is_favorite ? 'Remover dos favoritos' : 'Adicionar aos favoritos'}
             title={(employee as { is_favorite?: boolean }).is_favorite ? 'Remover dos favoritos' : 'Adicionar aos favoritos'}
           >
             <Star size={16} fill={(employee as { is_favorite?: boolean }).is_favorite ? 'currentColor' : 'none'} />
-            <span className="hidden sm:inline">{(employee as { is_favorite?: boolean }).is_favorite ? 'Favorito' : 'Favoritar'}</span>
           </button>
-          <button onClick={() => setConfirmDelete(true)} className="btn-secondary text-sm min-w-0 px-0 md:px-4 md:flex-none text-red-600 hover:bg-red-50 border-red-200"><Trash2 size={16} /><span className="hidden sm:inline">Excluir</span></button>
+          <button onClick={() => setConfirmDelete(true)} className="btn-ghost text-sm min-w-0 px-0 md:px-3 md:flex-none text-ink-400 hover:text-red-600 hover:bg-red-50" title="Excluir colaborador" aria-label="Excluir colaborador"><Trash2 size={16} /></button>
         </div>
       </div>
 
@@ -1731,7 +1731,7 @@ export default function EmployeeDetail() {
       {/* Abas principais (8). Documentos virou aba própria (14/10/2026): contrato
           anexado no vínculo cai lá. Agenda junta Agenda + Visitas feitas.
           Quebra linha no celular em vez de esconder. */}
-      <div className="flex flex-wrap gap-1.5">
+      <div className="flex gap-1 overflow-x-auto scrollbar-none border-b border-ink-200 -mx-4 px-4 md:mx-0 md:px-0" role="tablist">
         {([
           ['visao', 'Resumo', ['visao']],
           ['ficha', 'Cadastro', ['ficha']],
@@ -1744,7 +1744,8 @@ export default function EmployeeDetail() {
           ['observacoes', `Observações${observacoes?.length ? ` (${observacoes.length})` : ''}`, ['observacoes']],
         ] as [Tab, string, Tab[]][]).filter(([t]) => t !== 'pagamentos' || vePagamentos).map(([t, rotulo, grupo]) => (
           <button key={t} onClick={() => setTab(t)}
-            className={`px-3 md:px-3.5 py-2 text-[13px] md:text-sm font-semibold whitespace-nowrap rounded-xl transition-all active:scale-95 ${grupo.includes(tab) ? 'bg-primary-600 text-white shadow-soft' : 'bg-white border border-ink-100 text-ink-500 hover:text-ink-800 hover:border-ink-200'}`}>
+            role="tab" aria-selected={grupo.includes(tab)}
+            className={`px-3 py-2.5 text-sm whitespace-nowrap border-b-2 -mb-px transition-colors ${grupo.includes(tab) ? 'border-primary-700 text-ink-900 font-semibold' : 'border-transparent text-ink-500 hover:text-ink-800'}`}>
             {rotulo}
           </button>
         ))}
@@ -1773,7 +1774,7 @@ export default function EmployeeDetail() {
           <div className="card p-5">
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Identificação</p>
             <div className="grid grid-cols-2 gap-3 text-sm">
-              <div><span className="text-xs text-gray-400">CPF</span><p className="font-mono">{employee.cpf || <span className="text-orange-400 text-xs">⚠️ Pendente</span>}</p></div>
+              <div><span className="text-xs text-gray-400">CPF</span><p className="font-mono">{employee.cpf || <span className="text-orange-400 text-xs">Pendente</span>}</p></div>
               <div><span className="text-xs text-gray-400">RG</span><p className="font-mono">{(employee as { rg?: string }).rg || '-'}</p></div>
               <div><span className="text-xs text-gray-400">Data de Nascimento</span><p>{formatDate(employee.birth_date)}</p></div>
               <div><span className="text-xs text-gray-400">Admissão</span><p>{formatDate(employee.admission_date)}</p></div>
@@ -1804,7 +1805,7 @@ export default function EmployeeDetail() {
                 ) : <p>-</p>}
               </div>
               <div className="col-span-2"><span className="text-xs text-gray-400">E-mail</span><p>{employee.email || '-'}</p></div>
-              <div className="col-span-2"><span className="text-xs text-gray-400">Contato de Emergência</span><p className={!(employee as { emergency_phone?: string }).emergency_phone ? 'text-amber-500 text-xs' : ''}>{(employee as { emergency_phone?: string }).emergency_phone || '⚠️ Não informado'}</p></div>
+              <div className="col-span-2"><span className="text-xs text-gray-400">Contato de Emergência</span><p className={!(employee as { emergency_phone?: string }).emergency_phone ? 'text-amber-500 text-xs' : ''}>{(employee as { emergency_phone?: string }).emergency_phone || 'Não informado'}</p></div>
             </div>
           </div>
 
@@ -1942,8 +1943,8 @@ export default function EmployeeDetail() {
                 <label className="label !text-orange-800">Quem monta os dias? *</label>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {([
-                    { v: 'gestor', t: '🏢 O RH monta', d: 'Você define os dias. Ela não pode adicionar nem remarcar — só cumpre e registra o ponto.' },
-                    { v: 'colaborador', t: '👤 Ela monta', d: 'Ela escolhe os próprios dias no portal, dentro do período combinado.' },
+                    { v: 'gestor', t: 'O RH monta', d: 'Você define os dias. Ela não pode adicionar nem remarcar — só cumpre e registra o ponto.' },
+                    { v: 'colaborador', t: 'Ela monta', d: 'Ela escolhe os próprios dias no portal, dentro do período combinado.' },
                   ] as const).map(o => (
                     <button key={o.v} type="button" onClick={() => setCoverageForm(p => ({ ...p, agenda_mode: o.v }))}
                       className={`text-left p-2.5 rounded-lg border-2 transition-colors ${coverageForm.agenda_mode === o.v ? 'border-orange-500 bg-orange-50' : 'border-gray-200 hover:border-gray-300'}`}>
@@ -2312,7 +2313,7 @@ export default function EmployeeDetail() {
                 <label className="label !text-orange-800">Exige contrato assinado? *</label>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {([
-                    { v: 'sim', t: '📄 Sim, exige', d: 'O portal dela só abre depois que o contrato assinado for anexado.' },
+                    { v: 'sim', t: 'Sim, exige', d: 'O portal dela só abre depois que o contrato assinado for anexado.' },
                     { v: 'nao', t: '○ Não precisa', d: 'Ela já pode usar o portal e registrar ponto.' },
                   ] as const).map(o => (
                     <button key={o.v} type="button" onClick={() => setCoverageForm(p => ({ ...p, contrato: o.v }))}
@@ -2586,7 +2587,7 @@ export default function EmployeeDetail() {
                 <div key={l.id} className={`border rounded-lg p-4 ${noFixo ? 'bg-white ' : ''}${encerrado ? 'border-ink-200 bg-ink-50/60' : contractRed ? 'border-red-300 bg-red-50 ring-1 ring-red-200' : contractYellow ? 'border-amber-300 bg-amber-50 ring-1 ring-amber-200' : expired ? 'border-red-200 bg-red-50' : expiringSoon ? 'border-amber-200 bg-amber-50' : 'border-gray-100'}`}>
                   {pendCadastro.length > 0 && (
                     <div className="mb-3 rounded-lg bg-amber-50 border border-amber-300 px-3 py-2">
-                      <p className="text-xs font-semibold text-amber-900">⚠ Falta completar este vínculo</p>
+                      <p className="text-xs font-semibold text-amber-900">Falta completar este vínculo</p>
                       <ul className="text-xs text-amber-800 mt-0.5 list-disc list-inside">
                         {pendCadastro.map((m, i) => <li key={i}>{m}</li>)}
                       </ul>
@@ -3706,7 +3707,7 @@ export default function EmployeeDetail() {
                   {a.hours_expected && <span className="text-xs bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded">{a.hours_expected}h</span>}
                   {a.notes && <span className="text-xs text-gray-500 italic truncate">"{a.notes}"</span>}
                   {a.rescheduled_at && <span className="text-xs text-amber-600">Remarcado</span>}
-                  {a.created_by_admin && <span className="text-xs text-blue-500">🔒 fixo</span>}
+                  {a.created_by_admin && <span className="text-xs text-blue-500">fixo</span>}
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0">
                   {confirmDelAgenda === a.id ? (
@@ -3754,7 +3755,7 @@ export default function EmployeeDetail() {
                       <p className="text-xs text-gray-400">{mode === 'gestor' ? 'O RH monta a agenda (ela só vê)' : 'O colaborador monta a própria agenda'}</p>
                     </div>
                     <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs shrink-0">
-                      {([['colaborador', '👤 Colaborador'], ['gestor', '🏢 RH monta']] as const).map(([v, t]) => (
+                      {([['colaborador', 'Colaborador'], ['gestor', 'RH monta']] as const).map(([v, t]) => (
                         <button key={v} onClick={() => setAgendaMode.mutate({ linkId: l.id, mode: v })}
                           className={`px-2.5 py-1.5 font-medium transition-colors ${mode === v ? 'bg-primary-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>
                           {t}
@@ -3903,8 +3904,8 @@ export default function EmployeeDetail() {
                 <span className="badge bg-green-100 text-green-700">{realized.length} dia{realized.length !== 1 ? 's' : ''}/visita{realized.length !== 1 ? 's' : ''}</span>
                 {faltas.length > 0 && <span className="badge bg-red-100 text-red-700">{faltas.length} falta{faltas.length > 1 ? 's' : ''}{faltas.some(f => f.atestado_url) ? ` (${faltas.filter(f => f.atestado_url).length} c/ atestado)` : ''}</span>}
                 {feriados.length > 0 && <span className="badge bg-amber-100 text-amber-700">{feriados.length} feriado{feriados.length > 1 ? 's' : ''}</span>}
-                {comRelatorio > 0 && <span className="badge bg-blue-100 text-blue-700">📄 {comRelatorio} relatório{comRelatorio > 1 ? 's' : ''}</span>}
-                {semRelatorio > 0 && <span className="badge bg-red-100 text-red-700">📄 {semRelatorio} sem relatório</span>}
+                {comRelatorio > 0 && <span className="badge bg-blue-100 text-blue-700">{comRelatorio} relatório{comRelatorio > 1 ? 's' : ''}</span>}
+                {semRelatorio > 0 && <span className="badge bg-red-100 text-red-700">{semRelatorio} sem relatório</span>}
               </div>
             )}
 
@@ -3933,7 +3934,7 @@ export default function EmployeeDetail() {
                           <span className="text-red-600 font-medium">Falta</span>
                           <span className="text-gray-500"> — {v.unavailability_reason || 'sem motivo'}</span>
                           {v.atestado_url
-                            ? <SignedLink value={v.atestado_url} bucket="arquivos" className="text-primary-600 underline ml-2 text-xs">📎 ver atestado</SignedLink>
+                            ? <SignedLink value={v.atestado_url} bucket="arquivos" className="text-primary-600 underline ml-2 text-xs">ver atestado</SignedLink>
                             : <span className="text-xs text-red-400 ml-2">sem atestado</span>}
                         </td>
                       </tr>
@@ -3957,7 +3958,7 @@ export default function EmployeeDetail() {
                             {formatDate(v.visit_date)}
                             {v.is_extra && (
                               <span className={`badge text-[10px] ml-1 ${v.extra_approval === 'aprovada' ? 'bg-green-100 text-green-700' : v.extra_approval === 'negada' ? 'bg-gray-100 text-gray-500' : 'bg-purple-100 text-purple-700'}`}>
-                                extra{v.extra_approval === 'aprovada' ? ' ✓' : v.extra_approval === 'pendente' ? ' ⏳' : ''}
+                                extra{v.extra_approval === 'aprovada' ? ' ✓' : v.extra_approval === 'pendente' ? ' (aguardando)' : ''}
                               </span>
                             )}
                             {v.is_swap && <span className="badge bg-blue-100 text-blue-700 text-[10px] ml-1">troca</span>}
@@ -3971,9 +3972,9 @@ export default function EmployeeDetail() {
                           <td className="py-2 px-2">
                             <div className="flex items-center gap-1 justify-end">
                               {v.report_url ? (
-                                <SignedLink value={v.report_url} bucket="arquivos" className="text-primary-600 hover:text-primary-800 p-1 text-sm">📄</SignedLink>
+                                <SignedLink value={v.report_url} bucket="arquivos" className="text-primary-700 hover:text-primary-900 px-1 text-xs underline">relatório</SignedLink>
                               ) : reportRequired(v) ? (
-                                <span className="text-xs text-red-500 font-medium px-1" title="Relatório obrigatório ainda não anexado">📄 pendente</span>
+                                <span className="text-xs text-red-500 font-medium px-1" title="Relatório obrigatório ainda não anexado">sem relatório</span>
                               ) : null}
                               <button
                                 className="text-gray-300 hover:text-primary-600 p-1"
@@ -4081,7 +4082,7 @@ export default function EmployeeDetail() {
               return (
                 <div key={d.id} className="flex items-center justify-between p-3 rounded-lg border border-gray-100 hover:bg-gray-50 gap-3">
                   <div className="flex items-center gap-3 min-w-0">
-                    <span className="text-xl">{fileUrl ? (fileUrl.match(/\.(jpg|jpeg|png|webp)/i) ? '🖼️' : '📄') : '📋'}</span>
+                    <FileText size={18} className={fileUrl ? 'text-ink-500 shrink-0' : 'text-ink-300 shrink-0'} strokeWidth={1.75} />
                     <div className="min-w-0">
                       <p className="text-sm font-medium truncate">{d.name}</p>
                       {!fileUrl && <p className="text-xs text-amber-500">Arquivo não enviado</p>}
@@ -4373,7 +4374,7 @@ function VisaoGeral({
         <div className="space-y-2">
           {pendingDocs.length > 0 && (
             <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-center gap-3">
-              <span className="text-amber-500 text-lg">⚠️</span>
+              <AlertTriangle size={18} className="text-amber-600 shrink-0" strokeWidth={1.75} />
               <div>
                 <p className="text-sm font-semibold text-amber-800">{pendingDocs.length} documento{pendingDocs.length > 1 ? 's' : ''} pendente{pendingDocs.length > 1 ? 's' : ''}</p>
                 <p className="text-xs text-amber-600">{pendingDocs.map(d => d.name).join(', ')}</p>
@@ -4382,7 +4383,7 @@ function VisaoGeral({
           )}
           {daysSinceLast !== null && daysSinceLast > 7 && (
             <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 flex items-center gap-3">
-              <span className="text-red-500 text-lg">🔴</span>
+              <AlertTriangle size={18} className="text-red-600 shrink-0" strokeWidth={1.75} />
               <div>
                 <p className="text-sm font-semibold text-red-800">Sem visita há {daysSinceLast} dias</p>
                 <p className="text-xs text-red-600">Última visita em {lastVisitDate ? format(new Date(lastVisitDate + 'T12:00:00'), 'dd/MM/yyyy') : '—'}</p>
@@ -4413,7 +4414,7 @@ function VisaoGeral({
                     o valor real sai da folha de ponto, então precisa ficar explícito. */}
                 {l.monthly_amount && role === 'chefe' && (
                   l.service_type === 'Fixo'
-                    ? <span className="text-xs text-gray-600 flex items-center gap-1">💰 {formatCurrency(l.monthly_amount)}/mês</span>
+                    ? <span className="text-xs text-gray-600 flex items-center gap-1">{formatCurrency(l.monthly_amount)}/mês</span>
                     : <span className="text-xs text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded flex items-center gap-1"
                         title="Estimativa — o valor real é calculado pelas horas da folha de ponto">
                         ~{formatCurrency(l.monthly_amount)}/mês estimado
@@ -4599,7 +4600,7 @@ function VisaoGeral({
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-gray-900 truncate">{uName || cName}</p>
                   <p className="text-xs text-gray-400">{cName}</p>
-                  {wasResched && <p className="text-xs text-amber-600">🔁 remarcada — era {format(new Date(orig! + 'T12:00:00'), 'dd/MM')}</p>}
+                  {wasResched && <p className="text-xs text-amber-600">remarcada — era {format(new Date(orig! + 'T12:00:00'), 'dd/MM')}</p>}
                 </div>
               </div>
             )
@@ -4614,7 +4615,7 @@ function VisaoGeral({
           <div className="grid grid-cols-2 gap-1.5">
             {docs.map(d => (
               <div key={d.id} className={`flex items-center gap-2 p-2 rounded-lg text-xs ${d.status === 'Entregue' ? 'bg-green-50 text-green-700' : d.status === 'Pendente' ? 'bg-amber-50 text-amber-700' : 'bg-gray-50 text-gray-400'}`}>
-                <span>{d.status === 'Entregue' ? '✓' : d.status === 'Pendente' ? '⚠' : '—'}</span>
+                <span>{d.status === 'Entregue' ? '✓' : d.status === 'Pendente' ? '!' : '—'}</span>
                 <span className="truncate">{d.name}</span>
               </div>
             ))}
@@ -4834,7 +4835,7 @@ function FolhaResumo({ employeeId, employeeName, links, payMonth, onMonthChange 
                 if (overVisits.length === 0) return null
                 return (
                   <div className="bg-amber-50 border border-amber-300 rounded-lg p-2 text-xs text-amber-800">
-                    ⚠ <strong>{overVisits.length} visita(s) excederam o combinado semanal de {fmtH(weeklyQ)}</strong> — o responsável precisa definir se o excedente será pago.
+                    <strong>{overVisits.length} visita(s) excederam o combinado semanal de {fmtH(weeklyQ)}</strong> — o responsável precisa definir se o excedente será pago.
                   </div>
                 )
               })()}
@@ -4844,7 +4845,7 @@ function FolhaResumo({ employeeId, employeeName, links, payMonth, onMonthChange 
                 </div>
               )}
               {s.expectedVisits && s.v.length < s.expectedVisits && !s.monthlyHoursQuota && (
-                <p className="text-xs text-amber-600">⚠ Faltam {s.expectedVisits - s.v.length} visita(s) para completar o mês</p>
+                <p className="text-xs text-amber-600">Faltam {s.expectedVisits - s.v.length} visita(s) para completar o mês</p>
               )}
               {s.v.length > 0 && (
                 <div className="flex flex-wrap gap-1 mt-1">
@@ -4868,7 +4869,7 @@ function FolhaResumo({ employeeId, employeeName, links, payMonth, onMonthChange 
                 <div className="space-y-1">
                   {s.extraDays.length > 0 && (
                     <div className="flex items-center justify-between bg-white/60 rounded px-2 py-1">
-                      <span className="text-green-700">⭐ {s.extraDays.length} dia(s) extra</span>
+                      <span className="text-green-700">{s.extraDays.length} dia(s) extra</span>
                       <span className="font-semibold text-green-800">+ R$ {s.extraDaysTotal.toFixed(2)}</span>
                     </div>
                   )}
@@ -4881,20 +4882,20 @@ function FolhaResumo({ employeeId, employeeName, links, payMonth, onMonthChange 
                   {s.faltas.length > 0 && (
                     <div className="bg-white/60 rounded px-2 py-1">
                       <div className="flex items-center justify-between">
-                        <span className="text-red-700">🚫 {s.faltas.length} falta(s)</span>
+                        <span className="text-red-700">{s.faltas.length} falta(s)</span>
                       </div>
                       <p className="text-xs text-red-500 mt-0.5">{s.faltas.map(f => `${formatDate(f.visit_date)}${(f as { unavailability_reason?: string }).unavailability_reason ? ` (${(f as { unavailability_reason?: string }).unavailability_reason})` : ''}`).join(', ')}</p>
                     </div>
                   )}
                   {s.faltaAvisos.length > 0 && (
                     <div className="bg-white/60 rounded px-2 py-1">
-                      <span className="text-red-700">🔔 Falta(s) avisada(s) pela agenda</span>
+                      <span className="text-red-700">Falta(s) avisada(s) pela agenda</span>
                       <p className="text-xs text-red-500 mt-0.5">{s.faltaAvisos.map(n => `${formatDate(n.notice_date)}${n.reason ? ` (${n.reason})` : ''}`).join(', ')}</p>
                     </div>
                   )}
                   {s.trocas.length > 0 && (
                     <div className="bg-white/60 rounded px-2 py-1">
-                      <span className="text-amber-700">🔁 Troca(s) de dia</span>
+                      <span className="text-amber-700">Troca(s) de dia</span>
                       <p className="text-xs text-amber-600 mt-0.5">{s.trocas.map(n => `folga ${formatDate(n.notice_date)} → trabalha ${n.swap_work_date ? formatDate(n.swap_work_date) : '?'}`).join(' · ')}</p>
                     </div>
                   )}
@@ -5077,7 +5078,7 @@ function PortalTab({ employeeId, employee }: { employeeId: string; employee: Rec
 
         {lastPin ? (
           <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-700">
-            ⚠ Anote/copie agora — por segurança a senha é guardada criptografada e <strong>não pode ser revelada depois</strong>. Se perder, gere uma nova.
+            Anote/copie agora — por segurança a senha é guardada criptografada e <strong>não pode ser revelada depois</strong>. Se perder, gere uma nova.
           </div>
         ) : hasPin ? (
           <p className="text-xs text-gray-400">

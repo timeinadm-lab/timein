@@ -1774,7 +1774,7 @@ export default function EmployeeDetail() {
           <div className="card p-5">
             <p className="text-xs font-semibold text-gray-400 mb-3">Identificação</p>
             <div className="grid grid-cols-2 gap-3 text-sm">
-              <div><span className="text-xs text-gray-400">CPF</span><p className="font-mono">{employee.cpf || <span className="text-orange-400 text-xs">Pendente</span>}</p></div>
+              <div><span className="text-xs text-gray-400">CPF</span><p className="font-mono">{employee.cpf || <span className="text-amber-400 text-xs">Pendente</span>}</p></div>
               <div><span className="text-xs text-gray-400">RG</span><p className="font-mono">{(employee as { rg?: string }).rg || '-'}</p></div>
               <div><span className="text-xs text-gray-400">Data de Nascimento</span><p>{formatDate(employee.birth_date)}</p></div>
               <div><span className="text-xs text-gray-400">Admissão</span><p>{formatDate(employee.admission_date)}</p></div>
@@ -1906,13 +1906,13 @@ export default function EmployeeDetail() {
           </div>
 
           {showCoverageForm && (
-            <div id="form-vincular" className="bg-orange-50 border border-orange-200 rounded-xl p-4 space-y-3 scroll-mt-4">
-              <p className="text-sm font-medium text-orange-800">
+            <div id="form-vincular" className="bg-ink-50 border border-ink-200 rounded-xl p-4 space-y-3 scroll-mt-4">
+              <p className="text-sm font-semibold text-ink-900">
                 {coverageForm.coverage_type === 'Consultoria' && coverageForm.consult_salario && grupoFixo.length > 0
                   ? 'Adicionar cliente ao consultor fixo' : 'Novo vínculo'}
               </p>
               {(vincularVagaId || abrirVinculo) && (
-                <p className="text-xs text-orange-700 bg-orange-100 rounded-lg px-3 py-2 leading-snug">
+                <p className="text-xs text-amber-700 bg-amber-100 rounded-lg px-3 py-2 leading-snug">
                   Contratação concluída — falta o combinado de trabalho. Escolha o cliente e defina
                   aqui os valores, a escala e os dias de pagamento.
                   <strong> Enquanto não salvar, a pessoa não aparece na folha.</strong>
@@ -1921,15 +1921,15 @@ export default function EmployeeDetail() {
 
               {/* Fica ou é temporário — decide se o portal esconde o vínculo
                   depois da data fim (temporário) ou mantém pra sempre (fixo). */}
-              <div className="rounded-xl border-2 border-orange-300 bg-white p-3">
-                <label className="label !text-orange-800">Esse vínculo é o quê? *</label>
+              <div className="rounded-xl border border-ink-200 bg-white p-3">
+                <label className="label ">Esse vínculo é o quê? *</label>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {([
                     { v: 'permanente', t: 'Fica no cliente', d: 'Ela atende esse cliente daqui pra frente. Aparece sempre no portal dela.' },
                     { v: 'temporario', t: 'Temporário / cobertura', d: 'Com data para acabar. Fixo paga os dias trabalhados × diária; consultoria paga por visita.' },
                   ] as const).map(o => (
                     <button key={o.v} type="button" onClick={() => setCoverageForm(p => ({ ...p, vinculo_tipo: o.v, parcelas: o.v === "permanente" ? p.parcelas : null }))}
-                      className={`text-left p-2.5 rounded-lg border-2 transition-colors ${coverageForm.vinculo_tipo === o.v ? 'border-orange-500 bg-orange-50' : 'border-gray-200 hover:border-gray-300'}`}>
+                      className={`text-left p-2.5 rounded-lg border-2 transition-colors ${coverageForm.vinculo_tipo === o.v ? 'border-primary-600 bg-primary-50' : 'border-gray-200 hover:border-gray-300'}`}>
                       <p className="text-sm font-semibold text-gray-800">{o.t}</p>
                       <p className="text-xs text-gray-500 leading-snug mt-0.5">{o.d}</p>
                     </button>
@@ -1939,22 +1939,22 @@ export default function EmployeeDetail() {
 
               {/* Quem monta a agenda — escolha obrigatória, define se ela pode
                   marcar dias por conta própria (e receber por eles). */}
-              <div className="rounded-xl border-2 border-orange-300 bg-white p-3">
-                <label className="label !text-orange-800">Quem monta os dias? *</label>
+              <div className="rounded-xl border border-ink-200 bg-white p-3">
+                <label className="label ">Quem monta os dias? *</label>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {([
                     { v: 'gestor', t: 'O RH monta', d: 'Você define os dias. Ela não pode adicionar nem remarcar — só cumpre e registra o ponto.' },
                     { v: 'colaborador', t: 'Ela monta', d: 'Ela escolhe os próprios dias no portal, dentro do período combinado.' },
                   ] as const).map(o => (
                     <button key={o.v} type="button" onClick={() => setCoverageForm(p => ({ ...p, agenda_mode: o.v }))}
-                      className={`text-left p-2.5 rounded-lg border-2 transition-colors ${coverageForm.agenda_mode === o.v ? 'border-orange-500 bg-orange-50' : 'border-gray-200 hover:border-gray-300'}`}>
+                      className={`text-left p-2.5 rounded-lg border-2 transition-colors ${coverageForm.agenda_mode === o.v ? 'border-primary-600 bg-primary-50' : 'border-gray-200 hover:border-gray-300'}`}>
                       <p className="text-sm font-semibold text-gray-800">{o.t}</p>
                       <p className="text-xs text-gray-500 leading-snug mt-0.5">{o.d}</p>
                     </button>
                   ))}
                 </div>
                 {!coverageForm.agenda_mode && (
-                  <p className="text-xs text-orange-600 mt-1.5">
+                  <p className="text-xs text-amber-600 mt-1.5">
                     Escolha antes de salvar — é isso que decide se ela pode marcar dias sozinha e receber por eles.
                   </p>
                 )}
@@ -1966,7 +1966,7 @@ export default function EmployeeDetail() {
                 <div className="flex gap-2">
                   {(['Fixo', 'Consultoria'] as const).map(t => (
                     <button key={t} type="button"
-                      className={`flex-1 py-2 text-sm rounded-lg border font-medium transition-colors ${coverageForm.coverage_type === t ? 'bg-orange-500 text-white border-orange-500' : 'bg-white text-gray-600 border-gray-300 hover:border-orange-300'}`}
+                      className={`flex-1 py-2 text-sm rounded-lg border font-medium transition-colors ${coverageForm.coverage_type === t ? 'bg-primary-700 text-white border-primary-700' : 'bg-white text-gray-600 border-gray-300 hover:border-primary-300'}`}
                       onClick={() => setCoverageForm(p => ({ ...p, coverage_type: t, unit_id: '', unit_ids: [], parcelas: t === 'Fixo' ? p.parcelas : null }))}>
                       {t}
                     </button>
@@ -1982,7 +1982,7 @@ export default function EmployeeDetail() {
                       ] as const).map(([v, t, d]) => (
                         <button key={String(v)} type="button"
                           onClick={() => setCoverageForm(p => ({ ...p, consult_salario: v }))}
-                          className={`text-left p-2.5 rounded-lg border-2 transition-colors ${coverageForm.consult_salario === v ? 'border-orange-500 bg-orange-50' : 'border-gray-200 hover:border-gray-300'}`}>
+                          className={`text-left p-2.5 rounded-lg border-2 transition-colors ${coverageForm.consult_salario === v ? 'border-primary-600 bg-primary-50' : 'border-gray-200 hover:border-gray-300'}`}>
                           <p className="text-sm font-medium text-ink-900">{t}</p>
                           <p className="text-xs text-ink-500">{d}</p>
                         </button>
@@ -2094,8 +2094,8 @@ export default function EmployeeDetail() {
                   valor cheio da unidade. Antes isso ficava escondido atrás de um
                   "(opcional)" — quem deixava em branco não sabia o que estava abrindo mão. */}
               {coverageForm.coverage_type === 'Consultoria' && (
-                <div className="rounded-xl border-2 border-orange-300 bg-white p-3">
-                  <label className="label !text-orange-800">{coverageForm.consult_salario ? 'Tem horas combinadas por visita? *' : 'A visita tem tempo mínimo? *'}</label>
+                <div className="rounded-xl border border-ink-200 bg-white p-3">
+                  <label className="label ">{coverageForm.consult_salario ? 'Tem horas combinadas por visita? *' : 'A visita tem tempo mínimo? *'}</label>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                     {(coverageForm.consult_salario ? [
                       { v: 'sim', t: 'Por visita', d: 'Fica registrado quantas horas ela faz em cada visita. Não muda o salário.' },
@@ -2108,7 +2108,7 @@ export default function EmployeeDetail() {
                     ] as const).map(o => (
                       <button key={o.v} type="button"
                         onClick={() => setCoverageForm(p => ({ ...p, horas_obrigatorias: o.v, weekly_hours_quota: o.v !== 'sim' ? '' : p.weekly_hours_quota, horas_mes: o.v !== 'mes' ? '' : p.horas_mes }))}
-                        className={`text-left p-2.5 rounded-lg border-2 transition-colors ${coverageForm.horas_obrigatorias === o.v ? 'border-orange-500 bg-orange-50' : 'border-gray-200 hover:border-gray-300'}`}>
+                        className={`text-left p-2.5 rounded-lg border-2 transition-colors ${coverageForm.horas_obrigatorias === o.v ? 'border-primary-600 bg-primary-50' : 'border-gray-200 hover:border-gray-300'}`}>
                         <p className="text-sm font-semibold text-gray-800">{o.t}</p>
                         <p className="text-xs text-gray-500 leading-snug mt-0.5">{o.d}</p>
                       </button>
@@ -2129,7 +2129,7 @@ export default function EmployeeDetail() {
                         value={coverageForm.weekly_hours_quota}
                         onChange={e => setCoverageForm(p => ({ ...p, weekly_hours_quota: e.target.value }))} />
                       {Number(coverageForm.weekly_hours_quota) > 0 && !coverageForm.consult_salario && (
-                        <p className="text-xs text-orange-700 bg-orange-100 rounded px-2 py-1 mt-1 leading-snug">
+                        <p className="text-xs text-amber-700 bg-amber-100 rounded px-2 py-1 mt-1 leading-snug">
                           Ela só recebe 100% da visita se cumprir as {coverageForm.weekly_hours_quota}h.
                           Ficando menos, o sistema paga na proporção e pede confirmação dela antes de lançar.
                         </p>
@@ -2174,7 +2174,7 @@ export default function EmployeeDetail() {
                       <div className="flex gap-1.5 flex-wrap">
                         {['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'].map((d, i) => (
                           <button key={i} type="button"
-                            className={`px-3 py-1.5 text-xs rounded-lg border font-medium transition-colors ${coverageForm.days_off.includes(i) ? 'bg-orange-500 text-white border-orange-500' : 'bg-white text-gray-600 border-gray-300'}`}
+                            className={`px-3 py-1.5 text-xs rounded-lg border font-medium transition-colors ${coverageForm.days_off.includes(i) ? 'bg-primary-700 text-white border-primary-700' : 'bg-white text-gray-600 border-gray-300'}`}
                             onClick={() => setCoverageForm(p => ({ ...p, days_off: p.days_off.includes(i) ? p.days_off.filter(d => d !== i) : [...p.days_off, i] }))}>
                             {d}
                           </button>
@@ -2225,7 +2225,7 @@ export default function EmployeeDetail() {
               <div className={`grid grid-cols-1 gap-3 ${coverageForm.coverage_type === 'Fixo' || coverageForm.consult_salario ? 'sm:grid-cols-2' : ''}`}>
                 {coverageForm.coverage_type === 'Consultoria' && coverageForm.consult_salario && salarioDoFixo > 0 && (
                   // Já é consultor fixo: o cliente entra no vínculo dela, sem outro salário
-                  <div className="rounded-lg bg-white border border-orange-200 px-3 py-2.5">
+                  <div className="rounded-lg bg-white border border-ink-200 px-3 py-2.5">
                     <p className="text-sm text-ink-800">Entra no vínculo de <strong>consultor fixo</strong> dela — salário de <strong>{formatCurrency(salarioDoFixo)}/mês</strong> para todos os clientes.</p>
                     <p className="text-xs text-ink-500 mt-0.5">Aqui você só define o cliente, o horário e as horas (se tiver). Para mudar o salário, use o cartão do consultor fixo.</p>
                   </div>
@@ -2240,9 +2240,9 @@ export default function EmployeeDetail() {
                       <p className="text-[11px] text-ink-500 mt-1">Fixo de consultoria: o salário é um só para todos os clientes dela. Preencha em um vínculo; nos outros, deixe em branco. Na folha tudo vira uma linha só.</p>
                     )}
                     {diariaFromMensal(coverageForm.monthly_amount) != null && (
-                      <p className="text-xs text-orange-700 bg-orange-100 rounded px-2 py-1 mt-1">
+                      <p className="text-xs text-amber-700 bg-amber-100 rounded px-2 py-1 mt-1">
                         Diária: <strong>{formatCurrency(diariaFromMensal(coverageForm.monthly_amount)!)}</strong>
-                        <span className="text-orange-500 font-normal"> (mensal ÷ 30) — usada em dia extra</span>
+                        <span className="text-amber-500 font-normal"> (mensal ÷ 30) — usada em dia extra</span>
                       </p>
                     )}
                   </div>
@@ -2278,7 +2278,7 @@ export default function EmployeeDetail() {
                       const on = coverageForm.pay_days.includes(d)
                       return (
                         <button key={d} type="button"
-                          className={`flex-1 py-2 text-sm rounded-lg border font-medium transition-colors ${on ? 'bg-orange-500 text-white border-orange-500' : 'bg-white text-gray-600 border-gray-300 hover:border-orange-300'}`}
+                          className={`flex-1 py-2 text-sm rounded-lg border font-medium transition-colors ${on ? 'bg-primary-700 text-white border-primary-700' : 'bg-white text-gray-600 border-gray-300 hover:border-primary-300'}`}
                           onClick={() => setCoverageForm(p => ({
                             ...p,
                             pay_days: on ? p.pay_days.filter(x => x !== d) : [...p.pay_days, d],
@@ -2289,7 +2289,7 @@ export default function EmployeeDetail() {
                     })}
                   </div>
                   {coverageForm.pay_days.length >= 2 && (
-                    <p className="text-xs text-orange-700 bg-orange-100 rounded px-2 py-1 mt-1 leading-snug">
+                    <p className="text-xs text-amber-700 bg-amber-100 rounded px-2 py-1 mt-1 leading-snug">
                       Quinzenal: o que ela fizer entre os dias {[...coverageForm.pay_days].map(Number).sort((a, b) => a - b).join(' e ')} cai no pagamento seguinte.
                     </p>
                   )}
@@ -2309,15 +2309,15 @@ export default function EmployeeDetail() {
 
               {/* Contrato assinado. Vale igual para freela e permanente. Enquanto
                   não for anexado, o portal da pessoa não abre. */}
-              {!(coverageForm.coverage_type === 'Consultoria' && coverageForm.consult_salario && grupoFixo.length > 0) && <div className="rounded-xl border-2 border-orange-300 bg-white p-3">
-                <label className="label !text-orange-800">Exige contrato assinado? *</label>
+              {!(coverageForm.coverage_type === 'Consultoria' && coverageForm.consult_salario && grupoFixo.length > 0) && <div className="rounded-xl border border-ink-200 bg-white p-3">
+                <label className="label ">Exige contrato assinado? *</label>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {([
                     { v: 'sim', t: 'Sim, exige', d: 'O portal dela só abre depois que o contrato assinado for anexado.' },
                     { v: 'nao', t: '○ Não precisa', d: 'Ela já pode usar o portal e registrar ponto.' },
                   ] as const).map(o => (
                     <button key={o.v} type="button" onClick={() => setCoverageForm(p => ({ ...p, contrato: o.v }))}
-                      className={`text-left p-2.5 rounded-lg border-2 transition-colors ${coverageForm.contrato === o.v ? 'border-orange-500 bg-orange-50' : 'border-gray-200 hover:border-gray-300'}`}>
+                      className={`text-left p-2.5 rounded-lg border-2 transition-colors ${coverageForm.contrato === o.v ? 'border-primary-600 bg-primary-50' : 'border-gray-200 hover:border-gray-300'}`}>
                       <p className="text-sm font-semibold text-gray-800">{o.t}</p>
                       <p className="text-xs text-gray-500 leading-snug mt-0.5">{o.d}</p>
                     </button>
@@ -2330,12 +2330,12 @@ export default function EmployeeDetail() {
                       {(['24', '48', '72', '168'] as const).map(h => (
                         <button key={h} type="button"
                           onClick={() => setCoverageForm(p => ({ ...p, contrato_horas: h }))}
-                          className={`px-3 py-2 text-sm rounded-lg border font-medium transition-colors ${coverageForm.contrato_horas === h ? 'bg-orange-500 text-white border-orange-500' : 'bg-white text-gray-600 border-gray-300 hover:border-orange-300'}`}>
+                          className={`px-3 py-2 text-sm rounded-lg border font-medium transition-colors ${coverageForm.contrato_horas === h ? 'bg-primary-700 text-white border-primary-700' : 'bg-white text-gray-600 border-gray-300 hover:border-primary-300'}`}>
                           {h === '168' ? '1 semana' : `${h}h`}
                         </button>
                       ))}
                     </div>
-                    <p className="text-xs text-orange-700 bg-orange-100 rounded px-2 py-1 mt-1.5 leading-snug">
+                    <p className="text-xs text-amber-700 bg-amber-100 rounded px-2 py-1 mt-1.5 leading-snug">
                       Passado o prazo sem o contrato anexado, aparece como pendência crítica no painel.
                     </p>
                   </div>
@@ -2419,7 +2419,7 @@ export default function EmployeeDetail() {
                 return (
                   <>
                     {pendencias.length > 0 && (
-                      <p className="text-xs text-orange-700">Falta escolher: {pendencias.join(', ')}.</p>
+                      <p className="text-xs text-amber-700">Falta escolher: {pendencias.join(', ')}.</p>
                     )}
                     <div className="flex gap-2">
                       <button className="btn-primary text-sm" disabled={bloqueado || addCoverage.isPending} onClick={() => addCoverage.mutate()}>
@@ -2455,13 +2455,13 @@ export default function EmployeeDetail() {
               const isExtending = extendLinkId === l.id
               const expired = vinculoEncerrado(l, hojeStr)
               return (
-                <div key={l.id} className={`border rounded-xl p-4 space-y-2 ${expired ? 'border-red-200 bg-red-50' : 'border-orange-200 bg-orange-50'}`}>
+                <div key={l.id} className={`border rounded-xl p-4 space-y-2 ${expired ? 'border-red-200 bg-red-50' : 'border-ink-200 bg-white'}`}>
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <p className="font-medium text-sm">{(l as { client?: { name: string } }).client?.name || '—'}</p>
                         {coverageType && (
-                          <span className={`badge text-xs ${coverageType === 'Fixo' ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'}`}>{coverageType}</span>
+                          <span className={`badge text-xs ${coverageType === 'Fixo' ? 'bg-blue-100 text-blue-700' : 'bg-ink-100 text-ink-700'}`}>{coverageType}</span>
                         )}
                       </div>
                       {linkUnits.length > 0 && (
@@ -2487,7 +2487,7 @@ export default function EmployeeDetail() {
                     </div>
                   </div>
                   {isExtending && (
-                    <div className="flex items-center gap-2 pt-2 border-t border-orange-200">
+                    <div className="flex items-center gap-2 pt-2 border-t border-ink-200">
                       <label className="text-xs text-gray-600 font-medium">Nova data fim:</label>
                       <input type="date" className="input py-1 text-sm flex-1" value={newEndDate} onChange={e => setNewEndDate(e.target.value)} />
                       <button className="btn-primary text-xs py-1 px-3" disabled={!newEndDate || extendCoverage.isPending} onClick={() => extendCoverage.mutate({ linkId: l.id, endDate: newEndDate })}>Salvar</button>
@@ -2497,7 +2497,7 @@ export default function EmployeeDetail() {
                   {/* Contrato do freela — sem isto o portal dela fica bloqueado */}
                   {contratoExigido && (
                     contratoArquivo ? (
-                      <div className="flex items-center justify-between gap-2 pt-2 border-t border-orange-200">
+                      <div className="flex items-center justify-between gap-2 pt-2 border-t border-ink-200">
                         <span className="text-xs text-green-700 font-medium flex items-center gap-1">
                           <CheckCircle size={13} /> Contrato assinado anexado
                         </span>
@@ -2619,7 +2619,7 @@ export default function EmployeeDetail() {
                           <>
                             <div className="flex items-center gap-2 flex-wrap">
                               <p className="font-semibold text-ink-900">{(l as { client?: { name: string } }).client?.name}</p>
-                              <span className={`badge ${ehConsult ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'}`}>{rotuloDoVinculo(l)}</span>
+                              <span className={`badge ${ehConsult ? 'bg-ink-100 text-ink-700' : 'bg-blue-100 text-blue-700'}`}>{rotuloDoVinculo(l)}</span>
                               {statusContrato && <span className={`badge text-xs ${statusContrato.c}`}>{statusContrato.t}</span>}
                               {!encerrado && (
                                 <button type="button"
@@ -2799,8 +2799,8 @@ export default function EmployeeDetail() {
                         const fixoTotal = !isConsult ? (Number(editLinkValues.monthly_amount) || 0) + (editLinkValues.ajuda_periodo === 'mes' ? Number(editLinkValues.cost_assistance) || 0 : 0) : 0
 
                         return (
-                          <div className={`mt-3 p-3 rounded-lg space-y-3 border ${isConsult ? 'bg-orange-50 border-orange-200' : 'bg-blue-50 border-blue-200'}`}>
-                            <p className={`text-xs font-semibold ${isConsult ? 'text-orange-700' : 'text-blue-700'}`}>
+                          <div className={`mt-3 p-3 rounded-lg space-y-3 border ${isConsult ? 'bg-white border-ink-200' : 'bg-white border-ink-200'}`}>
+                            <p className={`text-xs font-semibold ${isConsult ? 'text-amber-700' : 'text-blue-700'}`}>
                               {consultSalario ? 'Consultor fixo — horário e horas' : isConsult ? 'Consultoria — Unidades & Valores' : 'Editar valores'}
                             </p>
 
@@ -2921,7 +2921,7 @@ export default function EmployeeDetail() {
                                     const row = editLinkValues.units.find(u => u.unit_id === unit.id)
                                     const isActive = !!row
                                     return (
-                                      <div key={unit.id} className={`rounded-lg border px-3 py-2 flex items-center gap-3 ${isActive ? 'border-orange-400 bg-white' : 'border-gray-200 bg-gray-50'}`}>
+                                      <div key={unit.id} className={`rounded-lg border px-3 py-2 flex items-center gap-3 ${isActive ? 'border-primary-600 bg-white' : 'border-gray-200 bg-gray-50'}`}>
                                         <button
                                           type="button"
                                           onClick={() => {
@@ -2931,7 +2931,7 @@ export default function EmployeeDetail() {
                                               setEditLinkValues(p => p ? { ...p, units: [...p.units, { unit_id: unit.id, unit_name: unit.name, visit_rate: '' }] } : p)
                                             }
                                           }}
-                                          className={`text-xs px-2 py-0.5 rounded-full font-medium flex-shrink-0 ${isActive ? 'bg-red-100 text-red-600 hover:bg-red-200' : 'bg-orange-100 text-orange-700 hover:bg-orange-200'}`}
+                                          className={`text-xs px-2 py-0.5 rounded-full font-medium flex-shrink-0 ${isActive ? 'bg-red-100 text-red-600 hover:bg-red-200' : 'bg-ink-100 text-ink-700 hover:bg-amber-200'}`}
                                         >
                                           {isActive ? '−' : '+'}
                                         </button>
@@ -2949,13 +2949,13 @@ export default function EmployeeDetail() {
                                     )
                                   })}
                                   {(editClientUnits || []).length === 0 && (
-                                    <p className="text-xs text-orange-500 italic">Este cliente não tem unidades cadastradas. Cadastre em Clientes → Unidades.</p>
+                                    <p className="text-xs text-amber-500 italic">Este cliente não tem unidades cadastradas. Cadastre em Clientes → Unidades.</p>
                                   )}
                                 </div>}
 
                                 {/* Combinado de pagamento = horas no mês (definidas acima). Visitas em si são livres. */}
-                                <div className="border-t border-orange-200 pt-2 space-y-2">
-                                  <p className="text-xs text-orange-600">
+                                <div className="border-t border-ink-200 pt-2 space-y-2">
+                                  <p className="text-xs text-amber-600">
                                     {consultSalario
                                       ? 'Consultor fixo: as horas são só o combinado com o cliente — o pagamento é o salário.'
                                       : editLinkValues.weekly_hours
@@ -2971,9 +2971,9 @@ export default function EmployeeDetail() {
                                 </div>
 
                                 {consultTotal > 0 && !consultSalario && (
-                                  <div className="bg-orange-100 rounded-lg px-3 py-2 text-sm font-semibold text-orange-800">
+                                  <div className="bg-amber-100 rounded-lg px-3 py-2 text-sm font-semibold text-ink-900">
                                     Estimativa mensal: R$ {consultTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                                    <span className="text-xs font-normal text-orange-600 ml-1">(média das unidades R$ {avgRate.toFixed(2)} × {freqMultiplier * visitasSemana}x/mês — o pagamento real é pelas horas da folha de ponto)</span>
+                                    <span className="text-xs font-normal text-amber-600 ml-1">(média das unidades R$ {avgRate.toFixed(2)} × {freqMultiplier * visitasSemana}x/mês — o pagamento real é pelas horas da folha de ponto)</span>
                                   </div>
                                 )}
                               </>
@@ -3111,7 +3111,7 @@ export default function EmployeeDetail() {
                                 })()}
                               </div>
                               {isConsult && !consultSalario ? (
-                                <div className="bg-orange-50 rounded-lg px-3 py-2 text-xs text-orange-700">
+                                <div className="bg-ink-50 rounded-lg px-3 py-2 text-xs text-amber-700">
                                   Consultoria: pagamento quinzenal nos dias <strong>8</strong> e <strong>20</strong> (automático).
                                 </div>
                               ) : editLinkValues.parcelas ? (
@@ -3501,7 +3501,7 @@ export default function EmployeeDetail() {
             {expenses && expenses.length > 0 ? (
               <div className="space-y-2">
                 {expenses.map(exp => (
-                  <div key={exp.id} className="flex items-center justify-between p-3 bg-orange-50 rounded-lg gap-2">
+                  <div key={exp.id} className="flex items-center justify-between p-3 bg-ink-50 rounded-lg gap-2">
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium truncate">{exp.description}</p>
                       <div className="flex items-center gap-2">
@@ -3510,7 +3510,7 @@ export default function EmployeeDetail() {
                       </div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
-                      <span className="font-semibold text-orange-800">R$ {Number(exp.amount).toFixed(2)}</span>
+                      <span className="font-semibold text-ink-900">R$ {Number(exp.amount).toFixed(2)}</span>
                       {(exp as { receipt_url?: string }).receipt_url ? (
                         <SignedLink value={(exp as { receipt_url?: string }).receipt_url} bucket="arquivos">
                           <ExternalLink size={14} className="text-blue-500" />
@@ -3527,7 +3527,7 @@ export default function EmployeeDetail() {
                     </div>
                   </div>
                 ))}
-                <div className="text-right text-sm font-semibold text-orange-800 pt-1">
+                <div className="text-right text-sm font-semibold text-ink-900 pt-1">
                   Total gastos: R$ {expenses.reduce((s, e) => s + Number(e.amount), 0).toFixed(2)}
                 </div>
               </div>
@@ -3543,13 +3543,13 @@ export default function EmployeeDetail() {
       {tab === 'agenda' && (
         <div className="card p-5 space-y-4">
           <div className="flex items-center justify-between flex-wrap gap-2">
-            <h3 className="font-medium">Agenda de Visitas</h3>
+            <h3 className="font-medium">Agenda de visitas</h3>
             <div className="flex items-center gap-2">
               <input type="month" className="input text-sm py-1" value={agendaMonth} onChange={e => setAgendaMonth(e.target.value)} />
-              <button onClick={() => setShowAgendaForm(true)} className="btn-secondary text-sm flex items-center gap-1"><Plus size={14} />Adicionar data</button>
+              <button onClick={() => setShowAgendaForm(true)} className="btn-secondary text-sm whitespace-nowrap"><Plus size={14} />Marcar dia</button>
               <button className="btn-secondary text-sm flex items-center gap-1" onClick={imprimirAgenda}
                 title="Imprime (ou salva em PDF) a agenda em calendário, com o nome de cada visita no dia">
-                <Download size={14} />Imprimir / PDF
+                <Download size={14} /><span className="whitespace-nowrap">Baixar PDF</span>
               </button>
             </div>
           </div>
@@ -3622,8 +3622,8 @@ export default function EmployeeDetail() {
           })()}
 
           {showAgendaForm && (
-            <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 space-y-3">
-              <p className="text-sm font-medium text-orange-800">
+            <div className="bg-ink-50 border border-ink-200 rounded-lg p-4 space-y-3">
+              <p className="text-sm font-semibold text-ink-900">
                 {editAgendaId ? 'Editar dia da agenda' : 'Marcar dia na agenda'}
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -3699,12 +3699,12 @@ export default function EmployeeDetail() {
           <div className="space-y-2">
             {agendaItems?.length === 0 && <p className="text-sm text-gray-400">Nenhuma data agendada para este mês.</p>}
             {(agendaItems || []).map((a: { id: string; planned_date: string; planned_time?: string; client?: { name?: string }; unit?: { name?: string }; notes?: string; rescheduled_at?: string; original_date?: string; hours_expected?: number; created_by_admin?: boolean }) => (
-              <div key={a.id} className="flex items-center justify-between p-3 rounded-lg border border-orange-100 bg-orange-50/40 gap-3">
+              <div key={a.id} className="flex items-center justify-between p-3 rounded-lg border border-ink-200 bg-white gap-3">
                 <div className="flex items-center gap-3 min-w-0 flex-wrap">
-                  <span className="text-sm font-semibold text-orange-700 whitespace-nowrap">{formatDate(a.planned_date)}{a.planned_time ? ` · ${a.planned_time.slice(0, 5)}` : ''}</span>
+                  <span className="text-sm font-semibold text-ink-900 whitespace-nowrap">{formatDate(a.planned_date)}{a.planned_time ? ` · ${a.planned_time.slice(0, 5)}` : ''}</span>
                   <span className="text-sm text-gray-700">{a.client?.name || '-'}</span>
                   {a.unit?.name && <span className="text-xs text-gray-400">· {a.unit.name}</span>}
-                  {a.hours_expected && <span className="text-xs bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded">{a.hours_expected}h</span>}
+                  {a.hours_expected && <span className="text-xs bg-ink-100 text-ink-700 px-1.5 py-0.5 rounded">{a.hours_expected}h</span>}
                   {a.notes && <span className="text-xs text-gray-500 italic truncate">"{a.notes}"</span>}
                   {a.rescheduled_at && <span className="text-xs text-amber-600">Remarcado</span>}
                   {a.created_by_admin && <span className="text-xs text-blue-500">fixo</span>}
@@ -4143,7 +4143,7 @@ export default function EmployeeDetail() {
                     ? Math.max(1, Math.round((new Date(p.end_date).getTime() - new Date(p.start_date).getTime()) / 86400000))
                     : null
                   const svcColor = p.service_type === 'Volante'
-                    ? 'bg-orange-100 text-orange-700'
+                    ? 'bg-ink-100 text-ink-700'
                     : p.service_type === 'Consultoria'
                     ? 'bg-purple-100 text-purple-700'
                     : 'bg-blue-100 text-blue-700'
@@ -4796,10 +4796,10 @@ function FolhaResumo({ employeeId, employeeName, links, payMonth, onMonthChange 
       {summaries.length === 0 && <p className="text-sm text-gray-400">Nenhum vínculo cadastrado.</p>}
 
       {summaries.map(s => (
-        <div key={s.link.id} className={`rounded-xl p-4 border ${s.isConsultoria ? 'bg-orange-50 border-orange-200' : 'bg-blue-50 border-blue-200'}`}>
+        <div key={s.link.id} className={`rounded-xl p-4 border ${s.isConsultoria ? 'bg-white border-ink-200' : 'bg-white border-ink-200'}`}>
           <div className="flex items-center justify-between mb-2">
             <p className="font-semibold text-sm">{s.link.client?.name}</p>
-            <span className={`badge text-xs ${s.isConsultoria ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'}`}>{s.link.service_type}</span>
+            <span className={`badge text-xs ${s.isConsultoria ? 'bg-ink-100 text-ink-700' : 'bg-blue-100 text-blue-700'}`}>{s.link.service_type}</span>
           </div>
 
           {s.isConsultoria ? (
@@ -4844,7 +4844,7 @@ function FolhaResumo({ employeeId, employeeName, links, payMonth, onMonthChange 
               {s.v.length > 0 && (
                 <div className="flex flex-wrap gap-1 mt-1">
                   {s.v.map(x => (
-                    <span key={x.id} className="text-xs bg-white border border-orange-200 text-orange-700 px-2 py-0.5 rounded-full">
+                    <span key={x.id} className="text-xs bg-white border border-ink-200 text-ink-700 px-2 py-0.5 rounded-full">
                       {formatDate(x.visit_date)}{x.unit_name ? ` · ${x.unit_name}` : ''}{x.visit_rate ? ` · R$ ${Number(x.visit_rate).toFixed(0)}` : ''}
                     </span>
                   ))}

@@ -7,6 +7,7 @@ export interface UserProfile {
   role: Role
   photo_url?: string | null
   acesso_liberado?: boolean // migração 077: conta nova nasce bloqueada até a chefia liberar
+  employee_id?: string | null // migração 076: cadastro de colaborador ligado ao login
   created_at: string
   updated_at: string
 }

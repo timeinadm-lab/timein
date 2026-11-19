@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
-import { ChevronLeft, ChevronRight, ClipboardCheck, Camera, MessageSquare, X, Plus, CheckCircle2, Trash2, FileText, Tag, BookOpen } from 'lucide-react'
+import { ChevronLeft, ChevronRight, ClipboardCheck, Camera, MessageSquare, X, Plus, CheckCircle2, Trash2, FileText } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { formatDate, hojeISO } from '../../lib/utils'
 import { confirmar } from '../../components/ui/ConfirmDialog'
@@ -9,6 +9,10 @@ import { comprimirImagem, extensaoDoArquivo, comNovaTentativa } from '../../lib/
 import { resumoAuditoria, corDaFaixa, classificar } from '../../lib/auditoria'
 import type { Faixa, Resposta } from '../../lib/auditoria'
 import { CampoHora, horaAgora } from './CampoHora'
+import RelatoriosVisita from '../../components/relatorio/RelatoriosVisita'
+import type { ApiRelatorios } from '../../components/relatorio/RelatoriosVisita'
+import { normalizarRelatorio } from '../../lib/relatorioVisita'
+import type { LinhaRelatorio } from '../../lib/relatorioVisita'
 
 /**
  * Aba "Qualidade" do portal (migração 082). Por enquanto: checklists
@@ -40,6 +44,17 @@ const corCss = (c: [number, number, number]) => `rgb(${c.join(',')})`
 export default function PortalQualidade({ token, rpc, clientes }: { token: string; rpc: Rpc; clientes: Cliente[] }) {
   const [aberto, setAberto] = useState<string | null>(null)
   const [novo, setNovo] = useState(false)
+  // Relatório de visita (migração 114, 20/11/2026): feito aqui, não mais no FoodChecker
+  const [secao, setSecao] = useState<'checklists' | 'relatorios'>('checklists')
+  const apiRelatorios = useMemo<ApiRelatorios>(() => ({
+    carregar: async () => {
+      const d = await rpc<{ relatorios: LinhaRelatorio[]; autor: { nome: string; email?: string; cargo?: string; cpf?: string } | null; logos: Record<string, string> }>('portal_relatorios', { p_token: token })
+      return { relatorios: d?.relatorios || [], autor: d?.autor || { nome: '' }, logos: d?.logos || {} }
+    },
+    abrir: async id => normalizarRelatorio(await rpc<Record<string, unknown>>('portal_relatorio', { p_token: token, p_id: id })),
+    salvar: async r => { await rpc('portal_relatorio_salvar', { p_token: token, p_dados: r }) },
+    apagar: async id => { await rpc('portal_relatorio_apagar', { p_token: token, p_id: id }) },
+  }), [token]) // eslint-disable-line react-hooks/exhaustive-deps
   const { data, isLoading, error } = useQuery({
     queryKey: ['portal-qualidade'],
     queryFn: () => rpc<{ modelos: Modelo[]; auditorias: Linha[] }>('portal_qualidade', { p_token: token }),
@@ -57,29 +72,16 @@ export default function PortalQualidade({ token, rpc, clientes }: { token: strin
     <div className="space-y-4">
       <div>
         <h2 className="text-2xl font-semibold tracking-tight text-ink-900">Qualidade</h2>
-        <p className="text-sm text-ink-500">Checklists com fotos, direto do celular.</p>
+        <p className="text-sm text-ink-500">Checklists e relatórios de visita, direto do celular.</p>
       </div>
 
-      {/* O que tem nesta aba (o resto entra depois) */}
-      <div className="grid grid-cols-2 gap-2">
-        <div className="card p-3 border-primary-200 bg-primary-50/40">
-          <ClipboardCheck size={20} className="text-primary-700" />
-          <p className="text-sm font-semibold text-ink-900 mt-1.5">Checklists</p>
-          <p className="text-[11px] text-ink-500">Auditorias com nota</p>
-        </div>
-        {[[FileText, 'Relatórios'], [Tag, 'Rotulagem'], [BookOpen, 'Ficha técnica']].map(([Icone, nome]) => {
-          const I = Icone as typeof FileText
-          return (
-            <div key={nome as string} className="card p-3 opacity-60">
-              <I size={20} className="text-ink-400" />
-              <p className="text-sm font-semibold text-ink-700 mt-1.5">{nome as string}</p>
-              <p className="text-[11px] text-ink-400">Em breve</p>
-            </div>
-          )
-        })}
+      {/* As duas coisas que dá para fazer aqui */}
+      <div className="tabbar">
+        <button className={`tab ${secao === 'checklists' ? 'tab-on' : ''}`} onClick={() => setSecao('checklists')}><ClipboardCheck size={16} />Checklists</button>
+        <button className={`tab ${secao === 'relatorios' ? 'tab-on' : ''}`} onClick={() => setSecao('relatorios')}><FileText size={16} />Relatórios de visita</button>
       </div>
 
-      {semMigracao ? (
+      {secao === 'relatorios' ? <RelatoriosVisita api={apiRelatorios} clientes={clientes} chave="portal" /> : semMigracao ? (
         <div className="card p-4 text-sm text-amber-800 bg-amber-50 border-amber-200">Os checklists ainda não foram liberados. Fale com o escritório.</div>
       ) : (
         <>

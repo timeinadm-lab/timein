@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Plus, X } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
+import { comprimirImagem, extensaoDoArquivo } from '../../lib/imagem'
 import toast from 'react-hot-toast'
 
 export default function ClientForm() {
@@ -19,6 +20,23 @@ export default function ClientForm() {
     supervisor_id: '', requires_supervision: false,
     supervision_visits_per_month: '', target_employees: '1', observations: '',
   })
+  // Logo do cliente: sai no canto direito do PDF do relatório de visita (20/11/2026).
+  // Sem logo, o relatório sai só com a nossa.
+  const [logo, setLogo] = useState<string | null>(null)
+  const [enviandoLogo, setEnviandoLogo] = useState(false)
+  const enviarLogo = async (arquivo?: File) => {
+    if (!arquivo) return
+    if (!arquivo.type.startsWith('image/')) { toast.error('Escolha uma imagem (PNG ou JPG).'); return }
+    setEnviandoLogo(true)
+    try {
+      const f = await comprimirImagem(arquivo, 800, 0.9)
+      const caminho = `clientes/logos/${Date.now()}_${Math.random().toString(36).slice(2, 7)}.${extensaoDoArquivo(f)}`
+      const { error } = await supabase.storage.from('arquivos').upload(caminho, f, { upsert: false, contentType: f.type || undefined })
+      if (error) throw error
+      setLogo(caminho)
+    } catch (e) { toast.error('A logo não subiu: ' + (e as Error).message) }
+    setEnviandoLogo(false)
+  }
 
   // Units: just names — visit rates are defined per vacancy, not per unit
   const [units, setUnits] = useState<string[]>([])
@@ -54,6 +72,7 @@ export default function ClientForm() {
     populated.current = true
     const data = clientData
     if (data.__units?.length) setUnits(data.__units)
+    setLogo((data as { logo_url?: string | null }).logo_url || null)
     setForm({
         name: data.name || '',
         cnpj: data.cnpj || '',
@@ -100,6 +119,7 @@ export default function ClientForm() {
         supervision_visits_per_month: form.supervision_visits_per_month ? Number(form.supervision_visits_per_month) : null,
         target_employees: Math.max(1, Number(form.target_employees) || 1),
         observations: form.observations || null,
+        logo_url: logo,
       }
 
       let clientId = id
@@ -174,6 +194,20 @@ export default function ClientForm() {
             <div className="col-span-full">
               <label className="label">Nome *</label>
               <input className="input" required value={form.name} onChange={e => set('name', e.target.value)} placeholder="Ex: Hospital Santa Casa" />
+            </div>
+            <div className="col-span-full">
+              <label className="label">Logo do cliente</label>
+              <div className="flex items-center gap-3 flex-wrap">
+                {logo
+                  ? <img src={supabase.storage.from('arquivos').getPublicUrl(logo).data.publicUrl} alt="Logo do cliente" className="h-14 max-w-[10rem] object-contain rounded-lg border border-ink-200 bg-white p-1" />
+                  : <div className="h-14 w-28 rounded-lg border border-dashed border-ink-300 flex items-center justify-center text-xs text-ink-400">Sem logo</div>}
+                <label className="btn-secondary text-sm cursor-pointer">
+                  {enviandoLogo ? 'Enviando…' : logo ? 'Trocar a logo' : 'Escolher a logo'}
+                  <input type="file" accept="image/*" className="hidden" disabled={enviandoLogo} onChange={e => { void enviarLogo(e.target.files?.[0]); e.target.value = '' }} />
+                </label>
+                {logo && <button type="button" className="text-xs text-ink-500 underline" onClick={() => setLogo(null)}>Tirar</button>}
+              </div>
+              <p className="text-xs text-ink-400 mt-1">Aparece no canto direito do relatório de visita em PDF. Sem logo, o relatório sai só com a nossa.</p>
             </div>
             <div>
               <label className="label">CNPJ</label>

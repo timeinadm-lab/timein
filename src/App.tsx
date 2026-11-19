@@ -39,6 +39,7 @@ const EquipePage = lazy(() => carregarTela(() => import('./pages/equipe/EquipePa
 const AuditoriasPage = lazy(() => carregarTela(() => import('./pages/auditorias/AuditoriasPage')))
 const AuditoriaDetalhe = lazy(() => carregarTela(() => import('./pages/auditorias/AuditoriaDetalhe')))
 const ChecklistsAuditoria = lazy(() => carregarTela(() => import('./pages/auditorias/ChecklistsAuditoria')))
+const RelatoriosVisitaPage = lazy(() => carregarTela(() => import('./pages/relatorios/RelatoriosVisitaPage')))
 const FornecedoresGRSA = lazy(() => carregarTela(() => import('./pages/auditorias/FornecedoresGRSA')))
 
 const TemplateList = lazy(() => carregarTela(() => import('./pages/templates/TemplateList')))
@@ -138,6 +139,7 @@ export default function App() {
               <Route path="auditorias/fornecedores" element={<FornecedoresGRSA />} />
               <Route path="auditorias/:id" element={<AuditoriaDetalhe />} />
               <Route path="jornada" element={<JornadaPage />} />
+              <Route path="relatorios" element={<RelatoriosVisitaPage />} />
 
               {/* Templates */}
               <Route path="templates" element={<TemplateList />} />

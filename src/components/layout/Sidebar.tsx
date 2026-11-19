@@ -39,6 +39,7 @@ const MENU: Grupo[] = [
       { icon: Timer, label: 'Jornada', path: '/jornada' },
       { icon: ShieldCheck, label: 'Supervisão', path: '/supervisao' },
       { icon: FileCheck2, label: 'Auditorias', path: '/auditorias' },
+      { icon: FileText, label: 'Relatórios de visita', path: '/relatorios' },
     ],
   },
   {

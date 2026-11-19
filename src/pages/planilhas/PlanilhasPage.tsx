@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { format, addMonths, subMonths } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
-import { Sheet, Sparkles, ClipboardList, ClipboardCheck, Receipt, Wrench, Wallet, SlidersHorizontal,ChevronLeft, ChevronRight, ChevronDown, Download, Check, CheckCheck, X, Search, Undo2, AlertTriangle } from 'lucide-react'
+import { Sheet, Sparkles, ClipboardList, ClipboardCheck, Receipt, Wrench, Wallet, SlidersHorizontal, Archive, ChevronLeft, ChevronRight, ChevronDown, Download, Check, CheckCheck, X, Search, Undo2, AlertTriangle } from 'lucide-react'
 import { supabase, fetchAll } from '../../lib/supabase'
 import { formatCurrency, formatDate, tipoDoVinculo, getInitials, corDoAvatar, hojeISO, pagaPorDiaria } from '../../lib/utils'
 import { resumoDoVinculo } from '../../lib/jornadaPessoa'
@@ -17,6 +17,7 @@ import GastosCliente from './GastosCliente'
 import { PlanilhaCorrecao, PlanilhaPagamentos } from './PlanilhasPagamento'
 import PlanilhaCompleta from './PlanilhaCompleta'
 import AuditoriaGR from './AuditoriaGR'
+import ArquivoPagamentos from './ArquivoPagamentos'
 import type { CorLinha } from '../../lib/excelBonito'
 
 /**
@@ -28,7 +29,7 @@ import type { CorLinha } from '../../lib/excelBonito'
  *    com o resumo do mês e o dia em que recebe.
  * As duas viram Excel apresentável.
  */
-type Qual = 'completa' | 'extras' | 'ponto' | 'gastos' | 'correcao' | 'pagamentos' | 'auditoria'
+type Qual = 'completa' | 'extras' | 'ponto' | 'gastos' | 'correcao' | 'pagamentos' | 'auditoria' | 'arquivo'
 type Vinculo = VinculoPg & VinculoPerfil & {
   id: string; employee_id: string; client_id: string; start_date?: string | null; contract_end_date?: string | null
   work_schedule_type?: string | null
@@ -72,7 +73,7 @@ const contratoTexto = (l: Vinculo | null) => {
 export default function PlanilhasPage() {
   const navigate = useNavigate()
   const qc = useQueryClient()
-  const [qual, setQual] = useState<Qual>(() => { const q = new URLSearchParams(window.location.search).get('planilha'); return q === 'extras' || q === 'ponto' || q === 'gastos' || q === 'correcao' || q === 'pagamentos' || q === 'auditoria' ? q : 'completa' })
+  const [qual, setQual] = useState<Qual>(() => { const q = new URLSearchParams(window.location.search).get('planilha'); return q === 'extras' || q === 'ponto' || q === 'gastos' || q === 'correcao' || q === 'pagamentos' || q === 'auditoria' || q === 'arquivo' ? q : 'completa' })
   const [cursor, setCursor] = useState(() => { const m = new URLSearchParams(window.location.search).get('mes'); return m && /^\d{4}-\d{2}$/.test(m) ? new Date(m + '-15T12:00:00') : new Date() })
   const mes = format(cursor, 'yyyy-MM')
   const ini = `${mes}-01`, fim = format(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0), 'yyyy-MM-dd')
@@ -127,6 +128,7 @@ export default function PlanilhasPage() {
           ['ponto', ClipboardList, 'Folha de ponto', 'Quem preencheu a folha no mês e o resumo de cada um.'],
           ['gastos', Receipt, 'Gastos do cliente', 'Airbnb, carro, material… com comprovante. Gera PDF com as fotos.'],
           ['pagamentos', Wallet, 'Pagamentos', 'Quem recebe no dia 8, 15 e 20, com valor e PIX/conta.'],
+          ['arquivo', Archive, 'Histórico', 'Pagamentos já fechados (dia 8, 15 ou 20): nome, valor, observação e chave PIX. O PDF sai sem PIX, salvo se você pedir.'],
           ['correcao', Wrench, 'Correção', 'Quem não recebe nada no mês ou recebe menos de R$ 100.'],
           ['auditoria', ClipboardCheck, 'Auditoria GR', 'Auditorias de fornecedores da GRSA: ficha de cada um, financeiro, auditor e em que pé está. Relatório do mês em Excel.'],
         ] as const).map(([k, Icone, titulo, desc]) => (
@@ -142,6 +144,7 @@ export default function PlanilhasPage() {
       </div>
 
       {qual === 'auditoria' ? <AuditoriaGR />
+        : qual === 'arquivo' ? <ArquivoPagamentos mes={mes} nomeMes={nomeMes} />
         : qual === 'completa' ? <PlanilhaCompleta mes={mes} nomeMes={nomeMes} />
         : qual === 'gastos' ? <GastosCliente mes={mes} nomeMes={nomeMes} />
         : qual === 'correcao' ? <PlanilhaCorrecao mes={mes} nomeMes={nomeMes} />

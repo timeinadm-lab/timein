@@ -946,7 +946,7 @@ export default function PortalHome() {
                 {new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}
               </p>
               <h1 className="text-2xl font-semibold tracking-tight leading-tight truncate !text-white">
-                {saudacao()}, <span className="italic">{employeeName.split(' ')[0] || ''}</span>
+                {saudacao()}, {employeeName.split(' ')[0] || ''}
               </h1>
             </div>
           </div>}

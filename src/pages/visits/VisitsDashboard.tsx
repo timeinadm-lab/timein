@@ -246,8 +246,8 @@ export default function VisitsDashboard() {
         alertLevel === 'never' || alertLevel === 'no_prazo' ? 'border-l-gray-300' : 'border-l-amber-400'
       }`}>
         <div className="p-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-primary-100 flex items-center justify-center text-primary-700 font-bold text-sm flex-shrink-0">
+          <div className="flex items-start md:items-center gap-3 flex-wrap md:flex-nowrap">
+            <div className="w-10 h-10 rounded-full bg-primary-100 flex items-center justify-center text-primary-700 font-semibold text-sm flex-shrink-0">
               {emp.full_name.trim().split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()}
             </div>
             <div className="flex-1 min-w-0">
@@ -717,7 +717,7 @@ export default function VisitsDashboard() {
       <div className="flex items-end justify-between flex-wrap gap-3">
         <div>
           <p className="eyebrow mb-1">Operação</p>
-          <h1 className="page-title">Visitas & Ponto</h1>
+          <h1 className="page-title">Visitas e ponto</h1>
           <p className="text-sm text-ink-500 mt-0.5">Acompanhe consultoria e fixos registrados pelo portal</p>
         </div>
         <input className="input w-40" type="month" value={month} onChange={e => setMonth(e.target.value)} />
@@ -728,19 +728,16 @@ export default function VisitsDashboard() {
         <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-start gap-3">
           <AlertCircle size={18} className="text-red-500 flex-shrink-0 mt-0.5" />
           <div className="flex-1">
-            <p className="font-semibold text-red-700 text-sm">{totalOpenVisits} ponto(s) em aberto — sem check-out registrado</p>
+            <p className="font-semibold text-red-700 text-sm">{totalOpenVisits === 1 ? '1 pessoa registrou a entrada e não a saída' : `${totalOpenVisits} registros com entrada e sem saída`}</p>
             <div className="mt-2 space-y-1">
               {(openVisits || []).slice(0, 5).map(v => {
                 const emp = employees?.find(e => e.id === v.employee_id)
                 const link = links?.find(l => l.client_id === v.client_id && l.employee_id === v.employee_id)
                 const clientName = (link as { client?: { name: string } } | undefined)?.client?.name || '—'
                 return (
-                  <div key={v.id} className="flex items-center gap-2 text-xs text-red-700">
+                  <div key={v.id} className="flex items-baseline gap-x-2 flex-wrap text-xs text-red-700">
                     <span className="font-medium">{emp?.full_name || 'Colaborador'}</span>
-                    <span className="text-red-400">·</span>
-                    <span>{clientName}</span>
-                    <span className="text-red-400">·</span>
-                    <span>entrada {v.check_in?.slice(0, 5)} em {formatDate(v.visit_date)}</span>
+                    <span>{clientName}, entrou às {v.check_in?.slice(0, 5)} em {formatDate(v.visit_date)}</span>
                     {emp && (
                       <button className="underline ml-1" onClick={() => navigate(`/colaboradores/${emp.id}`)}>ver perfil</button>
                     )}
@@ -804,7 +801,7 @@ export default function VisitsDashboard() {
                       </div>
                       <div className="flex gap-2 flex-shrink-0">
                         <button
-                          className="btn-primary text-xs bg-green-600 hover:bg-green-700"
+                          className="btn-primary text-xs"
                           disabled={decideExtra.isPending}
                           onClick={() => decideExtra.mutate({ visitId: v.id, approve: true, amount: proposed || null })}
                         >
@@ -825,7 +822,7 @@ export default function VisitsDashboard() {
             )
           })()}
 
-          <div className="grid grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 md:gap-4">
             <div className="card p-4">
               <p className="text-xs text-gray-500 font-medium">Visitas no mês</p>
               <p className="text-3xl font-bold text-gray-900 mt-1">{totalVisitsThisMonth}</p>
@@ -844,7 +841,7 @@ export default function VisitsDashboard() {
             {isChefe && (
             <div className="card p-4">
               <p className="text-xs text-gray-500 font-medium flex items-center gap-1"><DollarSign size={11} />A pagar</p>
-              <p className="text-2xl font-bold text-emerald-600 mt-1">R$ {totalEarningsThisMonth.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+              <p className="text-xl md:text-2xl font-bold text-emerald-600 mt-1 tnum">R$ {totalEarningsThisMonth.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
               <p className="text-xs text-gray-400 mt-1">total consultoria</p>
             </div>
             )}

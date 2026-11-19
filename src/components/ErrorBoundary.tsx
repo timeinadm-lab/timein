@@ -1,4 +1,5 @@
 import { Component, ReactNode } from 'react'
+import { ehArquivoAntigo, recarregarParaVersaoNova, registrarErroDeTela } from '../lib/versaoNova'
 
 // Rede de segurança: se algo quebrar em runtime, mostra uma tela com botão de
 // recarregar em vez de deixar a tela branca (que não diz nada ao usuário).
@@ -11,6 +12,9 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, { error: E
 
   componentDidCatch(error: Error) {
     console.error('Erro na aplicação:', error)
+    // Versão nova publicada com a aba aberta: recarrega sozinho (20/11/2026)
+    if (ehArquivoAntigo(error)) { recarregarParaVersaoNova(); return }
+    registrarErroDeTela(error, 'sistema')
   }
 
   hardReload = () => {

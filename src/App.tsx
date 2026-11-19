@@ -6,56 +6,57 @@ import { ConfirmHost } from './components/ui/ConfirmDialog'
 import { AuthProvider } from './contexts/AuthContext'
 import { RequireAuth, RequireChefe, RequireContabilidade } from './components/layout/RequireAuth'
 import Layout from './components/layout/Layout'
+import { carregarTela } from './lib/versaoNova'
 
 import Login from './pages/Login'
-const Dashboard = lazy(() => import('./pages/Dashboard'))
+const Dashboard = lazy(() => carregarTela(() => import('./pages/Dashboard')))
 
-const ClientList = lazy(() => import('./pages/clients/ClientList'))
-const ClientForm = lazy(() => import('./pages/clients/ClientForm'))
-const ClientDetail = lazy(() => import('./pages/clients/ClientDetail'))
+const ClientList = lazy(() => carregarTela(() => import('./pages/clients/ClientList')))
+const ClientForm = lazy(() => carregarTela(() => import('./pages/clients/ClientForm')))
+const ClientDetail = lazy(() => carregarTela(() => import('./pages/clients/ClientDetail')))
 
-const ContractList = lazy(() => import('./pages/contracts/ContractList'))
-const ContractForm = lazy(() => import('./pages/contracts/ContractForm'))
-const ContractDetail = lazy(() => import('./pages/contracts/ContractDetail'))
+const ContractList = lazy(() => carregarTela(() => import('./pages/contracts/ContractList')))
+const ContractForm = lazy(() => carregarTela(() => import('./pages/contracts/ContractForm')))
+const ContractDetail = lazy(() => carregarTela(() => import('./pages/contracts/ContractDetail')))
 
-const EmployeeList = lazy(() => import('./pages/employees/EmployeeList'))
-const EmployeeForm = lazy(() => import('./pages/employees/EmployeeForm'))
-const EmployeeDetail = lazy(() => import('./pages/employees/EmployeeDetail'))
+const EmployeeList = lazy(() => carregarTela(() => import('./pages/employees/EmployeeList')))
+const EmployeeForm = lazy(() => carregarTela(() => import('./pages/employees/EmployeeForm')))
+const EmployeeDetail = lazy(() => carregarTela(() => import('./pages/employees/EmployeeDetail')))
 
-const CandidateList = lazy(() => import('./pages/candidates/CandidateList'))
-const CandidateForm = lazy(() => import('./pages/candidates/CandidateForm'))
-const CandidateDetail = lazy(() => import('./pages/candidates/CandidateDetail'))
-const CandidateKanban = lazy(() => import('./pages/candidates/CandidateKanban'))
+const CandidateList = lazy(() => carregarTela(() => import('./pages/candidates/CandidateList')))
+const CandidateForm = lazy(() => carregarTela(() => import('./pages/candidates/CandidateForm')))
+const CandidateDetail = lazy(() => carregarTela(() => import('./pages/candidates/CandidateDetail')))
+const CandidateKanban = lazy(() => carregarTela(() => import('./pages/candidates/CandidateKanban')))
 
-const InterviewAgenda = lazy(() => import('./pages/interviews/InterviewAgenda'))
-const InterviewForm = lazy(() => import('./pages/interviews/InterviewForm'))
+const InterviewAgenda = lazy(() => carregarTela(() => import('./pages/interviews/InterviewAgenda')))
+const InterviewForm = lazy(() => carregarTela(() => import('./pages/interviews/InterviewForm')))
 
-const PaymentList = lazy(() => import('./pages/payments/PaymentList'))
-const PaymentForm = lazy(() => import('./pages/payments/PaymentForm'))
+const PaymentList = lazy(() => carregarTela(() => import('./pages/payments/PaymentList')))
+const PaymentForm = lazy(() => carregarTela(() => import('./pages/payments/PaymentForm')))
 
-const SupervisionDashboard = lazy(() => import('./pages/supervision/SupervisionDashboard'))
-const EquipePage = lazy(() => import('./pages/equipe/EquipePage'))
-const AuditoriasPage = lazy(() => import('./pages/auditorias/AuditoriasPage'))
-const AuditoriaDetalhe = lazy(() => import('./pages/auditorias/AuditoriaDetalhe'))
-const ChecklistsAuditoria = lazy(() => import('./pages/auditorias/ChecklistsAuditoria'))
-const FornecedoresGRSA = lazy(() => import('./pages/auditorias/FornecedoresGRSA'))
+const SupervisionDashboard = lazy(() => carregarTela(() => import('./pages/supervision/SupervisionDashboard')))
+const EquipePage = lazy(() => carregarTela(() => import('./pages/equipe/EquipePage')))
+const AuditoriasPage = lazy(() => carregarTela(() => import('./pages/auditorias/AuditoriasPage')))
+const AuditoriaDetalhe = lazy(() => carregarTela(() => import('./pages/auditorias/AuditoriaDetalhe')))
+const ChecklistsAuditoria = lazy(() => carregarTela(() => import('./pages/auditorias/ChecklistsAuditoria')))
+const FornecedoresGRSA = lazy(() => carregarTela(() => import('./pages/auditorias/FornecedoresGRSA')))
 
-const TemplateList = lazy(() => import('./pages/templates/TemplateList'))
-const TemplateEditor = lazy(() => import('./pages/templates/TemplateEditor'))
+const TemplateList = lazy(() => carregarTela(() => import('./pages/templates/TemplateList')))
+const TemplateEditor = lazy(() => carregarTela(() => import('./pages/templates/TemplateEditor')))
 
-const Chat = lazy(() => import('./pages/chat/Chat'))
-const ActivitiesPage = lazy(() => import('./pages/activities/ActivitiesPage'))
-const FinanceiroPage = lazy(() => import('./pages/financeiro/FinanceiroPage'))
-const CalendarPage = lazy(() => import('./pages/calendar/CalendarPage'))
-const AniversariantesPage = lazy(() => import('./pages/calendar/AniversariantesPage'))
-const PlanilhasPage = lazy(() => import('./pages/planilhas/PlanilhasPage'))
-const UserManagement = lazy(() => import('./pages/admin/UserManagement'))
-const ProfilePage = lazy(() => import('./pages/admin/ProfilePage'))
-const InspectionPublic = lazy(() => import('./pages/inspections/InspectionPublic'))
+const Chat = lazy(() => carregarTela(() => import('./pages/chat/Chat')))
+const ActivitiesPage = lazy(() => carregarTela(() => import('./pages/activities/ActivitiesPage')))
+const FinanceiroPage = lazy(() => carregarTela(() => import('./pages/financeiro/FinanceiroPage')))
+const CalendarPage = lazy(() => carregarTela(() => import('./pages/calendar/CalendarPage')))
+const AniversariantesPage = lazy(() => carregarTela(() => import('./pages/calendar/AniversariantesPage')))
+const PlanilhasPage = lazy(() => carregarTela(() => import('./pages/planilhas/PlanilhasPage')))
+const UserManagement = lazy(() => carregarTela(() => import('./pages/admin/UserManagement')))
+const ProfilePage = lazy(() => carregarTela(() => import('./pages/admin/ProfilePage')))
+const InspectionPublic = lazy(() => carregarTela(() => import('./pages/inspections/InspectionPublic')))
 import PortalLogin from './pages/portal/PortalLogin'
-const PortalHome = lazy(() => import('./pages/portal/PortalHome'))
-const VisitsDashboard = lazy(() => import('./pages/visits/VisitsDashboard'))
-const JornadaPage = lazy(() => import('./pages/visits/JornadaPage'))
+const PortalHome = lazy(() => carregarTela(() => import('./pages/portal/PortalHome')))
+const VisitsDashboard = lazy(() => carregarTela(() => import('./pages/visits/VisitsDashboard')))
+const JornadaPage = lazy(() => carregarTela(() => import('./pages/visits/JornadaPage')))
 
 const queryClient = new QueryClient({
   // 18/11/2026: antes era retry 0 — qualquer oscilação da internet deixava a tela

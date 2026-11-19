@@ -78,7 +78,8 @@ const NO_DIA: Record<EventKind, [string, string]> = {
 }
 // O que pede atenção aparece primeiro dentro do dia
 const ORDEM_NO_DIA: EventKind[] = ['ausencia', 'alterada', 'troca', 'reuniao', 'compromisso', 'auditoria', 'supervisao', 'equipe', 'planejada', 'realizada']
-const primeiroNome = (n: string) => n.split(',')[0].trim().split(' ')[0]
+// Nome vazio (pessoa apagada, registro antigo) não pode derrubar o calendário
+const primeiroNome = (n?: string | null) => String(n || '—').split(',')[0].trim().split(' ')[0] || '—'
 
 const EMPTY_ADD = {
   employee_id: '', client_id: '', unit_id: '',
@@ -670,7 +671,7 @@ export default function CalendarPage() {
   const filtered = events.filter(e =>
     !ocultos.has(e.kind) &&
     (!fSoRh || e.isRh) &&
-    (!fEmployee || e.employee === fEmployee || e.employee.split(', ').includes(fEmployee)) && (!fClient || e.client === fClient))
+    (!fEmployee || e.employee === fEmployee || String(e.employee || '').split(', ').includes(fEmployee)) && (!fClient || e.client === fClient))
 
   const byDay = useMemo(() => {
     const m: Record<string, Ev[]> = {}
@@ -740,7 +741,7 @@ export default function CalendarPage() {
         <div className="flex gap-2 overflow-x-auto md:overflow-visible md:flex-wrap -mx-4 px-4 md:mx-0 md:px-0 pb-1 md:pb-0">
         {GRUPOS.map(g => {
           const n = events.filter(e => g.kinds.includes(e.kind) && (!fSoRh || e.isRh)
-            && (!fEmployee || e.employee === fEmployee || e.employee.split(', ').includes(fEmployee)) && (!fClient || e.client === fClient)).length
+            && (!fEmployee || e.employee === fEmployee || String(e.employee || '').split(', ').includes(fEmployee)) && (!fClient || e.client === fClient)).length
           const off = g.kinds.every(k => ocultos.has(k))
           return (
             <button key={g.id} type="button" aria-pressed={!off} title={off ? 'Mostrar no calendário' : 'Esconder do calendário'}

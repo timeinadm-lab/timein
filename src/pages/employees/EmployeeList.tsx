@@ -165,7 +165,7 @@ export default function EmployeeList() {
       <div className="card p-3 flex gap-2.5 flex-wrap items-center sticky top-[58px] md:static z-10">
         <div className="relative flex-1 min-w-48">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-400" />
-          <input className="input pl-9 pr-9" placeholder="Nome, CPF, telefone ou cliente…" value={search}
+          <input className="input pl-9 pr-9" placeholder="Procurar por nome, CPF, telefone ou cliente" value={search}
             onChange={e => { setSearch(e.target.value); setPage(1) }} enterKeyHint="search" />
           {search && (
             <button onClick={() => { setSearch(''); setPage(1) }} className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-lg text-ink-400 hover:bg-ink-100" aria-label="Limpar busca">
@@ -178,7 +178,7 @@ export default function EmployeeList() {
             <button
               key={opt.value}
               onClick={() => { setStatus(opt.value); setPage(1) }}
-              className={`px-3 py-2 sm:py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${status === opt.value ? 'bg-primary-600 text-white' : 'bg-ink-100 text-ink-600 hover:bg-ink-200'}`}
+              className={`px-3 py-2 sm:py-1.5 rounded-lg text-sm whitespace-nowrap transition-colors ${status === opt.value ? 'bg-primary-700 text-white font-medium' : 'text-ink-600 hover:bg-ink-100'}`}
             >
               {opt.label}
             </button>
@@ -212,21 +212,20 @@ export default function EmployeeList() {
         />
       ) : (
         <>
-          <div className="hidden md:grid grid-cols-12 gap-3 px-4 pb-1 text-xs font-semibold text-ink-400 uppercase tracking-wide">
-            <div className="col-span-5">Colaborador</div>
-            <div className="col-span-3">Cargo</div>
-            <div className="col-span-2">Status</div>
-            <div className="col-span-2">Admissão</div>
+          <div className="card overflow-hidden divide-y divide-ink-100">
+          <div className="hidden md:grid grid-cols-12 gap-3 px-4 py-2.5 text-xs font-medium text-ink-500 bg-ink-50/70">
+            <div className="col-span-5">Nome</div>
+            <div className="col-span-3">Onde atua</div>
+            <div className="col-span-2">Situação</div>
+            <div className="col-span-2">Entrou em</div>
           </div>
-
-          <div className="space-y-2">
             {paginated.map(e => {
               const isFav = !!(e as { is_favorite?: boolean }).is_favorite
               return (
                 <div
                   key={e.id}
                   onClick={() => navigate(`/colaboradores/${e.id}`)}
-                  className="card card-interactive p-3 md:px-4 md:py-3 grid grid-cols-[auto_1fr_auto] md:grid-cols-12 md:items-center gap-x-3 gap-y-2"
+                  className="p-3 md:px-4 md:py-3 grid grid-cols-[auto_1fr_auto] md:grid-cols-12 md:items-center gap-x-3 gap-y-2 cursor-pointer hover:bg-ink-50/70 transition-colors"
                 >
                   {/* Avatar */}
                   <div className="md:col-span-5 flex items-center gap-3 min-w-0 row-start-1">
@@ -240,8 +239,8 @@ export default function EmployeeList() {
                     )}
                     <div className="min-w-0">
                       <div className="flex items-center gap-1.5">
-                        <span className="font-semibold text-ink-900 truncate">{e.full_name}</span>
-                        {pendingDocs?.has(e.id) && <AlertCircle size={14} className="text-red-500 shrink-0" />}
+                        <span className="font-medium text-ink-900 truncate">{e.full_name}</span>
+                        {pendingDocs?.has(e.id) && <span title="Tem documento pendente" className="inline-flex shrink-0"><AlertCircle size={14} className="text-red-500" /></span>}
                       </div>
                       <span className="md:hidden block text-xs text-ink-400 truncate">
                         {e.role || 'Sem cargo'}
@@ -252,19 +251,17 @@ export default function EmployeeList() {
 
                   {/* Cargo + onde atua — desktop */}
                   <div className="hidden md:block md:col-span-3 min-w-0">
-                    <p className="text-sm text-ink-600 truncate">{e.role || '-'}</p>
-                    {(vinculosAtivos?.get(e.id)?.length ?? 0) > 0 && (
-                      <p className="text-xs text-ink-400 truncate" title={vinculosAtivos!.get(e.id)!.join(', ')}>{vinculosAtivos!.get(e.id)!.join(', ')}</p>
-                    )}
+                    {(vinculosAtivos?.get(e.id)?.length ?? 0) > 0
+                      ? <p className="text-sm text-ink-800 truncate" title={vinculosAtivos!.get(e.id)!.join(', ')}>{vinculosAtivos!.get(e.id)!.join(', ')}</p>
+                      : <p className="text-sm text-ink-400">Sem cliente no momento</p>}
+                    <p className="text-xs text-ink-500 truncate">{e.role || 'Cargo não informado'}</p>
                   </div>
 
                   {/* Status + vínculos ativos */}
                   <div className="md:col-span-2 row-start-1 md:row-auto col-start-3 md:col-auto justify-self-end md:justify-self-start flex items-center gap-1.5 flex-wrap">
                     <span className={`badge ${statusBadge(e.status)}`}>{e.status}</span>
-                    {(linkCounts?.get(e.id) ?? 0) > 0 && (
-                      <span className="badge bg-blue-50 text-blue-600 text-[10px]" title="Vínculos ativos">
-                        {linkCounts!.get(e.id)} vínculo{linkCounts!.get(e.id)! > 1 ? 's' : ''}
-                      </span>
+                    {(linkCounts?.get(e.id) ?? 0) > 1 && (
+                      <span className="text-xs text-ink-500" title="Clientes em que atua agora">{linkCounts!.get(e.id)} clientes</span>
                     )}
                   </div>
 

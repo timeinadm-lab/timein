@@ -98,6 +98,21 @@
   .tab-on {
     @apply border-primary-700 text-ink-900 font-semibold hover:text-ink-900;
   }
+  /* Ata de visita (20/11/2026): campos no jeito da tela que a equipe já usa — rótulo
+     grande em cima, campo com borda cinza e o ícone colado à direita */
+  .rv-rotulo {
+    @apply block text-base text-ink-900 mb-1.5;
+  }
+  .rv-campo {
+    @apply w-full min-w-0 bg-white border border-ink-300 rounded px-3 py-2.5 text-base text-ink-800 placeholder:text-ink-400 focus:outline-none focus:border-primary-600 focus:ring-2 focus:ring-primary-600/15;
+  }
+  /* o ícone ao lado já abre o calendário/relógio: esconde o do navegador para não ficar dois */
+  .rv-campo::-webkit-calendar-picker-indicator {
+    display: none;
+  }
+  .rv-icone {
+    @apply inline-flex items-center justify-center w-11 shrink-0 bg-ink-100 border border-l-0 border-ink-300 rounded-r text-ink-700;
+  }
   /* Cabeçalho de tabela padrão */
   .th {
     @apply text-left px-4 py-3 text-xs font-medium text-ink-500;

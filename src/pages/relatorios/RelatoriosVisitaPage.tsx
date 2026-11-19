@@ -52,8 +52,9 @@ export default function RelatoriosVisitaPage() {
     salvar: async r => {
       const campos = {
         client_id: r.client_id, titulo: r.titulo, data: r.data, entrada: r.entrada || null, saida: r.saida || null,
-        objetivo: r.objetivo || null, itens: r.itens, assinaturas: r.assinaturas, status: r.status,
+        objetivo: r.objetivo || null, nota: r.nota || null, itens: r.itens, assinaturas: r.assinaturas, status: r.status,
         ...(r.pdf_url ? { pdf_url: r.pdf_url } : {}), atualizado_em: new Date().toISOString(),
+        ...(r.autor_nome ? { autor_nome: r.autor_nome } : {}), ...(r.autor_email ? { autor_email: r.autor_email } : {}),
       }
       // Relatório que já existe (inclusive feito no portal) mantém o autor original
       const { data: existe } = await supabase.from('relatorios_visita').select('id').eq('id', r.id).maybeSingle()
@@ -61,7 +62,7 @@ export default function RelatoriosVisitaPage() {
         ? await supabase.from('relatorios_visita').update(campos).eq('id', r.id)
         : await supabase.from('relatorios_visita').insert({
             id: r.id, ...campos, user_id: user?.id || null, employee_id: profile?.employee_id || null,
-            autor_nome: profile?.full_name || null, autor_email: profile?.email || user?.email || null,
+            autor_nome: r.autor_nome || profile?.full_name || null, autor_email: r.autor_email || profile?.email || user?.email || null,
           })
       if (error) throw new Error(error.message)
       if (r.status === 'finalizado') await supabase.rpc('relatorio_visita_no_ponto', { p_id: r.id })

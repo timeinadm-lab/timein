@@ -64,7 +64,7 @@ export async function gerarPdfRelatorioVisita(d: DadosRelatorioPdf): Promise<Blo
   celula('Consultor(a):', d.consultor.nome, L, W / 2, y + alt + 4.4)
   celula('E-mail:', d.consultor.email || '-', L + W / 2, W / 2, y + alt + 4.4)
   celula('Data:', dataBR(r.data), L, W / 2, y + alt * 2 + 4.4)
-  celula('Hora:', horarioTexto(r.entrada, r.saida) || '-', L + W / 2, W / 2, y + alt * 2 + 4.4)
+  celula('Hora:', [horarioTexto(r.entrada, r.saida) || '-', r.nota?.trim() ? `Nota: ${r.nota.trim()}` : ''].filter(Boolean).join('     '), L + W / 2, W / 2, y + alt * 2 + 4.4)
   y += alt * 3 + 5
 
   // Objetivo

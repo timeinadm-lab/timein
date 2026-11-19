@@ -15,6 +15,7 @@ export type RelatorioVisita = {
   entrada: string              // HH:MM
   saida: string
   objetivo: string
+  nota: string                 // nota da visita (opcional, migração 115)
   itens: ItemRelatorio[]
   assinaturas: Assinaturas
   status: 'rascunho' | 'finalizado'
@@ -82,7 +83,7 @@ export function linhasDeFotos(fotos: { w: number; h: number }[], larguraUtil: nu
 
 export function relatorioNovo(id: string, hoje: string, clienteUnico?: string): RelatorioVisita {
   return {
-    id, client_id: clienteUnico || '', titulo: tituloPadrao(hoje), data: hoje, entrada: '', saida: '', objetivo: '',
+    id, client_id: clienteUnico || '', titulo: tituloPadrao(hoje), data: hoje, entrada: '', saida: '', objetivo: '', nota: '',
     itens: [], assinaturas: {}, status: 'rascunho', pdf_url: null,
   }
 }
@@ -93,7 +94,7 @@ export function normalizarRelatorio(x: Record<string, unknown>): RelatorioVisita
   const itens = Array.isArray(x.itens) ? (x.itens as Record<string, unknown>[]) : []
   return {
     id: s(x.id), client_id: s(x.client_id), titulo: s(x.titulo), data: s(x.data).slice(0, 10),
-    entrada: s(x.entrada).slice(0, 5), saida: s(x.saida).slice(0, 5), objetivo: s(x.objetivo),
+    entrada: s(x.entrada).slice(0, 5), saida: s(x.saida).slice(0, 5), objetivo: s(x.objetivo), nota: s(x.nota),
     itens: itens.map((i, k) => ({
       id: s(i.id) || `item-${k}`, tipo: i.tipo === 'titulo' ? 'titulo' : 'nota', texto: s(i.texto),
       fotos: Array.isArray(i.fotos) ? (i.fotos as unknown[]).map(String) : [],

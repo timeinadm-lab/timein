@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "node scripts/checagem.cjs && vite build",
     "preview": "vite preview",
-    "testes": "node scripts/testes.cjs"
+    "testes": "node scripts/testes.cjs",
+    "tipos": "tsc --noEmit -p tsconfig.app.json"
   },
   "dependencies": {
     "@hello-pangea/dnd": "^16.6.0",

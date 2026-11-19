@@ -87,7 +87,8 @@ export interface EmployeeClientLink {
   ended_at?: string | null
   contract_file_url?: string | null
   contract_required?: boolean | null
-  service_type: 'Fixo' | 'Consultoria' | 'PJ'
+  // 'Volante' é o nome antigo da cobertura: ainda existe em vínculos velhos do banco
+  service_type: 'Fixo' | 'Consultoria' | 'PJ' | 'Volante'
   monthly_amount?: number
   weekly_hours_quota?: number
   start_date?: string

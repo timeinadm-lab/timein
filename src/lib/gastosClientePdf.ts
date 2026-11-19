@@ -110,5 +110,5 @@ export async function gerarPdfGastosCliente(cliente: string, periodo: string, ga
     } catch { /* PDF protegido/corrompido: fica só a menção na lista */ }
   }
   const bytes = await final.save()
-  return new Blob([bytes], { type: 'application/pdf' })
+  return new Blob([bytes as BlobPart], { type: 'application/pdf' })
 }

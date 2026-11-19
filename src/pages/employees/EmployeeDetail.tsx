@@ -4581,8 +4581,8 @@ function VisaoGeral({
         <div className="card p-4 space-y-2">
           <h3 className="font-semibold text-gray-900 text-sm">Próximas visitas marcadas</h3>
           {agendaItems.map(a => {
-            const cName = (a as { client?: { name: string } }).client?.name
-            const uName = (a as { unit?: { name: string } }).unit?.name || a.notes
+            const cName = (a as unknown as { client?: { name: string } }).client?.name
+            const uName = (a as unknown as { unit?: { name: string } }).unit?.name || a.notes
             const orig = (a as { original_date?: string }).original_date
             const wasResched = orig && orig !== a.planned_date
             return (

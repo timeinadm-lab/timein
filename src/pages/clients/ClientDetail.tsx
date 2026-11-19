@@ -426,7 +426,7 @@ export default function ClientDetail() {
               </div>
               <div className="space-y-1.5">
                 {contratosVinculos!.map(l => {
-                  const emp = (l as { employee?: { id: string; full_name: string } }).employee
+                  const emp = (l as unknown as { employee?: { id: string; full_name: string } }).employee
                   const encerrado = vinculoEncerrado(l, hojeISO())
                   return (
                     <div key={l.id} className="flex items-center justify-between gap-3 px-3 py-2 bg-ink-50 rounded-lg">
@@ -713,7 +713,7 @@ export default function ClientDetail() {
           }
           push(v.visit_date, {
             kind: v.is_unavailable ? 'ausencia' : 'realizada',
-            employee: (v as { employee?: { full_name: string } }).employee?.full_name || '—',
+            employee: (v as unknown as { employee?: { full_name: string } }).employee?.full_name || '—',
             unit: v.unit_name || undefined,
             time: v.check_in ? v.check_in.slice(0, 5) : null,
             hours, note: v.is_unavailable ? 'Falta' : v.observations, employeeId: v.employee_id,
@@ -724,8 +724,8 @@ export default function ClientDetail() {
           if (already) continue
           push(a.planned_date, {
             kind: 'planejada',
-            employee: (a as { employee?: { full_name: string } }).employee?.full_name || '—',
-            unit: (a as { unit?: { name: string } }).unit?.name,
+            employee: (a as unknown as { employee?: { full_name: string } }).employee?.full_name || '—',
+            unit: (a as unknown as { unit?: { name: string } }).unit?.name,
             time: a.planned_time ? a.planned_time.slice(0, 5) : null,
             hours: a.hours_expected ?? null, note: a.notes, employeeId: a.employee_id,
           })

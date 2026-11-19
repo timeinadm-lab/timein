@@ -501,13 +501,13 @@ export default function CalendarPage() {
   const events = useMemo<Ev[]>(() => {
     const out: Ev[] = []
     for (const v of visits || []) {
-      const emp = (v as { employee?: { full_name: string } }).employee?.full_name || '—'
+      const emp = (v as unknown as { employee?: { full_name: string } }).employee?.full_name || '—'
       out.push({
         // Feriado registrado não é visita feita nem falta
         kind: v.is_unavailable ? 'ausencia' : v.is_holiday ? 'troca' : 'realizada',
         date: v.visit_date,
         employee: emp,
-        client: (v as { client?: { name: string } }).client?.name,
+        client: (v as unknown as { client?: { name: string } }).client?.name,
         unit: v.unit_name || undefined,
         time: v.check_in ? v.check_in.slice(0, 5) : null,
         hours: durH(v.check_in, v.check_out, v.break_start, v.break_end),
@@ -565,8 +565,8 @@ export default function CalendarPage() {
       })
     }
     for (const n of notices || []) {
-      const nome = (n as { employee?: { full_name: string } }).employee?.full_name || '—'
-      const cliente = (n as { client?: { name: string } }).client?.name
+      const nome = (n as unknown as { employee?: { full_name: string } }).employee?.full_name || '—'
+      const cliente = (n as unknown as { client?: { name: string } }).client?.name
       if (n.type === 'falta') {
         // Falta avisada E registrada no ponto no mesmo dia: mostra uma vez só
         const jaNoPonto = (visits || []).some(v => v.is_unavailable && v.employee_id === n.employee_id && v.visit_date === n.notice_date)
@@ -868,7 +868,7 @@ export default function CalendarPage() {
                   {i.title || 'Compromisso'}
                 </p>
                 <p className="text-xs text-ink-400">
-                  {(i as { client?: { name: string } }).client?.name || 'Sem cliente'}
+                  {(i as unknown as { client?: { name: string } }).client?.name || 'Sem cliente'}
                   {i.target_month ? ` · previsto para ${String(i.target_month).slice(5, 7)}/${String(i.target_month).slice(0, 4)}` : ''}
                 </p>
               </div>

@@ -137,7 +137,7 @@ export default function Dashboard() {
         const { data, error } = await supabase.from(src.table).select(`id,${src.col}`)
         if (error) { console.warn(`Skip ${src.table}:`, error.message); continue }
         for (const row of (data || [])) {
-          const val = (row as Record<string, string>)[src.col]
+          const val = (row as unknown as Record<string, string>)[src.col]
           if (!val || val.startsWith('http')) continue
           allFiles.push({ path: val, bucket: src.bucket, folder: src.label })
         }
@@ -373,7 +373,7 @@ export default function Dashboard() {
         .select('id,name,status,employee:employees(id,full_name,status)')
         .is('file_url', null)
         .eq('status', 'Pendente')
-      return (data || []).filter((d: { employee?: { status?: string } }) => d.employee?.status === 'Ativo')
+      return ((data || []) as unknown as { id: string; name: string; status: string; employee?: { id: string; full_name: string; status?: string } }[]).filter(d => d.employee?.status === 'Ativo')
     },
     enabled: role === 'chefe',
   })
@@ -525,7 +525,7 @@ export default function Dashboard() {
         .select('id,employee_id,client_id,monthly_hours_quota,weekly_hours_quota,visits_per_week,start_date,created_at,employee:employees(full_name,status),client:clients(name)')
         .eq('service_type', 'Consultoria')
         .not('monthly_hours_quota', 'is', null)
-      return (data || []).filter((l: { employee?: { status?: string } }) => l.employee?.status === 'Ativo')
+      return ((data || []) as unknown as { id: string; employee_id: string; client_id: string; monthly_hours_quota?: number; weekly_hours_quota?: number; visits_per_week?: number; start_date?: string; created_at?: string; employee?: { full_name?: string; status?: string }; client?: { name?: string } }[]).filter(l => l.employee?.status === 'Ativo')
     },
     enabled: role === 'chefe',
   })
@@ -712,7 +712,7 @@ export default function Dashboard() {
         () => supabase.from('nutritionist_visits')
           .select('id,visit_date,employee_id,client_id,employee:employees(id,full_name,status),client:clients(name)')
           .gte('visit_date', de).lte('visit_date', ate)
-          .not('check_out', 'is', null))
+          .not('check_out', 'is', null) as never)
       const { data: planejadas } = await supabase
         .from('nutritionist_agenda')
         .select('employee_id,client_id,planned_date,created_by_admin')
@@ -795,7 +795,7 @@ export default function Dashboard() {
         .from('employee_documents')
         .select('id,file_url,employee:employees(status)')
         .not('file_url', 'is', null)
-      return (data || []).filter((d: { employee?: { status?: string } }) => d.employee?.status === 'Ativo').length
+      return ((data || []) as unknown as { employee?: { status?: string } }[]).filter(d => d.employee?.status === 'Ativo').length
     },
     enabled: role === 'chefe',
   })
@@ -969,7 +969,7 @@ export default function Dashboard() {
   const MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
   ;(myPending || []).forEach(p => {
     const isVisita = (p as { category?: string }).category === 'Visita'
-    const cli = (p as { client?: { name: string } }).client?.name
+    const cli = (p as unknown as { client?: { name: string } }).client?.name
     const tm = (p as { target_month?: string }).target_month
     const mesTxt = tm ? ` (${MESES[Number(String(tm).slice(5, 7)) - 1]}/${String(tm).slice(0, 4)})` : ''
     amberAlerts.push({
@@ -981,10 +981,10 @@ export default function Dashboard() {
   // Trocou o dia e/ou o cliente combinado. Feita pelo portal e ainda não vista
   // no Calendário → vermelho, no topo: foi pedido que a equipe seja avisada.
   ;(fugasDoCombinado?.trocas || []).forEach(a => {
-    const nome = (a as { employee?: { full_name: string } }).employee?.full_name || 'Colaborador'
-    const empId = (a as { employee?: { id: string } }).employee?.id
-    const cli = (a as { client?: { name: string } }).client?.name
-    const cliAntes = (a as { original_client?: { name: string } }).original_client?.name
+    const nome = (a as unknown as { employee?: { full_name: string } }).employee?.full_name || 'Colaborador'
+    const empId = (a as unknown as { employee?: { id: string } }).employee?.id
+    const cli = (a as unknown as { client?: { name: string } }).client?.name
+    const cliAntes = (a as unknown as { original_client?: { name: string } }).original_client?.name
     const trocouDia = !!a.original_date && a.original_date !== a.planned_date
     const partes = [
       trocouDia ? `de ${formatDate(a.original_date)} para ${formatDate(a.planned_date)}` : `do dia ${formatDate(a.planned_date)}`,
@@ -1044,9 +1044,9 @@ export default function Dashboard() {
 
   // Contrato exigido e não anexado — o portal da pessoa fica bloqueado até lá
   ;(contratosVinculoPendentes || []).forEach(l => {
-    const nome = (l as { employee?: { full_name: string } }).employee?.full_name || 'Colaborador'
-    const empId = (l as { employee?: { id: string } }).employee?.id
-    const cli = (l as { client?: { name: string } }).client?.name
+    const nome = (l as unknown as { employee?: { full_name: string } }).employee?.full_name || 'Colaborador'
+    const empId = (l as unknown as { employee?: { id: string } }).employee?.id
+    const cli = (l as unknown as { client?: { name: string } }).client?.name
     const prazo = l.contract_deadline ? new Date(l.contract_deadline) : null
     const venceu = prazo ? prazo.getTime() < now.getTime() : false
     const texto = `Contrato de ${nome}${cli ? ` — ${cli}` : ''} ainda não foi anexado`
@@ -1059,8 +1059,8 @@ export default function Dashboard() {
 
   // Documento vencendo (10 dias) ou já vencido
   ;(docsVencendo || []).forEach(d => {
-    const nome = (d as { employee?: { full_name: string } }).employee?.full_name || 'Colaborador'
-    const empId = (d as { employee?: { id: string } }).employee?.id
+    const nome = (d as unknown as { employee?: { full_name: string } }).employee?.full_name || 'Colaborador'
+    const empId = (d as unknown as { employee?: { id: string } }).employee?.id
     const dias = Math.ceil((new Date(d.expires_at + 'T12:00:00').getTime() - now.getTime()) / 86400000)
     const item = {
       text: dias < 0
@@ -1076,9 +1076,9 @@ export default function Dashboard() {
   // Agendou e não apareceu. É a única cobrança de quem está com frequência
   // "em aberto": mês sem visita é normal, mas dia marcado que não aconteceu não.
   ;(agendaNaoCumprida || []).forEach(a => {
-    const nome = (a as { employee?: { full_name: string } }).employee?.full_name || 'Colaborador'
-    const empId = (a as { employee?: { id: string } }).employee?.id
-    const cli = (a as { client?: { name: string } }).client?.name
+    const nome = (a as unknown as { employee?: { full_name: string } }).employee?.full_name || 'Colaborador'
+    const empId = (a as unknown as { employee?: { id: string } }).employee?.id
+    const cli = (a as unknown as { client?: { name: string } }).client?.name
     const dias = Math.max(1, Math.round((now.getTime() - new Date(a.planned_date + 'T12:00:00').getTime()) / 86400000))
     amberAlerts.push({
       text: `${nome} tinha visita marcada em ${formatDate(a.planned_date)}${cli ? ` — ${cli}` : ''} e não registrou (há ${dias}d)`,
@@ -1091,7 +1091,7 @@ export default function Dashboard() {
   ;(myUpcomingVisits || []).forEach(v => {
     const d = parseLocal(v.scheduled_at as string) ?? new Date(v.scheduled_at as string)   // hora de parede
     const dias = Math.max(0, Math.ceil((d.getTime() - now.getTime()) / 86400000))
-    const cli = (v as { client?: { name: string } }).client?.name
+    const cli = (v as unknown as { client?: { name: string } }).client?.name
     amberAlerts.push({
       text: `Visita ${dias === 0 ? 'hoje' : dias === 1 ? 'amanhã' : `em ${dias} dias`}: "${v.title || 'Visita'}"${cli ? ` — ${cli}` : ''}`,
       path: '/agenda',
@@ -1111,8 +1111,8 @@ export default function Dashboard() {
   })
   employeeContractsExpiring?.forEach(l => {
     const days = differenceInDays(parseISO(l.contract_end_date), now)
-    const name = (l as { employee?: { full_name: string } }).employee?.full_name || 'Colaborador'
-    const client = (l as { client?: { name: string } }).client?.name || ''
+    const name = (l as unknown as { employee?: { full_name: string } }).employee?.full_name || 'Colaborador'
+    const client = (l as unknown as { client?: { name: string } }).client?.name || ''
     const when = days < 0 ? `vencido há ${Math.abs(days)}d` : days === 0 ? 'vence hoje!' : `faltam ${days}d`
     if (days <= 10) redAlerts.push({ text: `${name}${client ? ' – ' + client : ''} — contrato ${when}` })
     else amberAlerts.push({ text: `${name}${client ? ' – ' + client : ''} — contrato ${when}` })
@@ -1167,9 +1167,9 @@ export default function Dashboard() {
     const created = (l as { created_at?: string }).created_at
     if (!created) return
     const hours = Math.floor((now.getTime() - new Date(created).getTime()) / 3600000)
-    const empId = (l as { employee?: { id: string } }).employee?.id
-    const name = (l as { employee?: { full_name: string } }).employee?.full_name || 'Colaborador'
-    const client = (l as { client?: { name: string } }).client?.name || ''
+    const empId = (l as unknown as { employee?: { id: string } }).employee?.id
+    const name = (l as unknown as { employee?: { full_name: string } }).employee?.full_name || 'Colaborador'
+    const client = (l as unknown as { client?: { name: string } }).client?.name || ''
     const path = empId ? `/colaboradores/${empId}?tab=vinculos` : '/colaboradores'
     const label = `Contrato pendente: ${name}${client ? ' – ' + client : ''} — anexar contrato assinado${hours >= 48 ? ` (há ${Math.round(hours / 24)} dias)` : hours > 0 ? ` (há ${hours}h)` : ''}`
     if (hours >= 48) redAlerts.push({ text: label, path })

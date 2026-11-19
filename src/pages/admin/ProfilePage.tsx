@@ -6,7 +6,7 @@ import { SignedImage } from '../../components/ui/SignedFile'
 import toast from 'react-hot-toast'
 
 export default function ProfilePage() {
-  const { profile, role, refreshProfile } = useAuth()
+  const { profile, role, isContabilidade, refreshProfile } = useAuth()
   const [showPass, setShowPass] = useState(false)
   const [form, setForm] = useState({ newPass: '', confirm: '' })
   const [saving, setSaving] = useState(false)
@@ -105,7 +105,7 @@ export default function ProfilePage() {
           <div className="min-w-0">
             <p className="text-sm text-ink-400">{profile?.email || '—'}</p>
             <span className={`badge mt-1 ${role === 'chefe' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
-              {role === 'chefe' ? 'Chefe' : role === 'contabilidade' ? 'Contabilidade' : 'Recrutador'}
+              {isContabilidade ? 'Contabilidade' : role === 'chefe' ? 'Chefe' : 'Recrutador'}
             </span>
             <button type="button" onClick={() => photoRef.current?.click()} disabled={uploading}
               className="block text-xs text-primary-600 hover:underline font-medium mt-1.5 disabled:opacity-60">

@@ -416,7 +416,7 @@ export default function CandidateList() {
           </h1>
         </div>
         <div className="flex gap-2 flex-wrap">
-          <button onClick={() => navigate('/candidatos/kanban')} className="btn-secondary text-sm"><LayoutGrid size={16} />Kanban</button>
+          <button onClick={() => navigate('/candidatos/kanban')} className="btn-secondary text-sm"><LayoutGrid size={16} />Quadro</button>
           <button onClick={handleExport} className="btn-secondary text-sm"><Download size={16} />Exportar</button>
           <button onClick={() => fileRef.current?.click()} className="btn-secondary text-sm"><Upload size={16} />Importar planilha</button>
           <button onClick={() => navigate('/candidatos/novo')} className="btn-primary text-sm"><Plus size={16} />Novo</button>

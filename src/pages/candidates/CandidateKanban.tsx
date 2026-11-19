@@ -9,17 +9,17 @@ import { PIPELINE_STAGES, hojeISO } from '../../lib/utils'
 import toast from 'react-hot-toast'
 
 const STAGE_COLORS: Record<string, string> = {
-  'Banco': 'bg-gray-50 border-gray-200',
-  'Em Avaliação': 'bg-purple-50 border-purple-200',
-  'Contato Feito': 'bg-blue-50 border-blue-200',
-  'Entrevista Agendada': 'bg-orange-50 border-orange-200',
-  'Aprovado': 'bg-green-50 border-green-200',
-  'Em Processo de Contratação': 'bg-blue-100 border-blue-300',
-  'Contratado': 'bg-green-100 border-green-300',
-  'Não tem interesse': 'bg-amber-50 border-amber-200',
-  'Está trabalhando': 'bg-cyan-50 border-cyan-200',
-  'Reprovado': 'bg-red-50 border-red-200',
-  'Inativo': 'bg-gray-100 border-gray-300',
+  'Banco': 'bg-ink-100/60 border-ink-200',
+  'Em Avaliação': 'bg-ink-100/60 border-ink-200',
+  'Contato Feito': 'bg-ink-100/60 border-ink-200',
+  'Entrevista Agendada': 'bg-ink-100/60 border-ink-200',
+  'Aprovado': 'bg-ink-100/60 border-ink-200',
+  'Em Processo de Contratação': 'bg-ink-100/60 border-ink-200',
+  'Contratado': 'bg-ink-100/60 border-ink-200',
+  'Não tem interesse': 'bg-ink-100/60 border-ink-200',
+  'Está trabalhando': 'bg-ink-100/60 border-ink-200',
+  'Reprovado': 'bg-ink-100/60 border-ink-200',
+  'Inativo': 'bg-ink-100/60 border-ink-200',
 }
 
 const CARD_ACCENT: Record<string, string> = {
@@ -118,7 +118,7 @@ export default function CandidateKanban() {
     <div className="space-y-4">
       <div className="flex items-center gap-3">
         <button onClick={() => navigate('/candidatos')} className="btn-ghost p-2"><ArrowLeft size={18} /></button>
-        <h1 className="page-title-sm">Pipeline Kanban</h1>
+        <h1 className="page-title-sm">Quadro de candidatos</h1>
         <span className="text-sm text-gray-500">({candidates?.length ?? 0} candidatos)</span>
       </div>
 

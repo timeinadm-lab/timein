@@ -3544,8 +3544,8 @@ export default function EmployeeDetail() {
         <div className="card p-5 space-y-4">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <h3 className="font-medium">Agenda de visitas</h3>
-            <div className="flex items-center gap-2">
-              <input type="month" className="input text-sm py-1" value={agendaMonth} onChange={e => setAgendaMonth(e.target.value)} />
+            <div className="flex items-center gap-2 flex-wrap">
+              <input type="month" className="input text-sm py-1 w-full sm:w-auto" value={agendaMonth} onChange={e => setAgendaMonth(e.target.value)} />
               <button onClick={() => setShowAgendaForm(true)} className="btn-secondary text-sm whitespace-nowrap"><Plus size={14} />Marcar dia</button>
               <button className="btn-secondary text-sm flex items-center gap-1" onClick={imprimirAgenda}
                 title="Imprime (ou salva em PDF) a agenda em calendário, com o nome de cada visita no dia">

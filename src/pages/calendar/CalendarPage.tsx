@@ -35,28 +35,50 @@ type Ev = {
 
 const KIND_META: Record<EventKind, { label: string; dot: string; chip: string }> = {
   realizada:    { label: 'Visita realizada', dot: 'bg-primary-600',  chip: 'bg-primary-50 text-primary-700 border-primary-200' },
-  planejada:    { label: 'Visita planejada', dot: 'bg-amber-400',    chip: 'bg-amber-50 text-amber-800 border-amber-200' },
+  planejada:    { label: 'Visita planejada', dot: 'bg-white ring-2 ring-inset ring-primary-600', chip: 'bg-white text-primary-800 border-primary-300' },
   // Cor que nenhum outro tipo usa: chama atenção para a visita que foi trocada
   // (era rosa; rosa passou a ser dos aniversários, pedido de 16/10/2026)
   alterada:     { label: 'Visita trocada',   dot: 'bg-cyan-500',     chip: 'bg-cyan-50 text-cyan-800 border-cyan-200' },
-  ausencia:     { label: 'Ausência',         dot: 'bg-red-400',      chip: 'bg-red-50 text-red-700 border-red-200' },
+  ausencia:     { label: 'Ausência',         dot: 'bg-red-500',      chip: 'bg-red-50 text-red-700 border-red-200' },
   // Troca de dia NÃO é falta: a pessoa folga num dia e trabalha em outro
-  troca:        { label: 'Troca / feriado',     dot: 'bg-orange-400',   chip: 'bg-orange-50 text-orange-800 border-orange-200' },
-  supervisao:   { label: 'Supervisão',       dot: 'bg-teal-500',     chip: 'bg-teal-50 text-teal-800 border-teal-200' },
+  troca:        { label: 'Troca / feriado',     dot: 'bg-amber-500',    chip: 'bg-amber-50 text-amber-800 border-amber-200' },
+  supervisao:   { label: 'Supervisão',       dot: 'bg-indigo-500',   chip: 'bg-indigo-50 text-indigo-800 border-indigo-200' },
   // Visita, supervisão ou vistoria que alguém do administrativo registrou em
   // "Meu trabalho" (migração 076/099). Cada um vê as suas; a contabilidade, todas.
   equipe:       { label: 'Visita da equipe', dot: 'bg-indigo-500',   chip: 'bg-indigo-50 text-indigo-800 border-indigo-200' },
   // Auditoria GR agendada (105): lida direto da ficha, então muda junto com ela.
   // Não é visita da agenda: não entra em pagamento nem em cobrança de registro.
-  auditoria:    { label: 'Auditoria GR',     dot: 'bg-violet-600',   chip: 'bg-violet-50 text-violet-800 border-violet-200' },
-  reuniao:      { label: 'Reunião',          dot: 'bg-blue-400',     chip: 'bg-blue-50 text-blue-700 border-blue-200' },
+  auditoria:    { label: 'Auditoria GR',     dot: 'bg-indigo-500',   chip: 'bg-indigo-50 text-indigo-800 border-indigo-200' },
+  reuniao:      { label: 'Reunião',          dot: 'bg-blue-500',     chip: 'bg-blue-50 text-blue-700 border-blue-200' },
   // Compromisso NAO e reuniao: e qualquer coisa que a equipe precisa saber que
   // vai acontecer (viagem, consulta medica, visita a um cliente sem ser vistoria).
   // Nao exige cliente. Cor propria pra nao confundir com reuniao.
-  compromisso:  { label: 'Compromisso',      dot: 'bg-purple-400',   chip: 'bg-purple-50 text-purple-700 border-purple-200' },
+  compromisso:  { label: 'Compromisso',      dot: 'bg-blue-500',     chip: 'bg-blue-50 text-blue-700 border-blue-200' },
   // Aniversário de colaborador ativo: rosa, e o dia inteiro fica rosado na grade
   aniversario:  { label: 'Aniversário',      dot: 'bg-pink-500',     chip: 'bg-pink-50 text-pink-800 border-pink-200' },
 }
+
+// Calendário legível (19/11/2026, pedido do Gabriel: "tem que ser mais apresentável",
+// "visualmente fácil de entender"). Antes cada dia era bolinhas + "3 itens" e a
+// legenda tinha 11 cores. Agora o dia diz em palavras o que tem, e os 11 tipos
+// ficam em 5 famílias — que são também o filtro.
+const GRUPOS: { id: string; label: string; dot: string; kinds: EventKind[] }[] = [
+  { id: 'visitas', label: 'Visitas', dot: 'bg-primary-600', kinds: ['realizada', 'planejada', 'alterada'] },
+  { id: 'faltas', label: 'Ausências e trocas', dot: 'bg-red-500', kinds: ['ausencia', 'troca'] },
+  { id: 'equipe', label: 'Supervisão e auditoria', dot: 'bg-indigo-500', kinds: ['supervisao', 'equipe', 'auditoria'] },
+  { id: 'reunioes', label: 'Reuniões e compromissos', dot: 'bg-blue-500', kinds: ['reuniao', 'compromisso'] },
+  { id: 'aniversarios', label: 'Aniversários', dot: 'bg-pink-500', kinds: ['aniversario'] },
+]
+// Como cada tipo é escrito no dia: [um, vários]
+const NO_DIA: Record<EventKind, [string, string]> = {
+  realizada: ['visita feita', 'visitas feitas'], planejada: ['visita planejada', 'visitas planejadas'], alterada: ['visita trocada', 'visitas trocadas'],
+  ausencia: ['ausência', 'ausências'], troca: ['troca de dia', 'trocas de dia'], supervisao: ['supervisão', 'supervisões'],
+  equipe: ['visita da equipe', 'visitas da equipe'], auditoria: ['auditoria', 'auditorias'], reuniao: ['reunião', 'reuniões'],
+  compromisso: ['compromisso', 'compromissos'], aniversario: ['aniversário', 'aniversários'],
+}
+// O que pede atenção aparece primeiro dentro do dia
+const ORDEM_NO_DIA: EventKind[] = ['ausencia', 'alterada', 'troca', 'reuniao', 'compromisso', 'auditoria', 'supervisao', 'equipe', 'planejada', 'realizada']
+const primeiroNome = (n: string) => n.split(',')[0].trim().split(' ')[0]
 
 const EMPTY_ADD = {
   employee_id: '', client_id: '', unit_id: '',
@@ -673,16 +695,16 @@ export default function CalendarPage() {
     <div className="space-y-4">
       <div className="flex items-end justify-between flex-wrap gap-3">
         <div>
-          <p className="eyebrow mb-1">Operação</p>
-          <h1 className="page-title flex items-center gap-2">
-            <CalendarDays size={26} className="text-primary-600" /> Calendário
-          </h1>
-          <p className="text-sm text-ink-400 mt-1">Tudo que acontece na empresa: visitas, ausências e compromissos.</p>
+          <h1 className="page-title">Calendário</h1>
+          <p className="text-sm text-ink-500 mt-1">Clique em um dia para ver os detalhes ou marcar algo.</p>
         </div>
         <div className="flex items-center gap-1.5">
-          <button onClick={() => setCursor(subMonths(cursor, 1))} className="btn-secondary p-2"><ChevronLeft size={16} /></button>
-          <span className="font-semibold text-ink-900 min-w-[140px] text-center first-letter:uppercase">{format(cursor, "MMMM 'de' yyyy", { locale: ptBR })}</span>
-          <button onClick={() => setCursor(addMonths(cursor, 1))} className="btn-secondary p-2"><ChevronRight size={16} /></button>
+          {format(cursor, 'yyyy-MM') !== todayStr.slice(0, 7) && (
+            <button onClick={() => setCursor(new Date())} className="btn-secondary text-sm py-2">Hoje</button>
+          )}
+          <button onClick={() => setCursor(subMonths(cursor, 1))} className="btn-secondary p-2" aria-label="Mês anterior"><ChevronLeft size={16} /></button>
+          <span className="font-semibold text-ink-900 min-w-[150px] text-center first-letter:uppercase">{format(cursor, "MMMM 'de' yyyy", { locale: ptBR })}</span>
+          <button onClick={() => setCursor(addMonths(cursor, 1))} className="btn-secondary p-2" aria-label="Próximo mês"><ChevronRight size={16} /></button>
         </div>
       </div>
 
@@ -712,101 +734,119 @@ export default function CalendarPage() {
         </div>
       )}
 
-      {/* Resumo + filtros */}
-      <div className="card p-3 flex gap-2 flex-wrap items-center">
-        {/* No modo "só do RH" não existe ponto nem agenda de campo, então os
-            contadores de sempre marcariam 0 e pareceriam erro. */}
-        {fSoRh ? (
-          <span className="badge bg-blue-50 text-blue-700">
-            {filtered.length} compromisso{filtered.length !== 1 ? 's' : ''} da equipe
-          </span>
-        ) : (
-          <>
-            <span className="badge bg-primary-50 text-primary-700">{totalMes} realizadas</span>
-            <span className="badge bg-amber-50 text-amber-700">{planejadasMes} planejadas</span>
-            {ausenciasMes > 0 && <span className="badge bg-red-50 text-red-600">{ausenciasMes} ausências</span>}
-          </>
-        )}
-        <div className="flex gap-2 ml-auto flex-wrap items-center">
-          {/* Alterna entre "tudo" e "só a equipe". Ativo, some o ponto e a agenda
-              dos colaboradores de campo e ficam só reuniões e visitas do RH. */}
-          <button
-            type="button"
-            onClick={() => setFSoRh(v => { if (!v) setFEmployee(''); return !v })}
-            className={`px-3 py-1.5 rounded-xl text-xs font-semibold border-2 transition-colors ${
-              fSoRh ? 'border-primary-600 bg-primary-600 text-white' : 'border-ink-200 bg-white text-ink-500 hover:border-ink-300'
-            }`}
-            title={fSoRh ? 'Mostrando só compromissos e visitas da equipe de RH' : 'Mostrando tudo, inclusive ponto dos colaboradores'}
-          >
-            {fSoRh ? 'Só do RH ✓' : 'Só do RH'}
-          </button>
-          <select className="input w-auto text-xs py-1.5 disabled:opacity-40" disabled={fSoRh}
+      {/* Filtros: as 5 famílias (clicar esconde/mostra) + pessoa e cliente */}
+      <div className="flex flex-col md:flex-row md:flex-wrap gap-2 md:items-center">
+        {/* No celular as famílias ficam numa linha só, que rola de lado */}
+        <div className="flex gap-2 overflow-x-auto md:overflow-visible md:flex-wrap -mx-4 px-4 md:mx-0 md:px-0 pb-1 md:pb-0">
+        {GRUPOS.map(g => {
+          const n = events.filter(e => g.kinds.includes(e.kind) && (!fSoRh || e.isRh)
+            && (!fEmployee || e.employee === fEmployee || e.employee.split(', ').includes(fEmployee)) && (!fClient || e.client === fClient)).length
+          const off = g.kinds.every(k => ocultos.has(k))
+          return (
+            <button key={g.id} type="button" aria-pressed={!off} title={off ? 'Mostrar no calendário' : 'Esconder do calendário'}
+              onClick={() => setOcultos(prev => { const nx = new Set(prev); g.kinds.forEach(k => off ? nx.delete(k) : nx.add(k)); return nx })}
+              className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm whitespace-nowrap shrink-0 transition-colors ${off ? 'border-ink-200 bg-transparent text-ink-400' : 'border-ink-200 bg-white text-ink-800 hover:border-ink-300'}`}>
+              <span className={`w-2.5 h-2.5 rounded-full ${off ? 'bg-ink-300' : g.dot}`} />
+              <span className={off ? 'line-through' : ''}>{g.label}</span>
+              <span className="tnum text-ink-400">{n}</span>
+            </button>
+          )
+        })}
+        </div>
+        <div className="grid grid-cols-2 md:flex gap-2 md:ml-auto md:flex-wrap items-center">
+          <label className="col-span-2 inline-flex items-center gap-2 text-sm text-ink-700 cursor-pointer select-none"
+            title="Mostra só reuniões e visitas da equipe do escritório, sem o ponto dos colaboradores">
+            <input type="checkbox" checked={fSoRh} onChange={() => setFSoRh(v => { if (!v) setFEmployee(''); return !v })} />
+            Só a equipe do escritório
+          </label>
+          <select className="input md:w-auto text-sm py-1.5 disabled:opacity-40" disabled={fSoRh}
             value={fEmployee} onChange={e => setFEmployee(e.target.value)}>
             <option value="">Todos os colaboradores</option>
             {employees.map(n => <option key={n} value={n}>{n}</option>)}
           </select>
-          <select className="input w-auto text-xs py-1.5" value={fClient} onChange={e => setFClient(e.target.value)}>
+          <select className="input md:w-auto text-sm py-1.5" value={fClient} onChange={e => setFClient(e.target.value)}>
             <option value="">Todos os clientes</option>
             {clients.map(n => <option key={n} value={n}>{n}</option>)}
           </select>
         </div>
       </div>
 
-      {/* Grade do mês */}
-      <div className="card p-3 md:p-4">
-        <div className="grid grid-cols-7 mb-1">
-          {DOW.map(d => <div key={d} className="text-center text-[11px] text-ink-400 font-semibold py-1">{d}</div>)}
-        </div>
-        <div className="grid grid-cols-7 gap-1">
-          {Array.from({ length: firstDow }).map((_, i) => <div key={`b${i}`} />)}
+      {/* Grade do mês: uma folha só, com linhas finas (não um cartão por dia) */}
+      <div className="rounded-xl border border-ink-200 bg-ink-200 overflow-hidden">
+        <div className="grid grid-cols-7 gap-px">
+          {DOW.map((d, i) => (
+            <div key={d} className={`py-2 text-center text-xs font-medium ${i === 0 || i === 6 ? 'bg-ink-50 text-ink-400' : 'bg-white text-ink-500'}`}>{d}</div>
+          ))}
+          {Array.from({ length: firstDow }).map((_, i) => <div key={`b${i}`} className="bg-ink-50/70" />)}
           {Array.from({ length: daysInMonth }).map((_, i) => {
             const day = i + 1
             const dateStr = `${monthKey}-${String(day).padStart(2, '0')}`
             const evs = byDay[dateStr] || []
             const isToday = dateStr === todayStr
+            const passado = dateStr < todayStr
+            const fds = [0, 6].includes((firstDow + i) % 7)
             const anivs = evs.filter(e => e.kind === 'aniversario')
             const outros = evs.filter(e => e.kind !== 'aniversario')
-            const kinds = [...new Set(outros.map(e => e.kind))]
+            // Até 3 coisas no dia: uma linha por coisa (hora + quem). Mais que isso: uma linha por tipo, com a contagem.
+            const linhas: { k: EventKind; texto: string; forte?: boolean }[] = outros.length <= 3
+              ? [...outros].sort((a, b) => ORDEM_NO_DIA.indexOf(a.kind) - ORDEM_NO_DIA.indexOf(b.kind) || (a.time || '99').localeCompare(b.time || '99')).map(e => ({
+                  k: e.kind,
+                  texto: [e.time ? e.time.slice(0, 5) : '', e.kind === 'reuniao' || e.kind === 'compromisso' ? (e.note?.split(' · ').pop() || KIND_META[e.kind].label)
+                      : ['supervisao', 'equipe', 'auditoria'].includes(e.kind) ? [KIND_META[e.kind].label, e.client].filter(Boolean).join(' · ')
+                      : primeiroNome(e.employee),
+                    e.kind === 'ausencia' ? 'ausente' : e.kind === 'alterada' ? 'trocou' : ''].filter(Boolean).join(' '),
+                  forte: e.kind === 'ausencia' || e.kind === 'alterada',
+                }))
+              : ORDEM_NO_DIA.filter(k => outros.some(e => e.kind === k)).map(k => {
+                  const n = outros.filter(e => e.kind === k).length
+                  return { k, texto: `${n} ${NO_DIA[k][n === 1 ? 0 : 1]}`, forte: k === 'ausencia' || k === 'alterada' }
+                })
             return (
               <button key={day} onClick={() => { setDayOpen(dateStr); setAddOpen(false); setAddForm(EMPTY_ADD) }}
-                className={`min-h-[62px] md:min-h-[76px] rounded-xl border p-1.5 flex flex-col items-start gap-1 transition-colors text-left cursor-pointer
-                  ${anivs.length ? 'border-pink-300 bg-pink-50 hover:bg-pink-100/70' : evs.length ? 'border-ink-200 hover:border-primary-300 hover:bg-primary-50/40' : 'border-ink-100 hover:border-primary-200 hover:bg-ink-50/60'}
-                  ${isToday ? 'ring-2 ring-primary-400' : ''}`}>
-                <span className={`text-xs font-bold ${isToday ? 'text-primary-700' : anivs.length ? 'text-pink-700' : 'text-ink-600'}`}>{day}</span>
-                {anivs.length > 0 && (
-                  <span className="flex items-start gap-1 text-[10px] font-semibold text-pink-700 leading-tight w-full" title={anivs.map(a => a.employee).join(', ')}>
-                    <Cake size={11} className="shrink-0 mt-px" />
-                    <span className="truncate hidden sm:inline">{anivs.length === 1 ? anivs[0].employee.split(' ')[0] : `${anivs.length} aniversários`}</span>{anivs.length > 1 && <span className="sm:hidden">{anivs.length}</span>}
+                aria-label={`Dia ${day}, ${evs.length} ${evs.length === 1 ? 'item' : 'itens'}`}
+                className={`group min-h-[64px] md:min-h-[116px] p-1.5 md:p-2 flex flex-col items-stretch gap-1 text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary-600
+                  ${fds ? 'bg-ink-50 hover:bg-ink-100/70' : 'bg-white hover:bg-primary-50/50'}`}>
+                <span className="flex items-center justify-between">
+                  <span className={`inline-flex items-center justify-center text-sm tnum ${isToday ? 'w-7 h-7 -m-0.5 rounded-full bg-primary-700 text-white font-semibold' : passado ? 'text-ink-400' : 'text-ink-800 font-medium'}`}>{day}</span>
+                  {anivs.length > 0 && (
+                    <span className="inline-flex items-center gap-1 text-[11px] text-pink-700 min-w-0" title={`Aniversário: ${anivs.map(a => a.employee).join(', ')}`}>
+                      <Cake size={12} className="shrink-0" />
+                      <span className="truncate hidden md:inline">{anivs.length === 1 ? primeiroNome(anivs[0].employee) : anivs.length}</span>
+                    </span>
+                  )}
+                </span>
+                {/* Computador: o dia escrito */}
+                <span className="hidden md:flex flex-col gap-0.5 min-w-0">
+                  {linhas.slice(0, 4).map((l, j) => (
+                    <span key={j} className={`flex items-center gap-1.5 text-xs leading-5 min-w-0 ${l.forte ? 'text-ink-900 font-medium' : passado ? 'text-ink-500' : 'text-ink-700'}`}>
+                      <span className={`w-2 h-2 rounded-full shrink-0 ${KIND_META[l.k].dot}`} />
+                      <span className="truncate">{l.texto}</span>
+                    </span>
+                  ))}
+                  {linhas.length > 4 && <span className="text-[11px] text-ink-400 pl-3.5">e mais {linhas.length - 4}</span>}
+                </span>
+                {/* Celular: cabe só o resumo */}
+                {outros.length > 0 && (
+                  <span className="md:hidden flex flex-col gap-1">
+                    <span className="flex gap-0.5 flex-wrap">
+                      {[...new Set(outros.map(e => e.kind))].slice(0, 4).map(k => <span key={k} className={`w-1.5 h-1.5 rounded-full ${KIND_META[k].dot}`} />)}
+                    </span>
+                    <span className="text-[10px] text-ink-500 tnum">{outros.length}</span>
                   </span>
                 )}
-                {outros.length > 0 && (
-                  <>
-                    <div className="flex gap-0.5 flex-wrap">
-                      {kinds.map(k => <span key={k} className={`w-1.5 h-1.5 rounded-full ${KIND_META[k].dot}`} />)}
-                    </div>
-                    <span className="text-[10px] text-ink-500 leading-tight">{outros.length} {outros.length === 1 ? 'item' : 'itens'}</span>
-                  </>
-                )}
               </button>
             )
           })}
-        </div>
-
-        {/* Legenda */}
-        <div className="flex items-center gap-3 mt-3 text-[11px] text-ink-500 flex-wrap">
-          {(Object.keys(KIND_META) as EventKind[]).map(k => {
-            const off = ocultos.has(k)
-            return (
-              <button key={k} type="button" title={off ? 'Mostrar' : 'Esconder'}
-                onClick={() => setOcultos(prev => { const nx = new Set(prev); if (nx.has(k)) nx.delete(k); else nx.add(k); return nx })}
-                className={`flex items-center gap-1.5 px-2 py-1 rounded-md transition-colors hover:bg-ink-100 ${off ? 'opacity-40 line-through' : ''}`}>
-                <span className={`w-2.5 h-2.5 rounded-full ${KIND_META[k].dot}`} /> {KIND_META[k].label}
-              </button>
-            )
-          })}
-          <span className="text-ink-400">Toque num tipo para esconder</span>
+          {Array.from({ length: (7 - ((firstDow + daysInMonth) % 7)) % 7 }).map((_, i) => <div key={`f${i}`} className="bg-ink-50/70" />)}
         </div>
       </div>
+      <p className="text-xs text-ink-500 flex items-center gap-x-4 gap-y-1 flex-wrap">
+        <span className="inline-flex items-center gap-1.5"><span className={`w-2 h-2 rounded-full ${KIND_META.realizada.dot}`} />feita</span>
+        <span className="inline-flex items-center gap-1.5"><span className={`w-2 h-2 rounded-full ${KIND_META.planejada.dot}`} />planejada</span>
+        <span className="inline-flex items-center gap-1.5"><span className={`w-2 h-2 rounded-full ${KIND_META.alterada.dot}`} />trocada no portal</span>
+        <span className="inline-flex items-center gap-1.5"><span className={`w-2 h-2 rounded-full ${KIND_META.troca.dot}`} />troca de dia ou feriado</span>
+        <span className="ml-auto text-ink-400 tnum">{totalMes} feitas · {planejadasMes} planejadas{ausenciasMes > 0 ? ` · ${ausenciasMes} ausência${ausenciasMes > 1 ? 's' : ''}` : ''}</span>
+      </p>
 
       {/* A DEFINIR — o que ainda não tem dia não cabe na grade, mas some se não
           ficar visível. Fica logo abaixo; ao definir a data, entra no calendário. */}

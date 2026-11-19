@@ -230,7 +230,7 @@ export default function EmployeeList() {
                   {/* Avatar */}
                   <div className="md:col-span-5 flex items-center gap-3 min-w-0 row-start-1">
                     {e.photo_url ? (
-                      <SignedImage value={e.photo_url} bucket="fotos de funcionários" alt={e.full_name} className="w-10 h-10 rounded-full object-cover flex-shrink-0 "
+                      <SignedImage value={e.photo_url} bucket="fotos de funcionários" alt={e.full_name} className="w-10 h-10 rounded-full object-cover flex-shrink-0"
                         fallback={<div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold flex-shrink-0 ${corDoAvatar(e.full_name)}`}>{getInitials(e.full_name)}</div>} />
                     ) : (
                       <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold flex-shrink-0 ${corDoAvatar(e.full_name)}`}>

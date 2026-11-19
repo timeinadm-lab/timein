@@ -539,7 +539,7 @@ function PerfilJornada({ pessoa, mes, voltar }: { pessoa: string; mes: string; v
             return (
               <div className="card px-4 py-3 flex flex-wrap items-center gap-x-6 gap-y-1">
                 <div>
-                  <p className="text-[11px] uppercase tracking-wide text-ink-500">Horas trabalhadas em {nomeDoMes(mes)}</p>
+                  <p className="text-[11px] text-ink-500">Horas trabalhadas em {nomeDoMes(mes)}</p>
                   <p className="text-2xl font-semibold text-ink-900 tnum">{horasTxt(total)}</p>
                 </div>
                 {cota > 0 && <p className="text-sm text-ink-600">Combinado nos clientes com total no mês: <strong className="tnum">{String(cota).replace('.', ',')}h</strong></p>}
@@ -560,7 +560,7 @@ function PerfilJornada({ pessoa, mes, voltar }: { pessoa: string; mes: string; v
               <div className="card p-4 space-y-3">
                 <div className="flex items-start justify-between gap-3 flex-wrap">
                   <div>
-                    <p className="text-[11px] uppercase tracking-wide text-ink-500">Contrato de consultor fixo</p>
+                    <p className="text-[11px] text-ink-500">Contrato de consultor fixo</p>
                     <p className="text-lg font-semibold text-ink-900">{String(total).replace('.', ',')}h por semana <span className="text-sm font-normal text-ink-500">· {grupo.length} cliente{grupo.length > 1 ? 's' : ''}</span></p>
                     <p className="text-xs text-ink-500">{divididas > 0 ? `Divididas ${String(divididas).replace('.', ',')}h · em aberto ${String(Math.max(0, total - divididas)).replace('.', ',')}h` : 'Todas em aberto: ela escolhe o cliente'}</p>
                   </div>

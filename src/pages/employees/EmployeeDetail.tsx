@@ -1731,7 +1731,7 @@ export default function EmployeeDetail() {
       {/* Abas principais (8). Documentos virou aba própria (14/10/2026): contrato
           anexado no vínculo cai lá. Agenda junta Agenda + Visitas feitas.
           Quebra linha no celular em vez de esconder. */}
-      <div className="flex gap-1 overflow-x-auto scrollbar-none border-b border-ink-200 -mx-4 px-4 md:mx-0 md:px-0" role="tablist">
+      <div className="tabbar" role="tablist">
         {([
           ['visao', 'Resumo', ['visao']],
           ['ficha', 'Cadastro', ['ficha']],
@@ -1745,7 +1745,7 @@ export default function EmployeeDetail() {
         ] as [Tab, string, Tab[]][]).filter(([t]) => t !== 'pagamentos' || vePagamentos).map(([t, rotulo, grupo]) => (
           <button key={t} onClick={() => setTab(t)}
             role="tab" aria-selected={grupo.includes(tab)}
-            className={`px-3 py-2.5 text-sm whitespace-nowrap border-b-2 -mb-px transition-colors ${grupo.includes(tab) ? 'border-primary-700 text-ink-900 font-semibold' : 'border-transparent text-ink-500 hover:text-ink-800'}`}>
+            className={`tab ${grupo.includes(tab) ? 'tab-on' : ''}`}>
             {rotulo}
           </button>
         ))}
@@ -1772,7 +1772,7 @@ export default function EmployeeDetail() {
         <div className="space-y-4">
           {/* Identificação */}
           <div className="card p-5">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Identificação</p>
+            <p className="text-xs font-semibold text-gray-400 mb-3">Identificação</p>
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div><span className="text-xs text-gray-400">CPF</span><p className="font-mono">{employee.cpf || <span className="text-orange-400 text-xs">Pendente</span>}</p></div>
               <div><span className="text-xs text-gray-400">RG</span><p className="font-mono">{(employee as { rg?: string }).rg || '-'}</p></div>
@@ -1787,7 +1787,7 @@ export default function EmployeeDetail() {
 
           {/* Contato */}
           <div className="card p-5">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Contato</p>
+            <p className="text-xs font-semibold text-gray-400 mb-3">Contato</p>
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div><span className="text-xs text-gray-400">Telefone</span><p>{(employee as { phone?: string }).phone || '-'}</p></div>
               <div>
@@ -1811,7 +1811,7 @@ export default function EmployeeDetail() {
 
           {/* Endereço */}
           <div className="card p-5">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Endereço</p>
+            <p className="text-xs font-semibold text-gray-400 mb-3">Endereço</p>
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div className="col-span-2">
                 <span className="text-xs text-gray-400">Rua / Logradouro</span>
@@ -1825,7 +1825,7 @@ export default function EmployeeDetail() {
 
           {/* Dados Bancários */}
           <div className="card p-5">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Dados Bancários</p>
+            <p className="text-xs font-semibold text-gray-400 mb-3">Dados Bancários</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
               <div><span className="text-xs text-gray-400">Banco</span><p>{employee.bank_name || '-'}</p></div>
               <div><span className="text-xs text-gray-400">Agência</span><p className="font-mono">{employee.bank_agency || '-'}</p></div>
@@ -4395,17 +4395,17 @@ function VisaoGeral({
 
       {/* ── Contracts ── */}
       <div className="card p-4 space-y-3">
-        <h3 className="font-semibold text-gray-900 text-sm">Contratos Ativos</h3>
+        <h3 className="font-semibold text-gray-900 text-sm">Onde atua hoje</h3>
         {/* Só os que valem hoje: encerrado aparecia aqui como "ativo" */}
         {ativosHoje.length === 0 && <p className="text-sm text-gray-400">{carregandoVinculos ? "Carregando…" : "Nenhum contrato ativo"}</p>}
         {ativosHoje.map(l => {
           const client = l.client as { name: string } | undefined
           const isConsultoria = l.service_type === 'Consultoria'
           return (
-            <div key={l.id} className={`rounded-xl p-3 border ${isConsultoria ? 'bg-orange-50 border-orange-200' : 'bg-blue-50 border-blue-200'}`}>
+            <div key={l.id} className="rounded-lg p-3 border border-ink-200">
               <div className="flex items-center justify-between">
                 <p className="font-semibold text-sm text-gray-900">{client?.name}</p>
-                <span className={`badge text-xs ${isConsultoria ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'}`}>
+                <span className="badge bg-ink-100 text-ink-700">
                   {serviceTypeLabel(l.service_type)}
                 </span>
               </div>
@@ -4421,7 +4421,7 @@ function VisaoGeral({
                       </span>
                 )}
                 {l.weekly_hours_quota && (
-                  <span className="text-xs text-gray-600 flex items-center gap-1">⏱ {l.weekly_hours_quota}h/semana</span>
+                  <span className="text-xs text-gray-600">{l.weekly_hours_quota}h por visita</span>
                 )}
                 {l.start_date && (
                   <span className="text-xs text-gray-500">desde {formatDate(l.start_date)}</span>
@@ -4435,7 +4435,7 @@ function VisaoGeral({
       {/* ── Calendar ── */}
       <div className="card p-4">
         <div className="flex items-center justify-between mb-3">
-          <h3 className="font-semibold text-gray-900 text-sm">Calendário de Presença</h3>
+          <h3 className="font-semibold text-gray-900 text-sm">Presença no mês</h3>
           <input
             type="month"
             className="input w-36 text-sm py-1"
@@ -4445,20 +4445,13 @@ function VisaoGeral({
         </div>
 
         {/* Month stats */}
-        <div className="flex gap-3 mb-3">
-          <div className="flex-1 bg-gray-50 rounded-lg p-2 text-center">
-            <p className="text-xl font-bold text-gray-900">{workedDaysMonth}</p>
-            <p className="text-xs text-gray-500">dias</p>
-          </div>
-          {totalEarningsMonth > 0 && (
-            <div className="flex-1 bg-green-50 rounded-lg p-2 text-center">
-              <p className="text-base font-bold text-green-700">R$ {totalEarningsMonth.toLocaleString('pt-BR', { minimumFractionDigits: 0 })}</p>
-              <p className="text-xs text-gray-500">consultoria</p>
-            </div>
-          )}
-        </div>
+        <p className="text-sm text-ink-700 mb-3">
+          <span className="font-semibold text-ink-900 tnum">{workedDaysMonth}</span> {workedDaysMonth === 1 ? 'dia trabalhado' : 'dias trabalhados'}
+          {totalEarningsMonth > 0 && <> · <span className="font-semibold text-ink-900 tnum">R$ {totalEarningsMonth.toLocaleString('pt-BR', { minimumFractionDigits: 0 })}</span> em consultoria</>}
+        </p>
 
         {/* Day of week headers */}
+        <div className="max-w-md">
         <div className="grid grid-cols-7 mb-1">
           {DOW_LABELS.map(d => (
             <div key={d} className="text-center text-xs text-gray-400 font-medium py-1">{d}</div>
@@ -4466,7 +4459,7 @@ function VisaoGeral({
         </div>
 
         {/* Calendar grid */}
-        <div className="grid grid-cols-7 gap-0.5">
+        <div className="grid grid-cols-7 gap-1">
           {/* blank cells before day 1 */}
           {Array.from({ length: firstDow }).map((_, i) => (
             <div key={`blank-${i}`} />
@@ -4489,12 +4482,12 @@ function VisaoGeral({
                 key={day}
                 onClick={() => clickable && setDayDetail(day)}
                 disabled={!clickable}
-                className={`aspect-square flex items-center justify-center rounded-lg text-xs font-medium transition-colors
-                  ${hasVisit ? 'bg-primary-600 text-white shadow-sm hover:bg-primary-700 cursor-pointer'
-                    : isPlanned ? 'bg-amber-100 text-amber-800 border border-amber-300 hover:bg-amber-200 cursor-pointer'
-                    : naEscala ? 'bg-blue-100 text-blue-800 border border-blue-200'
-                    : isToday ? 'ring-2 ring-primary-400 text-primary-700 bg-primary-50' : isFuture ? 'text-gray-300' : 'text-gray-500'}
-                  ${(isPlanned || naEscala) && isToday ? 'ring-2 ring-primary-400' : ''}
+                className={`h-10 flex items-center justify-center rounded-md text-sm tnum transition-colors
+                  ${hasVisit ? 'bg-primary-700 text-white font-medium hover:bg-primary-800 cursor-pointer'
+                    : isPlanned ? 'bg-white text-primary-800 ring-1 ring-inset ring-primary-600 hover:bg-primary-50 cursor-pointer'
+                    : naEscala ? 'bg-ink-100 text-ink-700'
+                    : isFuture ? 'text-ink-300' : 'text-ink-500'}
+                  ${isToday ? 'outline outline-2 outline-offset-1 outline-ink-900 font-semibold' : ''}
                 `}
               >
                 {day}
@@ -4502,14 +4495,15 @@ function VisaoGeral({
             )
           })}
         </div>
+        </div>
 
-        <div className="flex items-center gap-4 mt-3 text-xs text-gray-500 flex-wrap">
-          <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-primary-600 inline-block" /> Trabalhou</span>
-          <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-amber-100 border border-amber-300 inline-block" /> Agendado (pendente)</span>
+        <div className="flex items-center gap-4 mt-3 text-xs text-ink-500 flex-wrap">
+          <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-primary-700 inline-block" /> Trabalhou</span>
+          <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-white ring-1 ring-inset ring-primary-600 inline-block" /> Marcado, ainda sem registro</span>
           {diasEscalaMes.size > 0 && (
-            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-blue-100 border border-blue-200 inline-block" /> Dia da escala</span>
+            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-ink-100 inline-block" /> Dia da escala</span>
           )}
-          <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded ring-2 ring-primary-400 inline-block" /> Hoje</span>
+          <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm outline outline-2 outline-ink-900 inline-block" /> Hoje</span>
         </div>
         <p className="text-xs text-ink-400 mt-2">
           Para marcar, editar ou lançar um dia extra, use a aba <strong>Agenda</strong>.
@@ -4585,7 +4579,7 @@ function VisaoGeral({
       {/* ── Agenda ── */}
       {agendaItems && agendaItems.length > 0 && (
         <div className="card p-4 space-y-2">
-          <h3 className="font-semibold text-gray-900 text-sm">Próximas Visitas Agendadas</h3>
+          <h3 className="font-semibold text-gray-900 text-sm">Próximas visitas marcadas</h3>
           {agendaItems.map(a => {
             const cName = (a as { client?: { name: string } }).client?.name
             const uName = (a as { unit?: { name: string } }).unit?.name || a.notes

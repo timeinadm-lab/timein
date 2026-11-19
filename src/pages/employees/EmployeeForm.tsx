@@ -209,7 +209,7 @@ export default function EmployeeForm() {
 
             {/* Identificação */}
             <div>
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Identificação</p>
+              <p className="text-xs font-semibold text-gray-400 mb-3">Identificação</p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="col-span-full">
                   <label className="label">Nome Completo *</label>
@@ -218,7 +218,7 @@ export default function EmployeeForm() {
                 <div>
                   <label className="label">CPF <span className="text-orange-500 text-xs">(login do portal)</span></label>
                   <input className={`input ${!form.cpf ? 'border-orange-300 bg-orange-50' : ''}`} placeholder="Só os números" inputMode="numeric" value={form.cpf} onChange={e => set('cpf', e.target.value.replace(/\D/g, ''))} />
-                  {!form.cpf && <p className="text-xs text-orange-500 mt-1">⚠️ Necessário para acesso ao portal</p>}
+                  {!form.cpf && <p className="text-xs text-orange-500 mt-1">Sem o CPF a pessoa não entra no portal</p>}
                 </div>
                 <div>
                   <label className="label">RG</label>
@@ -233,7 +233,7 @@ export default function EmployeeForm() {
 
             {/* Contato */}
             <div>
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Contato</p>
+              <p className="text-xs font-semibold text-gray-400 mb-3">Contato</p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="label">Telefone</label>
@@ -256,7 +256,7 @@ export default function EmployeeForm() {
 
             {/* Endereço */}
             <div>
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Endereço</p>
+              <p className="text-xs font-semibold text-gray-400 mb-3">Endereço</p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="col-span-full">
                   <label className="label">Rua / Avenida</label>
@@ -308,7 +308,7 @@ export default function EmployeeForm() {
             </div>
             {form.status === 'Inativo' && (
               <div className="bg-gray-50 p-4 rounded-lg space-y-3">
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Informações de Saída</p>
+                <p className="text-xs font-semibold text-gray-500">Informações de Saída</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div><label className="label">Data de Saída</label><input className="input" type="date" value={form.dismissal_date} onChange={e => set('dismissal_date', e.target.value)} /></div>
                   <div>
@@ -344,7 +344,7 @@ export default function EmployeeForm() {
               <div><label className="label">Chave PIX</label><input className="input" placeholder="CPF, e-mail, telefone ou aleatória" value={form.pix} onChange={e => set('pix', e.target.value)} /></div>
             </div>
             <div className="bg-blue-50 rounded-lg p-3 text-xs text-blue-600">
-              💡 Os dados bancários são usados para geração de relatórios de pagamento. Mantenha sempre atualizado.
+              Os dados bancários são usados para geração de relatórios de pagamento. Mantenha sempre atualizado.
             </div>
           </div>
         )}

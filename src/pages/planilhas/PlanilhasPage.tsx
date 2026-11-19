@@ -404,7 +404,7 @@ function PlanilhaExtras({ mes, nomeMes, regs, vinculos, agenda, avisos, comPago,
                         <div key={e.chave} className={`px-4 py-2.5 flex items-center gap-x-3 gap-y-2 flex-wrap ${e.situacao === 'pendente' ? 'bg-amber-50/40' : e.situacao === 'negado' ? 'bg-ink-50/50' : ''}`}>
                           <div className="w-14 shrink-0">
                             <p className="text-sm font-semibold text-ink-900 tnum">{formatDate(e.visita.visit_date).slice(0, 5)}</p>
-                            <p className="text-[10px] text-ink-400 uppercase">{diaDaSemana(e.visita.visit_date)}</p>
+                            <p className="text-[10px] text-ink-400">{diaDaSemana(e.visita.visit_date)}</p>
                           </div>
                           <div className="flex-1 min-w-[10rem]">
                             <span className={`text-[11px] font-semibold px-1.5 py-0.5 rounded ${e.tipo === 'horas' ? 'bg-blue-50 text-blue-700' : e.tipo === 'visita' ? 'bg-purple-50 text-purple-700' : 'bg-primary-50 text-primary-800'}`}>{e.rotulo || ROTULO_TIPO[e.tipo]}</span>

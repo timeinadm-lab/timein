@@ -175,10 +175,10 @@ export default function ActivitiesPage() {
         <p className="text-sm text-ink-400 mt-1">Checklist do dia. Marque o que foi feito — e monte o dia de outra pessoa do time se precisar.</p>
       </div>
 
-      <div className="flex gap-1.5">
-        {([['registrar', 'Checklist do dia'], ['gestao', 'Gestão (todos)']] as const).map(([k, label]) => (
+      <div className="tabbar">
+        {([['registrar', 'Minhas atividades'], ['gestao', 'De toda a equipe']] as const).map(([k, label]) => (
           <button key={k} onClick={() => setTab(k)}
-            className={`px-3.5 py-2 text-sm font-semibold rounded-xl transition-all ${tab === k ? 'bg-primary-600 text-white shadow-soft' : 'bg-white border border-ink-100 text-ink-500 hover:text-ink-800'}`}>
+            className={`tab ${tab === k ? 'tab-on' : ''}`}>
             {label}
           </button>
         ))}
@@ -267,7 +267,7 @@ export default function ActivitiesPage() {
                     <p className={`text-sm font-semibold ${l.done === true ? 'text-green-800 line-through' : 'text-ink-800'}`}>{l.activity_name}</p>
                     {l.notes && <p className="text-xs text-ink-500 mt-0.5">{l.notes}</p>}
                     {l.assigned_by && l.assigned_by !== l.user_id && (
-                      <p className="text-[11px] text-amber-600 mt-0.5">📌 Atribuído por {nameOf(l.assigned_by)}</p>
+                      <p className="text-[11px] text-amber-600 mt-0.5">Atribuído por {nameOf(l.assigned_by)}</p>
                     )}
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
@@ -305,7 +305,7 @@ export default function ActivitiesPage() {
                   </div>
                   {l.notes && <p className="text-xs text-ink-500 mt-0.5">{l.notes}</p>}
                   {l.assigned_by && l.assigned_by !== l.user_id && (
-                    <p className="text-[11px] text-amber-600 mt-0.5">📌 Atribuído por {nameOf(l.assigned_by)}</p>
+                    <p className="text-[11px] text-amber-600 mt-0.5">Atribuído por {nameOf(l.assigned_by)}</p>
                   )}
                 </div>
               </div>

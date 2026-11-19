@@ -194,7 +194,7 @@ export default function PlanilhaCompleta({ mes, nomeMes }: { mes: string; nomeMe
     <div className="space-y-4">
       {/* Atalhos */}
       <div className="card p-3 space-y-2">
-        <p className="text-[11px] font-semibold text-ink-500 uppercase tracking-wide">Atalhos</p>
+        <p className="text-[11px] font-semibold text-ink-500">Atalhos</p>
         <div className="flex flex-wrap gap-1.5">
           {ATALHOS.map(([rot, fx]) => {
             const ativo = Object.entries(fx).every(([k, v]) => JSON.stringify(f[k as keyof Filtros]) === JSON.stringify(v))

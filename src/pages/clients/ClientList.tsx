@@ -173,7 +173,7 @@ export default function ClientList() {
                     return (
                       <p className={`text-xs mt-1.5 font-medium ${tem === 0 ? 'text-red-600' : tem < meta ? 'text-amber-600' : 'text-green-600'}`}>
                         {tem === 0
-                          ? '⚠ Nenhum colaborador vinculado'
+                          ? 'Nenhum colaborador vinculado'
                           : `${tem}/${meta} colaborador${meta > 1 ? 'es' : ''} vinculado${tem > 1 ? 's' : ''}`}
                       </p>
                     )

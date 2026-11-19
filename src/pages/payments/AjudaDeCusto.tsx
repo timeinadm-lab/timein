@@ -645,7 +645,7 @@ function TabelaSemanas({ lista, semanas, pessoas, nomeCli, vinculos, saidas, abr
                   <td className={`px-3 py-1.5 sticky left-0 ${encerrada ? 'bg-ink-50' : 'bg-white'}`}>
                     <p className={`font-medium truncate max-w-[14rem] ${encerrada ? 'text-ink-500' : 'text-ink-900'}`}>{pessoas.get(l.employee_id || '') || '—'}</p>
                     <p className="text-[11px] text-ink-500 truncate max-w-[14rem]">{nomeCli.get(l.client_id || '') || 'Sem cliente'} · {l.rotulo}</p>
-                    {encerrada && <p className="text-[10px] font-semibold uppercase tracking-wide text-ink-500 mt-0.5">{fim.motivo} · só histórico</p>}
+                    {encerrada && <p className="text-[10px] font-semibold text-ink-500 mt-0.5">{fim.motivo} · só histórico</p>}
                   </td>
                   {semanas.map(sem => {
                     const a = l.porSemana.get(sem.de)

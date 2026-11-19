@@ -86,6 +86,18 @@
   .modal-box {
     @apply bg-white rounded-xl shadow-lift p-5 sm:p-6 w-full max-h-[92vh] overflow-y-auto;
   }
+  /* Abas: uma barra, a aba escolhida sublinhada. Rola de lado quando não cabe. */
+  .tabbar {
+    @apply flex gap-1 overflow-x-auto border-b border-ink-200;
+    scrollbar-width: none;
+  }
+  .tabbar::-webkit-scrollbar { display: none; }
+  .tab {
+    @apply inline-flex items-center gap-2 px-3 py-2.5 text-sm whitespace-nowrap border-b-2 border-transparent -mb-px text-ink-500 transition-colors hover:text-ink-800;
+  }
+  .tab-on {
+    @apply border-primary-700 text-ink-900 font-semibold hover:text-ink-900;
+  }
   /* Cabeçalho de tabela padrão */
   .th {
     @apply text-left px-4 py-3 text-xs font-medium text-ink-500;

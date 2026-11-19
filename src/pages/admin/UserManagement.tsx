@@ -114,11 +114,11 @@ export default function UserManagement() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="label">Novo PIN (mín. 4 dígitos)</label>
-              <input type="password" inputMode="numeric" className="input tracking-widest" placeholder="••••" value={pinValue} onChange={e => setPinValue(e.target.value)} />
+              <input type="password" inputMode="numeric" className="input" placeholder="••••" value={pinValue} onChange={e => setPinValue(e.target.value)} />
             </div>
             <div>
               <label className="label">Confirmar PIN</label>
-              <input type="password" inputMode="numeric" className="input tracking-widest" placeholder="••••" value={pinConfirm} onChange={e => setPinConfirm(e.target.value)} />
+              <input type="password" inputMode="numeric" className="input" placeholder="••••" value={pinConfirm} onChange={e => setPinConfirm(e.target.value)} />
             </div>
           </div>
           <div className="flex items-center gap-3">

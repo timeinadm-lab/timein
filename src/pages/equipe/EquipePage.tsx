@@ -1195,7 +1195,7 @@ function MeuCalendario({ uid, periodo, nomeCliente, registrar, apagar, marcar }:
           ))}
         </div>
       </div>
-      <div className="grid grid-cols-7 text-center text-[10px] uppercase tracking-wide text-ink-400 border-b border-ink-100">
+      <div className="grid grid-cols-7 text-center text-[10px] text-ink-400 border-b border-ink-100">
         {['seg', 'ter', 'qua', 'qui', 'sex', 'sáb', 'dom'].map(d => <div key={d} className="py-1.5">{d}</div>)}
       </div>
       <div className="grid grid-cols-7">
@@ -1318,7 +1318,7 @@ function BlocoDia({ titulo, acao, children }: { titulo: string; acao?: { rotulo:
   return (
     <div>
       <div className="flex items-baseline justify-between gap-2 border-b border-ink-100 pb-1">
-        <p className="text-xs font-semibold text-ink-500 uppercase tracking-wide">{titulo}</p>
+        <p className="text-xs font-semibold text-ink-500">{titulo}</p>
         {acao && <button className="text-[11px] text-primary-700 hover:underline" onClick={acao.ir}>{acao.rotulo}</button>}
       </div>
       <div className="divide-y divide-ink-100">{children}</div>

@@ -391,9 +391,9 @@ export default function InterviewForm() {
               value={form.link_or_address} onChange={e => set('link_or_address', e.target.value)} />
             <p className="text-xs text-ink-400 mt-1">
               {isMeetingLink(form.link_or_address)
-                ? '✅ Vai aparecer como botão "Entrar na reunião" na agenda e no painel.'
+                ? 'Vai aparecer como botão "Entrar na reunião" na agenda e no painel.'
                 : form.link_or_address
-                  ? '📍 Vai aparecer como endereço, e abre no Google Maps ao clicar.'
+                  ? 'Vai aparecer como endereço, e abre no Google Maps ao clicar.'
                   : 'Link vira botão de entrar; endereço vira atalho pro mapa.'}
             </p>
           </div>

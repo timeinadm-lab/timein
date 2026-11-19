@@ -154,17 +154,15 @@ export default function InterviewAgenda() {
             {aba === 'reunioes' ? 'Reuniões' : aba === 'compromissos' ? 'Compromissos' : aba === 'entrevistas' ? 'Entrevistas' : 'Todos os compromissos'}
           </h1>
         </div>
-        <button onClick={() => navigate('/agenda/nova')} className="btn-primary text-sm"><Plus size={16} />Novo Compromisso</button>
+        <button onClick={() => navigate('/agenda/nova')} className="btn-primary text-sm"><Plus size={16} />Marcar</button>
       </div>
 
       {/* Reunião e Compromisso são coisas diferentes: uma é encontro com pauta,
           a outra é "onde a pessoa vai estar". "Tudo" pega o resto. */}
-      <div className="flex gap-1.5">
+      <div className="tabbar">
         {([['reunioes', 'Reuniões'], ['compromissos', 'Compromissos'], ['entrevistas', 'Entrevistas'], ['todos', 'Tudo']] as const).map(([k, t]) => (
           <button key={k} onClick={() => setAba(k)}
-            className={`px-4 py-2 rounded-xl text-sm font-semibold border-2 transition-colors ${
-              aba === k ? 'border-primary-600 bg-primary-50 text-primary-700' : 'border-ink-200 bg-white text-ink-500 hover:border-ink-300'
-            }`}>
+            className={`tab ${aba === k ? 'tab-on' : ''}`}>
             {t}
           </button>
         ))}
@@ -180,7 +178,7 @@ export default function InterviewAgenda() {
           </button>
         </div>
         <select className="input w-44" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
-          <option value="">Todos status</option>
+          <option value="">Qualquer situação</option>
           <option>Agendada</option><option>Realizada</option><option>Cancelada</option><option>Falta</option>
         </select>
         {role === 'chefe' && (
@@ -219,7 +217,7 @@ export default function InterviewAgenda() {
                   ) : (
                     <>
                       <button onClick={() => { setSchedulingId(i.id); setScheduleValue('') }} className="btn-secondary text-xs">Definir data</button>
-                      <button onClick={() => navigate(`/agenda/${i.id}/editar`)} className="btn-ghost p-2"><Edit size={14} /></button>
+                      <button onClick={() => navigate(`/agenda/${i.id}/editar`)} className="btn-ghost p-2 text-ink-400" aria-label="Editar" title="Editar"><Edit size={14} /></button>
                       <button onClick={async () => { if (await confirmar({ titulo: 'Excluir esta entrevista?', perigo: true })) deleteInterview.mutate(i.id) }} className="btn-ghost p-2 text-red-400"><Trash2 size={14} /></button>
                     </>
                   )}
@@ -262,7 +260,7 @@ export default function InterviewAgenda() {
       )}
 
       {/* Interview list */}
-      <div className="space-y-3">
+      <div className="space-y-2">
         {selectedDay && (
           <div className="flex items-center gap-2">
             <h3 className="font-medium">Compromissos de {formatDate(selectedDay)}</h3>
@@ -291,14 +289,14 @@ export default function InterviewAgenda() {
           ].filter(Boolean) as { label: string; value: string; path: string | null }[]
 
           return (
-          <div key={i.id} className={`card p-4 ${isHoje ? 'border-primary-300 bg-primary-50/30' : ''}`}>
+          <div key={i.id} className={`card px-4 py-3 ${isHoje ? 'border-l-4 border-l-primary-700' : ''}`}>
             <div className="flex items-start justify-between gap-3">
               <div className="flex-1 min-w-0 space-y-2">
                 {/* Título + o que é */}
                 <div>
                   <div className="flex items-center gap-2 flex-wrap">
                     <p className="font-semibold text-ink-900">{i.title || cand?.full_name || 'Compromisso'}</p>
-                    {cat && <span className={`badge ${CATEGORY_COLORS[cat] || 'bg-gray-100 text-gray-600'}`}>{cat}</span>}
+                    {cat && cat !== i.title && <span className="badge bg-ink-100 text-ink-600">{cat}</span>}
                     <span className={`badge ${STATUS_COLORS[i.status] || 'bg-gray-100'}`}>{i.status}</span>
                   </div>
                   {/* Compromisso não tem duração nem modalidade — mostrar os
@@ -353,15 +351,15 @@ export default function InterviewAgenda() {
                   </p>
                 )}
               </div>
-              <div className="flex gap-1">
+              <div className="flex gap-0.5 items-center flex-wrap justify-end shrink-0">
                 {i.status === 'Agendada' && (
                   <>
-                    <button onClick={() => updateStatus.mutate({ id: i.id, status: 'Realizada', candidateId: i.candidate?.id })} className="btn-secondary text-xs">Realizada</button>
-                    <button onClick={() => updateStatus.mutate({ id: i.id, status: 'Cancelada', candidateId: i.candidate?.id })} className="btn-secondary text-xs">Cancelada</button>
-                    <button onClick={() => updateStatus.mutate({ id: i.id, status: 'Falta', candidateId: i.candidate?.id })} className="btn-secondary text-xs">Falta</button>
+                    <button onClick={() => updateStatus.mutate({ id: i.id, status: 'Realizada', candidateId: i.candidate?.id })} className="btn-ghost text-xs px-2 py-1.5 !min-h-0 text-primary-800" title="Marcar que aconteceu">Aconteceu</button>
+                    <button onClick={() => updateStatus.mutate({ id: i.id, status: 'Cancelada', candidateId: i.candidate?.id })} className="btn-ghost text-xs px-2 py-1.5 !min-h-0" title="Marcar como cancelada">Cancelada</button>
+                    <button onClick={() => updateStatus.mutate({ id: i.id, status: 'Falta', candidateId: i.candidate?.id })} className="btn-ghost text-xs px-2 py-1.5 !min-h-0" title="A pessoa não apareceu">Faltou</button>
                   </>
                 )}
-                <button onClick={() => navigate(`/agenda/${i.id}/editar`)} className="btn-ghost p-2"><Edit size={14} /></button>
+                <button onClick={() => navigate(`/agenda/${i.id}/editar`)} className="btn-ghost p-2 text-ink-400" aria-label="Editar" title="Editar"><Edit size={14} /></button>
                 <button onClick={async () => {
                   const serie = (i as { serie_id?: string | null }).serie_id
                   if (serie && i.scheduled_at) {
@@ -371,7 +369,7 @@ export default function InterviewAgenda() {
                     }
                   }
                   if (await confirmar({ titulo: 'Excluir compromisso?', perigo: true })) deleteInterview.mutate(i.id)
-                }} className="btn-ghost p-2 text-red-400" aria-label="Excluir"><Trash2 size={14} /></button>
+                }} className="btn-ghost p-2 text-ink-400 hover:text-red-600" aria-label="Excluir" title="Excluir"><Trash2 size={14} /></button>
               </div>
             </div>
           </div>

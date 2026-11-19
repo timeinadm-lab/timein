@@ -63,7 +63,7 @@ export default function DeletePinModal({
             type="password"
             inputMode="numeric"
             autoFocus
-            className="input text-center tracking-[0.4em] text-lg"
+            className="input text-center text-lg"
             placeholder="••••"
             value={pin}
             onChange={e => setPin(e.target.value)}

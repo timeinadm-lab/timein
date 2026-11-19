@@ -104,7 +104,7 @@ export default function PortalQualidade({ token, rpc, clientes }: { token: strin
 function Lista({ titulo, linhas, abrir }: { titulo: string; linhas: Linha[]; abrir: (id: string) => void }) {
   return (
     <div className="space-y-2">
-      <p className="text-xs font-semibold text-ink-500 uppercase tracking-wide">{titulo}</p>
+      <p className="text-xs font-semibold text-ink-500">{titulo}</p>
       <div className="card divide-y divide-ink-100 overflow-hidden">
         {linhas.map(a => {
           const c = classificar(a.nota, a.faixas)

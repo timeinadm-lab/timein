@@ -1415,7 +1415,7 @@ export default function PortalHome() {
                     <div key={v.id} className="px-4 py-3.5 flex gap-3">
                       {/* Data em bloco */}
                       <div className="w-10 shrink-0 text-center pt-0.5">
-                        <p className="text-[11px] text-ink-400 uppercase leading-none">{dia.toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', '')}</p>
+                        <p className="text-[11px] text-ink-400 leading-none">{dia.toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', '')}</p>
                         <p className="text-xl font-semibold text-ink-900 tnum leading-tight">{dia.getDate()}</p>
                       </div>
                       <div className="flex-1 min-w-0 space-y-1.5">
@@ -1817,7 +1817,7 @@ export default function PortalHome() {
                         <div key={a.id} className="rounded-xl border border-violet-200 bg-violet-50/60 p-3 flex items-start gap-2">
                           <span className="mt-1.5 w-2 h-2 rounded-full shrink-0 bg-violet-600" />
                           <div className="flex-1 min-w-0 space-y-0.5">
-                            <p className="text-[11px] font-semibold uppercase tracking-wide text-violet-700">Auditoria{a.realizada_em ? ' · realizada' : ''}</p>
+                            <p className="text-[11px] font-semibold text-violet-700">Auditoria{a.realizada_em ? ' · realizada' : ''}</p>
                             <p className="text-sm font-semibold text-ink-900">{a.fornecedor}{a.planta ? ` · ${a.planta}` : ''}</p>
                             <p className="text-xs text-ink-600">{[a.horario ? `às ${a.horario}` : 'Horário a confirmar', a.local || [a.cidade, a.uf].filter(Boolean).join('/')].filter(Boolean).join(' · ')}</p>
                             {a.endereco && <p className="text-xs text-ink-500">{a.endereco}</p>}

@@ -402,10 +402,10 @@ export default function ClientDetail() {
       />
 
       {/* Tabs */}
-      <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+      <div className="tabbar">
         {(['contratos', 'dados', 'unidades', 'colaboradores', 'calendario', 'vistorias', 'documentos'] as const).map(t => (
           <button key={t} onClick={() => setTab(t as typeof tab)}
-            className={`px-3.5 py-2 text-sm font-semibold whitespace-nowrap rounded-xl transition-all active:scale-95 ${tab === t ? 'bg-primary-600 text-white shadow-soft' : 'bg-white border border-ink-100 text-ink-500 hover:text-ink-800 hover:border-ink-200'}`}>
+            className={`tab ${tab === t ? 'tab-on' : ''}`}>
             {t === 'unidades' ? 'Unidades' : t === 'contratos' ? 'Contratos' : t === 'documentos' ? 'Documentos' : t === 'calendario' ? 'Calendário' : t.charAt(0).toUpperCase() + t.slice(1)}
           </button>
         ))}
@@ -492,7 +492,7 @@ export default function ClientDetail() {
           )}
           {[...new Set((sharedDocs || []).map(d => d.topic))].map(topic => (
             <div key={topic} className="card overflow-hidden">
-              <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-100 text-xs font-semibold text-gray-500 uppercase tracking-wide">{topic}</div>
+              <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-100 text-xs font-semibold text-gray-500">{topic}</div>
               <div className="divide-y divide-gray-50">
                 {(sharedDocs || []).filter(d => d.topic === topic).map(d => (
                   <div key={d.id} className="px-4 py-3 flex items-center gap-3">
@@ -794,11 +794,11 @@ export default function ClientDetail() {
                     <div key={idx} className={`rounded-xl border p-3 space-y-1 ${e.kind === 'realizada' ? 'border-primary-200 bg-primary-50/50' : e.kind === 'planejada' ? 'border-amber-200 bg-amber-50/50' : 'border-red-200 bg-red-50/50'}`}>
                       <div className="flex items-center justify-between gap-2 flex-wrap">
                         <p className="font-semibold text-sm text-gray-900">{e.employee}</p>
-                        <span className="text-[10px] font-semibold uppercase text-gray-500">{e.kind}</span>
+                        <span className="text-[10px] font-semibold text-gray-500">{e.kind}</span>
                       </div>
                       {e.unit && <p className="text-xs text-gray-500">{e.unit}</p>}
                       <div className="flex gap-3 text-xs text-gray-600">
-                        {e.time && <span>🕐 {e.time}</span>}
+                        {e.time && <span>{e.time}</span>}
                         {e.hours != null && <span>{e.hours}h</span>}
                       </div>
                       {e.note && <p className="text-xs text-gray-600">{e.note}</p>}

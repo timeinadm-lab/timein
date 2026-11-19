@@ -141,7 +141,7 @@ export default function FinanceiroPage() {
     onError: (e: Error) => toast.error(e.message),
   })
 
-  const recLabel = (e: Entry) => e.recurrence === 'mensal' ? '🔁 mensal' : e.recurrence === 'ate_data' ? `🔁 até ${e.recurrence_until ? formatDate(e.recurrence_until) : ''}` : ''
+  const recLabel = (e: Entry) => e.recurrence === 'mensal' ? 'todo mês' : e.recurrence === 'ate_data' ? `todo mês até ${e.recurrence_until ? formatDate(e.recurrence_until) : ''}` : ''
 
   const List = ({ list, kind }: { list: Entry[]; kind: Kind }) => (
     <div className="space-y-2">

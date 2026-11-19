@@ -200,23 +200,21 @@ export default function Chat() {
         <h1 className="page-title">Chat</h1>
       </div>
 
-      <div className="flex gap-1 mb-3">
+      <div className="tabbar mb-3">
         <button
           onClick={() => setTab('colaboradores')}
-          className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${tab === 'colaboradores' ? 'bg-primary-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200'}`}
+          className={`tab ${tab === 'colaboradores' ? 'tab-on' : ''}`}
         >
-          <MessageCircle size={14} />
-          Colaboradores
+          Com as colaboradoras
           {totalUnread > 0 && (
             <span className="bg-red-500 text-white text-xs rounded-full px-1.5 py-0.5 leading-none">{totalUnread}</span>
           )}
         </button>
         <button
           onClick={() => setTab('interno')}
-          className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${tab === 'interno' ? 'bg-primary-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200'}`}
+          className={`tab ${tab === 'interno' ? 'tab-on' : ''}`}
         >
-          <Users size={14} />
-          Equipe interna
+          Equipe do escritório
         </button>
       </div>
 

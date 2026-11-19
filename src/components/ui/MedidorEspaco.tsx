@@ -111,7 +111,7 @@ export default function MedidorEspaco() {
 
               {data.por_pasta.length > 0 && (
                 <div className="space-y-1">
-                  <p className="text-[11px] font-medium text-ink-500 uppercase tracking-wide">O que mais ocupa · {data.arquivos_qtd} arquivo{data.arquivos_qtd !== 1 ? 's' : ''}</p>
+                  <p className="text-[11px] font-medium text-ink-500">O que mais ocupa · {data.arquivos_qtd} arquivo{data.arquivos_qtd !== 1 ? 's' : ''}</p>
                   {data.por_pasta.slice(0, 5).map(p => (
                     <div key={p.pasta} className="flex items-center justify-between gap-3 text-xs">
                       <span className="text-ink-600 truncate">{nomeDaPasta(p.pasta)} <span className="text-ink-400">· {p.qtd}</span></span>

@@ -344,7 +344,7 @@ export default function VisitsDashboard() {
         {isExpanded && empVisits.length > 0 && (
           <div className="border-t border-gray-100">
             <div className="px-4 py-2 bg-gray-50 flex items-center justify-between">
-              <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+              <span className="text-xs font-medium text-gray-500">
                 Visitas em {format(monthDate, 'MMMM yyyy', { locale: ptBR })}
               </span>
               {empEarnings > 0 && (
@@ -619,7 +619,7 @@ export default function VisitsDashboard() {
         {isExpanded && empVisits.length > 0 && (
           <div className="border-t border-gray-100">
             <div className="px-4 py-2 bg-gray-50">
-              <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+              <span className="text-xs font-medium text-gray-500">
                 Folha de Ponto — {format(monthDate, 'MMMM yyyy', { locale: ptBR })}
               </span>
             </div>
@@ -754,7 +754,7 @@ export default function VisitsDashboard() {
       )}
 
       {/* Tabs */}
-      <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+      <div className="tabbar">
         {([
           { key: 'consultoria', label: 'Consultoria', count: consultoriaEmps.length },
           { key: 'fixos', label: 'Fixos', count: fixoEmps.length },
@@ -763,18 +763,12 @@ export default function VisitsDashboard() {
           <button
             key={t.key}
             onClick={() => { setTab(t.key); setExpandedEmployee(null) }}
-            className={`px-3.5 py-2 text-sm font-semibold rounded-xl transition-all active:scale-95 flex items-center gap-2 whitespace-nowrap ${
-              tab === t.key ? 'bg-primary-600 text-white shadow-soft' : 'bg-white border border-ink-100 text-ink-500 hover:text-ink-800 hover:border-ink-200'
-            }`}
+            className={`tab ${tab === t.key ? 'tab-on' : ''}`}
           >
-            {t.key === 'consultoria' && <DollarSign size={14} />}
-            {t.key === 'fixos' && <ClipboardList size={14} />}
-            {t.key === 'freelas' && <Zap size={14} />}
-            {t.key === 'duvidas' && <MessageCircle size={14} />}
             {t.label}
             {t.count > 0 && (
               <span className={`text-xs px-1.5 py-0.5 rounded-full ${
-                t.key === 'duvidas' && pendingDuvidas > 0 ? 'bg-red-100 text-red-700' : tab === t.key ? 'bg-white/25 text-white' : 'bg-ink-100 text-ink-600'
+                t.key === 'duvidas' && pendingDuvidas > 0 ? 'bg-red-100 text-red-700' : 'bg-ink-100 text-ink-600'
               }`}>{t.count}</span>
             )}
           </button>
@@ -833,23 +827,23 @@ export default function VisitsDashboard() {
 
           <div className="grid grid-cols-4 gap-4">
             <div className="card p-4">
-              <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Visitas no mês</p>
+              <p className="text-xs text-gray-500 font-medium">Visitas no mês</p>
               <p className="text-3xl font-bold text-gray-900 mt-1">{totalVisitsThisMonth}</p>
               <p className="text-xs text-gray-400 mt-1">{format(monthDate, 'MMMM yyyy', { locale: ptBR })}</p>
             </div>
             <div className="card p-4">
-              <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Com visita</p>
+              <p className="text-xs text-gray-500 font-medium">Com visita</p>
               <p className="text-3xl font-bold text-green-600 mt-1">{employeesWithVisit}</p>
               <p className="text-xs text-gray-400 mt-1">nutricionistas ativos este mês</p>
             </div>
             <div className="card p-4">
-              <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Sem visita</p>
+              <p className="text-xs text-gray-500 font-medium">Sem visita</p>
               <p className="text-3xl font-bold text-red-500 mt-1">{employeesWithoutVisit}</p>
               <p className="text-xs text-gray-400 mt-1">sem registro este mês</p>
             </div>
             {isChefe && (
             <div className="card p-4">
-              <p className="text-xs text-gray-500 font-medium uppercase tracking-wide flex items-center gap-1"><DollarSign size={11} />A pagar</p>
+              <p className="text-xs text-gray-500 font-medium flex items-center gap-1"><DollarSign size={11} />A pagar</p>
               <p className="text-2xl font-bold text-emerald-600 mt-1">R$ {totalEarningsThisMonth.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
               <p className="text-xs text-gray-400 mt-1">total consultoria</p>
             </div>
@@ -874,19 +868,19 @@ export default function VisitsDashboard() {
         <>
           <div className="grid grid-cols-3 gap-4">
             <div className="card p-4">
-              <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Nutricionistas fixos</p>
+              <p className="text-xs text-gray-500 font-medium">Nutricionistas fixos</p>
               <p className="text-3xl font-bold text-blue-700 mt-1">{fixoEmps.length}</p>
               <p className="text-xs text-gray-400 mt-1">ativos</p>
             </div>
             <div className="card p-4">
-              <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Com registro</p>
+              <p className="text-xs text-gray-500 font-medium">Com registro</p>
               <p className="text-3xl font-bold text-green-600 mt-1">
                 {fixoEmps.filter(e => getEmployeeVisitsThisMonth(e.id).some(v => v.check_out)).length}
               </p>
               <p className="text-xs text-gray-400 mt-1">registraram ponto este mês</p>
             </div>
             <div className="card p-4">
-              <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Sem registro</p>
+              <p className="text-xs text-gray-500 font-medium">Sem registro</p>
               <p className="text-3xl font-bold text-amber-500 mt-1">
                 {fixoEmps.filter(e => !getEmployeeVisitsThisMonth(e.id).some(v => v.check_out)).length}
               </p>

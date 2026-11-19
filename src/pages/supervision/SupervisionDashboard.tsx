@@ -230,7 +230,7 @@ export default function SupervisionDashboard() {
 
   // ── Linha de supervisão (lista) ──
   const Linha = ({ s }: { s: Supervisao }) => {
-    const info = STATUS_INFO[s.status || 'realizada']
+    const info = STATUS_INFO[s.status || 'realizada'] || STATUS_INFO.realizada   // status desconhecido não derruba a tela
     const atrasada = s.status === 'agendada' && s.visit_date < hoje
     return (
       <div className="flex items-center gap-3 px-4 py-3 hover:bg-ink-50/60 cursor-pointer" onClick={() => setAberta(s)}>
@@ -319,7 +319,7 @@ export default function SupervisionDashboard() {
                   <span className={`text-[11px] ${ehHoje ? 'text-primary-700 font-semibold' : 'text-ink-500'}`}>{i + 1}</span>
                   <div className="mt-0.5 space-y-0.5">
                     {doDia.slice(0, 3).map(s => {
-                      const info = STATUS_INFO[s.status || 'realizada']
+                      const info = STATUS_INFO[s.status || 'realizada'] || STATUS_INFO.realizada   // status desconhecido não derruba a tela
                       return (
                         <span key={s.id} className="flex items-center gap-1 min-w-0">
                           <span className={`dot ${s.status === 'agendada' && s.visit_date < hoje ? 'bg-red-600' : info.dot}`} />
@@ -496,7 +496,7 @@ export default function SupervisionDashboard() {
       {/* ── Detalhe / ações ── */}
       {aberta && !naoFoi && (() => {
         const s = aberta
-        const info = STATUS_INFO[s.status || 'realizada']
+        const info = STATUS_INFO[s.status || 'realizada'] || STATUS_INFO.realizada   // status desconhecido não derruba a tela
         return (
           <div className="modal-overlay" onClick={() => setAberta(null)}>
             <div className="modal-box max-w-md space-y-4" onClick={e => e.stopPropagation()}>

@@ -295,7 +295,7 @@ export default function ClientForm() {
             <input className="input sm:w-40" type="number" min={1} placeholder="1"
               value={form.target_employees} onChange={e => set('target_employees', e.target.value)} />
             <p className="text-xs text-ink-400 mt-1">
-              Na lista de Clientes: 🔴 nenhum vinculado · 🟡 abaixo da meta · 🟢 meta atingida.
+              A lista de Clientes mostra em vermelho quem não tem ninguém vinculado, em amarelo quem está abaixo da meta e em verde quem atingiu.
             </p>
           </div>
 

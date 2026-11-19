@@ -893,18 +893,14 @@ export default function CalendarPage() {
           <div className="modal-box max-w-lg space-y-3" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="font-semibold text-gray-900">{formatDate(dayOpen)}</h3>
-                <p className="text-xs text-ink-400">{(byDay[dayOpen] || []).length} item(ns) neste dia</p>
+                <h3 className="font-semibold text-ink-900 first-letter:uppercase">{format(new Date(dayOpen + 'T12:00:00'), "EEEE, d 'de' MMMM", { locale: ptBR })}</h3>
+                <p className="text-xs text-ink-500">{(byDay[dayOpen] || []).length === 0 ? 'Nada marcado' : (byDay[dayOpen] || []).length === 1 ? '1 coisa neste dia' : `${(byDay[dayOpen] || []).length} coisas neste dia`}</p>
               </div>
-              <button onClick={() => setDayOpen(null)} className="text-gray-400 hover:text-gray-700 p-1"><X size={18} /></button>
+              <button onClick={() => setDayOpen(null)} className="text-ink-400 hover:text-ink-800 p-1" aria-label="Fechar"><X size={18} /></button>
             </div>
-            {(byDay[dayOpen] || []).length === 0 && !addOpen && (
-              <p className="text-sm text-ink-400">Nada neste dia ainda.</p>
-            )}
-
             {/* Adicionar no dia */}
             {!addOpen ? (
-              <button onClick={() => setAddOpen(true)} className="btn-primary w-full text-sm"><Plus size={15} /> Adicionar neste dia</button>
+              <button onClick={() => setAddOpen(true)} className="btn-secondary w-full text-sm"><Plus size={15} /> Marcar algo neste dia</button>
             ) : (
               <div className="rounded-xl border border-primary-200 bg-primary-50/40 p-3 space-y-3">
               {/* A aba "Agendar pela vaga" saiu: ela nunca criou vínculo — só
@@ -1084,31 +1080,38 @@ export default function CalendarPage() {
               </div>
             )}
 
-            {(byDay[dayOpen] || []).map((e, idx) => (
-              <div key={idx} className={`rounded-xl border p-3 space-y-1 ${KIND_META[e.kind].chip}`}>
-                <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <p className="font-semibold text-sm">{e.employee}</p>
-                  <span className="text-[10px] font-semibold uppercase tracking-wide opacity-70">{KIND_META[e.kind].label}</span>
-                </div>
-                {e.client && <p className="text-sm">{e.client}{e.unit ? ` · ${e.unit}` : ''}</p>}
-                <div className="flex items-center gap-3 text-xs flex-wrap opacity-80">
-                  {e.time && <span className="flex items-center gap-1"><Clock size={11} /> {e.time}</span>}
-                  {e.hours != null && <span>{e.hours}h</span>}
-                </div>
-                {e.note && <p className="text-xs opacity-90">{e.note}</p>}
-                <div className="flex gap-2 pt-1">
-                  {e.reportUrl && (
-                    <SignedLink value={e.reportUrl} bucket="arquivos" className="btn-secondary text-xs inline-flex items-center gap-1 py-1"><FileText size={12} /> Relatório</SignedLink>
-                  )}
-                  {e.employeeId && (
-                    <button onClick={() => navigate(`/colaboradores/${e.employeeId}`)} className="btn-secondary text-xs py-1">Abrir colaborador</button>
-                  )}
-                  {e.kind === 'alterada' && e.trocaNaoVista && e.agendaId && (
-                    <button className="btn-primary text-xs py-1" onClick={() => marcarTrocaVista(e.agendaId!)}>Ciente</button>
-                  )}
-                </div>
+            {(byDay[dayOpen] || []).length > 0 && (
+              <div className="divide-y divide-ink-100 border-t border-ink-100">
+                {(byDay[dayOpen] || []).map((e, idx) => (
+                  <div key={idx} className="py-3 flex gap-3">
+                    <span className={`w-2.5 h-2.5 rounded-full shrink-0 mt-1.5 ${KIND_META[e.kind].dot}`} />
+                    <div className="flex-1 min-w-0 space-y-0.5">
+                      <div className="flex items-baseline justify-between gap-2 flex-wrap">
+                        <p className="font-medium text-sm text-ink-900">{e.employee}</p>
+                        <span className="text-xs text-ink-500">{KIND_META[e.kind].label}</span>
+                      </div>
+                      {(e.client || e.time) && (
+                        <p className="text-sm text-ink-700">
+                          {[e.time ? e.time.slice(0, 5) : '', e.hours != null ? `${e.hours}h` : '', e.client, e.unit].filter(Boolean).join(' · ')}
+                        </p>
+                      )}
+                      {e.note && <p className="text-xs text-ink-500">{e.note}</p>}
+                      <div className="flex gap-3 flex-wrap pt-0.5 text-xs">
+                        {e.reportUrl && (
+                          <SignedLink value={e.reportUrl} bucket="arquivos" className="text-primary-700 underline inline-flex items-center gap-1"><FileText size={12} />Ver relatório</SignedLink>
+                        )}
+                        {e.employeeId && (
+                          <button onClick={() => navigate(`/colaboradores/${e.employeeId}`)} className="text-primary-700 underline">Abrir a ficha</button>
+                        )}
+                        {e.kind === 'alterada' && e.trocaNaoVista && e.agendaId && (
+                          <button className="btn-primary text-xs py-1 !min-h-0" onClick={() => marcarTrocaVista(e.agendaId!)}>Ciente</button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))}
+            )}
           </div>
         </div>
       )}

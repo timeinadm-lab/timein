@@ -203,14 +203,14 @@ export default function GlobalSearch({ open, onClose }: Props) {
             <div className="p-4 space-y-5">
               {recentes.length > 0 && (
                 <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-400 mb-1.5 flex items-center gap-1.5"><Clock size={12} />Abertos recentemente</p>
+                  <p className="text-[11px] font-semibold text-ink-400 mb-1.5 flex items-center gap-1.5"><Clock size={12} />Abertos recentemente</p>
                   <div className="-mx-4">
                     {recentes.map((r, i) => <Linha key={`${r.type}-${r.id}`} r={r} i={i} />)}
                   </div>
                 </div>
               )}
               <div>
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-400 mb-2">Ir para</p>
+                <p className="text-[11px] font-semibold text-ink-400 mb-2">Ir para</p>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                   {ATALHOS.map(a => (
                     <button key={a.path} onClick={() => { navigate(a.path); onClose() }}

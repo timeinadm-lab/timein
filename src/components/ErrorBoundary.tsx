@@ -26,7 +26,6 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, { error: E
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, fontFamily: 'Inter, system-ui, sans-serif', background: '#f6f7f6' }}>
         <div style={{ maxWidth: 380, textAlign: 'center' }}>
-          <div style={{ fontSize: 40, marginBottom: 12 }}>⚠️</div>
           <h1 style={{ fontSize: 18, fontWeight: 800, color: '#1a1916', margin: '0 0 8px' }}>Algo deu errado ao abrir a tela</h1>
           <p style={{ fontSize: 14, color: '#78776f', margin: '0 0 20px', lineHeight: 1.5 }}>
             Toque no botão abaixo para recarregar. Se continuar, feche e abra o app de novo.

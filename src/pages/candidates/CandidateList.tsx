@@ -5,7 +5,7 @@ import { Plus, Search, MessageCircle, Trash2, LayoutGrid, Download, Upload, X, C
 import { supabase } from '../../lib/supabase'
 import { formatWhatsApp, PIPELINE_COLORS, PIPELINE_STAGES, BRAZIL_STATES, AREA_INTEREST_OPTIONS, TOOLS_OPTIONS, EXPERIENCE_TIME_OPTIONS } from '../../lib/utils'
 import { format } from 'date-fns'
-import { lerCarimbo, ultimaRespostaDeCada, lerVolumeRefeicoes } from '../../lib/candidatosImport'
+import { lerCarimbo, ultimaRespostaDeCada, lerVolumeRefeicoes, respostaMaisNova } from '../../lib/candidatosImport'
 import type { Chaves } from '../../lib/candidatosImport'
 import { camposParaAtualizar } from '../../lib/candidatosImport'
 import { exportToCSV } from '../../lib/exportUtils'
@@ -124,6 +124,7 @@ export default function CandidateList() {
   const [importRows, setImportRows] = useState<string[][]>([])
   const [colMap, setColMap] = useState<Record<string, string>>({})
   const [importing, setImporting] = useState(false)
+  const [progresso, setProgresso] = useState<{ feitos: number; total: number } | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const { data: candidates, isLoading } = useQuery({
@@ -258,8 +259,24 @@ export default function CandidateList() {
     }
   }
 
+  // Nunca fica preso em "Importando...": qualquer falha no meio destrava o botão
+  // e avisa (23/11/2026, "fica eternamente importando").
   const handleImport = async () => {
     setImporting(true)
+    setProgresso(null)
+    try {
+      await importarTudo()
+    } catch (e) {
+      console.error('Importação falhou:', e)
+      toast.error('A importação parou no meio: ' + (e instanceof Error ? e.message : String(e)) + '. O que já entrou ficou salvo; pode importar de novo.', { duration: 9000 })
+      qc.invalidateQueries({ queryKey: ['candidates'] })
+    } finally {
+      setImporting(false)
+      setProgresso(null)
+    }
+  }
+
+  const importarTudo = async () => {
     let ok = 0, err = 0, dup = 0
 
     const stripAccents = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '')
@@ -362,31 +379,64 @@ export default function CandidateList() {
     const finais = ultimaRespostaDeCada(linhas, l => l.ch, l => l.quando)
     const repetidas = linhas.length - finais.length
 
-    // 4) Grava. Já existe no banco → atualiza com a resposta nova (sobe para os
-    //    recentes); estágio e notas não mudam. Resposta mais velha que a do banco: deixa.
+    // 4) Decide o que fazer com cada linha (sem banco ainda). Já existe no banco
+    //    e a resposta é mais nova → atualiza (sobe para os recentes); estágio e
+    //    notas não mudam. Mesma resposta ou mais velha: deixa.
     let atualizados = 0, completados = 0
+    const novos: Record<string, unknown>[] = []
+    const gravacoes: { id: string; campos: Record<string, unknown>; tipo: 'atualiza' | 'sobre'; nome: unknown }[] = []
     for (const l of finais) {
       const ex = (l.ch.wa && porWa.get(l.ch.wa)) || (l.ch.email && porEmail.get(l.ch.email)) || (l.ch.nomeCidade && porNomeCidade.get(l.ch.nomeCidade)) || null
       if (ex) {
-        if (!temData || !l.quando || (ex.resp && l.quando <= ex.resp)) {
+        if (!temData || !respostaMaisNova(l.quando, ex.resp)) {
           // Já estava em dia, mas ainda sem o texto novo: completa só ele (não
           // mexe em mais nada) — é o que traz a resposta de quem já estava no banco
-          if (temSobre && ex.semSobre && l.rec.sobre && !(ex.resp && l.quando && l.quando < ex.resp)) {
-            const { error: sErr } = await supabase.from('candidates').update({ sobre: l.rec.sobre }).eq('id', ex.id)
-            if (sErr) err++; else { completados++; ex.semSobre = false }
+          const maisVelha = !!(l.quando && ex.resp && respostaMaisNova(ex.resp, l.quando))
+          if (temSobre && ex.semSobre && l.rec.sobre && !maisVelha) {
+            gravacoes.push({ id: ex.id, campos: { sobre: l.rec.sobre }, tipo: 'sobre', nome: l.rec.full_name })
+            ex.semSobre = false
             continue
           }
           dup++; continue
         }
-        const { error: upErr } = await supabase.from('candidates').update({ ...camposParaAtualizar(l.rec), respondido_em: l.quando }).eq('id', ex.id)
-        if (upErr) { console.error('Update fail:', l.rec.full_name, upErr.message); err++ }
-        else { atualizados++; ex.resp = l.quando }
+        gravacoes.push({ id: ex.id, campos: { ...camposParaAtualizar(l.rec), respondido_em: l.quando }, tipo: 'atualiza', nome: l.rec.full_name })
+        ex.resp = l.quando
         continue
       }
-      // Novo — um por um: se um falhar, só ele é perdido
-      const { error: insErr } = await supabase.from('candidates').insert(temData && l.quando ? { ...l.rec, respondido_em: l.quando } : l.rec)
-      if (insErr) { console.error('Insert fail:', l.rec.full_name, insErr.message); err++ }
-      else ok++
+      novos.push(temData && l.quando ? { ...l.rec, respondido_em: l.quando } : l.rec)
+    }
+
+    // 5) Grava. Antes era uma gravação de cada vez, esperando a anterior (minutos
+    //    com a planilha inteira). Agora: novos em lotes de 100 e atualizações 8 ao
+    //    mesmo tempo, com o contador na tela (23/11/2026).
+    const total = novos.length + gravacoes.length
+    let feitos = 0
+    const avancar = (n: number) => { feitos += n; setProgresso({ feitos, total }) }
+    if (total) setProgresso({ feitos: 0, total })
+
+    for (let i = 0; i < novos.length; i += 100) {
+      const lote = novos.slice(i, i + 100)
+      const { error: loteErr } = await supabase.from('candidates').insert(lote)
+      if (!loteErr) { ok += lote.length; avancar(lote.length); continue }
+      // Lote recusado: tenta um por um, para só o que tem problema ficar de fora
+      for (const rec of lote) {
+        const { error: insErr } = await supabase.from('candidates').insert(rec)
+        if (insErr) { console.error('Insert fail:', rec.full_name, insErr.message); err++ }
+        else ok++
+        avancar(1)
+      }
+    }
+
+    for (let i = 0; i < gravacoes.length; i += 8) {
+      const grupo = gravacoes.slice(i, i + 8)
+      const res = await Promise.all(grupo.map(g => supabase.from('candidates').update(g.campos).eq('id', g.id)))
+      res.forEach((r, j) => {
+        const g = grupo[j]
+        if (r.error) { console.error('Update fail:', g.nome, r.error.message); err++ }
+        else if (g.tipo === 'sobre') completados++
+        else atualizados++
+      })
+      avancar(grupo.length)
     }
 
     setImporting(false)
@@ -689,13 +739,13 @@ export default function CandidateList() {
             <div className="px-6 py-4 border-t flex items-center justify-between">
               <p className="text-sm text-gray-500">{importRows.length} registros para importar</p>
               <div className="flex gap-3">
-                <button className="btn-secondary" onClick={() => setImportModal(false)}>Cancelar</button>
+                <button className="btn-secondary" disabled={importing} onClick={() => setImportModal(false)}>Cancelar</button>
                 <button
                   className="btn-primary flex items-center gap-2"
                   onClick={handleImport}
                   disabled={importing}
                 >
-                  {importing ? 'Importando...' : <><Check size={14} />Importar</>}
+                  {importing ? (progresso && progresso.total ? `Gravando ${progresso.feitos} de ${progresso.total}...` : 'Conferindo...') : <><Check size={14} />Importar</>}
                 </button>
               </div>
             </div>

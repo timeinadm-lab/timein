@@ -1,5 +1,5 @@
 // Importação de candidatos: data da resposta e "fica só a última resposta". Rodar: npm run testes
-import { lerCarimbo, ultimaRespostaDeCada, camposParaAtualizar, lerVolumeRefeicoes } from './candidatosImport'
+import { lerCarimbo, ultimaRespostaDeCada, camposParaAtualizar, lerVolumeRefeicoes, respostaMaisNova } from './candidatosImport'
 
 let falhas = 0
 const ok = (cond: boolean, nome: string, info?: unknown) => {
@@ -47,6 +47,14 @@ ok(lerVolumeRefeicoes('Não possuo experiência ainda').minimo === 0, 'sem exper
 ok(lerVolumeRefeicoes('').minimo === null && lerVolumeRefeicoes('').faixa === null, 'vazio fica vazio')
 ok(lerVolumeRefeicoes(' 200 a 500 ').faixa === '200 a 500', 'guarda a faixa como veio')
 ok(lerVolumeRefeicoes('Até 100').minimo === 0, '"Até 100" não tem piso')
+
+// Mesmo instante em formatos diferentes (banco x planilha) NÃO é "mais nova" (23/11/2026)
+ok(!respostaMaisNova('2026-11-23T11:58:24.000Z', '2026-11-23T11:58:24+00:00'), 'mesma hora em formatos diferentes: já está em dia')
+ok(!respostaMaisNova('2026-11-23T08:58:24-03:00', '2026-11-23T11:58:24+00:00'), 'mesma hora com fuso diferente: já está em dia')
+ok(respostaMaisNova('2026-11-23T12:00:00.000Z', '2026-11-23T11:58:24+00:00'), 'resposta mais nova: atualiza')
+ok(!respostaMaisNova('2026-11-20T12:00:00.000Z', '2026-11-23T11:58:24+00:00'), 'resposta mais velha: não mexe')
+ok(respostaMaisNova('2026-11-23T12:00:00.000Z', null), 'banco sem data: atualiza')
+ok(!respostaMaisNova(null, '2026-11-23T11:58:24+00:00'), 'planilha sem data: não mexe')
 
 console.log(falhas ? `\n${falhas} FALHA(S)` : '\nTodos os testes passaram')
 if (falhas) throw new Error(`${falhas} teste(s) de importação de candidatos falharam`)

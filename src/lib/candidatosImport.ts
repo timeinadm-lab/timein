@@ -90,3 +90,20 @@ export function lerVolumeRefeicoes(v: unknown): { minimo: number | null; faixa: 
   // "Até 100" não tem piso: o mínimo é 0. Nos outros casos vale o menor número.
   return { minimo: /^at[eé]\s/i.test(faixa) ? 0 : Math.min(...numeros), faixa }
 }
+
+/**
+ * A resposta da planilha é MAIS NOVA que a do banco? Compara como data, não
+ * como texto: o banco devolve "2026-11-23T11:58:24+00:00" e a planilha vira
+ * "2026-11-23T11:58:24.000Z" — o mesmo instante, mas como texto o segundo
+ * parecia maior e TODO candidato era regravado a cada importação (1.700
+ * gravações uma a uma; a tela ficava minutos em "Importando...", 23/11/2026).
+ * Sem data no banco: conta como mais nova (completa a data).
+ */
+export function respostaMaisNova(daPlanilha: string | null, doBanco: string | null): boolean {
+  if (!daPlanilha) return false
+  const p = Date.parse(daPlanilha)
+  if (isNaN(p)) return false
+  if (!doBanco) return true
+  const b = Date.parse(doBanco)
+  return isNaN(b) ? true : p > b
+}

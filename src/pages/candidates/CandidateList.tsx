@@ -71,22 +71,45 @@ const FIELD_OPTIONS = [
   { value: 'pipeline_stage', label: 'Estágio Pipeline' },
 ]
 
+// Guarda um valor da tela no aparelho (localStorage), com o valor inicial se não
+// houver nada salvo ou se o armazenamento estiver bloqueado.
+function useLembrado<T>(chave: string, inicial: T): [T, (v: T | ((p: T) => T)) => void] {
+  const nome = 'candidatos-filtro-' + chave
+  const [valor, setValor] = useState<T>(() => {
+    try {
+      const salvo = localStorage.getItem(nome)
+      if (salvo === null) return inicial
+      const lido = JSON.parse(salvo)
+      // Objeto (filtros extras): junta com o vazio, para campo novo não quebrar
+      return (inicial && typeof inicial === 'object' ? { ...inicial, ...lido } : lido) as T
+    } catch { return inicial }
+  })
+  const mudar = (v: T | ((p: T) => T)) => setValor(p => {
+    const novo = typeof v === 'function' ? (v as (p: T) => T)(p) : v
+    try { localStorage.setItem(nome, JSON.stringify(novo)) } catch { /* sem armazenamento */ }
+    return novo
+  })
+  return [valor, mudar]
+}
+
 export default function CandidateList() {
   const navigate = useNavigate()
   const qc = useQueryClient()
-  const [search, setSearch] = useState('')
-  const [filterStage, setFilterStage] = useState('')
-  const [filterState, setFilterState] = useState('')
-  const [filterExperience, setFilterExperience] = useState('')
-  const [filterArea, setFilterArea] = useState('')
-  const [filterTool, setFilterTool] = useState('')
-  const [filterTravel, setFilterTravel] = useState(false)
-  const [filterRelocation, setFilterRelocation] = useState(false)
-  const [fx, setFx] = useState(FILTROS_VAZIOS)
+  // Filtros, busca e página ficam guardados no aparelho até a pessoa tirar
+  // (25/11/2026: "abro um candidato, volto e some tudo, até os filtros").
+  const [search, setSearch] = useLembrado('search', '')
+  const [filterStage, setFilterStage] = useLembrado('stage', '')
+  const [filterState, setFilterState] = useLembrado('uf', '')
+  const [filterExperience, setFilterExperience] = useLembrado('exp', '')
+  const [filterArea, setFilterArea] = useLembrado('area', '')
+  const [filterTool, setFilterTool] = useLembrado('tool', '')
+  const [filterTravel, setFilterTravel] = useLembrado('travel', false)
+  const [filterRelocation, setFilterRelocation] = useLembrado('reloc', false)
+  const [fx, setFx] = useLembrado('fx', FILTROS_VAZIOS)
   const mudarFx = (campo: keyof typeof FILTROS_VAZIOS, valor: string | boolean) => { setFx(p => ({ ...p, [campo]: valor })); setPage(1) }
   const [showFilters, setShowFilters] = useState(false)
-  const [showHired, setShowHired] = useState(false)
-  const [page, setPage] = useState(1)
+  const [showHired, setShowHired] = useLembrado('hired', false)
+  const [page, setPage] = useLembrado('page', 1)
   // Ordem (07/10/2026): "mais recentes" = os últimos que chegaram (respondeu o
   // formulário, foi importado ou cadastrado) primeiro. Guarda a escolha no aparelho.
   const [ordem, setOrdem] = useState<'nome' | 'recentes' | 'antigos'>(() => {
@@ -94,7 +117,6 @@ export default function CandidateList() {
   })
   const mudarOrdem = (o: 'nome' | 'recentes' | 'antigos') => { setOrdem(o); setPage(1); try { localStorage.setItem('candidatos-ordem', o) } catch { /* sem armazenamento */ } }
   const PAGE_SIZE = 24
-  const [totalCount, setTotalCount] = useState(0)
 
   // Cada filtro ligado vira uma etiqueta que dá para tirar com um clique
   const etiquetas: { texto: string; tirar: () => void }[] = [
@@ -116,7 +138,7 @@ export default function CandidateList() {
     filterRelocation && { texto: 'Aceita mudar de cidade', tirar: () => setFilterRelocation(false) },
   ].filter(Boolean) as { texto: string; tirar: () => void }[]
   const hasActiveFilters = etiquetas.length > 0
-  const limparFiltros = () => { setFilterExperience(''); setFilterArea(''); setFilterTool(''); setFilterTravel(false); setFilterRelocation(false); setFx(FILTROS_VAZIOS); setPage(1) }
+  const limparFiltros = () => { setSearch(''); setFilterStage(''); setFilterState(''); setFilterExperience(''); setFilterArea(''); setFilterTool(''); setFilterTravel(false); setFilterRelocation(false); setFx(FILTROS_VAZIOS); setPage(1) }
 
   // Import state
   const [importModal, setImportModal] = useState(false)
@@ -127,7 +149,7 @@ export default function CandidateList() {
   const [progresso, setProgresso] = useState<{ feitos: number; total: number } | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
-  const { data: candidates, isLoading } = useQuery({
+  const { data: resultado, isLoading } = useQuery({
     queryKey: ['candidates', search, filterStage, filterState, filterExperience, filterArea, filterTool, filterTravel, filterRelocation, page, showHired, ordem, fx],
     queryFn: async () => {
       const from = (page - 1) * PAGE_SIZE
@@ -171,10 +193,13 @@ export default function CandidateList() {
       let r = await montar(true)
       if (r.error && /respondido_em/.test(r.error.message)) r = await montar(false)   // sem a migração 086
       if (r.error) throw r.error
-      setTotalCount(r.count ?? 0)
-      return r.data || []
+      // O total vai junto com a lista: guardado fora (useState) zerava ao voltar
+      // de um candidato, porque a lista vinha da memória sem buscar de novo (25/11/2026)
+      return { lista: r.data || [], total: r.count ?? 0 }
     },
   })
+  const candidates = resultado?.lista
+  const totalCount = resultado?.total ?? 0
 
   const deleteCandidate = useMutation({
     mutationFn: async (id: string) => {

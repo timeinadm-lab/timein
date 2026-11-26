@@ -13,6 +13,10 @@
 //
 // Conferir se UM DIA cai dentro do contrato continua sendo
 // `!contract_end_date || dia <= contract_end_date` — não use esta função para isso.
+//
+// O portal é a exceção de acesso: no dia seguinte ao fim a pessoa ainda entra
+// e fecha a folha (podeAcessarPortal). Isso não prolonga o contrato, não muda
+// pagamento e não libera ponto com data posterior ao último dia.
 
 import { hojeISO, precisaContrato } from './utils'
 
@@ -78,4 +82,28 @@ export function pendenciaDeContrato(l: AvisoContrato, hoje?: string): boolean {
 
 export function contaVinculosSemContrato(links: AvisoContrato[], hoje?: string): number {
   return links.filter(l => pendenciaDeContrato(l, hoje)).length
+}
+
+/**
+ * Dias depois do último dia do contrato em que a pessoa ainda entra no portal
+ * e vê a folha, para fechar o ponto. Horário de Brasília (a data `hoje` já
+ * vem de hojeISO / America/Sao_Paulo — não comparar com UTC).
+ */
+export const CARENCIA_ACESSO_PORTAL_DIAS = 1
+
+/**
+ * Ainda pode abrir o portal e ver/fechar a folha deste vínculo na data `hoje`?
+ * O último dia entra, e mais CARENCIA_ACESSO_PORTAL_DIAS depois. Sem data de
+ * fim, segue (ended_at sozinho não esconde a folha — o filtro antigo também
+ * não olhava isso). Não responde se o dia cabe no contrato nem se o vínculo
+ * está encerrado: no dia da carência, vinculoEncerrado já é verdadeiro.
+ */
+export function podeAcessarPortal(l: VinculoFim | null | undefined, hoje?: string): boolean {
+  if (!l) return false
+  const ref = dia(hoje) || hojeISO()
+  const fim = dia(l.contract_end_date)
+  if (!fim) return true
+  const delta = diasAteFim(fim, ref)
+  if (delta == null) return false
+  return delta >= -CARENCIA_ACESSO_PORTAL_DIAS
 }

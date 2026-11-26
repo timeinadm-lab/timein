@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { LogOut, KeyRound, Eye, EyeOff, Clock, Calendar, Plus, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, X, CalendarDays, Trash2, CheckCircle2, Download, MessageCircle, Send, Home, CreditCard, TrendingUp, CheckCheck, AlertTriangle, Hourglass, Pencil, Repeat, Check, FileText, Paperclip, ClipboardCheck } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { formatDate, formatCurrency, getInitials, corDoAvatar, hojeISO, tipoDoVinculo, pagaPorDiaria, ehTemporario, recebeMensal, salarioConsultoria } from '../../lib/utils'
+import { podeAcessarPortal } from '../../lib/vinculo'
 import { format, getDaysInMonth, startOfMonth, endOfMonth } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import toast from 'react-hot-toast'
@@ -165,8 +166,8 @@ export default function PortalHome() {
     enabled: !!token,
   })
   // Vínculo que vale no dia: começou e não terminou. Desvinculou/encerrou =
-  // contract_end_date no último dia. Depois disso o cliente some do portal
-  // (agenda e avisos inclusive); o histórico fica só no sistema do RH.
+  // contract_end_date no último dia. Agenda e avisos de depois disso somem.
+  // A folha é a exceção: fica mais um dia (podeAcessarPortal) para fechar o ponto.
   const vinculoValeNoDia = (clientId: string | null | undefined, dia: string) =>
     !!clientId && (links || []).some((l: { client_id?: string; client?: { id: string }; start_date?: string | null; contract_end_date?: string | null }) =>
       (l.client_id || l.client?.id) === clientId
@@ -323,6 +324,11 @@ export default function PortalHome() {
       if (!pontoForm.client_id) throw new Error('Selecione o cliente')
       if (!pontoForm.visit_date) throw new Error('Informe a data')
       const link = getLinkForClient(pontoForm.client_id, pontoForm.visit_date)
+      const fimContrato = link?.contract_end_date ? String(link.contract_end_date).slice(0, 10) : ''
+      // A carência só mantém a folha visível no dia seguinte. Ponto com data
+      // depois do último dia continua proibido (o banco recusa do mesmo jeito).
+      if (fimContrato && pontoForm.visit_date > fimContrato)
+        throw new Error('Esse dia é depois do fim do contrato. Dá para registrar até o último dia.')
       const isConsultoria = effectiveType(link) === 'Consultoria'
 
       // Trabalhei / Folga / Faltei vale para Fixo e Consultoria (pedido de 29/09).
@@ -577,19 +583,23 @@ export default function PortalHome() {
   const expReceiptRef = useRef<HTMLInputElement>(null)
   const [pendingExpenseUpload, setPendingExpenseUpload] = useState<string | null>(null)
 
-  // Mesmos vínculos do base (portal_base devolve todas as colunas do vínculo)
-  // Vínculo encerrado sai do portal — vale pra QUALQUER tipo, não só Volante.
-  // Desligar passou a encerrar o vínculo (antes apagava, o que destruía o
-  // histórico de pagamento); sem este filtro a pessoa continuaria vendo e
-  // batendo ponto num cliente de onde já saiu.
+  // Mesmos vínculos do base (portal_base devolve todas as colunas do vínculo).
+  // A folha fica visível no dia seguinte ao fim (carência de 1 dia, horário de
+  // Brasília) para a pessoa fechar o ponto. Registrar um dia DEPOIS do fim
+  // continua barrado em clientesDoDia, no envio do ponto e no banco.
   const _today = hojeISO()
   const folhaLinks = links?.filter((l: Record<string, unknown>) => {
-    const end = (l.contract_end_date as string) || ''
-    if (end && end < _today) return false
+    if (!podeAcessarPortal({ contract_end_date: (l.contract_end_date as string | null | undefined) ?? null }, _today)) return false
     if (!ehTemporario(l)) return true
     const start = (l.start_date as string) || ''
     return !start || start <= _today
   })
+  // Em vigor = último dia inclusive. A carência não entra: não dá para
+  // planejar visita nova num contrato que já acabou.
+  const contratoEmVigor = (l: { contract_end_date?: string | null }) => {
+    const fim = l.contract_end_date ? String(l.contract_end_date).slice(0, 10) : ''
+    return !fim || fim >= _today
+  }
 
   type FolhaLink = { id: string; service_type: string; coverage_type?: string; pay_mode?: string; is_temporary?: boolean; start_date?: string; contract_end_date?: string; monthly_amount?: number; work_schedule?: string; work_schedule_type?: string; daily_hours?: number; work_start?: string | null; work_end?: string | null; break_minutes?: number | null; days_off?: number[]; schedule_anchor_date?: string; weekly_hours_quota?: number; monthly_hours_quota?: number; visits_per_week?: number; link_units?: { unit_id: string; unit_name: string; visit_rate?: number }[]; client?: { id: string; name: string } }
 
@@ -1719,7 +1729,7 @@ export default function PortalHome() {
             : i.tipo === 'falta' ? 'bg-red-500'
             : i.tipo === 'troca' ? 'bg-orange-400'
             : 'bg-sky-500'
-          const podeAgendar = vinculos.some(l => effectiveType(l) === 'Consultoria' && (l as { agenda_mode?: string }).agenda_mode !== 'gestor')
+          const podeAgendar = vinculos.some(l => effectiveType(l) === 'Consultoria' && (l as { agenda_mode?: string }).agenda_mode !== 'gestor' && contratoEmVigor(l))
 
           return (
             <>
@@ -1730,7 +1740,7 @@ export default function PortalHome() {
                 </div>
                 {podeAgendar && (
                   <button className="btn-primary text-sm shrink-0" onClick={() => {
-                    const l = vinculos.find(x => effectiveType(x) === 'Consultoria' && (x as { agenda_mode?: string }).agenda_mode !== 'gestor')
+                    const l = vinculos.find(x => effectiveType(x) === 'Consultoria' && (x as { agenda_mode?: string }).agenda_mode !== 'gestor' && contratoEmVigor(x))
                     if (l?.client) { setAgendaForm({ clientId: l.client.id, clientName: l.client.name }); setAgendaEntry(p => ({ ...p, planned_date: '' })) }
                   }}><Plus size={16} /> Agendar</button>
                 )}
@@ -1908,7 +1918,7 @@ export default function PortalHome() {
                       </div>
                       {podeAgendar && ds >= hojeStr && (
                         <button className="btn-ghost text-sm w-full" onClick={() => {
-                          const l = vinculos.find(x => effectiveType(x) === 'Consultoria' && (x as { agenda_mode?: string }).agenda_mode !== 'gestor')
+                          const l = vinculos.find(x => effectiveType(x) === 'Consultoria' && (x as { agenda_mode?: string }).agenda_mode !== 'gestor' && contratoEmVigor(x))
                           if (l?.client) { setAgendaForm({ clientId: l.client.id, clientName: l.client.name }); setAgendaEntry(p => ({ ...p, planned_date: ds })); setDiaAgenda(null) }
                         }}><Plus size={15} /> Agendar visita neste dia</button>
                       )}
@@ -2009,7 +2019,7 @@ export default function PortalHome() {
                     cliente de onde ela já saiu e cliente de escala fixa, onde
                     planejar visita não existe. */}
                 {(folhaLinks as FolhaLink[] | undefined)?.filter(l =>
-                  effectiveType(l) === 'Consultoria' && (l as { agenda_mode?: string }).agenda_mode !== 'gestor'
+                  effectiveType(l) === 'Consultoria' && (l as { agenda_mode?: string }).agenda_mode !== 'gestor' && contratoEmVigor(l)
                 ).map(l => {
                   const c = (l as { client?: { id: string; name: string } }).client
                   if (!c) return null

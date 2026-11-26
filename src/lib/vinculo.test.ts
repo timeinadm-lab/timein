@@ -1,5 +1,5 @@
 // Regra de vínculo encerrado e a contagem do sino. Rodar: npm run testes
-import { vinculoEncerrado, vinculoAtivo, diasAteFim, contaVinculosSemContrato, pendenciaDeContrato } from './vinculo'
+import { vinculoEncerrado, vinculoAtivo, diasAteFim, contaVinculosSemContrato, pendenciaDeContrato, podeAcessarPortal, CARENCIA_ACESSO_PORTAL_DIAS } from './vinculo'
 import type { AvisoContrato } from './vinculo'
 
 let falhas = 0
@@ -60,6 +60,29 @@ const mistura = [
   base({ employee: { status: 'Desligado' } }),
 ]
 ok(contaVinculosSemContrato(mistura, HOJE) === 2, 'na mistura sobram o ativo sem fim e o que termina hoje')
+
+// Carência do portal: contrato que acaba no dia 11 ainda abre a folha no dia 12
+// e some no dia 13. Encerrado continua sendo a partir do dia seguinte ao fim.
+ok(CARENCIA_ACESSO_PORTAL_DIAS === 1, 'carência do portal é 1 dia')
+const fim11 = { contract_end_date: '2026-11-11' }
+ok(podeAcessarPortal(fim11, '2026-11-10'), 'fim dia 11: acessa no dia 10')
+ok(podeAcessarPortal(fim11, '2026-11-11'), 'fim dia 11: acessa no dia 11')
+ok(podeAcessarPortal(fim11, '2026-11-12'), 'fim dia 11: acessa no dia 12')
+ok(!podeAcessarPortal(fim11, '2026-11-13'), 'fim dia 11: não acessa no dia 13')
+ok(!vinculoEncerrado(fim11, '2026-11-11'), 'fim dia 11: no próprio dia o vínculo não está encerrado')
+ok(vinculoEncerrado(fim11, '2026-11-12'), 'fim dia 11: no dia 12 já está encerrado (a carência não muda isso)')
+ok(vinculoEncerrado(fim11, '2026-11-13'), 'fim dia 11: no dia 13 continua encerrado')
+ok(podeAcessarPortal({ contract_end_date: '2026-11-11T23:00:00Z' }, '2026-11-12'), 'carência ignora a hora e usa só o dia')
+ok(podeAcessarPortal({ contract_end_date: null }, '2026-11-13'), 'sem data de fim: segue no portal')
+ok(podeAcessarPortal({}, '2026-11-13'), 'sem fim e sem registro: segue no portal')
+ok(!podeAcessarPortal(null, '2026-11-11'), 'sem vínculo: não acessa')
+ok(podeAcessarPortal({ contract_end_date: '2026-11-11', ended_at: '2026-11-01T12:00:00Z' }, '2026-11-12'), 'registro antecipado do RH não tira o dia de carência')
+ok(podeAcessarPortal({ ended_at: '2026-11-01T12:00:00Z' }, '2026-11-13'), 'ended_at sem data de fim não esconde a folha')
+ok(podeAcessarPortal({ contract_end_date: '2026-01-31' }, '2026-01-31'), 'fim 31/01: acessa no dia 31')
+ok(podeAcessarPortal({ contract_end_date: '2026-01-31' }, '2026-02-01'), 'fim 31/01: acessa em 01/02')
+ok(!podeAcessarPortal({ contract_end_date: '2026-01-31' }, '2026-02-02'), 'fim 31/01: não acessa em 02/02')
+ok(podeAcessarPortal({ contract_end_date: '2026-12-31' }, '2027-01-01'), 'fim 31/12: acessa em 01/01')
+ok(!podeAcessarPortal({ contract_end_date: '2026-12-31' }, '2027-01-02'), 'fim 31/12: não acessa em 02/01')
 
 console.log(falhas ? `\n${falhas} FALHA(S)` : '\nTodos os testes passaram')
 if (falhas) throw new Error(`${falhas} teste(s) falharam`)

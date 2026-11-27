@@ -3,7 +3,7 @@
 // (só quando o cliente tem logo cadastrada), "Visita do dia …", quadro com
 // cliente / consultor / data / hora, objetivo, anotações com visto e fotos,
 // assinaturas e rodapé com a página.
-import { cpfBR, horarioTexto, itensComConteudo, linhasDeFotos } from './relatorioVisita'
+import { cpfBR, horarioTexto, itensParaPdf, linhasDeFotos } from './relatorioVisita'
 import type { RelatorioVisita } from './relatorioVisita'
 
 export type ImagemPdf = { dataUrl: string; w: number; h: number }
@@ -83,7 +83,7 @@ export async function gerarPdfRelatorioVisita(d: DadosRelatorioPdf): Promise<Blo
 
   // Anotações
   const RECUO = 7
-  for (const item of itensComConteudo(r.itens)) {
+  for (const item of itensParaPdf(r.itens)) {   // juntas por setor (27/11/2026)
     if (item.tipo === 'titulo') {
       garantir(12)
       y += 2

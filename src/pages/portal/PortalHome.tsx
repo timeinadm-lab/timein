@@ -35,6 +35,9 @@ export default function PortalHome() {
   const employeeName = localStorage.getItem('portal_employee_name') || ''
   const token = localStorage.getItem('portal_token')
   const [tab, setTab] = useState<Tab>('home')
+  // Tocar de novo na aba em que já está volta para o começo dela (ex.: sai do
+  // checklist aberto e mostra a lista) — 27/11/2026
+  const [recomecar, setRecomecar] = useState(0)
   const [folhaMonth, setFolhaMonth] = useState(format(new Date(), 'yyyy-MM'))
 
   // Toda comunicação com o banco passa por funções portal_* validadas no servidor.
@@ -64,6 +67,10 @@ export default function PortalHome() {
   }
 
   const [reportFile, setReportFile] = useState<File | null>(null)
+  const [showPontoModal, setShowPontoModal] = useState(false)
+  // Relatório feito no sistema (aba Qualidade) escolhido no lugar de anexar arquivo — 27/11/2026
+  const [reportSistema, setReportSistema] = useState<{ pdf: string; titulo: string } | null>(null)
+  const [escolhendoRelatorio, setEscolhendoRelatorio] = useState(false)
   const reportRef = useRef<HTMLInputElement>(null)
 
   // Agenda state
@@ -131,6 +138,15 @@ export default function PortalHome() {
   // A agenda do portal_base só traz dias de hoje em diante: dia combinado que
   // já passou sem registro sumia. portal_agenda (migração 056) traz o mês
   // inteiro; juntamos as duas. Sem a migração, fica só a de hoje em diante.
+  const { data: relatoriosProntos } = useQuery({
+    queryKey: ['portal-relatorios-ponto'],
+    enabled: !!token && showPontoModal,
+    retry: false,
+    queryFn: async () => {
+      const d = await rpc<{ relatorios: { id: string; titulo: string; data: string; status: string; pdf_url: string | null; client_id: string | null }[] }>('portal_relatorios', { p_token: token })
+      return (d?.relatorios || []).filter(r => r.status === 'finalizado' && r.pdf_url)
+    },
+  })
   const { data: agendaDoMes } = useQuery({
     queryKey: ['portal-agenda-mes', employeeId, agendaMonth],
     queryFn: async () => {
@@ -398,7 +414,7 @@ export default function PortalHome() {
       // Cobertura por diária (antigo freela) também entrega relatório
       const isVolante = link?.service_type === 'Volante' || pagaPorDiaria(link)
       let reportPending = false
-      if (isNormal && (isConsultoria || isVolante) && !reportFile) {
+      if (isNormal && (isConsultoria || isVolante) && !reportFile && !reportSistema) {
         const existing = editingPontoId
           ? (((monthFolha?.visits as { id: string; report_url?: string }[] | undefined) || []).find(v => v.id === editingPontoId))
           : null
@@ -508,6 +524,9 @@ export default function PortalHome() {
       if (atestadoFile && recordId) await enviar(atestadoFile, 'atestados', 'atestado_url', 'atestado')
       if (reportFile && recordId && (isConsultoria || link?.service_type === 'Volante' || pagaPorDiaria(link))) {
         await enviar(reportFile, 'relatorios', 'report_url', 'relatório')
+      } else if (reportSistema && recordId) {
+        try { await rpc('portal_set_visit_file', { p_token: token, p_id: recordId, p_field: 'report_url', p_url: reportSistema.pdf }) }
+        catch { anexosFalhos.push('relatório') }
       }
 
       return { reportPending, anexosFalhos, trocaFalhou }
@@ -529,7 +548,7 @@ export default function PortalHome() {
       setShowPontoModal(false)
       setPontoForm(EMPTY_PONTO)
       setAtestadoFile(null)
-      setReportFile(null)
+      setReportFile(null); setReportSistema(null); setEscolhendoRelatorio(false)
       setEditingPontoId(null)
     },
     onError: (e: Error) => { if (e.message !== CANCELADO) toast.error(e.message) },
@@ -546,7 +565,6 @@ export default function PortalHome() {
     onError: (e: Error) => toast.error(e.message),
   })
 
-  const [showPontoModal, setShowPontoModal] = useState(false)
   const [editingPontoId, setEditingPontoId] = useState<string | null>(null)
   const EMPTY_PONTO = {
     visit_date: hojeISO(),
@@ -915,12 +933,12 @@ export default function PortalHome() {
   const abrirRegistro = (dia: string = hojeISO()) => {
     setEditingPontoId(null)
     setPontoForm({ ...EMPTY_PONTO, visit_date: dia, ...sugestaoDoDia(dia) })
-    setAtestadoFile(null); setReportFile(null)
+    setAtestadoFile(null); setReportFile(null); setReportSistema(null); setEscolhendoRelatorio(false)
     setShowPontoModal(true)
   }
 
   return (
-    <div className="min-h-screen overflow-x-hidden" style={{ paddingBottom: 'calc(5.5rem + env(safe-area-inset-bottom))' }}>
+    <div className="min-h-screen overflow-x-clip" style={{ paddingBottom: 'calc(5.5rem + env(safe-area-inset-bottom))' }}>
       {/* Topo verde da marca com a saudação em serifa (visual aprovado em 23/09) */}
       <div className="bg-primary-900 text-white px-4 pb-5" style={{ paddingTop: 'max(0.875rem, env(safe-area-inset-top))', paddingBottom: tab === 'home' ? undefined : '0.875rem' }}>
         <div className="max-w-lg mx-auto">
@@ -978,6 +996,7 @@ export default function PortalHome() {
             <button
               key={key}
               onClick={() => {
+                if (tab === key) setRecomecar(n => n + 1)
                 setTab(key as Tab)
                 if (key === 'duvidas') markChatSeen()
                 window.scrollTo({ top: 0 })
@@ -1412,7 +1431,7 @@ export default function PortalHome() {
                       is_swap: !!(v as { is_swap?: boolean }).is_swap,
                       swapped_from: (v as { swapped_from?: string }).swapped_from || '',
                     })
-                    setAtestadoFile(null); setReportFile(null); setShowPontoModal(true)
+                    setAtestadoFile(null); setReportFile(null); setReportSistema(null); setEscolhendoRelatorio(false); setShowPontoModal(true)
                   }
                   // Relatório pendente: consultoria sempre; cobertura por diária também
                   const relatorioPendente = (() => {
@@ -1594,7 +1613,7 @@ export default function PortalHome() {
         {/* ─── CHAT (DÚVIDAS) TAB ─── */}
         {/* ─── QUALIDADE (checklists; depois relatórios, rotulagem, ficha técnica) ─── */}
         {tab === 'qualidade' && token && (
-          <PortalQualidade token={token} rpc={rpc} clientes={(() => {
+          <PortalQualidade key={recomecar} token={token} rpc={rpc} clientes={(() => {
             const vistos = new Map<string, string>()
             for (const l of (links || [])) if (l?.client?.id) vistos.set(l.client.id, l.client.name)
             return Array.from(vistos, ([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name))
@@ -1809,7 +1828,7 @@ export default function PortalHome() {
                   setEditingPontoId(null)
                   setPontoForm({ ...EMPTY_PONTO, visit_date: ds, client_id: clientId, unit_id: a?.unit_id || '', unit_name: a?.unit?.name || '',
                     ...horarioDoContrato(clientId, ds), ...(a?.planned_time ? { check_in: a.planned_time.slice(0, 5) } : {}) })
-                  setAtestadoFile(null); setReportFile(null)
+                  setAtestadoFile(null); setReportFile(null); setReportSistema(null); setEscolhendoRelatorio(false)
                   setDiaAgenda(null)
                   setShowPontoModal(true)
                 }
@@ -2194,7 +2213,7 @@ export default function PortalHome() {
         const nomeCliente = clientesDoDia(pontoForm.visit_date).find(c => c.id === pontoForm.client_id)?.name
           || ((links as FolhaLink[] | undefined) || []).find(l => l.client?.id === pontoForm.client_id)?.client?.name || ''
         const agora = () => { const d = new Date(); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` }
-        const fechar = () => { setShowPontoModal(false); setPontoForm(EMPTY_PONTO); setAtestadoFile(null); setReportFile(null); setEditingPontoId(null); setMostrarObs(false) }
+        const fechar = () => { setShowPontoModal(false); setPontoForm(EMPTY_PONTO); setAtestadoFile(null); setReportFile(null); setReportSistema(null); setEscolhendoRelatorio(false); setEditingPontoId(null); setMostrarObs(false) }
         const motivos = pontoForm.day_type === 'feriado'
           ? ['Folga dada pelo cliente', 'Cliente fechado', 'Liberada pelo gestor', 'Outro']
           : ['Atestado médico', 'Doença sem atestado', 'Emergência familiar', 'Licença maternidade/paternidade', 'Licença especial', 'Problema no transporte', 'Outro']
@@ -2446,10 +2465,29 @@ export default function PortalHome() {
 
               {/* Relatório */}
               {modalLink && pedeRelatorio && (
-                <Anexo rotulo={isConsultoria ? 'Relatório da visita' : 'Relatório do dia'}
-                  dica={existente?.report_url ? 'Já anexado' : 'Obrigatório · pode anexar depois'}
-                  alerta={!existente?.report_url && !reportFile}
-                  arquivo={reportFile} onEscolher={() => reportRef.current?.click()} onRemover={() => setReportFile(null)} />
+                <div className="space-y-1.5">
+                  <Anexo rotulo={isConsultoria ? 'Relatório da visita' : 'Relatório do dia'}
+                    dica={existente?.report_url ? 'Já anexado' : 'Obrigatório · pode anexar depois'}
+                    alerta={!existente?.report_url && !reportFile && !reportSistema}
+                    arquivo={reportFile} escolhido={reportSistema ? reportSistema.titulo : null}
+                    onEscolher={() => reportRef.current?.click()} onRemover={() => { setReportFile(null); setReportSistema(null); setEscolhendoRelatorio(false) }}
+                    onSistema={(relatoriosProntos || []).some(r => r.client_id === pontoForm.client_id) ? () => setEscolhendoRelatorio(v => !v) : undefined} />
+                  {/* Relatórios feitos no sistema para este cliente (o do mesmo dia primeiro) */}
+                  {escolhendoRelatorio && !reportFile && !reportSistema && (
+                    <div className="rounded-xl border border-ink-200 bg-white divide-y divide-ink-100 overflow-hidden">
+                      {(relatoriosProntos || []).filter(r => r.client_id === pontoForm.client_id)
+                        .sort((a, b) => Number(b.data === pontoForm.visit_date) - Number(a.data === pontoForm.visit_date) || b.data.localeCompare(a.data))
+                        .slice(0, 8).map(r => (
+                          <button key={r.id} type="button" className="w-full text-left px-3.5 py-2.5 active:bg-ink-50 flex items-center gap-2"
+                            onClick={() => { setReportSistema({ pdf: r.pdf_url!, titulo: r.titulo || `Visita do dia ${formatDate(r.data)}` }); setEscolhendoRelatorio(false) }}>
+                            <FileText size={15} className="text-ink-400 shrink-0" />
+                            <span className="flex-1 min-w-0 text-sm text-ink-800 truncate">{r.titulo || `Visita do dia ${formatDate(r.data)}`}</span>
+                            {r.data === pontoForm.visit_date && <span className="text-[11px] text-primary-700 shrink-0">mesmo dia</span>}
+                          </button>
+                        ))}
+                    </div>
+                  )}
+                </div>
               )}
 
               {/* Observação: só abre quando ela quer */}
@@ -2611,19 +2649,26 @@ function TrocarSenha({ token, onClose }: { token: string; onClose: () => void })
 }
 
 // Linha de anexo (relatório / atestado)
-function Anexo({ rotulo, dica, alerta, arquivo, onEscolher, onRemover }: { rotulo: string; dica: string; alerta?: boolean; arquivo: File | null; onEscolher: () => void; onRemover: () => void }) {
+function Anexo({ rotulo, dica, alerta, arquivo, escolhido, onEscolher, onRemover, onSistema }: {
+  rotulo: string; dica: string; alerta?: boolean; arquivo: File | null; escolhido?: string | null
+  onEscolher: () => void; onRemover: () => void; onSistema?: () => void
+}) {
+  const pronto = !!arquivo || !!escolhido
   return (
     <div className="flex items-center gap-3 rounded-xl bg-white border border-ink-200 px-3.5 py-3">
-      <span className={`shrink-0 w-9 h-9 rounded-full flex items-center justify-center ${arquivo ? 'bg-primary-50 text-primary-700' : 'bg-ink-100 text-ink-500'}`}>
-        {arquivo ? <Check size={16} /> : <Paperclip size={16} />}
+      <span className={`shrink-0 w-9 h-9 rounded-full flex items-center justify-center ${pronto ? 'bg-primary-50 text-primary-700' : 'bg-ink-100 text-ink-500'}`}>
+        {pronto ? <Check size={16} /> : <Paperclip size={16} />}
       </span>
       <div className="min-w-0 flex-1">
         <p className="text-sm text-ink-800">{rotulo}</p>
-        <p className={`text-xs truncate ${arquivo ? 'text-primary-700' : alerta ? 'text-amber-700' : 'text-ink-400'}`}>{arquivo ? arquivo.name : dica}</p>
+        <p className={`text-xs truncate ${pronto ? 'text-primary-700' : alerta ? 'text-amber-700' : 'text-ink-400'}`}>{arquivo ? arquivo.name : escolhido ? `Do sistema: ${escolhido}` : dica}</p>
       </div>
-      {arquivo
+      {pronto
         ? <button type="button" onClick={onRemover} className="text-xs text-ink-500 px-2 py-1">Remover</button>
-        : <button type="button" onClick={onEscolher} className="text-sm font-medium text-primary-700 px-2 py-1">Anexar</button>}
+        : <div className="flex flex-col items-end shrink-0">
+            <button type="button" onClick={onEscolher} className="text-sm font-medium text-primary-700 px-2 py-0.5">Anexar</button>
+            {onSistema && <button type="button" onClick={onSistema} className="text-[11px] text-ink-500 underline px-2">do sistema</button>}
+          </div>}
     </div>
   )
 }

@@ -5,7 +5,9 @@
 // relatorioVisita.test.ts.
 // ============================================================
 
-export type ItemRelatorio = { id: string; tipo: 'nota' | 'titulo'; texto: string; fotos: string[] }
+// setor: opcional (27/11/2026) — "Cozinha", "Estoque"… vira um título cinza que
+// junta as anotações do mesmo setor. 'titulo' é o jeito antigo (relatórios de antes).
+export type ItemRelatorio = { id: string; tipo: 'nota' | 'titulo'; texto: string; fotos: string[]; setor?: string }
 export type Assinaturas = { consultor?: string | null; cliente?: string | null; cliente_nome?: string | null; cliente_doc?: string | null }
 export type RelatorioVisita = {
   id: string
@@ -98,10 +100,49 @@ export function normalizarRelatorio(x: Record<string, unknown>): RelatorioVisita
     itens: itens.map((i, k) => ({
       id: s(i.id) || `item-${k}`, tipo: i.tipo === 'titulo' ? 'titulo' : 'nota', texto: s(i.texto),
       fotos: Array.isArray(i.fotos) ? (i.fotos as unknown[]).map(String) : [],
+      ...(s(i.setor).trim() ? { setor: s(i.setor).trim() } : {}),
     })),
     assinaturas: (x.assinaturas && typeof x.assinaturas === 'object' ? x.assinaturas : {}) as Assinaturas,
     status: x.status === 'finalizado' ? 'finalizado' : 'rascunho', pdf_url: x.pdf_url ? s(x.pdf_url) : null,
     autor_nome: x.autor_nome ? s(x.autor_nome) : null, autor_email: x.autor_email ? s(x.autor_email) : null,
     autor_cargo: x.autor_cargo ? s(x.autor_cargo) : null, autor_cpf: x.autor_cpf ? s(x.autor_cpf) : null,
   }
+}
+
+/** Setores que aparecem como sugestão na anotação (a pessoa pode escrever outro) */
+export const SETORES_SUGERIDOS = ['Recebimento', 'Estoque', 'Câmara fria', 'Pré-preparo', 'Cozinha', 'Distribuição', 'Refeitório', 'Higienização', 'Lixo', 'Documentação']
+
+export type BlocoSetor = { setor: string; itens: ItemRelatorio[] }
+
+/**
+ * Anotações juntas por setor, na ordem em que cada setor apareceu primeiro.
+ * Sem setor: ficam num bloco sem título ("") — no começo, se vierem antes.
+ * Relatório antigo com "título de seção": o título vira o setor das anotações
+ * que vêm logo depois dele (igual ao que aparecia antes).
+ */
+export function agruparPorSetor(itens: ItemRelatorio[]): BlocoSetor[] {
+  const blocos: BlocoSetor[] = []
+  const achar = (setor: string) => {
+    const chave = setor.trim().toLocaleLowerCase('pt-BR')
+    let b = blocos.find(x => x.setor.trim().toLocaleLowerCase('pt-BR') === chave)
+    if (!b) { b = { setor: setor.trim(), itens: [] }; blocos.push(b) }
+    return b
+  }
+  let tituloAntigo = ''
+  for (const it of itens) {
+    if (it.tipo === 'titulo') { tituloAntigo = it.texto.trim(); if (tituloAntigo) achar(tituloAntigo); continue }
+    achar(it.setor?.trim() || tituloAntigo).itens.push(it)
+  }
+  return blocos.filter(b => b.itens.length || b.setor)
+}
+
+/** Para o PDF: os blocos viram título + anotações (título só quando tem setor e anotação) */
+export function itensParaPdf(itens: ItemRelatorio[]): ItemRelatorio[] {
+  const fora: ItemRelatorio[] = []
+  for (const b of agruparPorSetor(itensComConteudo(itens))) {
+    if (!b.itens.length) continue
+    if (b.setor) fora.push({ id: 'setor-' + b.setor, tipo: 'titulo', texto: b.setor, fotos: [] })
+    fora.push(...b.itens)
+  }
+  return fora
 }

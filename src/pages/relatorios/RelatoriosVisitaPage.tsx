@@ -65,10 +65,22 @@ export default function RelatoriosVisitaPage() {
             autor_nome: r.autor_nome || profile?.full_name || null, autor_email: r.autor_email || profile?.email || user?.email || null,
           })
       if (error) throw new Error(error.message)
-      if (r.status === 'finalizado') await supabase.rpc('relatorio_visita_no_ponto', { p_id: r.id })
+      // 27/11/2026: não anexa mais sozinho na visita do ponto; a tela pergunta antes
     },
     apagar: async id => {
       const { error } = await supabase.from('relatorios_visita').delete().eq('id', id)
+      if (error) throw new Error(error.message)
+    },
+    visitaDoDia: async r => {
+      const { data: rel } = await supabase.from('relatorios_visita').select('employee_id').eq('id', r.id).maybeSingle()
+      if (!rel?.employee_id) return null
+      const { data: v } = await supabase.from('nutritionist_visits').select('id, report_url, is_unavailable')
+        .eq('employee_id', rel.employee_id).eq('client_id', r.client_id).eq('visit_date', r.data)
+      const achou = (v || []).find(x => !x.is_unavailable)
+      return achou ? { id: achou.id, temRelatorio: !!achou.report_url } : null
+    },
+    anexarNaVisita: async (visitaId, r) => {
+      const { error } = await supabase.from('nutritionist_visits').update({ report_url: r.pdf_url }).eq('id', visitaId)
       if (error) throw new Error(error.message)
     },
   }), [user?.id, profile?.id, profile?.employee_id]) // eslint-disable-line react-hooks/exhaustive-deps

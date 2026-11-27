@@ -1,5 +1,6 @@
 // Testes do relatório de visita (rodam com: npm run testes)
-import { tituloPadrao, ehTituloPadrao, horarioTexto, cpfBR, faltaParaFinalizar, itensComConteudo, linhasDeFotos, relatorioNovo } from './relatorioVisita'
+import { tituloPadrao, ehTituloPadrao, horarioTexto, cpfBR, faltaParaFinalizar, itensComConteudo, linhasDeFotos, relatorioNovo, agruparPorSetor, itensParaPdf } from './relatorioVisita'
+import type { ItemRelatorio } from './relatorioVisita'
 
 let falhas = 0
 const ok = (cond: boolean, nome: string, extra?: unknown) => {
@@ -50,6 +51,20 @@ ok(linhasDeFotos([], 182).length === 0, 'sem foto: nada')
 console.log('Relatório novo')
 const n = relatorioNovo('id1', '2026-11-20', 'c9')
 ok(n.titulo === 'Visita do dia 20/11/2026' && n.client_id === 'c9' && n.status === 'rascunho', 'começa com data de hoje e o cliente único')
+
+console.log('Setores (27/11/2026)')
+{
+  const n = (id: string, setor?: string, texto = 'x'): ItemRelatorio => ({ id, tipo: 'nota', texto, fotos: [], ...(setor ? { setor } : {}) })
+  const g = agruparPorSetor([n('1', 'Cozinha'), n('2', 'Estoque'), n('3', 'cozinha '), n('4')])
+  ok(g.map(b => b.setor).join('|') === 'Cozinha|Estoque|', 'ordem do primeiro aparecimento, sem diferenciar maiúscula', g.map(b => b.setor))
+  ok(g[0].itens.map(i => i.id).join() === '1,3', 'mesmo setor fica junto')
+  ok(g[2].itens[0].id === '4', 'sem setor: bloco sem título')
+  const antigo = agruparPorSetor([{ id: 't', tipo: 'titulo', texto: 'Câmara fria', fotos: [] }, n('a'), n('b', 'Lixo')])
+  ok(antigo[0].setor === 'Câmara fria' && antigo[0].itens[0].id === 'a', 'título de seção antigo vira setor')
+  const pdf = itensParaPdf([n('1', 'Cozinha'), n('2', 'Cozinha', ''), n('3')])
+  ok(pdf.map(i => i.tipo + ':' + i.texto).join('|') === 'titulo:Cozinha|nota:x|nota:x', 'PDF: título do setor e sem anotação vazia', pdf)
+  ok(itensParaPdf([n('1', 'Estoque', '')]).length === 0, 'setor sem anotação não vira título no PDF')
+}
 
 console.log(falhas ? `\n${falhas} FALHA(S)` : '\nTodos os testes passaram')
 if (falhas) throw new Error(`${falhas} teste(s) do relatório de visita falharam`)

@@ -44,8 +44,11 @@ const corCss = (c: [number, number, number]) => `rgb(${c.join(',')})`
 export default function PortalQualidade({ token, rpc, clientes }: { token: string; rpc: Rpc; clientes: Cliente[] }) {
   const [aberto, setAberto] = useState<string | null>(null)
   const [novo, setNovo] = useState(false)
+  const qcTopo = useQueryClient()
   // Relatório de visita (migração 114, 20/11/2026): feito aqui, não mais no FoodChecker
   const [secao, setSecao] = useState<'checklists' | 'relatorios'>('checklists')
+  // Ata aberta ocupa a tela toda: some o título e as abas (27/11/2026, "não está bem encaixado")
+  const [ataAberta, setAtaAberta] = useState(false)
   const apiRelatorios = useMemo<ApiRelatorios>(() => ({
     carregar: async () => {
       const d = await rpc<{ relatorios: LinhaRelatorio[]; autor: { nome: string; email?: string; cargo?: string; cpf?: string } | null; logos: Record<string, string> }>('portal_relatorios', { p_token: token })
@@ -54,6 +57,17 @@ export default function PortalQualidade({ token, rpc, clientes }: { token: strin
     abrir: async id => normalizarRelatorio(await rpc<Record<string, unknown>>('portal_relatorio', { p_token: token, p_id: id })),
     salvar: async r => { await rpc('portal_relatorio_salvar', { p_token: token, p_dados: r }) },
     apagar: async id => { await rpc('portal_relatorio_apagar', { p_token: token, p_id: id }) },
+    // Visita do ponto no mesmo cliente e dia (27/11/2026: só oferece mandar o PDF se ela existir)
+    visitaDoDia: async r => {
+      const m = await rpc<{ visits: { id: string; client_id: string; visit_date: string; report_url?: string | null; is_unavailable?: boolean }[] }>('portal_month', { p_token: token, p_month: r.data.slice(0, 7) })
+      const v = (m?.visits || []).find(x => x.client_id === r.client_id && x.visit_date === r.data && !x.is_unavailable)
+      return v ? { id: v.id, temRelatorio: !!v.report_url } : null
+    },
+    anexarNaVisita: async (visitaId, r) => {
+      await rpc('portal_set_visit_file', { p_token: token, p_id: visitaId, p_field: 'report_url', p_url: r.pdf_url })
+      qcTopo.invalidateQueries({ queryKey: ['portal-month'] })   // a folha já mostra o relatório
+      qcTopo.invalidateQueries({ queryKey: ['portal-relatorios-ponto'] })
+    },
   }), [token]) // eslint-disable-line react-hooks/exhaustive-deps
   const { data, isLoading, error } = useQuery({
     queryKey: ['portal-qualidade'],
@@ -70,6 +84,8 @@ export default function PortalQualidade({ token, rpc, clientes }: { token: strin
 
   return (
     <div className="space-y-4">
+      {!(secao === 'relatorios' && ataAberta) && (
+        <>
       <div>
         <h2 className="text-2xl font-semibold tracking-tight text-ink-900">Qualidade</h2>
         <p className="text-sm text-ink-500">Checklists e relatórios de visita, direto do celular.</p>
@@ -80,8 +96,10 @@ export default function PortalQualidade({ token, rpc, clientes }: { token: strin
         <button className={`tab ${secao === 'checklists' ? 'tab-on' : ''}`} onClick={() => setSecao('checklists')}><ClipboardCheck size={16} />Checklists</button>
         <button className={`tab ${secao === 'relatorios' ? 'tab-on' : ''}`} onClick={() => setSecao('relatorios')}><FileText size={16} />Relatórios de visita</button>
       </div>
+        </>
+      )}
 
-      {secao === 'relatorios' ? <RelatoriosVisita api={apiRelatorios} clientes={clientes} chave="portal" /> : semMigracao ? (
+      {secao === 'relatorios' ? <RelatoriosVisita api={apiRelatorios} clientes={clientes} chave="portal" aoAbrir={setAtaAberta} /> : semMigracao ? (
         <div className="card p-4 text-sm text-amber-800 bg-amber-50 border-amber-200">Os checklists ainda não foram liberados. Fale com o escritório.</div>
       ) : (
         <>
@@ -250,7 +268,14 @@ function Preencher({ id, token, rpc, voltar }: { id: string; token: string; rpc:
 
   return (
     <div className="space-y-4">
-      <button onClick={sair} className="flex items-center gap-1 text-sm text-ink-600 -ml-1"><ChevronLeft size={18} />Checklists</button>
+      {/* Barra fixa no topo: dá para sair do checklist de qualquer ponto da lista
+          (27/11/2026: "não tenho opção X para sair, tenho que atualizar a página").
+          As respostas já ficam salvas a cada toque. */}
+      <div className="sticky top-0 z-20 -mx-4 px-4 py-2 bg-white/95 backdrop-blur border-b border-ink-100 flex items-center gap-2">
+        <button onClick={sair} className="h-10 pl-1 pr-3 -ml-1 rounded-lg flex items-center gap-1 text-sm font-medium text-ink-700 active:bg-ink-100"><ChevronLeft size={20} />Checklists</button>
+        <p className="flex-1 min-w-0 text-xs text-ink-500 truncate text-right">{aud.cliente || aud.titulo}</p>
+        <button onClick={sair} aria-label="Sair do checklist" title="Sair (o que respondeu fica salvo)" className="w-10 h-10 rounded-lg flex items-center justify-center text-ink-600 active:bg-ink-100"><X size={20} /></button>
+      </div>
 
       <div className="card p-4 space-y-3">
         <div>

@@ -146,3 +146,16 @@ export function itensParaPdf(itens: ItemRelatorio[]): ItemRelatorio[] {
   }
   return fora
 }
+
+/**
+ * Coloca uma anotação nova no fim do setor (título) escolhido — antes do próximo
+ * título. Sem setor (ou setor que não existe mais): vai para o fim da ata.
+ * 27/11/2026: o "+" do título cinza anota direto naquele setor.
+ */
+export function inserirNoSetor(itens: ItemRelatorio[], tituloId: string | null, novo: ItemRelatorio): ItemRelatorio[] {
+  const i = tituloId ? itens.findIndex(x => x.id === tituloId && x.tipo === 'titulo') : -1
+  if (i < 0) return [...itens, novo]
+  let fim = i + 1
+  while (fim < itens.length && itens[fim].tipo !== 'titulo') fim++
+  return [...itens.slice(0, fim), novo, ...itens.slice(fim)]
+}

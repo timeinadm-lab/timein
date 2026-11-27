@@ -1,5 +1,5 @@
 // Testes do relatório de visita (rodam com: npm run testes)
-import { tituloPadrao, ehTituloPadrao, horarioTexto, cpfBR, faltaParaFinalizar, itensComConteudo, linhasDeFotos, relatorioNovo, agruparPorSetor, itensParaPdf } from './relatorioVisita'
+import { tituloPadrao, ehTituloPadrao, horarioTexto, cpfBR, faltaParaFinalizar, itensComConteudo, linhasDeFotos, relatorioNovo, agruparPorSetor, itensParaPdf, inserirNoSetor } from './relatorioVisita'
 import type { ItemRelatorio } from './relatorioVisita'
 
 let falhas = 0
@@ -64,6 +64,12 @@ console.log('Setores (27/11/2026)')
   const pdf = itensParaPdf([n('1', 'Cozinha'), n('2', 'Cozinha', ''), n('3')])
   ok(pdf.map(i => i.tipo + ':' + i.texto).join('|') === 'titulo:Cozinha|nota:x|nota:x', 'PDF: título do setor e sem anotação vazia', pdf)
   ok(itensParaPdf([n('1', 'Estoque', '')]).length === 0, 'setor sem anotação não vira título no PDF')
+  const t = (id: string, texto: string): ItemRelatorio => ({ id, tipo: 'titulo', texto, fotos: [] })
+  const lista = [t('A', 'Cozinha'), n('a1'), t('B', 'Estoque'), n('b1')]
+  ok(inserirNoSetor(lista, 'A', n('novo')).map(i => i.id).join() === 'A,a1,novo,B,b1', '"+" do setor: entra no fim daquele setor')
+  ok(inserirNoSetor(lista, 'B', n('novo')).map(i => i.id).join() === 'A,a1,B,b1,novo', 'último setor: vai para o fim')
+  ok(inserirNoSetor(lista, null, n('novo')).map(i => i.id).join() === 'A,a1,B,b1,novo', 'sem setor: fim da ata')
+  ok(inserirNoSetor([t('A', 'Cozinha'), t('B', 'Estoque')], 'A', n('novo')).map(i => i.id).join() === 'A,novo,B', 'setor vazio recebe a primeira')
 }
 
 console.log(falhas ? `\n${falhas} FALHA(S)` : '\nTodos os testes passaram')

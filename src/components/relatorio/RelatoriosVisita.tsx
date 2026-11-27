@@ -6,7 +6,7 @@ import { supabase } from '../../lib/supabase'
 import { formatDate, hojeISO } from '../../lib/utils'
 import { confirmar } from '../ui/ConfirmDialog'
 import { comprimirImagem, extensaoDoArquivo, comNovaTentativa, miniaturaJpeg } from '../../lib/imagem'
-import { agruparPorSetor, ehTituloPadrao, faltaParaFinalizar, horarioTexto, itensComConteudo, itensParaPdf, relatorioNovo, SETORES_SUGERIDOS, tituloPadrao } from '../../lib/relatorioVisita'
+import { ehTituloPadrao, faltaParaFinalizar, horarioTexto, inserirNoSetor, itensComConteudo, itensParaPdf, relatorioNovo, tituloPadrao } from '../../lib/relatorioVisita'
 import type { ItemRelatorio, LinhaRelatorio, RelatorioVisita } from '../../lib/relatorioVisita'
 import type { ImagemPdf } from '../../lib/relatorioVisitaPdf'
 
@@ -66,7 +66,7 @@ export default function RelatoriosVisita({ api, clientes, chave, aoAbrir }: { ap
   if (error) return <div className="card p-4 text-sm text-red-700 bg-red-50 border-red-200">Não carregou: {(error as Error).message}</div>
 
   if (aberto && data) {
-    return <Ata inicial={aberto.r} novo={aberto.novo} api={api} clientes={clientes} autor={data.autor} logos={data.logos} chave={chave}
+    return <Ata inicial={aberto.r} novo={aberto.novo} api={api} clientes={clientes} autor={data.autor} logos={data.logos} chave={chave} telaCheia={chave === 'portal'}
       voltar={() => { setAberto(null); qc.invalidateQueries({ queryKey: ['relatorios-visita', chave] }) }} />
   }
 
@@ -129,8 +129,8 @@ function Lista({ titulo, linhas, abrir, abrindo }: { titulo: string; linhas: Lin
 // ── A ata, nas três telas dos prints ─────────────────────────────────────────
 type Passo = 'dados' | 'ata' | 'visualizar'
 
-function Ata({ inicial, novo, api, clientes, autor, logos, chave, voltar }: {
-  inicial: RelatorioVisita; novo: boolean; api: ApiRelatorios; clientes: Cliente[]; autor: AutorRelatorio; logos: Record<string, string>; chave: string; voltar: () => void
+function Ata({ inicial, novo, api, clientes, autor, logos, chave, voltar, telaCheia }: {
+  inicial: RelatorioVisita; novo: boolean; api: ApiRelatorios; clientes: Cliente[]; autor: AutorRelatorio; logos: Record<string, string>; chave: string; voltar: () => void; telaCheia?: boolean
 }) {
   const qc = useQueryClient()
   const kNome = `relatorio-nome-${chave}`, kEmail = `relatorio-email-${chave}`, kAss = `relatorio-assinatura-${chave}`
@@ -147,11 +147,20 @@ function Ata({ inicial, novo, api, clientes, autor, logos, chave, voltar }: {
   const [itemAberto, setItemAberto] = useState<ItemRelatorio | null>(null)
   const [assinando, setAssinando] = useState<'consultor' | 'cliente' | null>(null)
   const [jaSalvo, setJaSalvo] = useState(!novo)
-  // A próxima anotação já vem no setor da última (a pessoa anda setor por setor)
-  const [ultimoSetor, setUltimoSetor] = useState('')
+  // "+" abre a escolha Anotação/Setor; o "+" do título cinza anota naquele setor
+  const [escolhendo, setEscolhendo] = useState(false)
+  const [noSetor, setNoSetor] = useState<string | null>(null)
   const previas = useRef(new Map<string, string>()).current
   const nomeCliente = clientes.find(c => c.id === r.client_id)?.name || ''
-  useEffect(() => { window.scrollTo({ top: 0 }) }, [passo])
+  const meioRef = useRef<HTMLDivElement>(null)
+  useEffect(() => { window.scrollTo({ top: 0 }); meioRef.current?.scrollTo({ top: 0 }) }, [passo])
+  // Tela cheia: a página de trás não rola junto (no iPhone ela "escorregava")
+  useEffect(() => {
+    if (!telaCheia) return
+    const antes = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = antes }
+  }, [telaCheia])
 
   const gravar = async (dados: RelatorioVisita, aviso = 'Salvo') => {
     setSalvando(true)
@@ -166,18 +175,20 @@ function Ata({ inicial, novo, api, clientes, autor, logos, chave, voltar }: {
     if (!r.data) { toast.error('Informe a data.'); return }
     if (!r.titulo.trim()) { toast.error('Informe o título.'); return }
     guardar(kNome, (r.autor_nome || '').trim()); guardar(kEmail, (r.autor_email || '').trim())
-    if (await gravar({ ...r, titulo: r.titulo.trim() }, 'Salvo. Agora adicione as anotações no botão +')) setPasso('ata')
+    if (await gravar({ ...r, titulo: r.titulo.trim() }, 'Salvo. Agora use + Adicionar para as anotações')) setPasso('ata')
   }
 
   // 2 ─ Anotações
   const salvarItem = async (it: ItemRelatorio) => {
     const existe = r.itens.some(x => x.id === it.id)
-    const itens = existe ? r.itens.map(x => (x.id === it.id ? it : x)) : [...r.itens, it]
-    if (await gravar({ ...r, itens }, existe ? 'Anotação salva' : 'Anotação adicionada')) setItemAberto(null)
+    const itens = existe ? r.itens.map(x => (x.id === it.id ? it : x)) : inserirNoSetor(r.itens, noSetor, it)
+    const aviso = it.tipo === 'titulo' ? (existe ? 'Setor salvo' : 'Setor adicionado') : (existe ? 'Anotação salva' : 'Anotação adicionada')
+    if (await gravar({ ...r, itens }, aviso)) { setItemAberto(null); setNoSetor(null) }
   }
   const tirarItem = async (id: string) => {
-    if (!(await confirmar({ titulo: 'Tirar esta anotação?', confirmar: 'Tirar', perigo: true }))) return
-    if (await gravar({ ...r, itens: r.itens.filter(x => x.id !== id) }, 'Anotação tirada')) setItemAberto(null)
+    const ehSetor = r.itens.find(x => x.id === id)?.tipo === 'titulo'
+    if (!(await confirmar({ titulo: ehSetor ? 'Tirar este setor?' : 'Tirar esta anotação?', texto: ehSetor ? 'Só o título sai; as anotações dele continuam.' : undefined, confirmar: 'Tirar', perigo: true }))) return
+    if (await gravar({ ...r, itens: r.itens.filter(x => x.id !== id) }, ehSetor ? 'Setor tirado' : 'Anotação tirada')) setItemAberto(null)
   }
 
   // 3 ─ PDF e assinaturas
@@ -256,16 +267,14 @@ function Ata({ inicial, novo, api, clientes, autor, logos, chave, voltar }: {
 
   const fechada = r.status === 'finalizado'
   const nomeConsultor = r.autor_nome || autor.nome
-  // 27/11/2026: o menu ficou só com o que não tem botão na tela
   const itensDoMenu: [string, () => void][] = passo === 'dados'
     ? (jaSalvo ? [['Excluir esta ata', excluir]] : [['Cancelar', voltar]])
     : passo === 'ata'
       ? [['Editar os dados da visita', () => setPasso('dados')], ['Excluir esta ata', excluir]]
       : [[fechada ? 'Corrigir esta ata' : 'Voltar para as anotações', () => { if (fechada) void gravar({ ...r, status: 'rascunho' }, 'Aberta para corrigir').then(ok => ok && setPasso('ata')); else setPasso('ata') }],
          ['Refazer minha assinatura', () => setAssinando('consultor')], ['Excluir esta ata', excluir]]
-  const blocos = agruparPorSetor(r.itens)
-  const setoresUsados = blocos.map(b => b.setor).filter(Boolean)
-  const novaAnotacao = (setor?: string) => setItemAberto({ id: novoId(), tipo: 'nota', texto: '', fotos: [], ...(setor ? { setor } : {}) })
+  const novaAnotacao = (tituloId: string | null) => { setEscolhendo(false); setNoSetor(tituloId); setItemAberto({ id: novoId(), tipo: 'nota', texto: '', fotos: [] }) }
+  const novoSetor = () => { setEscolhendo(false); setNoSetor(null); setItemAberto({ id: novoId(), tipo: 'titulo', texto: '', fotos: [] }) }
   const paraVer = itensParaPdf(r.itens)
 
   // Os 3 passos, sempre visíveis: a pessoa sabe onde está e pula entre eles
@@ -281,7 +290,7 @@ function Ata({ inicial, novo, api, clientes, autor, logos, chave, voltar }: {
         </div>
         {passo === 'ata' && <button onClick={() => setPasso('dados')} className="text-sm font-medium text-primary-700 shrink-0 py-0.5">Editar</button>}
       </div>
-      {r.objetivo.trim() && <p className="text-sm text-ink-700 mt-2 whitespace-pre-wrap break-words">{r.objetivo}</p>}
+      {r.objetivo.trim() && <p className="text-sm text-ink-700 mt-2 whitespace-pre-wrap break-words"><span className="font-medium">Observações gerais: </span>{r.objetivo}</p>}
     </div>
   )
 
@@ -291,183 +300,187 @@ function Ata({ inicial, novo, api, clientes, autor, logos, chave, voltar }: {
     </span>
   )
 
+  // Página "travada" (27/11/2026): no portal a ata ocupa a tela inteira, com o
+  // topo e o rodapé parados e só o meio rolando — nada flutuando.
+  const raiz = telaCheia ? 'fixed inset-0 z-40 bg-ink-50 flex flex-col' : 'max-w-2xl -mx-4 sm:mx-0'
+  const meio = telaCheia ? 'flex-1 min-h-0 overflow-y-auto overscroll-contain' : ''
+
   return (
-    <div className="max-w-2xl -mx-4 sm:mx-0">
-      {/* Barra fixa: voltar, onde estou e o menu */}
-      <div className="sticky top-0 z-20 bg-white/95 backdrop-blur border-b border-ink-100 px-2 sm:px-3 py-1.5 flex items-center gap-1">
-        <button onClick={voltar} className="h-10 pl-1 pr-2 rounded-lg inline-flex items-center gap-0.5 text-sm font-medium text-ink-700 active:bg-ink-100 shrink-0"><ChevronLeft size={20} />Atas</button>
-        <p className="flex-1 min-w-0 text-center text-sm font-semibold text-ink-900 truncate">{nomeCliente || 'Nova ata de visita'}</p>
-        <div className="relative shrink-0">
-          <button onClick={() => setMenu(v => !v)} aria-label="Mais opções" aria-expanded={menu}
-            className="w-10 h-10 rounded-lg inline-flex items-center justify-center text-ink-600 active:bg-ink-100"><MoreVertical size={20} /></button>
-          {menu && (
+    <div className={raiz}>
+      {/* Topo: voltar, cliente, menu e os passos */}
+      <div className={`${telaCheia ? 'shrink-0' : 'sticky top-0 z-20'} bg-white border-b border-ink-200`} style={telaCheia ? { paddingTop: 'env(safe-area-inset-top)' } : undefined}>
+        <div className="max-w-2xl mx-auto px-2 sm:px-3 py-1.5 flex items-center gap-1">
+          <button onClick={voltar} className="h-10 pl-1 pr-2 rounded-lg inline-flex items-center gap-0.5 text-sm font-medium text-ink-700 active:bg-ink-100 shrink-0"><ChevronLeft size={20} />Atas</button>
+          <p className="flex-1 min-w-0 text-center text-sm font-semibold text-ink-900 truncate">{nomeCliente || 'Nova ata de visita'}</p>
+          <div className="relative shrink-0">
+            <button onClick={() => setMenu(v => !v)} aria-label="Mais opções" aria-expanded={menu}
+              className="w-10 h-10 rounded-lg inline-flex items-center justify-center text-ink-600 active:bg-ink-100"><MoreVertical size={20} /></button>
+            {menu && (
+              <>
+                <div className="fixed inset-0 z-20" onClick={() => setMenu(false)} />
+                <div className="absolute right-0 top-full mt-1 z-30 w-60 bg-white rounded-xl shadow-lift border border-ink-200 py-1">
+                  {itensDoMenu.map(([rot, f]) => (
+                    <button key={rot} className={`w-full text-left px-3.5 py-2.5 text-sm hover:bg-ink-50 ${rot.startsWith('Excluir') ? 'text-red-600' : 'text-ink-800'}`}
+                      onClick={() => { setMenu(false); f() }}>{rot}</button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+        <div className="max-w-2xl mx-auto grid grid-cols-3 gap-1.5 px-3 pb-2">
+          {PASSOS.map(([p, rot], i) => {
+            const atual = passo === p
+            const feito = PASSOS.findIndex(x => x[0] === passo) > i
+            return (
+              <button key={p} onClick={() => irPara(p)} className="text-left">
+                <span className={`block h-1 rounded-full ${atual ? 'bg-primary-600' : feito ? 'bg-primary-300' : 'bg-ink-200'}`} />
+                <span className={`block text-[11px] mt-1 ${atual ? 'text-ink-900 font-semibold' : 'text-ink-500'}`}>{i + 1}. {rot}</span>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      <div className={meio} ref={meioRef}>
+        <div className={`max-w-2xl mx-auto px-3 pt-3 space-y-3 ${telaCheia ? 'pb-6' : 'pb-20 md:pb-4'}`}>
+          {/* 1 ─ Dados da visita */}
+          {passo === 'dados' && (
+            <div className="card p-4 space-y-4">
+              {!jaSalvo && (
+                <div>
+                  <label className="rv-rotulo">Cliente <span className="text-red-600">*</span></label>
+                  <select className="rv-campo" value={r.client_id} onChange={e => setR(p => ({ ...p, client_id: e.target.value }))}>
+                    <option value="">Escolha o cliente</option>
+                    {clientes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </div>
+              )}
+              <div className="grid grid-cols-[1.3fr_1fr_1fr] gap-2">
+                <div className="min-w-0">
+                  <label className="rv-rotulo">Data <span className="text-red-600">*</span></label>
+                  <input type="date" className="rv-campo px-2" value={r.data}
+                    onChange={e => setR(p => ({ ...p, data: e.target.value, ...(ehTituloPadrao(p.titulo) && e.target.value ? { titulo: tituloPadrao(e.target.value) } : {}) }))} />
+                </div>
+                <div className="min-w-0">
+                  <label className="rv-rotulo">Entrada</label>
+                  <input type="time" className="rv-campo px-2" value={r.entrada} onChange={e => setR(p => ({ ...p, entrada: e.target.value }))} />
+                </div>
+                <div className="min-w-0">
+                  <label className="rv-rotulo">Saída</label>
+                  <input type="time" className="rv-campo px-2" value={r.saida} onChange={e => setR(p => ({ ...p, saida: e.target.value }))} />
+                </div>
+              </div>
+              <div className="grid grid-cols-[1fr_5rem] gap-2">
+                <div className="min-w-0">
+                  <label className="rv-rotulo">Título <span className="text-red-600">*</span></label>
+                  <input className="rv-campo" value={r.titulo} onChange={e => setR(p => ({ ...p, titulo: e.target.value }))} />
+                </div>
+                <div>
+                  <label className="rv-rotulo">Nota</label>
+                  <input className="rv-campo" inputMode="decimal" value={r.nota} onChange={e => setR(p => ({ ...p, nota: e.target.value }))} />
+                </div>
+              </div>
+              <div>
+                <label className="rv-rotulo">Observações gerais / objetivo</label>
+                <textarea className="rv-campo" rows={3} placeholder="Ex.: acompanhamento mensal de boas práticas" value={r.objetivo} onChange={e => setR(p => ({ ...p, objetivo: e.target.value }))} />
+              </div>
+              {/* Quem fez: já vem do cadastro e fica salvo para a próxima visita */}
+              <div className="grid sm:grid-cols-2 gap-2 pt-3 border-t border-ink-100">
+                <div>
+                  <label className="rv-rotulo">Consultor(a)</label>
+                  <input className="rv-campo" value={r.autor_nome || ''} onChange={e => setR(p => ({ ...p, autor_nome: e.target.value }))} placeholder="Seu nome completo" />
+                </div>
+                <div>
+                  <label className="rv-rotulo">E-mail</label>
+                  <input type="email" className="rv-campo" value={r.autor_email || ''} onChange={e => setR(p => ({ ...p, autor_email: e.target.value }))} placeholder="seu@email.com" />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 2 ─ Anotações, na ordem; setor = título cinza (27/11/2026) */}
+          {passo === 'ata' && (
             <>
-              <div className="fixed inset-0 z-20" onClick={() => setMenu(false)} />
-              <div className="absolute right-0 top-full mt-1 z-30 w-60 bg-white rounded-xl shadow-lift border border-ink-200 py-1">
-                {itensDoMenu.map(([rot, f]) => (
-                  <button key={rot} className={`w-full text-left px-3.5 py-2.5 text-sm hover:bg-ink-50 ${rot.startsWith('Excluir') ? 'text-red-600' : 'text-ink-800'}`}
-                    onClick={() => { setMenu(false); f() }}>{rot}</button>
-                ))}
+              {Resumo}
+              {r.itens.length === 0 && (
+                <div className="rounded-xl border border-dashed border-ink-300 p-6 text-center">
+                  <p className="text-sm font-medium text-ink-800">Nenhuma anotação ainda</p>
+                  <p className="text-sm text-ink-500 mt-1">Toque em <b>+ Adicionar</b> e escolha "Anotação" ou "Setor" (o setor vira um título, como "Cozinha").</p>
+                </div>
+              )}
+              {r.itens.length > 0 && (
+                <div className="bg-white rounded-xl border border-ink-200 overflow-hidden divide-y divide-ink-100">
+                  {r.itens.map(it => it.tipo === 'titulo' ? (
+                    <div key={it.id} className="flex items-center bg-ink-100">
+                      <button className="flex-1 min-w-0 text-left px-3 py-2" onClick={() => { setNoSetor(null); setItemAberto(it) }}>
+                        <span className="block text-sm font-semibold text-ink-700 truncate">{it.texto || 'Setor'}</span>
+                      </button>
+                      <button onClick={() => novaAnotacao(it.id)} aria-label={`Nova anotação em ${it.texto}`} className="w-11 h-10 inline-flex items-center justify-center text-ink-600 active:bg-ink-200"><Plus size={18} /></button>
+                    </div>
+                  ) : (
+                    <button key={it.id} className="w-full text-left px-3 py-3 active:bg-ink-50 flex gap-2" onClick={() => { setNoSetor(null); setItemAberto(it) }}>
+                      <span className="flex-1 min-w-0">
+                        <span className="block text-[15px] text-ink-900 whitespace-pre-wrap break-words line-clamp-4">{it.texto || <span className="text-ink-400">Só foto</span>}</span>
+                        {fotosDe(it.fotos)}
+                      </span>
+                      <Pencil size={14} className="text-ink-300 shrink-0 mt-1" />
+                    </button>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+
+          {/* 3 ─ Assinar e PDF: o relatório como vai sair */}
+          {passo === 'visualizar' && (
+            <>
+              {fechada && (
+                <div className="rounded-xl bg-primary-50 border border-primary-200 px-3.5 py-2.5 text-sm text-primary-800">
+                  Ata finalizada. Para mudar algo, use "Corrigir esta ata" no menu.
+                </div>
+              )}
+              {Resumo}
+              {paraVer.length > 0 && (
+                <div className="card overflow-hidden">
+                  {paraVer.map(it => it.tipo === 'titulo'
+                    ? <p key={it.id} className="px-4 py-1.5 bg-ink-100 text-sm font-semibold text-ink-700">{it.texto}</p>
+                    : (
+                      <div key={it.id} className="px-4 py-3">
+                        {it.texto && <p className="text-[15px] text-ink-900 whitespace-pre-wrap break-words">{it.texto}</p>}
+                        {fotosDe(it.fotos, true)}
+                      </div>
+                    ))}
+                </div>
+              )}
+              <div className="card p-4">
+                <p className="text-xs font-medium text-ink-500 mb-3">Assinaturas</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <button onClick={minhaAssinatura} disabled={salvando} className="text-left min-w-0">
+                    <span className={`h-20 rounded-lg border flex items-center justify-center overflow-hidden ${r.assinaturas.consultor ? 'border-ink-200 bg-white' : 'border-dashed border-ink-300 bg-ink-50 text-ink-500'}`}>
+                      {r.assinaturas.consultor ? <img src={r.assinaturas.consultor} alt="Sua assinatura" className="max-h-20 w-full object-contain" /> : <span className="text-xs inline-flex items-center gap-1"><Pencil size={13} />Minha assinatura</span>}
+                    </span>
+                    <span className="block text-sm text-ink-800 mt-1.5 truncate">{nomeConsultor}</span>
+                    <span className="block text-xs text-ink-500 truncate">{r.autor_cargo || autor.cargo || 'Nutricionista'}</span>
+                  </button>
+                  <button onClick={() => setAssinando('cliente')} disabled={salvando} className="text-left min-w-0">
+                    <span className={`h-20 rounded-lg border flex items-center justify-center overflow-hidden ${r.assinaturas.cliente ? 'border-ink-200 bg-white' : 'border-dashed border-ink-300 bg-ink-50 text-ink-500'}`}>
+                      {r.assinaturas.cliente ? <img src={r.assinaturas.cliente} alt="Assinatura do cliente" className="max-h-20 w-full object-contain" /> : <span className="text-xs inline-flex items-center gap-1"><Pencil size={13} />Assinatura do cliente</span>}
+                    </span>
+                    <span className="block text-sm text-ink-800 mt-1.5 truncate">{r.assinaturas.cliente_nome?.trim() || nomeCliente}</span>
+                    <span className="block text-xs text-ink-500 truncate">{r.assinaturas.cliente_doc ? `CPF ${r.assinaturas.cliente_doc}` : 'Responsável no cliente'}</span>
+                  </button>
+                </div>
               </div>
             </>
           )}
         </div>
       </div>
 
-      {/* Passos */}
-      <div className="grid grid-cols-3 gap-1.5 px-3 pt-3">
-        {PASSOS.map(([p, rot], i) => {
-          const atual = passo === p
-          const feito = PASSOS.findIndex(x => x[0] === passo) > i
-          return (
-            <button key={p} onClick={() => irPara(p)} className="text-left">
-              <span className={`block h-1 rounded-full ${atual ? 'bg-primary-600' : feito ? 'bg-primary-300' : 'bg-ink-200'}`} />
-              <span className={`block text-[11px] mt-1 ${atual ? 'text-ink-900 font-semibold' : 'text-ink-500'}`}>{i + 1}. {rot}</span>
-            </button>
-          )
-        })}
-      </div>
-
-      <div className="px-3 pt-3 pb-20 md:pb-4 space-y-3">
-        {/* 1 ─ Dados da visita */}
-        {passo === 'dados' && (
-          <div className="card p-4 space-y-4">
-            {!jaSalvo && (
-              <div>
-                <label className="rv-rotulo">Cliente <span className="text-red-600">*</span></label>
-                <select className="rv-campo" value={r.client_id} onChange={e => setR(p => ({ ...p, client_id: e.target.value }))}>
-                  <option value="">Escolha o cliente</option>
-                  {clientes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
-              </div>
-            )}
-            <div className="grid grid-cols-[1.3fr_1fr_1fr] gap-2">
-              <div className="min-w-0">
-                <label className="rv-rotulo">Data <span className="text-red-600">*</span></label>
-                <input type="date" className="rv-campo px-2" value={r.data}
-                  onChange={e => setR(p => ({ ...p, data: e.target.value, ...(ehTituloPadrao(p.titulo) && e.target.value ? { titulo: tituloPadrao(e.target.value) } : {}) }))} />
-              </div>
-              <div className="min-w-0">
-                <label className="rv-rotulo">Entrada</label>
-                <input type="time" className="rv-campo px-2" value={r.entrada} onChange={e => setR(p => ({ ...p, entrada: e.target.value }))} />
-              </div>
-              <div className="min-w-0">
-                <label className="rv-rotulo">Saída</label>
-                <input type="time" className="rv-campo px-2" value={r.saida} onChange={e => setR(p => ({ ...p, saida: e.target.value }))} />
-              </div>
-            </div>
-            <div className="grid grid-cols-[1fr_5rem] gap-2">
-              <div className="min-w-0">
-                <label className="rv-rotulo">Título <span className="text-red-600">*</span></label>
-                <input className="rv-campo" value={r.titulo} onChange={e => setR(p => ({ ...p, titulo: e.target.value }))} />
-              </div>
-              <div>
-                <label className="rv-rotulo">Nota</label>
-                <input className="rv-campo" inputMode="decimal" value={r.nota} onChange={e => setR(p => ({ ...p, nota: e.target.value }))} />
-              </div>
-            </div>
-            <div>
-              <label className="rv-rotulo">Observações gerais / objetivo</label>
-              <textarea className="rv-campo" rows={3} placeholder="Ex.: acompanhamento mensal de boas práticas" value={r.objetivo} onChange={e => setR(p => ({ ...p, objetivo: e.target.value }))} />
-            </div>
-            {/* Quem fez: já vem do cadastro e fica salvo para a próxima visita */}
-            <div className="grid sm:grid-cols-2 gap-2 pt-3 border-t border-ink-100">
-              <div>
-                <label className="rv-rotulo">Consultor(a)</label>
-                <input className="rv-campo" value={r.autor_nome || ''} onChange={e => setR(p => ({ ...p, autor_nome: e.target.value }))} placeholder="Seu nome completo" />
-              </div>
-              <div>
-                <label className="rv-rotulo">E-mail</label>
-                <input type="email" className="rv-campo" value={r.autor_email || ''} onChange={e => setR(p => ({ ...p, autor_email: e.target.value }))} placeholder="seu@email.com" />
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* 2 ─ Anotações, juntas por setor (título cinza — pedido de 27/11/2026) */}
-        {passo === 'ata' && (
-          <>
-            {Resumo}
-            {blocos.length === 0 && (
-              <div className="rounded-xl border border-dashed border-ink-300 p-6 text-center">
-                <p className="text-sm font-medium text-ink-800">Nenhuma anotação ainda</p>
-                <p className="text-sm text-ink-500 mt-1">Toque em "Nova anotação". Dá para escolher o setor (cozinha, estoque…) e tirar as fotos ali mesmo.</p>
-              </div>
-            )}
-            {blocos.map(b => (
-              <div key={b.setor || '_sem'}>
-                {b.setor && (
-                  <div className="flex items-center gap-2 pl-3 pr-1 py-1 bg-ink-100 rounded-t-xl border border-b-0 border-ink-200">
-                    <p className="flex-1 min-w-0 text-sm font-semibold text-ink-700 truncate">{b.setor}</p>
-                    <span className="text-xs text-ink-500 tnum">{b.itens.length}</span>
-                    <button onClick={() => novaAnotacao(b.setor)} aria-label={`Nova anotação em ${b.setor}`} className="w-9 h-9 rounded-lg inline-flex items-center justify-center text-ink-600 active:bg-ink-200"><Plus size={18} /></button>
-                  </div>
-                )}
-                {b.itens.length > 0 && (
-                  <div className={`bg-white border border-ink-200 divide-y divide-ink-100 overflow-hidden ${b.setor ? 'rounded-b-xl' : 'rounded-xl'}`}>
-                    {b.itens.map(it => (
-                      <button key={it.id} className="w-full text-left px-3 py-3 active:bg-ink-50 flex gap-2" onClick={() => setItemAberto(it)}>
-                        <span className="flex-1 min-w-0">
-                          <span className="block text-[15px] text-ink-900 whitespace-pre-wrap break-words line-clamp-4">{it.texto || <span className="text-ink-400">Só foto</span>}</span>
-                          {fotosDe(it.fotos)}
-                        </span>
-                        <Pencil size={14} className="text-ink-300 shrink-0 mt-1" />
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ))}
-          </>
-        )}
-
-        {/* 3 ─ Assinar e PDF: o relatório como vai sair */}
-        {passo === 'visualizar' && (
-          <>
-            {fechada && (
-              <div className="rounded-xl bg-primary-50 border border-primary-200 px-3.5 py-2.5 text-sm text-primary-800">
-                Ata finalizada. Para mudar algo, use "Corrigir esta ata" no menu.
-              </div>
-            )}
-            {Resumo}
-            {paraVer.length > 0 && (
-              <div className="card overflow-hidden">
-                {paraVer.map(it => it.tipo === 'titulo'
-                  ? <p key={it.id} className="px-4 py-1.5 bg-ink-100 text-sm font-semibold text-ink-700">{it.texto}</p>
-                  : (
-                    <div key={it.id} className="px-4 py-3">
-                      <p className="text-[15px] text-ink-900 whitespace-pre-wrap break-words">{it.texto}</p>
-                      {fotosDe(it.fotos, true)}
-                    </div>
-                  ))}
-              </div>
-            )}
-            <div className="card p-4">
-              <p className="text-xs font-medium text-ink-500 mb-3">Assinaturas</p>
-              <div className="grid grid-cols-2 gap-3">
-                <button onClick={minhaAssinatura} disabled={salvando} className="text-left min-w-0">
-                  <span className={`h-20 rounded-lg border flex items-center justify-center overflow-hidden ${r.assinaturas.consultor ? 'border-ink-200 bg-white' : 'border-dashed border-ink-300 bg-ink-50 text-ink-500'}`}>
-                    {r.assinaturas.consultor ? <img src={r.assinaturas.consultor} alt="Sua assinatura" className="max-h-20 w-full object-contain" /> : <span className="text-xs inline-flex items-center gap-1"><Pencil size={13} />Minha assinatura</span>}
-                  </span>
-                  <span className="block text-sm text-ink-800 mt-1.5 truncate">{nomeConsultor}</span>
-                  <span className="block text-xs text-ink-500 truncate">{r.autor_cargo || autor.cargo || 'Nutricionista'}</span>
-                </button>
-                <button onClick={() => setAssinando('cliente')} disabled={salvando} className="text-left min-w-0">
-                  <span className={`h-20 rounded-lg border flex items-center justify-center overflow-hidden ${r.assinaturas.cliente ? 'border-ink-200 bg-white' : 'border-dashed border-ink-300 bg-ink-50 text-ink-500'}`}>
-                    {r.assinaturas.cliente ? <img src={r.assinaturas.cliente} alt="Assinatura do cliente" className="max-h-20 w-full object-contain" /> : <span className="text-xs inline-flex items-center gap-1"><Pencil size={13} />Assinatura do cliente</span>}
-                  </span>
-                  <span className="block text-sm text-ink-800 mt-1.5 truncate">{r.assinaturas.cliente_nome?.trim() || nomeCliente}</span>
-                  <span className="block text-xs text-ink-500 truncate">{r.assinaturas.cliente_doc ? `CPF ${r.assinaturas.cliente_doc}` : 'Responsável no cliente'}</span>
-                </button>
-              </div>
-            </div>
-          </>
-        )}
-      </div>
-
-      {/* Barra de ação embaixo, onde o polegar alcança (acima do menu do portal) */}
-      <div className="sticky z-10 px-3 pb-3 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] md:bottom-0">
-        <div className="bg-white/95 backdrop-blur rounded-2xl border border-ink-200 shadow-lift p-2 flex gap-2">
+      {/* Rodapé parado (não flutua): a ação de cada passo */}
+      <div className={`${telaCheia ? 'shrink-0' : 'sticky z-10 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] md:bottom-0'} bg-white border-t border-ink-200`}
+        style={telaCheia ? { paddingBottom: 'env(safe-area-inset-bottom)' } : undefined}>
+        <div className="max-w-2xl mx-auto px-3 py-2.5 flex gap-2 relative">
           {passo === 'dados' && (
             <button className="btn-primary flex-1 h-12 text-base" disabled={salvando} onClick={salvarDados}>
               {salvando ? 'Salvando…' : jaSalvo ? 'Salvar e voltar às anotações' : 'Salvar e começar as anotações'}
@@ -475,7 +488,23 @@ function Ata({ inicial, novo, api, clientes, autor, logos, chave, voltar }: {
           )}
           {passo === 'ata' && (
             <>
-              <button className="btn-primary flex-1 h-12 text-base" onClick={() => novaAnotacao(ultimoSetor || undefined)}><Plus size={18} />Nova anotação</button>
+              {/* "+": escolhe entre anotação e setor (pedido de 27/11/2026) */}
+              {escolhendo && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setEscolhendo(false)} />
+                  <div className="absolute left-3 right-3 bottom-full mb-2 z-20 bg-white rounded-2xl border border-ink-200 shadow-lift overflow-hidden divide-y divide-ink-100">
+                    <button className="w-full text-left px-4 py-3.5 active:bg-ink-50" onClick={() => novaAnotacao(null)}>
+                      <span className="block text-[15px] font-medium text-ink-900">Anotação</span>
+                      <span className="block text-xs text-ink-500">Texto e fotos do que você viu ou orientou</span>
+                    </button>
+                    <button className="w-full text-left px-4 py-3.5 active:bg-ink-50" onClick={novoSetor}>
+                      <span className="block text-[15px] font-medium text-ink-900">Setor</span>
+                      <span className="block text-xs text-ink-500">Um título cinza, como "Cozinha" ou "Estoque"</span>
+                    </button>
+                  </div>
+                </>
+              )}
+              <button className="btn-primary flex-1 h-12 text-base" onClick={() => setEscolhendo(v => !v)} aria-expanded={escolhendo}><Plus size={18} />Adicionar</button>
               <button className="btn-secondary h-12 px-4" onClick={() => setPasso('visualizar')} title="Revisar, assinar e gerar o PDF">Revisar<ChevronRight size={16} /></button>
             </>
           )}
@@ -493,8 +522,7 @@ function Ata({ inicial, novo, api, clientes, autor, logos, chave, voltar }: {
       </div>
 
       {itemAberto && <JanelaAnotacao item={itemAberto} relId={r.id} previas={previas} salvando={salvando} novo={!r.itens.some(x => x.id === itemAberto.id)}
-        setoresUsados={setoresUsados}
-        salvar={it => { setUltimoSetor(it.setor || ''); void salvarItem(it) }} tirar={() => tirarItem(itemAberto.id)} fechar={() => setItemAberto(null)} />}
+        salvar={it => void salvarItem(it)} tirar={() => tirarItem(itemAberto.id)} fechar={() => setItemAberto(null)} />}
       {assinando && <JanelaAssinatura valor={assinando === 'consultor' ? r.assinaturas.consultor || null : r.assinaturas.cliente || null} salvando={salvando}
         cliente={assinando === 'cliente' ? { nome: r.assinaturas.cliente_nome || '', doc: r.assinaturas.cliente_doc || '' } : null}
         salvar={async (img, quem) => {
@@ -505,20 +533,15 @@ function Ata({ inicial, novo, api, clientes, autor, logos, chave, voltar }: {
   )
 }
 
-// ── Janela da anotação (27/11/2026): setor opcional, texto e fotos ───────────
-function JanelaAnotacao({ item, relId, previas, salvando, novo, setoresUsados, salvar, tirar, fechar }: {
-  item: ItemRelatorio; relId: string; previas: Map<string, string>; salvando: boolean; novo: boolean; setoresUsados: string[]
+// ── Janela da anotação ou do setor: simples, como antes (27/11/2026) ─────────
+function JanelaAnotacao({ item, relId, previas, salvando, novo, salvar, tirar, fechar }: {
+  item: ItemRelatorio; relId: string; previas: Map<string, string>; salvando: boolean; novo: boolean
   salvar: (it: ItemRelatorio) => void; tirar: () => void; fechar: () => void
 }) {
   const [it, setIt] = useState(item)
   const [enviando, setEnviando] = useState(false)
-  const igual = (a: string, b: string) => a.trim().toLocaleLowerCase('pt-BR') === b.trim().toLocaleLowerCase('pt-BR')
-  // Os setores já usados nesta ata primeiro; depois as sugestões
-  const opcoes = [...setoresUsados, ...SETORES_SUGERIDOS.filter(x => !setoresUsados.some(u => igual(u, x)))]
-  const setorAtual = it.setor || ''
-  const [outro, setOutro] = useState(!!setorAtual && !opcoes.some(x => igual(x, setorAtual)))
   const arquivoRef = useRef<HTMLInputElement>(null)
-  const escolherSetor = (x: string) => { setOutro(false); setIt(p => ({ ...p, setor: p.setor && igual(p.setor, x) ? undefined : x })) }
+  const ehSetor = it.tipo === 'titulo'
 
   const addFotos = async (arquivos: FileList | null) => {
     if (!arquivos?.length) return
@@ -537,58 +560,45 @@ function JanelaAnotacao({ item, relId, previas, salvando, novo, setoresUsados, s
     if (arquivoRef.current) arquivoRef.current.value = ''
   }
   const confirmar_ = () => {
-    if (!it.texto.trim() && !it.fotos.length) { toast.error('Escreva a anotação ou coloque uma foto.'); return }
-    const setor = (it.setor || '').trim()
-    const { setor: _antigo, ...resto } = it // eslint-disable-line @typescript-eslint/no-unused-vars
-    salvar({ ...resto, tipo: 'nota', texto: it.texto.trim(), ...(setor ? { setor } : {}) })
+    if (ehSetor && !it.texto.trim()) { toast.error('Escreva o nome do setor.'); return }
+    if (!ehSetor && !it.texto.trim() && !it.fotos.length) { toast.error('Escreva a anotação ou coloque uma foto.'); return }
+    salvar({ ...it, texto: it.texto.trim() })
   }
 
   return (
     <div className="fixed inset-0 z-50 bg-ink-900/40 flex items-end sm:items-center justify-center sm:p-4">
       <div className="bg-white w-full max-w-lg rounded-t-2xl sm:rounded-2xl shadow-lift max-h-[92vh] flex flex-col">
         <div className="flex items-center justify-between px-4 py-2 border-b border-ink-100">
-          <p className="text-base font-semibold text-ink-900">{novo ? 'Nova anotação' : 'Anotação'}</p>
+          <p className="text-base font-semibold text-ink-900">{ehSetor ? (novo ? 'Novo setor' : 'Setor') : (novo ? 'Nova anotação' : 'Anotação')}</p>
           <button onClick={fechar} aria-label="Fechar" className="w-10 h-10 -mr-2 rounded-lg inline-flex items-center justify-center text-ink-600 active:bg-ink-100"><X size={22} /></button>
         </div>
-        <div className="p-4 space-y-4 overflow-y-auto">
-          <div>
-            <p className="rv-rotulo">Setor <span className="text-ink-400">(opcional)</span></p>
-            <div className="flex gap-1.5 flex-wrap">
-              {opcoes.map(x => {
-                const on = !outro && !!setorAtual && igual(setorAtual, x)
-                return <button key={x} type="button" onClick={() => escolherSetor(x)}
-                  className={`h-8 px-3 rounded-full text-sm border ${on ? 'bg-primary-600 border-primary-600 text-white' : 'bg-white border-ink-200 text-ink-700 active:bg-ink-50'}`}>{x}</button>
-              })}
-              <button type="button" onClick={() => { setOutro(true); setIt(p => ({ ...p, setor: '' })) }}
-                className={`h-8 px-3 rounded-full text-sm border ${outro ? 'bg-ink-800 border-ink-800 text-white' : 'bg-white border-dashed border-ink-300 text-ink-600'}`}>Outro…</button>
-            </div>
-            {outro && <input className="rv-campo mt-2" placeholder="Nome do setor" autoFocus value={it.setor || ''} onChange={e => setIt(p => ({ ...p, setor: e.target.value }))} />}
-          </div>
-          <div>
-            <p className="rv-rotulo">O que você viu ou orientou</p>
-            <textarea className="rv-campo" rows={4} value={it.texto} onChange={e => setIt(p => ({ ...p, texto: e.target.value }))} />
-          </div>
-          <div>
-            <p className="rv-rotulo">Fotos</p>
-            <div className="grid grid-cols-4 gap-2">
-              {it.fotos.map(f => (
-                <div key={f} className="relative aspect-square rounded-lg overflow-hidden bg-ink-100">
-                  <img src={previas.get(f) || urlPublica(f)} alt="Foto da anotação" className="w-full h-full object-cover" />
-                  <button type="button" onClick={() => setIt(p => ({ ...p, fotos: p.fotos.filter(x => x !== f) }))} aria-label="Tirar a foto"
-                    className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/60 text-white flex items-center justify-center"><X size={13} /></button>
+        <div className="p-4 space-y-3 overflow-y-auto">
+          {ehSetor
+            ? <input className="rv-campo font-semibold" placeholder="Ex.: Cozinha" value={it.texto} onChange={e => setIt(p => ({ ...p, texto: e.target.value }))} autoFocus />
+            : <textarea className="rv-campo" rows={5} placeholder="O que você viu ou orientou" value={it.texto} onChange={e => setIt(p => ({ ...p, texto: e.target.value }))} autoFocus={novo} />}
+          {!ehSetor && (
+            <>
+              {it.fotos.length > 0 && (
+                <div className="grid grid-cols-4 gap-2">
+                  {it.fotos.map(f => (
+                    <div key={f} className="relative aspect-square rounded-lg overflow-hidden bg-ink-100">
+                      <img src={previas.get(f) || urlPublica(f)} alt="Foto da anotação" className="w-full h-full object-cover" />
+                      <button type="button" onClick={() => setIt(p => ({ ...p, fotos: p.fotos.filter(x => x !== f) }))} aria-label="Tirar a foto"
+                        className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/60 text-white flex items-center justify-center"><X size={13} /></button>
+                    </div>
+                  ))}
                 </div>
-              ))}
-              <button type="button" disabled={enviando} onClick={() => arquivoRef.current?.click()}
-                className="aspect-square rounded-lg border border-dashed border-ink-300 text-ink-600 flex flex-col items-center justify-center gap-1 text-xs active:bg-ink-50 disabled:opacity-60">
-                <Camera size={20} />{enviando ? 'Enviando…' : 'Adicionar'}
+              )}
+              <input ref={arquivoRef} type="file" accept="image/*" multiple className="hidden" onChange={e => addFotos(e.target.files)} />
+              <button type="button" className="h-10 px-3 rounded-lg border border-ink-300 text-ink-700 inline-flex items-center gap-2 active:bg-ink-50 disabled:opacity-60" disabled={enviando} onClick={() => arquivoRef.current?.click()}>
+                <Camera size={17} />{enviando ? 'Enviando…' : it.fotos.length ? 'Mais fotos' : 'Fotos'}
               </button>
-            </div>
-            <input ref={arquivoRef} type="file" accept="image/*" multiple className="hidden" onChange={e => addFotos(e.target.files)} />
-          </div>
+            </>
+          )}
         </div>
         <div className="flex items-center gap-2 px-4 pt-3 border-t border-ink-100" style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom))' }}>
           {!novo && <button className="h-12 px-4 rounded-xl border border-red-300 text-red-600 active:bg-red-50" onClick={tirar}>Excluir</button>}
-          <button className="btn-primary flex-1 h-12 text-base" disabled={salvando || enviando} onClick={confirmar_}>{salvando ? 'Salvando…' : 'Salvar anotação'}</button>
+          <button className="btn-primary flex-1 h-12 text-base" disabled={salvando || enviando} onClick={confirmar_}>{salvando ? 'Salvando…' : 'Salvar'}</button>
         </div>
       </div>
     </div>

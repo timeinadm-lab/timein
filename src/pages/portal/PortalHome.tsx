@@ -42,7 +42,13 @@ export default function PortalHome() {
 
   // Toda comunicação com o banco passa por funções portal_* validadas no servidor.
   const rpc = async <T,>(fn: string, args: Record<string, unknown>): Promise<T> => {
-    const { data, error } = await supabase.rpc(fn, args)
+    let { data, error } = await supabase.rpc(fn, args)
+    // Sinal do celular caiu no meio ("TypeError: Load failed" no iPhone, "Failed to
+    // fetch" no Android): tenta mais 2 vezes antes de mostrar erro (27/11/2026)
+    for (let t = 1; error && t <= 2 && /load failed|failed to fetch|networkerror|network request failed/i.test(error.message); t++) {
+      await new Promise(r => setTimeout(r, 1200 * t))
+      ;({ data, error } = await supabase.rpc(fn, args))
+    }
     if (error) {
       // Só sai do portal quando a SESSÃO acabou (código 28000). Antes qualquer
       // erro com "invalid" na mensagem derrubava o login — a pessoa entrava e
@@ -53,7 +59,8 @@ export default function PortalHome() {
         toast.error('Sua sessão expirou. Entre de novo.')
         localStorage.removeItem('portal_token'); navigate('/portal')
       } else {
-        toast.error('Erro no portal (' + fn + '): ' + error.message, { id: 'erro-' + fn, duration: 8000 })
+        const semRede = /load failed|failed to fetch|networkerror|network request failed/i.test(error.message)
+        toast.error(semRede ? 'Sem conexão agora. Confira a internet e tente de novo — nada do que já estava salvo se perdeu.' : 'Erro no portal (' + fn + '): ' + error.message, { id: 'erro-' + fn, duration: 8000 })
       }
       throw error
     }

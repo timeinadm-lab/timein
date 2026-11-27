@@ -85,10 +85,11 @@ export async function gerarPdfRelatorioVisita(d: DadosRelatorioPdf): Promise<Blo
   const RECUO = 7
   for (const item of itensParaPdf(r.itens)) {   // juntas por setor (27/11/2026)
     if (item.tipo === 'titulo') {
-      garantir(12)
-      y += 2
-      fonte(10.5, true); doc.text(limpo(item.texto.trim()), L, y)
-      y += 6
+      // Setor: faixa cinza clara, igual à tela (27/11/2026)
+      garantir(14)
+      doc.setFillColor(238, 238, 236); doc.rect(L, y - 1, W, 7.5, 'F')
+      fonte(10, true, [60, 60, 60]); doc.text(limpo(item.texto.trim()), L + 2, y + 4)
+      y += 12
       continue
     }
     const linhas = item.texto.trim() ? (() => { fonte(9.5); return doc.splitTextToSize(limpo(item.texto.trim()), W - RECUO) as string[] })() : []
